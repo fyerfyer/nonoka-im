@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+enum Command {
+  CMD_UNKNOWN = 0;
+  CMD_HEARTBEAT = 1;
+  CMD_AUTH = 2;
+  CMD_PUBLISH = 3;     // client -> server: send message
+  CMD_ACK = 4;         // bi-directional: message ack
+  CMD_PULL = 5;        // client -> server: pull offline messages
+  CMD_NOTIFY = 6;      // server -> client: push notification
+}
+
+message Packet {
+  Command cmd = 1;
+  uint64 seq = 2;
+  bytes payload = 3;
+}

@@ -1,0 +1,35 @@
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: nonoka_postgres_test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: nonoka_im_test
+      TZ: Asia/Shanghai
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nonoka_im_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: nonoka_redis_test
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata_test:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata_test:
+  redisdata_test:

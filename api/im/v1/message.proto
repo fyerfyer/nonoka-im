@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+service MessageService {
+  rpc SendMessage (SendMessageRequest) returns (SendMessageReply) {
+    option (google.api.http) = {
+      post: "/v1/message/send"
+      body: "*"
+    };
+  }
+}
+
+enum MsgType {
+  MSG_TYPE_UNSPECIFIED = 0;
+  MSG_TYPE_TEXT = 1;
+  MSG_TYPE_IMAGE = 2;
+  MSG_TYPE_FILE = 3;
+  MSG_TYPE_VOICE = 4;
+}
+
+// Client-to-server request
+message SendMessageRequest {
+  string topic = 1;
+  MsgType msg_type = 2;
+  bytes content = 3;
+  string client_msg_id = 4;
+}
+
+// ACK
+message SendMessageReply {
+  string client_msg_id = 1;
+  int64 msg_id = 2;
+  int64 timestamp = 3;
+  uint64 topic_seq = 4;
+}
+
+// Push
+message MessagePush {
+  int64 msg_id = 1;
+  string topic = 2;
+  int64 sender_id = 3;
+  int32 msg_type = 4;
+  bytes content = 5;
+  int64 timestamp = 6;
+  uint64 topic_seq = 7;
+}

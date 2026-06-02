@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+service DispatchService {
+	rpc Gateway (GetGatewayRequest) returns (GetGatewayReply) {
+		option (google.api.http) = {
+			get: "/v1/dispatch/gateway"
+		};
+	}
+}
+
+message GetGatewayRequest {}
+
+message GetGatewayReply {
+  string gateway_url = 1;  // e.g. "ws://192.168.1.10:8080/ws"
+}
