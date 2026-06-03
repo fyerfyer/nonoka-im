@@ -34,7 +34,6 @@ type Connection struct {
 
 	closeCh   chan struct{}
 	closeOnce sync.Once
-	closeMu   sync.Mutex
 
 	lastActive time.Time
 
@@ -102,10 +101,7 @@ func (c *Connection) writeLoop() {
 
 	for {
 		select {
-		case packet, ok := <-c.sendCh:
-			if !ok {
-				return
-			}
+		case packet := <-c.sendCh:
 			data, err := proto.Marshal(packet)
 			if err != nil {
 				continue
@@ -120,11 +116,9 @@ func (c *Connection) writeLoop() {
 	}
 }
 
-// Send sends a packet to the client asynchronously.
+// Send sends a packet to the client asynchronously (non-blocking).
+// Returns ErrSendChannelFull if the send buffer is full.
 func (c *Connection) Send(packet *v1.Packet) error {
-	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-
 	if c.State() == ConnStateClosed {
 		return ErrConnectionClosed
 	}
@@ -132,22 +126,40 @@ func (c *Connection) Send(packet *v1.Packet) error {
 	select {
 	case c.sendCh <- packet:
 		return nil
+	case <-c.closeCh:
+		return ErrConnectionClosed
 	default:
 		return ErrSendChannelFull
 	}
 }
 
+// SendWithTimeout sends a packet with a timeout.
+// Use this for critical messages (e.g., ACKs, auth responses) where delivery is important.
+func (c *Connection) SendWithTimeout(packet *v1.Packet, timeout time.Duration) error {
+	if c.State() == ConnStateClosed {
+		return ErrConnectionClosed
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case c.sendCh <- packet:
+		return nil
+	case <-c.closeCh:
+		return ErrConnectionClosed
+	case <-timer.C:
+		return ErrSendChannelFull
+	}
+}
+
 // Close closes the connection and cleans up resources.
+// Safe to call multiple times; only the first call takes effect.
 func (c *Connection) Close() {
 	c.closeOnce.Do(func() {
 		c.state.Store(int32(ConnStateClosed))
-
-		c.closeMu.Lock()
-		close(c.closeCh)
-		close(c.sendCh)
 		c.wsConn.Close()
-		c.closeMu.Unlock()
-
+		close(c.closeCh)
 		if c.onClose != nil {
 			c.onClose(c)
 		}

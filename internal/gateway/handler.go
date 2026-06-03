@@ -23,6 +23,10 @@ type Handler struct {
 	// Heartbeat settings
 	heartbeatInterval time.Duration
 	heartbeatTimeout  time.Duration
+
+	// Send timeout for critical messages (e.g., ACKs, auth responses).
+	// Use non-blocking Send for heartbeats and non-critical traffic.
+	sendTimeout time.Duration
 }
 
 // HeartbeatConfig holds heartbeat-related configuration.
@@ -40,6 +44,7 @@ func NewHandler(manager *Manager, sessionManager *SessionManager, producer Messa
 		jwtSecret:         jwtSecret,
 		heartbeatInterval: hb.Interval,
 		heartbeatTimeout:  hb.Timeout,
+		sendTimeout:       100 * time.Millisecond,
 		log:               log.NewHelper(logger),
 	}
 }
@@ -74,7 +79,7 @@ func (h *Handler) handleHeartbeat(c *Connection, packet *v1.Packet) {
 		}
 	}
 
-	// Echo heartbeat back to client
+	// Echo heartbeat back to client (non-critical, use non-blocking Send).
 	_ = c.Send(&v1.Packet{
 		Cmd: v1.Command_CMD_HEARTBEAT,
 		Seq: packet.Seq,
@@ -151,16 +156,16 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 		}
 	}
 
-	// Send auth success response
+	// Send auth success response (critical: client is waiting).
 	authReply, _ := json.Marshal(map[string]interface{}{
 		"success": true,
 		"user_id": int64(userID),
 	})
-	_ = c.Send(&v1.Packet{
+	_ = c.SendWithTimeout(&v1.Packet{
 		Cmd:     v1.Command_CMD_AUTH,
 		Seq:     packet.Seq,
 		Payload: authReply,
-	})
+	}, h.sendTimeout)
 
 	h.log.Infof("auth success: user_id=%d, conn_id=%s, device_id=%s", int64(userID), c.ConnID(), deviceID)
 }
@@ -190,19 +195,26 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 		return
 	}
 
-	h.log.Infof("publish received: user_id=%d, topic=%s, client_msg_id=%s",
+	// Message size limit (64KB max content to prevent abuse).
+	const maxContentSize = 64 * 1024
+	if len(req.Content) > maxContentSize {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "message too large")
+		return
+	}
+
+	h.log.Debugf("publish received: user_id=%d, topic=%s, client_msg_id=%s",
 		c.UserID(), req.Topic, req.ClientMsgId)
 
 	// Produce to Kafka
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	upstream := &UpstreamMessage{
-		SenderID:    c.UserID(),
+	upstream := &v1.UpstreamMessage{
+		SenderId:    c.UserID(),
 		Topic:       req.Topic,
 		MsgType:     int32(req.MsgType),
 		Content:     req.Content,
-		ClientMsgID: req.ClientMsgId,
+		ClientMsgId: req.ClientMsgId,
 		Timestamp:   time.Now().Unix(),
 	}
 
@@ -213,17 +225,17 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 		return
 	}
 
-	// Send ACK
+	// Send ACK (critical: client is waiting for confirmation).
 	reply, _ := proto.Marshal(&v1.SendMessageReply{
 		ClientMsgId: req.ClientMsgId,
 		Timestamp:   upstream.Timestamp,
 	})
 
-	_ = c.Send(&v1.Packet{
+	_ = c.SendWithTimeout(&v1.Packet{
 		Cmd:     v1.Command_CMD_PUBLISH,
 		Seq:     packet.Seq,
 		Payload: reply,
-	})
+	}, h.sendTimeout)
 }
 
 // handlePull handles offline message pull requests.
@@ -234,7 +246,7 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 		return
 	}
 
-	h.log.Infof("pull request: user_id=%d, conn_id=%s", c.UserID(), c.ConnID())
+	h.log.Debugf("pull request: user_id=%d, conn_id=%s", c.UserID(), c.ConnID())
 	// TODO: Phase 5 - query MongoDB for offline messages
 }
 
@@ -251,11 +263,11 @@ func (h *Handler) sendError(c *Connection, seq uint64, cmd v1.Command, message s
 	payload, _ := json.Marshal(map[string]interface{}{
 		"error": message,
 	})
-	_ = c.Send(&v1.Packet{
+	_ = c.SendWithTimeout(&v1.Packet{
 		Cmd:     cmd,
 		Seq:     seq,
 		Payload: payload,
-	})
+	}, h.sendTimeout)
 }
 
 // OnConnectionClose handles connection cleanup when a connection closes.

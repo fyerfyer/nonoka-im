@@ -49,3 +49,14 @@ message MessagePush {
   int64 timestamp = 6;
   uint64 topic_seq = 7;
 }
+
+// UpstreamMessage is sent from the Gateway to Kafka.
+// MsgWorker consumes these messages to persist and dispatch them.
+message UpstreamMessage {
+  int64 sender_id = 1;
+  string topic = 2;
+  int32 msg_type = 3;
+  bytes content = 4;
+  string client_msg_id = 5;
+  int64 timestamp = 6;
+}

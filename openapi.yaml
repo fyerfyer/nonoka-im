@@ -3,138 +3,138 @@
 
 openapi: 3.0.3
 info:
-  title: ""
-  version: 0.0.1
+    title: ""
+    version: 0.0.1
 paths:
-  /v1/auth/login:
-    post:
-      tags:
-        - AuthService
-      operationId: AuthService_Login
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/api.im.v1.LoginRequest"
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/api.im.v1.LoginReply"
-  /v1/auth/register:
-    post:
-      tags:
-        - AuthService
-      operationId: AuthService_Register
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/api.im.v1.RegisterRequest"
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/api.im.v1.RegisterReply"
-  /v1/dispatch/gateway:
-    get:
-      tags:
-        - DispatchService
-      operationId: DispatchService_Gateway
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/api.im.v1.GetGatewayReply"
-  /v1/message/send:
-    post:
-      tags:
-        - MessageService
-      operationId: MessageService_SendMessage
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/api.im.v1.SendMessageRequest"
-        required: true
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/api.im.v1.SendMessageReply"
+    /v1/auth/login:
+        post:
+            tags:
+                - AuthService
+            operationId: AuthService_Login
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.im.v1.LoginRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.LoginReply'
+    /v1/auth/register:
+        post:
+            tags:
+                - AuthService
+            operationId: AuthService_Register
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.im.v1.RegisterRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.RegisterReply'
+    /v1/dispatch/gateway:
+        get:
+            tags:
+                - DispatchService
+            operationId: DispatchService_Gateway
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.GetGatewayReply'
+    /v1/message/send:
+        post:
+            tags:
+                - MessageService
+            operationId: MessageService_SendMessage
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.im.v1.SendMessageRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.SendMessageReply'
 components:
-  schemas:
-    api.im.v1.GetGatewayReply:
-      type: object
-      properties:
-        gatewayUrl:
-          type: string
-    api.im.v1.LoginReply:
-      type: object
-      properties:
-        userId:
-          type: string
-        token:
-          type: string
-    api.im.v1.LoginRequest:
-      type: object
-      properties:
-        username:
-          type: string
-        password:
-          type: string
-        deviceId:
-          type: string
-          description: Reserved for future use
-    api.im.v1.RegisterReply:
-      type: object
-      properties:
-        userId:
-          type: string
-    api.im.v1.RegisterRequest:
-      type: object
-      properties:
-        username:
-          type: string
-        password:
-          type: string
-    api.im.v1.SendMessageReply:
-      type: object
-      properties:
-        clientMsgId:
-          type: string
-        msgId:
-          type: string
-        timestamp:
-          type: string
-        topicSeq:
-          type: string
-      description: ACK
-    api.im.v1.SendMessageRequest:
-      type: object
-      properties:
-        topic:
-          type: string
-        msgType:
-          type: integer
-          format: enum
-        content:
-          type: string
-          format: bytes
-        clientMsgId:
-          type: string
-      description: Client-to-server request
+    schemas:
+        api.im.v1.GetGatewayReply:
+            type: object
+            properties:
+                gatewayUrl:
+                    type: string
+        api.im.v1.LoginReply:
+            type: object
+            properties:
+                userId:
+                    type: string
+                token:
+                    type: string
+        api.im.v1.LoginRequest:
+            type: object
+            properties:
+                username:
+                    type: string
+                password:
+                    type: string
+                deviceId:
+                    type: string
+                    description: Reserved for future use
+        api.im.v1.RegisterReply:
+            type: object
+            properties:
+                userId:
+                    type: string
+        api.im.v1.RegisterRequest:
+            type: object
+            properties:
+                username:
+                    type: string
+                password:
+                    type: string
+        api.im.v1.SendMessageReply:
+            type: object
+            properties:
+                clientMsgId:
+                    type: string
+                msgId:
+                    type: string
+                timestamp:
+                    type: string
+                topicSeq:
+                    type: string
+            description: ACK
+        api.im.v1.SendMessageRequest:
+            type: object
+            properties:
+                topic:
+                    type: string
+                msgType:
+                    type: integer
+                    format: enum
+                content:
+                    type: string
+                    format: bytes
+                clientMsgId:
+                    type: string
+            description: Client-to-server request
 tags:
-  - name: AuthService
-  - name: DispatchService
-  - name: MessageService
+    - name: AuthService
+    - name: DispatchService
+    - name: MessageService

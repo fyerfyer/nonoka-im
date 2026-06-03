@@ -8,7 +8,6 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/gateway"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -78,13 +77,13 @@ func TestGateway_Kafka_Publish_Basic(t *testing.T) {
 		t.Fatal("expected message in Kafka, got nil")
 	}
 
-	var upstream gateway.UpstreamMessage
-	if err := json.Unmarshal(msg.Value, &upstream); err != nil {
+	var upstream v1.UpstreamMessage
+	if err := proto.Unmarshal(msg.Value, &upstream); err != nil {
 		t.Fatalf("failed to unmarshal upstream message: %v", err)
 	}
 
-	if upstream.ClientMsgID != "kafka-msg-001" {
-		t.Fatalf("expected client_msg_id=kafka-msg-001 in Kafka, got %s", upstream.ClientMsgID)
+	if upstream.ClientMsgId != "kafka-msg-001" {
+		t.Fatalf("expected client_msg_id=kafka-msg-001 in Kafka, got %s", upstream.ClientMsgId)
 	}
 	if upstream.Topic != "p2p_1_2" {
 		t.Fatalf("expected topic=p2p_1_2 in Kafka, got %s", upstream.Topic)
@@ -94,7 +93,7 @@ func TestGateway_Kafka_Publish_Basic(t *testing.T) {
 	}
 
 	t.Logf("kafka message verified: topic=%s, client_msg_id=%s, sender=%d",
-		upstream.Topic, upstream.ClientMsgID, upstream.SenderID)
+		upstream.Topic, upstream.ClientMsgId, upstream.SenderId)
 }
 
 // TestGateway_Kafka_Publish_Content verifies that Kafka message fields
@@ -164,14 +163,14 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 		t.Fatalf("expected client_msg_id header='content-msg-002', got '%s'", headers["client_msg_id"])
 	}
 
-	// Verify JSON payload
-	var upstream gateway.UpstreamMessage
-	if err := json.Unmarshal(msg.Value, &upstream); err != nil {
+	// Verify protobuf payload
+	var upstream v1.UpstreamMessage
+	if err := proto.Unmarshal(msg.Value, &upstream); err != nil {
 		t.Fatalf("failed to unmarshal upstream message: %v", err)
 	}
 
-	if upstream.SenderID != userID {
-		t.Fatalf("expected sender_id=%d, got %d", userID, upstream.SenderID)
+	if upstream.SenderId != userID {
+		t.Fatalf("expected sender_id=%d, got %d", userID, upstream.SenderId)
 	}
 	if upstream.MsgType != int32(v1.MsgType_MSG_TYPE_IMAGE) {
 		t.Fatalf("expected msg_type=%d, got %d", v1.MsgType_MSG_TYPE_IMAGE, upstream.MsgType)
@@ -270,13 +269,13 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 			break
 		}
 
-		var upstream gateway.UpstreamMessage
-		if err := json.Unmarshal(msg.Value, &upstream); err != nil {
+		var upstream v1.UpstreamMessage
+		if err := proto.Unmarshal(msg.Value, &upstream); err != nil {
 			t.Logf("failed to unmarshal message %d: %v", i, err)
 			continue
 		}
 
-		if upstream.Topic == "" || upstream.ClientMsgID == "" {
+		if upstream.Topic == "" || upstream.ClientMsgId == "" {
 			t.Logf("message %d has empty fields", i)
 			continue
 		}
@@ -448,8 +447,8 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	for i := 0; i < len(topics); i++ {
 		msg := consumeKafkaMessage(t, reader, 5*time.Second)
 
-		var upstream gateway.UpstreamMessage
-		if err := json.Unmarshal(msg.Value, &upstream); err != nil {
+		var upstream v1.UpstreamMessage
+		if err := proto.Unmarshal(msg.Value, &upstream); err != nil {
 			t.Fatalf("failed to unmarshal message %d: %v", i, err)
 		}
 

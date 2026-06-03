@@ -2,42 +2,38 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
+	v1 "nonoka-im/api/im/v1"
 	"github.com/segmentio/kafka-go"
+	"google.golang.org/protobuf/proto"
 )
-
-// UpstreamMessage represents a message sent from client to Kafka.
-// MsgWorker consumes these messages to persist and dispatch them.
-type UpstreamMessage struct {
-	SenderID    int64  `json:"sender_id"`
-	Topic       string `json:"topic"`
-	MsgType     int32  `json:"msg_type"`
-	Content     []byte `json:"content"`
-	ClientMsgID string `json:"client_msg_id"`
-	Timestamp   int64  `json:"timestamp"`
-}
 
 // MessageProducer produces upstream messages to Kafka.
 type MessageProducer interface {
-	Produce(ctx context.Context, msg *UpstreamMessage) error
+	Produce(ctx context.Context, msg *v1.UpstreamMessage) error
 	Close() error
+}
+
+// KafkaConfig holds Kafka producer configuration.
+type KafkaConfig struct {
+	Brokers       []string
+	Topic         string
+	BatchSize     int
+	BatchTimeout  time.Duration
+	RequiredAcks  kafka.RequiredAcks
+	Compression   kafka.Compression
+	ReadTimeout   time.Duration
+	WriteTimeout  time.Duration
+	MaxAttempts   int
 }
 
 // KafkaProducer implements MessageProducer using kafka-go.
 type KafkaProducer struct {
 	writer *kafka.Writer
 	log    *log.Helper
-}
-
-// KafkaConfig holds Kafka producer configuration.
-type KafkaConfig struct {
-	Brokers   []string
-	Topic     string
-	BatchSize int
 }
 
 // NewKafkaProducer creates a new Kafka producer.
@@ -48,14 +44,39 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 	if cfg.BatchSize == 0 {
 		cfg.BatchSize = 100
 	}
+	if cfg.BatchTimeout == 0 {
+		cfg.BatchTimeout = 100 * time.Millisecond
+	}
+	if cfg.RequiredAcks == 0 {
+		// RequireAll ensures message is replicated to all ISR members before ack.
+		// This prevents message loss when the leader fails immediately after ack.
+		cfg.RequiredAcks = kafka.RequireAll
+	}
+	if cfg.Compression == 0 {
+		// LZ4 offers a good balance between compression ratio and CPU usage.
+		cfg.Compression = kafka.Lz4
+	}
+	if cfg.ReadTimeout == 0 {
+		cfg.ReadTimeout = 10 * time.Second
+	}
+	if cfg.WriteTimeout == 0 {
+		cfg.WriteTimeout = 10 * time.Second
+	}
+	if cfg.MaxAttempts == 0 {
+		cfg.MaxAttempts = 3
+	}
 
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
 		Topic:        cfg.Topic,
 		BatchSize:    cfg.BatchSize,
-		BatchTimeout: 10 * time.Millisecond,
-		RequiredAcks: kafka.RequireOne,
+		BatchTimeout: cfg.BatchTimeout,
+		RequiredAcks: cfg.RequiredAcks,
+		Compression:  cfg.Compression,
 		Async:        false, // sync for guaranteed delivery in gateway
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		MaxAttempts:  cfg.MaxAttempts,
 	}
 
 	return &KafkaProducer{
@@ -66,18 +87,18 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 
 // Produce sends an upstream message to Kafka.
 // Uses the message's Topic field as the Kafka message key for partition affinity.
-func (p *KafkaProducer) Produce(ctx context.Context, msg *UpstreamMessage) error {
-	value, err := json.Marshal(msg)
+func (p *KafkaProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) error {
+	value, err := proto.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal upstream message: %w", err)
 	}
 
 	kmsg := kafka.Message{
-		Key:   []byte(msg.Topic),
+		Key:   []byte(msg.GetTopic()),
 		Value: value,
 		Headers: []kafka.Header{
-			{Key: "sender_id", Value: []byte(fmt.Sprintf("%d", msg.SenderID))},
-			{Key: "client_msg_id", Value: []byte(msg.ClientMsgID)},
+			{Key: "sender_id", Value: []byte(fmt.Sprintf("%d", msg.GetSenderId()))},
+			{Key: "client_msg_id", Value: []byte(msg.GetClientMsgId())},
 		},
 	}
 
@@ -85,8 +106,8 @@ func (p *KafkaProducer) Produce(ctx context.Context, msg *UpstreamMessage) error
 		return fmt.Errorf("write to kafka: %w", err)
 	}
 
-	p.log.Infof("produced message to kafka: topic=%s sender=%d client_msg_id=%s",
-		msg.Topic, msg.SenderID, msg.ClientMsgID)
+	p.log.Debugf("produced message to kafka: topic=%s sender=%d client_msg_id=%s",
+		msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId())
 	return nil
 }
 
@@ -104,7 +125,7 @@ func NewNoopProducer() *NoopProducer {
 }
 
 // Produce does nothing.
-func (p *NoopProducer) Produce(ctx context.Context, msg *UpstreamMessage) error {
+func (p *NoopProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) error {
 	return nil
 }
 

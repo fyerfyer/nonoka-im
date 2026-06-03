@@ -308,6 +308,92 @@ func (x *MessagePush) GetTopicSeq() uint64 {
 	return 0
 }
 
+// UpstreamMessage is sent from the Gateway to Kafka.
+// MsgWorker consumes these messages to persist and dispatch them.
+type UpstreamMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SenderId      int64                  `protobuf:"varint,1,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
+	MsgType       int32                  `protobuf:"varint,3,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	Content       []byte                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
+	ClientMsgId   string                 `protobuf:"bytes,5,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpstreamMessage) Reset() {
+	*x = UpstreamMessage{}
+	mi := &file_im_v1_message_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpstreamMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpstreamMessage) ProtoMessage() {}
+
+func (x *UpstreamMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpstreamMessage.ProtoReflect.Descriptor instead.
+func (*UpstreamMessage) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *UpstreamMessage) GetSenderId() int64 {
+	if x != nil {
+		return x.SenderId
+	}
+	return 0
+}
+
+func (x *UpstreamMessage) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *UpstreamMessage) GetMsgType() int32 {
+	if x != nil {
+		return x.MsgType
+	}
+	return 0
+}
+
+func (x *UpstreamMessage) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *UpstreamMessage) GetClientMsgId() string {
+	if x != nil {
+		return x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *UpstreamMessage) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
 var File_im_v1_message_proto protoreflect.FileDescriptor
 
 const file_im_v1_message_proto_rawDesc = "" +
@@ -330,7 +416,14 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\bmsg_type\x18\x04 \x01(\x05R\amsgType\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\fR\acontent\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
-	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq*q\n" +
+	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\"\xbb\x01\n" +
+	"\x0fUpstreamMessage\x12\x1b\n" +
+	"\tsender_id\x18\x01 \x01(\x03R\bsenderId\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x19\n" +
+	"\bmsg_type\x18\x03 \x01(\x05R\amsgType\x12\x18\n" +
+	"\acontent\x18\x04 \x01(\fR\acontent\x12\"\n" +
+	"\rclient_msg_id\x18\x05 \x01(\tR\vclientMsgId\x12\x1c\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp*q\n" +
 	"\aMsgType\x12\x18\n" +
 	"\x14MSG_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMSG_TYPE_TEXT\x10\x01\x12\x12\n" +
@@ -353,12 +446,13 @@ func file_im_v1_message_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_message_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_im_v1_message_proto_goTypes = []any{
 	(MsgType)(0),               // 0: api.im.v1.MsgType
 	(*SendMessageRequest)(nil), // 1: api.im.v1.SendMessageRequest
 	(*SendMessageReply)(nil),   // 2: api.im.v1.SendMessageReply
 	(*MessagePush)(nil),        // 3: api.im.v1.MessagePush
+	(*UpstreamMessage)(nil),    // 4: api.im.v1.UpstreamMessage
 }
 var file_im_v1_message_proto_depIdxs = []int32{
 	0, // 0: api.im.v1.SendMessageRequest.msg_type:type_name -> api.im.v1.MsgType
@@ -382,7 +476,7 @@ func file_im_v1_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_message_proto_rawDesc), len(file_im_v1_message_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

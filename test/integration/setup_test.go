@@ -375,10 +375,12 @@ func cleanupAndCreateTopic(broker, topic string, partitions int) error {
 // Since the topic is freshly created for each test, it will read all messages
 // produced during the test from all partitions.
 func createKafkaReader(broker, topic, groupID string) *kafka.Reader {
+	// Append timestamp to groupID to avoid offset conflicts from previous test runs.
+	uniqueGroupID := groupID + "-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	return kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     []string{broker},
 		Topic:       topic,
-		GroupID:     groupID,
+		GroupID:     uniqueGroupID,
 		MinBytes:    1,
 		MaxBytes:    10e6,
 		StartOffset: kafka.FirstOffset, // Topic is fresh, read all messages from beginning

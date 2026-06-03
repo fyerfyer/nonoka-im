@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"sync"
+	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	v1 "nonoka-im/api/im/v1"
@@ -109,8 +110,12 @@ func (m *Manager) GetAll(userID int64) []*Connection {
 	return result
 }
 
+// broadcastSendTimeout is the timeout for broadcast messages to each device.
+const broadcastSendTimeout = 100 * time.Millisecond
+
 // BroadcastToUser sends a packet to all devices of a user.
 // It deep-copies the payload for each connection to avoid race conditions.
+// Uses a short timeout for each send to avoid blocking on slow devices.
 func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
 	conns := m.GetAll(userID)
 	if len(conns) == 0 {
@@ -130,7 +135,7 @@ func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
 			Seq:     packet.Seq,
 			Payload: payloadCopy,
 		}
-		if err := c.Send(p); err != nil {
+		if err := c.SendWithTimeout(p, broadcastSendTimeout); err != nil {
 			m.log.Warnf("broadcast to conn %s failed: %v", c.ConnID(), err)
 			continue
 		}
