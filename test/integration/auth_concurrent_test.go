@@ -11,7 +11,7 @@ import (
 // TestAuth_Register_Concurrent_DuplicateUsername verifies that concurrent
 // registration attempts with the same username are handled safely.
 func TestAuth_Register_Concurrent_DuplicateUsername(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	const concurrency = 20
@@ -70,7 +70,7 @@ func TestAuth_Register_Concurrent_DuplicateUsername(t *testing.T) {
 // TestAuth_Login_Concurrent_SameUser verifies that concurrent login attempts
 // with valid credentials all succeed and return valid JWT tokens.
 func TestAuth_Login_Concurrent_SameUser(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	// Register user first

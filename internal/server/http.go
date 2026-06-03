@@ -5,6 +5,7 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
+	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/service"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -16,7 +17,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, authConf *conf.Auth, logger log.Logger) *http.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, ws *gateway.WebSocketServer, authConf *conf.Auth, logger log.Logger) *http.Server {
 	var opts = []http.ServerOption{
 		http.Middleware(
 			recovery.Recovery(),
@@ -48,5 +49,11 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	srv := http.NewServer(opts...)
 	v1.RegisterAuthServiceHTTPServer(srv, auth)
 	v1.RegisterDispatchServiceHTTPServer(srv, dispatch)
+
+	// Register WebSocket handler
+	if ws != nil {
+		srv.Handle("/ws", ws)
+	}
+
 	return srv
 }

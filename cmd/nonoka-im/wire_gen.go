@@ -9,11 +9,15 @@ package main
 import (
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/redis/go-redis/v9"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
+	"os"
+	"time"
 )
 
 import (
@@ -33,9 +37,65 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, logg
 	authService := service.NewAuthService(authUsecase)
 	dispatchService := service.NewDispatchService()
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, auth, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, auth, logger)
+	manager := gateway.NewManager(logger)
+	universalClient := provideRedisClient(dataData)
+	string2 := provideNodeID()
+	sessionManager := gateway.NewSessionManager(universalClient, string2)
+	kafkaConfig := provideKafkaConfig()
+	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
+	v := provideJWTSecret(auth)
+	heartbeatConfig := provideHeartbeatConfig()
+	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, v, heartbeatConfig, logger)
+	webSocketServer := gateway.NewWebSocketServer(handler, logger)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, webSocketServer, auth, logger)
 	app := newApp(logger, grpcServer, httpServer)
 	return app, func() {
 		cleanup()
 	}, nil
+}
+
+// wire.go:
+
+// provideKafkaConfig returns Kafka configuration from environment or defaults.
+func provideKafkaConfig() gateway.KafkaConfig {
+	brokers := os.Getenv("KAFKA_BROKERS")
+	if brokers == "" {
+		brokers = "127.0.0.1:9092"
+	}
+	topic := os.Getenv("KAFKA_TOPIC")
+	if topic == "" {
+		topic = "im-messages"
+	}
+	return gateway.KafkaConfig{
+		Brokers:   []string{brokers},
+		Topic:     topic,
+		BatchSize: 100,
+	}
+}
+
+// provideNodeID returns the unique node ID for this gateway instance.
+func provideNodeID() string {
+	nodeID, _ := os.Hostname()
+	if nodeID == "" {
+		nodeID = "gateway-0"
+	}
+	return nodeID
+}
+
+// provideJWTSecret extracts the JWT secret from auth config.
+func provideJWTSecret(c *conf.Auth) []byte {
+	return []byte(c.JwtSecret)
+}
+
+// provideHeartbeatConfig returns default heartbeat configuration.
+func provideHeartbeatConfig() gateway.HeartbeatConfig {
+	return gateway.HeartbeatConfig{
+		Interval: 30 * time.Second,
+		Timeout:  90 * time.Second,
+	}
+}
+
+// provideRedisClient extracts the Redis client from Data.
+func provideRedisClient(d *data.Data) redis.UniversalClient {
+	return d.Redis
 }

@@ -24,7 +24,7 @@ func decodeProtoJSON(t *testing.T, body io.Reader, msg proto.Message) {
 }
 
 func TestAuth_Register_Success(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	resp := httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
@@ -43,7 +43,7 @@ func TestAuth_Register_Success(t *testing.T) {
 }
 
 func TestAuth_Register_DuplicateUsername(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	// First registration should succeed
@@ -73,7 +73,7 @@ func TestAuth_Register_DuplicateUsername(t *testing.T) {
 }
 
 func TestAuth_Register_MissingFields(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	resp := httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
@@ -86,7 +86,7 @@ func TestAuth_Register_MissingFields(t *testing.T) {
 }
 
 func TestAuth_Login_Success(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	// Register first
@@ -118,7 +118,7 @@ func TestAuth_Login_Success(t *testing.T) {
 }
 
 func TestAuth_Login_InvalidPassword(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	// Register
@@ -149,7 +149,7 @@ func TestAuth_Login_InvalidPassword(t *testing.T) {
 }
 
 func TestAuth_Login_NonExistentUser(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	resp := httpPost(t, testBaseURL+"/v1/auth/login", map[string]string{
@@ -170,7 +170,7 @@ func TestAuth_Login_NonExistentUser(t *testing.T) {
 }
 
 func TestDispatch_Gateway_PublicAccess(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, false)
 	defer ts.stop()
 
 	// Dispatch gateway should be publicly accessible without JWT

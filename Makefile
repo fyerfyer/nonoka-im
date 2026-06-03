@@ -44,15 +44,60 @@ api:
 	       --openapi_out=fq_schema_naming=true,default_response=false:. \
 	       $(API_PROTO_FILES)
 
-.PHONY: test
-# run integration tests (start deps, run tests, cleanup)
-test:
+.PHONY: test-deps-up test-deps-down
+# start test dependencies (postgres, redis, kafka)
+test-deps-up:
 	@docker compose -f docker-compose.test.yml up -d
-	@sleep 3
-	@go test -v ./test/integration/... -count=1 -timeout 60s; \
-	TEST_RESULT=$$?; \
-	docker compose -f docker-compose.test.yml down -v; \
-	exit $$TEST_RESULT
+	@echo "Waiting for services to be ready..."
+	@sleep 5
+
+# stop test dependencies
+test-deps-down:
+	@docker compose -f docker-compose.test.yml down -v
+
+.PHONY: test-auth
+# run auth integration tests
+test-auth:
+	@go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s
+
+.PHONY: test-gateway
+# run gateway basic integration tests (no concurrent, no kafka)
+test-gateway:
+	@go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
+
+.PHONY: test-gateway-concurrent
+# run gateway concurrent / stress / reliability tests
+test-gateway-concurrent:
+	@go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
+
+.PHONY: test-kafka
+# run kafka integration tests (requires test-deps-up)
+test-kafka:
+	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 120s
+
+.PHONY: test
+# run all integration tests (start deps, run tests by group, cleanup)
+test: test-deps-up
+	@echo "\n========================================"
+	@echo "=== Running Auth Tests               ==="
+	@echo "========================================"
+	@go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running Gateway Tests            ==="
+	@echo "========================================"
+	@go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running Gateway Concurrent Tests ==="
+	@echo "========================================"
+	@go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running Kafka Tests              ==="
+	@echo "========================================"
+	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== All tests passed!                ==="
+	@echo "========================================"
+	@$(MAKE) test-deps-down
 
 .PHONY: build
 # build
