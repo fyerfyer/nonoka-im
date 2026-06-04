@@ -1,0 +1,143 @@
+package msgworker
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/go-kratos/kratos/v2/log"
+	pb "nonoka-im/api/im/v1"
+	"google.golang.org/protobuf/proto"
+)
+
+// MsgWorker consumes Kafka upstream messages, persists them to MongoDB,
+// generates sequence numbers, and pushes messages to online users via Gateway.
+type MsgWorker struct {
+	consumer   *KafkaConsumer
+	seqGen     *SeqGenerator
+	snowflake  *Snowflake
+	storage    *MessageStorage
+	pusher     *GatewayPusher
+	log        *log.Helper
+}
+
+// MsgWorkerConfig holds all dependencies for MsgWorker.
+type MsgWorkerConfig struct {
+	ConsumerCfg KafkaConsumerConfig
+	Logger      log.Logger
+}
+
+// NewMsgWorker creates a new MsgWorker.
+func NewMsgWorker(
+	consumer *KafkaConsumer,
+	seqGen *SeqGenerator,
+	snowflake *Snowflake,
+	storage *MessageStorage,
+	pusher *GatewayPusher,
+	logger log.Logger,
+) *MsgWorker {
+	return &MsgWorker{
+		consumer:  consumer,
+		seqGen:    seqGen,
+		snowflake: snowflake,
+		storage:   storage,
+		pusher:    pusher,
+		log:       log.NewHelper(logger),
+	}
+}
+
+// Start begins consuming and processing messages.
+func (w *MsgWorker) Start(ctx context.Context) error {
+	w.log.Info("msgworker started")
+	return w.consumer.Start(ctx)
+}
+
+// Stop gracefully stops the worker.
+func (w *MsgWorker) Stop() error {
+	w.log.Info("msgworker stopping")
+	if err := w.consumer.Stop(); err != nil {
+		w.log.Warnf("stop consumer: %v", err)
+	}
+	if w.pusher != nil {
+		if err := w.pusher.Close(); err != nil {
+			w.log.Warnf("close pusher: %v", err)
+		}
+	}
+	return nil
+}
+
+// HandleMessage is the Kafka message handler entry point.
+func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) error {
+	var upstream pb.UpstreamMessage
+	if err := proto.Unmarshal(value, &upstream); err != nil {
+		return fmt.Errorf("unmarshal upstream message: %w", err)
+	}
+
+	w.log.Debugf("handling message: topic=%s sender=%d client_msg_id=%s",
+		upstream.GetTopic(), upstream.GetSenderId(), upstream.GetClientMsgId())
+
+	// Generate global message ID and topic seq
+	msgID := w.snowflake.NextID()
+	topicSeq, err := w.seqGen.NextSeq(ctx, upstream.GetTopic())
+	if err != nil {
+		return fmt.Errorf("generate topic seq: %w", err)
+	}
+
+	// Persist and dispatch based on topic type
+	topicType := ParseTopicType(upstream.GetTopic())
+	var recipientIDs []int64
+	var pushMsg *pb.MessagePush
+
+	switch topicType {
+	case TopicTypeP2P:
+		recipientIDs, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
+		if err != nil {
+			return fmt.Errorf("save p2p message: %w", err)
+		}
+
+	case TopicTypeGroup:
+		if err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq); err != nil {
+			return fmt.Errorf("save group message: %w", err)
+		}
+		// For read扩散, we don't know online group members here.
+		// In production, query member list from PostgreSQL and push to online ones.
+		// For now, we skip pushing group messages in this simplified version.
+		w.log.Debugf("group message persisted (push deferred): topic=%s", upstream.GetTopic())
+
+	case TopicTypeSystem:
+		recipientIDs, err = w.storage.SaveSystemMessage(ctx, &upstream, msgID, topicSeq)
+		if err != nil {
+			return fmt.Errorf("save system message: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("unknown topic type: %s", upstream.GetTopic())
+	}
+
+	// Backup topic seq to MongoDB as a fallback
+	if err := w.storage.BackupTopicSeq(ctx, upstream.GetTopic(), topicSeq); err != nil {
+		w.log.Warnf("backup topic seq failed: %v", err)
+	}
+
+	// Push to online recipients (only for P2P and system messages in this version)
+	if len(recipientIDs) > 0 && w.pusher != nil {
+		pushMsg = &pb.MessagePush{
+			MsgId:     msgID,
+			Topic:     upstream.GetTopic(),
+			SenderId:  upstream.GetSenderId(),
+			MsgType:   upstream.GetMsgType(),
+			Content:   upstream.GetContent(),
+			Timestamp: upstream.GetTimestamp(),
+			TopicSeq:  topicSeq,
+		}
+		_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipientIDs, pushMsg)
+		if err != nil {
+			w.log.Warnf("push to online users failed: %v", err)
+		} else if len(failedIDs) > 0 {
+			w.log.Debugf("offline users: %v", failedIDs)
+		}
+	}
+
+	w.log.Debugf("message processed: msg_id=%d topic=%s seq=%d", msgID, upstream.GetTopic(), topicSeq)
+	return nil
+}
+

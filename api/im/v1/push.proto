@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+import "im/v1/message.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+// PushService is exposed by the Gateway for MsgWorker to push messages to online users.
+service PushService {
+  // PushToUser delivers a message to all online devices of a user.
+  rpc PushToUser (PushToUserRequest) returns (PushToUserReply);
+  // BatchPushToUsers delivers messages to multiple users in one call.
+  rpc BatchPushToUsers (BatchPushToUsersRequest) returns (BatchPushToUsersReply);
+}
+
+// PushToUserRequest is sent by MsgWorker to Gateway.
+message PushToUserRequest {
+  int64 user_id = 1;
+  MessagePush message = 2;
+}
+
+message PushToUserReply {
+  bool success = 1;
+  int32 delivered_count = 2; // number of devices the message was sent to
+}
+
+// BatchPushToUsersRequest pushes a message to multiple users.
+message BatchPushToUsersRequest {
+  repeated int64 user_ids = 1;
+  MessagePush message = 2;
+}
+
+message BatchPushToUsersReply {
+  int32 total_delivered = 1;
+  repeated int64 failed_user_ids = 2;
+}

@@ -30,6 +30,19 @@ services:
       timeout: 3s
       retries: 10
 
+  mongodb-test:
+    image: mongo:7
+    container_name: nonoka_mongodb_test
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodbdata_test:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
   zookeeper-test:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: nonoka_zookeeper_test
@@ -68,3 +81,4 @@ services:
 volumes:
   pgdata_test:
   redisdata_test:
+  mongodbdata_test:

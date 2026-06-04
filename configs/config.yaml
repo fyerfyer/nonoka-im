@@ -13,6 +13,14 @@ data:
     addr: 127.0.0.1:6379
     read_timeout: 0.2s
     write_timeout: 0.2s
+  mongodb:
+    uri: mongodb://127.0.0.1:27017
+    database: nonoka_im
+  kafka:
+    brokers:
+      - 127.0.0.1:9092
+    topic: im-messages
+    consumer_group: msgworker-group
 auth:
   jwt_secret: "change-me-in-production-use-random-string"
   token_ttl: 168h

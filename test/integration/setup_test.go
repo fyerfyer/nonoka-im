@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"testing"
@@ -24,7 +25,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -335,6 +340,25 @@ func registerAndLogin(t *testing.T, username, password string) (token string, us
 
 // ---------- Kafka test helpers ----------
 
+// waitForTopicReady waits until the topic exists and has partitions.
+func waitForTopicReady(broker, topic string) error {
+	for i := 0; i < 50; i++ {
+		conn, err := kafka.Dial("tcp", broker)
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		partitions, err := conn.ReadPartitions(topic)
+		conn.Close()
+		if err != nil || len(partitions) == 0 {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("topic %s did not become ready in time", topic)
+}
+
 // waitForKafka waits for Kafka broker to become available.
 func waitForKafka(broker string) error {
 	for i := 0; i < 50; i++ {
@@ -409,5 +433,137 @@ func consumeKafkaMessageOrNil(reader *kafka.Reader, timeout time.Duration) *kafk
 		return nil
 	}
 	return &msg
+}
+
+// ---------- MsgWorker test helpers ----------
+
+const (
+	testMongoURI = "mongodb://127.0.0.1:27018"
+	testMongoDB  = "nonoka_im_test"
+)
+
+// waitForMongo waits for MongoDB to become available.
+func waitForMongo(uri string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("mongodb did not become ready in time")
+		default:
+		}
+		client, err := mongo.Connect(options.Client().ApplyURI(uri).SetConnectTimeout(2 * time.Second))
+		if err == nil {
+			err = client.Ping(ctx, nil)
+			if err == nil {
+				_ = client.Disconnect(ctx)
+				return nil
+			}
+			_ = client.Disconnect(ctx)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// setupMongoDB connects to the test MongoDB and returns the database.
+func setupMongoDB(t *testing.T) *mongo.Database {
+	if err := waitForMongo(testMongoURI); err != nil {
+		t.Fatalf("mongodb not ready: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI))
+	if err != nil {
+		t.Fatalf("failed to connect to mongodb: %v", err)
+	}
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Fatalf("failed to ping mongodb: %v", err)
+	}
+
+	db := client.Database(testMongoDB)
+
+	// Clean collections for test isolation
+	collections := []string{"messages", "inboxes", "topic_seqs"}
+	for _, coll := range collections {
+		if err := db.Collection(coll).Drop(ctx); err != nil {
+			t.Logf("warning: failed to drop collection %s: %v", coll, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = client.Disconnect(ctx)
+	})
+
+	return db
+}
+
+// setupTestRedis connects to the test Redis and returns the client.
+func setupTestRedis(t *testing.T) redis.UniversalClient {
+	client := redis.NewClient(&redis.Options{
+		Addr: "127.0.0.1:6380",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Fatalf("redis not ready: %v", err)
+	}
+	// Clean im:seq:* keys for test isolation
+	keys, err := client.Keys(ctx, "im:seq:*").Result()
+	if err != nil && err != redis.Nil {
+		t.Logf("warning: failed to list redis seq keys: %v", err)
+	} else if len(keys) > 0 {
+		if err := client.Del(ctx, keys...).Err(); err != nil {
+			t.Logf("warning: failed to clean redis seq keys: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+	return client
+}
+
+// setupGRPCPushServer starts a minimal gRPC server with PushService.
+// Returns the listener address and a cleanup function.
+func setupGRPCPushServer(t *testing.T, manager *gateway.Manager) (string, func()) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := lis.Addr().String()
+
+	pushSvc := service.NewPushService(manager, testLogger)
+	grpcSrv := grpc.NewServer()
+	v1.RegisterPushServiceServer(grpcSrv, pushSvc)
+
+	go func() {
+		if err := grpcSrv.Serve(lis); err != nil {
+			// Expected on stop
+		}
+	}()
+
+	cleanup := func() {
+		grpcSrv.GracefulStop()
+		lis.Close()
+	}
+
+	// Wait briefly for server to be ready
+	time.Sleep(50 * time.Millisecond)
+
+	return addr, cleanup
+}
+
+// countMongoDocs counts documents in a collection matching the filter.
+func countMongoDocs(t *testing.T, coll *mongo.Collection, filter bson.M) int64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	count, err := coll.CountDocuments(ctx, filter)
+	if err != nil {
+		t.Fatalf("failed to count documents: %v", err)
+	}
+	return count
 }
 
