@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/msgworker"
 
 	jwt5 "github.com/golang-jwt/jwt/v5"
 	"google.golang.org/protobuf/proto"
@@ -17,6 +18,7 @@ type Handler struct {
 	manager        *Manager
 	sessionManager *SessionManager
 	producer       MessageProducer
+	storage        *msgworker.MessageStorage
 	jwtSecret      []byte
 	log            *log.Helper
 
@@ -36,11 +38,12 @@ type HeartbeatConfig struct {
 }
 
 // NewHandler creates a new packet handler.
-func NewHandler(manager *Manager, sessionManager *SessionManager, producer MessageProducer, jwtSecret []byte, hb HeartbeatConfig, logger log.Logger) *Handler {
+func NewHandler(manager *Manager, sessionManager *SessionManager, producer MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb HeartbeatConfig, logger log.Logger) *Handler {
 	return &Handler{
 		manager:           manager,
 		sessionManager:    sessionManager,
 		producer:          producer,
+		storage:           storage,
 		jwtSecret:         jwtSecret,
 		heartbeatInterval: hb.Interval,
 		heartbeatTimeout:  hb.Timeout,
@@ -210,12 +213,13 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 	defer cancel()
 
 	upstream := &v1.UpstreamMessage{
-		SenderId:    c.UserID(),
-		Topic:       req.Topic,
-		MsgType:     int32(req.MsgType),
-		Content:     req.Content,
-		ClientMsgId: req.ClientMsgId,
-		Timestamp:   time.Now().Unix(),
+		SenderId:         c.UserID(),
+		Topic:            req.Topic,
+		MsgType:          int32(req.MsgType),
+		Content:          req.Content,
+		ClientMsgId:      req.ClientMsgId,
+		Timestamp:        time.Now().Unix(),
+		MentionedUserIds: req.MentionedUserIds,
 	}
 
 	if err := h.producer.Produce(ctx, upstream); err != nil {
@@ -239,15 +243,130 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 }
 
 // handlePull handles offline message pull requests.
-// TODO: implement in Phase 5.
 func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 	if c.State() != ConnStateAuthed {
 		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "authentication required")
 		return
 	}
 
-	h.log.Debugf("pull request: user_id=%d, conn_id=%s", c.UserID(), c.ConnID())
-	// TODO: Phase 5 - query MongoDB for offline messages
+	var req v1.PullRequest
+	if err := proto.Unmarshal(packet.Payload, &req); err != nil {
+		h.log.Warnf("pull unmarshal failed: conn %s, err=%v", c.ConnID(), err)
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "invalid request format")
+		return
+	}
+
+	if req.Topic == "" {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "topic required")
+		return
+	}
+
+	h.log.Debugf("pull request: user_id=%d, topic=%s, last_seq=%d", c.UserID(), req.Topic, req.LastSeq)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	topicType := msgworker.ParseTopicType(req.Topic)
+	var pullMessages []*v1.PullMessage
+	var nextSeq uint64
+	var hasMore bool
+
+	switch topicType {
+	case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
+		// P2P and system messages are stored in inbox (write扩散).
+		msgs, err := h.storage.GetOfflineMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
+		if err != nil {
+			h.log.Warnf("get offline messages failed: user_id=%d, err=%v", c.UserID(), err)
+			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "failed to fetch messages")
+			return
+		}
+		for _, m := range msgs {
+			pullMessages = append(pullMessages, &v1.PullMessage{
+				MsgId:     m.MsgID,
+				Topic:     m.Topic,
+				SenderId:  m.SenderID,
+				MsgType:   m.MsgType,
+				Content:   m.Content,
+				Timestamp: m.Timestamp,
+				TopicSeq:  m.TopicSeq,
+			})
+			if m.TopicSeq > nextSeq {
+				nextSeq = m.TopicSeq
+			}
+		}
+		hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
+
+	case msgworker.TopicTypeGroup:
+		// Group messages are stored in messages collection (read扩散).
+		msgs, err := h.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, int(req.Limit))
+		if err != nil {
+			h.log.Warnf("get group messages failed: user_id=%d, err=%v", c.UserID(), err)
+			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "failed to fetch messages")
+			return
+		}
+		for _, m := range msgs {
+			pullMessages = append(pullMessages, &v1.PullMessage{
+				MsgId:     m.MsgID,
+				Topic:     m.Topic,
+				SenderId:  m.SenderID,
+				MsgType:   m.MsgType,
+				Content:   m.Content,
+				Timestamp: m.Timestamp,
+				TopicSeq:  m.TopicSeq,
+			})
+			if m.TopicSeq > nextSeq {
+				nextSeq = m.TopicSeq
+			}
+		}
+		hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
+
+		// Also fetch @mention messages for the user in this group.
+		mentionMsgs, err := h.storage.GetMentionMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
+		if err != nil {
+			h.log.Warnf("get mention messages failed: user_id=%d, err=%v", c.UserID(), err)
+			// Non-fatal: continue without mentions
+		} else {
+			for _, m := range mentionMsgs {
+				// Avoid duplicates: mentions are also in the group messages collection,
+				// but the client should deduplicate by msg_id.
+				pullMessages = append(pullMessages, &v1.PullMessage{
+					MsgId:     m.MsgID,
+					Topic:     m.Topic,
+					SenderId:  m.SenderID,
+					MsgType:   m.MsgType,
+					Content:   m.Content,
+					Timestamp: m.Timestamp,
+					TopicSeq:  m.TopicSeq,
+				})
+				if m.TopicSeq > nextSeq {
+					nextSeq = m.TopicSeq
+				}
+			}
+		}
+
+	default:
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "invalid topic")
+		return
+	}
+
+	reply, err := proto.Marshal(&v1.PullReply{
+		Messages: pullMessages,
+		HasMore:  hasMore,
+		NextSeq:  nextSeq,
+	})
+	if err != nil {
+		h.log.Errorf("marshal pull reply failed: %v", err)
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "internal error")
+		return
+	}
+
+	_ = c.SendWithTimeout(&v1.Packet{
+		Cmd:     v1.Command_CMD_PULL,
+		Seq:     packet.Seq,
+		Payload: reply,
+	}, h.sendTimeout)
+
+	h.log.Debugf("pull reply sent: user_id=%d, topic=%s, count=%d", c.UserID(), req.Topic, len(pullMessages))
 }
 
 // handleAck handles client ACKs for delivered messages.

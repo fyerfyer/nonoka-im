@@ -3,6 +3,7 @@ package msgworker
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -56,6 +57,7 @@ type Snowflake struct {
 	nodeID   int64
 	sequence int64
 	lastTime int64
+	mu       sync.Mutex
 }
 
 // NewSnowflake creates a new Snowflake ID generator.
@@ -65,6 +67,9 @@ func NewSnowflake(nodeID int64) *Snowflake {
 
 // NextID generates the next unique message ID.
 func (s *Snowflake) NextID() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now().UnixMilli()
 	if now == s.lastTime {
 		s.sequence = (s.sequence + 1) & 0xFFF

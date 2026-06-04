@@ -79,13 +79,14 @@ func (MsgType) EnumDescriptor() ([]byte, []int) {
 
 // Client-to-server request
 type SendMessageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
-	MsgType       MsgType                `protobuf:"varint,2,opt,name=msg_type,json=msgType,proto3,enum=api.im.v1.MsgType" json:"msg_type,omitempty"`
-	Content       []byte                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
-	ClientMsgId   string                 `protobuf:"bytes,4,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Topic            string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	MsgType          MsgType                `protobuf:"varint,2,opt,name=msg_type,json=msgType,proto3,enum=api.im.v1.MsgType" json:"msg_type,omitempty"`
+	Content          []byte                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	ClientMsgId      string                 `protobuf:"bytes,4,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	MentionedUserIds []int64                `protobuf:"varint,5,rep,packed,name=mentioned_user_ids,json=mentionedUserIds,proto3" json:"mentioned_user_ids,omitempty"` // for group @mentions
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SendMessageRequest) Reset() {
@@ -144,6 +145,13 @@ func (x *SendMessageRequest) GetClientMsgId() string {
 		return x.ClientMsgId
 	}
 	return ""
+}
+
+func (x *SendMessageRequest) GetMentionedUserIds() []int64 {
+	if x != nil {
+		return x.MentionedUserIds
+	}
+	return nil
 }
 
 // ACK
@@ -311,15 +319,16 @@ func (x *MessagePush) GetTopicSeq() uint64 {
 // UpstreamMessage is sent from the Gateway to Kafka.
 // MsgWorker consumes these messages to persist and dispatch them.
 type UpstreamMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SenderId      int64                  `protobuf:"varint,1,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
-	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	MsgType       int32                  `protobuf:"varint,3,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
-	Content       []byte                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
-	ClientMsgId   string                 `protobuf:"bytes,5,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SenderId         int64                  `protobuf:"varint,1,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	Topic            string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
+	MsgType          int32                  `protobuf:"varint,3,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	Content          []byte                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
+	ClientMsgId      string                 `protobuf:"bytes,5,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	Timestamp        int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	MentionedUserIds []int64                `protobuf:"varint,7,rep,packed,name=mentioned_user_ids,json=mentionedUserIds,proto3" json:"mentioned_user_ids,omitempty"` // for group @mentions
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UpstreamMessage) Reset() {
@@ -394,16 +403,239 @@ func (x *UpstreamMessage) GetTimestamp() int64 {
 	return 0
 }
 
+func (x *UpstreamMessage) GetMentionedUserIds() []int64 {
+	if x != nil {
+		return x.MentionedUserIds
+	}
+	return nil
+}
+
+// PullRequest is sent by client to request offline messages.
+type PullRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	LastSeq       uint64                 `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"` // client last known seq, fetch messages with seq > last_seq
+	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullRequest) Reset() {
+	*x = PullRequest{}
+	mi := &file_im_v1_message_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullRequest) ProtoMessage() {}
+
+func (x *PullRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullRequest.ProtoReflect.Descriptor instead.
+func (*PullRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PullRequest) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *PullRequest) GetLastSeq() uint64 {
+	if x != nil {
+		return x.LastSeq
+	}
+	return 0
+}
+
+func (x *PullRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+// PullMessage is a message in the pull response.
+type PullMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MsgId         int64                  `protobuf:"varint,1,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
+	SenderId      int64                  `protobuf:"varint,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	MsgType       int32                  `protobuf:"varint,4,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	Content       []byte                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	TopicSeq      uint64                 `protobuf:"varint,7,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullMessage) Reset() {
+	*x = PullMessage{}
+	mi := &file_im_v1_message_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullMessage) ProtoMessage() {}
+
+func (x *PullMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullMessage.ProtoReflect.Descriptor instead.
+func (*PullMessage) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PullMessage) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+func (x *PullMessage) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *PullMessage) GetSenderId() int64 {
+	if x != nil {
+		return x.SenderId
+	}
+	return 0
+}
+
+func (x *PullMessage) GetMsgType() int32 {
+	if x != nil {
+		return x.MsgType
+	}
+	return 0
+}
+
+func (x *PullMessage) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *PullMessage) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *PullMessage) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+// PullReply is sent by server in response to PullRequest.
+type PullReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Messages      []*PullMessage         `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	NextSeq       uint64                 `protobuf:"varint,3,opt,name=next_seq,json=nextSeq,proto3" json:"next_seq,omitempty"` // next seq to pull from
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullReply) Reset() {
+	*x = PullReply{}
+	mi := &file_im_v1_message_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullReply) ProtoMessage() {}
+
+func (x *PullReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullReply.ProtoReflect.Descriptor instead.
+func (*PullReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PullReply) GetMessages() []*PullMessage {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
+func (x *PullReply) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *PullReply) GetNextSeq() uint64 {
+	if x != nil {
+		return x.NextSeq
+	}
+	return 0
+}
+
 var File_im_v1_message_proto protoreflect.FileDescriptor
 
 const file_im_v1_message_proto_rawDesc = "" +
 	"\n" +
-	"\x13im/v1/message.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\"\x97\x01\n" +
+	"\x13im/v1/message.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\"\xc5\x01\n" +
 	"\x12SendMessageRequest\x12\x14\n" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\x12-\n" +
 	"\bmsg_type\x18\x02 \x01(\x0e2\x12.api.im.v1.MsgTypeR\amsgType\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\fR\acontent\x12\"\n" +
-	"\rclient_msg_id\x18\x04 \x01(\tR\vclientMsgId\"\x88\x01\n" +
+	"\rclient_msg_id\x18\x04 \x01(\tR\vclientMsgId\x12,\n" +
+	"\x12mentioned_user_ids\x18\x05 \x03(\x03R\x10mentionedUserIds\"\x88\x01\n" +
 	"\x10SendMessageReply\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x15\n" +
 	"\x06msg_id\x18\x02 \x01(\x03R\x05msgId\x12\x1c\n" +
@@ -416,14 +648,31 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\bmsg_type\x18\x04 \x01(\x05R\amsgType\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\fR\acontent\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
-	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\"\xbb\x01\n" +
+	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\"\xe9\x01\n" +
 	"\x0fUpstreamMessage\x12\x1b\n" +
 	"\tsender_id\x18\x01 \x01(\x03R\bsenderId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x19\n" +
 	"\bmsg_type\x18\x03 \x01(\x05R\amsgType\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\fR\acontent\x12\"\n" +
 	"\rclient_msg_id\x18\x05 \x01(\tR\vclientMsgId\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp*q\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12,\n" +
+	"\x12mentioned_user_ids\x18\a \x03(\x03R\x10mentionedUserIds\"T\n" +
+	"\vPullRequest\x12\x14\n" +
+	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x19\n" +
+	"\blast_seq\x18\x02 \x01(\x04R\alastSeq\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xc7\x01\n" +
+	"\vPullMessage\x12\x15\n" +
+	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
+	"\tsender_id\x18\x03 \x01(\x03R\bsenderId\x12\x19\n" +
+	"\bmsg_type\x18\x04 \x01(\x05R\amsgType\x12\x18\n" +
+	"\acontent\x18\x05 \x01(\fR\acontent\x12\x1c\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
+	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\"u\n" +
+	"\tPullReply\x122\n" +
+	"\bmessages\x18\x01 \x03(\v2\x16.api.im.v1.PullMessageR\bmessages\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x19\n" +
+	"\bnext_seq\x18\x03 \x01(\x04R\anextSeq*q\n" +
 	"\aMsgType\x12\x18\n" +
 	"\x14MSG_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMSG_TYPE_TEXT\x10\x01\x12\x12\n" +
@@ -446,23 +695,27 @@ func file_im_v1_message_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_message_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_im_v1_message_proto_goTypes = []any{
 	(MsgType)(0),               // 0: api.im.v1.MsgType
 	(*SendMessageRequest)(nil), // 1: api.im.v1.SendMessageRequest
 	(*SendMessageReply)(nil),   // 2: api.im.v1.SendMessageReply
 	(*MessagePush)(nil),        // 3: api.im.v1.MessagePush
 	(*UpstreamMessage)(nil),    // 4: api.im.v1.UpstreamMessage
+	(*PullRequest)(nil),        // 5: api.im.v1.PullRequest
+	(*PullMessage)(nil),        // 6: api.im.v1.PullMessage
+	(*PullReply)(nil),          // 7: api.im.v1.PullReply
 }
 var file_im_v1_message_proto_depIdxs = []int32{
 	0, // 0: api.im.v1.SendMessageRequest.msg_type:type_name -> api.im.v1.MsgType
-	1, // 1: api.im.v1.MessageService.SendMessage:input_type -> api.im.v1.SendMessageRequest
-	2, // 2: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6, // 1: api.im.v1.PullReply.messages:type_name -> api.im.v1.PullMessage
+	1, // 2: api.im.v1.MessageService.SendMessage:input_type -> api.im.v1.SendMessageRequest
+	2, // 3: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_message_proto_init() }
@@ -476,7 +729,7 @@ func file_im_v1_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_message_proto_rawDesc), len(file_im_v1_message_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

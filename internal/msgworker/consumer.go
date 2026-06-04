@@ -2,6 +2,7 @@ package msgworker
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -13,11 +14,12 @@ type MessageHandler func(ctx context.Context, key, value []byte, headers map[str
 
 // KafkaConsumer consumes messages from Kafka.
 type KafkaConsumer struct {
-	reader   *kafka.Reader
-	handler  MessageHandler
-	log      *log.Helper
-	stopCh   chan struct{}
-	stopOnce chan struct{}
+	reader    *kafka.Reader
+	handler   MessageHandler
+	log       *log.Helper
+	stopCh    chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // KafkaConsumerConfig holds consumer configuration.
@@ -63,17 +65,16 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	reader := kafka.NewReader(readerCfg)
 
 	return &KafkaConsumer{
-		reader:   reader,
-		handler:  handler,
-		log:      log.NewHelper(logger),
-		stopCh:   make(chan struct{}),
-		stopOnce: make(chan struct{}),
+		reader:  reader,
+		handler: handler,
+		log:     log.NewHelper(logger),
+		stopCh:  make(chan struct{}),
 	}
 }
 
 // Start begins consuming messages in a blocking loop.
 func (c *KafkaConsumer) Start(ctx context.Context) error {
-	close(c.stopOnce) // signal that Start has been called
+	c.startOnce.Do(func() {}) // signal that Start has been called
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,6 +116,8 @@ func (c *KafkaConsumer) SetHandler(handler MessageHandler) {
 
 // Stop stops the consumer.
 func (c *KafkaConsumer) Stop() error {
-	close(c.stopCh)
+	c.stopOnce.Do(func() {
+		close(c.stopCh)
+	})
 	return c.reader.Close()
 }

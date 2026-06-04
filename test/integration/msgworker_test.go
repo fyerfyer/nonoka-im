@@ -52,7 +52,7 @@ func setupMsgWorker(t *testing.T) (*msgworker.MsgWorker, *mongo.Database, func()
 		// Clean up collections
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		for _, coll := range []string{"messages", "inboxes", "topic_seqs"} {
+		for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes"} {
 			_ = db.Collection(coll).Drop(ctx)
 		}
 	}

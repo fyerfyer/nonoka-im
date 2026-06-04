@@ -133,6 +133,10 @@ components:
                     format: bytes
                 clientMsgId:
                     type: string
+                mentionedUserIds:
+                    type: array
+                    items:
+                        type: string
             description: Client-to-server request
 tags:
     - name: AuthService

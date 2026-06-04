@@ -29,6 +29,7 @@ message SendMessageRequest {
   MsgType msg_type = 2;
   bytes content = 3;
   string client_msg_id = 4;
+  repeated int64 mentioned_user_ids = 5; // for group @mentions
 }
 
 // ACK
@@ -59,4 +60,30 @@ message UpstreamMessage {
   bytes content = 4;
   string client_msg_id = 5;
   int64 timestamp = 6;
+  repeated int64 mentioned_user_ids = 7; // for group @mentions
+}
+
+// PullRequest is sent by client to request offline messages.
+message PullRequest {
+  string topic = 1;
+  uint64 last_seq = 2; // client last known seq, fetch messages with seq > last_seq
+  int32 limit = 3;
+}
+
+// PullMessage is a message in the pull response.
+message PullMessage {
+  int64 msg_id = 1;
+  string topic = 2;
+  int64 sender_id = 3;
+  int32 msg_type = 4;
+  bytes content = 5;
+  int64 timestamp = 6;
+  uint64 topic_seq = 7;
+}
+
+// PullReply is sent by server in response to PullRequest.
+message PullReply {
+  repeated PullMessage messages = 1;
+  bool has_more = 2;
+  uint64 next_seq = 3; // next seq to pull from
 }

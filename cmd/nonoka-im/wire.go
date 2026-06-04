@@ -6,6 +6,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -20,6 +23,8 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // provideKafkaConfig returns Kafka configuration from environment or defaults.
@@ -66,6 +71,35 @@ func provideRedisClient(d *data.Data) redis.UniversalClient {
 	return d.Redis
 }
 
+// provideMongoDB creates a MongoDB client and returns the database.
+func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
+	if c == nil || c.Mongodb == nil || c.Mongodb.Uri == "" {
+		return nil, nil, fmt.Errorf("mongodb config is required")
+	}
+	client, err := mongo.Connect(options.Client().ApplyURI(c.Mongodb.Uri))
+	if err != nil {
+		return nil, nil, fmt.Errorf("connect mongodb: %w", err)
+	}
+	db := client.Database(c.Mongodb.Database)
+	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = client.Disconnect(ctx)
+	}
+	return db, cleanup, nil
+}
+
+// provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
+func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.MessageStorage, error) {
+	storage := msgworker.NewMessageStorage(db, logger)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		return nil, fmt.Errorf("ensure mongodb indexes: %w", err)
+	}
+	return storage, nil
+}
+
 // wireApp init kratos application.
 func wireApp(*conf.Server, *conf.Data, *conf.Auth, log.Logger) (*kratos.App, func(), error) {
 	panic(wire.Build(
@@ -79,6 +113,8 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, log.Logger) (*kratos.App, fun
 		provideHeartbeatConfig,
 		provideRedisClient,
 		provideKafkaConfig,
+		provideMongoDB,
+		provideMessageStorage,
 		newApp,
 	))
 }

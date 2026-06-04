@@ -20,6 +20,11 @@ type MsgWorker struct {
 	log        *log.Helper
 }
 
+// Storage returns the underlying MessageStorage for testing purposes.
+func (w *MsgWorker) Storage() *MessageStorage {
+	return w.storage
+}
+
 // MsgWorkerConfig holds all dependencies for MsgWorker.
 type MsgWorkerConfig struct {
 	ConsumerCfg KafkaConsumerConfig
@@ -98,10 +103,32 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		if err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq); err != nil {
 			return fmt.Errorf("save group message: %w", err)
 		}
-		// For read扩散, we don't know online group members here.
-		// In production, query member list from PostgreSQL and push to online ones.
-		// For now, we skip pushing group messages in this simplified version.
-		w.log.Debugf("group message persisted (push deferred): topic=%s", upstream.GetTopic())
+		// Handle @mentions for large groups: write扩散 to mention_inbox.
+		// Also push @mentions to online users immediately.
+		if len(upstream.GetMentionedUserIds()) > 0 {
+			if err := w.storage.SaveMentionInbox(ctx, &upstream, msgID, topicSeq, upstream.GetMentionedUserIds()); err != nil {
+				w.log.Warnf("save mention inbox failed: %v", err)
+			}
+			// Push @mention notifications to online users
+			if w.pusher != nil {
+				pushMsg = &pb.MessagePush{
+					MsgId:     msgID,
+					Topic:     upstream.GetTopic(),
+					SenderId:  upstream.GetSenderId(),
+					MsgType:   upstream.GetMsgType(),
+					Content:   upstream.GetContent(),
+					Timestamp: upstream.GetTimestamp(),
+					TopicSeq:  topicSeq,
+				}
+				_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, upstream.GetMentionedUserIds(), pushMsg)
+				if err != nil {
+					w.log.Warnf("push mentions to online users failed: %v", err)
+				} else if len(failedIDs) > 0 {
+					w.log.Debugf("mention offline users: %v", failedIDs)
+				}
+			}
+		}
+		w.log.Debugf("group message persisted: topic=%s", upstream.GetTopic())
 
 	case TopicTypeSystem:
 		recipientIDs, err = w.storage.SaveSystemMessage(ctx, &upstream, msgID, topicSeq)

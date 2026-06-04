@@ -16,6 +16,7 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -58,6 +59,8 @@ type testServer struct {
 	authConf       *conf.Auth
 	kafkaProducer  gateway.MessageProducer
 	kafkaTopic     string
+	mongoDB        *mongo.Database
+	storage        *msgworker.MessageStorage
 }
 
 // setupTestServer bootstraps a full HTTP server against the test database.
@@ -92,21 +95,36 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		}
 	}
 
-	// 3. Auth config
+	// 3. MongoDB for message storage (offline pull support)
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(testMongoURI))
+	if err != nil {
+		t.Fatalf("failed to connect to mongodb: %v", err)
+	}
+	mongoDB := mongoClient.Database(testMongoDB)
+	storage := msgworker.NewMessageStorage(mongoDB, testLogger)
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("failed to ensure mongodb indexes: %v", err)
+	}
+	// Clean collections for test isolation
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes"} {
+		_ = mongoDB.Collection(coll).Drop(ctx)
+	}
+
+	// 4. Auth config
 	authConf := &conf.Auth{
 		JwtSecret: "test-jwt-secret-do-not-use-in-production",
 		TokenTtl:  durationpb.New(time.Hour),
 	}
 
-	// 4. Biz layer
+	// 5. Biz layer
 	authRepo := data.NewAuthRepo(d, testLogger)
 	authUC := biz.NewAuthUsecase(authRepo, authConf)
 
-	// 5. Service layer
+	// 6. Service layer
 	authSvc := service.NewAuthService(authUC)
 	dispatchSvc := service.NewDispatchService()
 
-	// 6. Gateway layer
+	// 7. Gateway layer
 	gwManager := gateway.NewManager(testLogger)
 	gwSessionMgr := gateway.NewSessionManager(d.Redis, "test-gateway-node")
 
@@ -131,7 +149,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		msgProducer = gateway.NewNoopProducer()
 	}
 
-	gwHandler := gateway.NewHandler(gwManager, gwSessionMgr, msgProducer, []byte(authConf.JwtSecret), gateway.HeartbeatConfig{
+	gwHandler := gateway.NewHandler(gwManager, gwSessionMgr, msgProducer, storage, []byte(authConf.JwtSecret), gateway.HeartbeatConfig{
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
@@ -172,6 +190,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		authConf:      authConf,
 		kafkaProducer: msgProducer,
 		kafkaTopic:    kafkaTopic,
+		mongoDB:       mongoDB,
+		storage:       storage,
 	}
 }
 
@@ -181,6 +201,13 @@ func (ts *testServer) stop() {
 	}
 	if ts.cleanup != nil {
 		ts.cleanup()
+	}
+	if ts.mongoDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if client := ts.mongoDB.Client(); client != nil {
+			_ = client.Disconnect(ctx)
+		}
 	}
 }
 
@@ -340,9 +367,9 @@ func registerAndLogin(t *testing.T, username, password string) (token string, us
 
 // ---------- Kafka test helpers ----------
 
-// waitForTopicReady waits until the topic exists and has partitions.
+// waitForTopicReady waits until the topic exists, has partitions, and each partition has a leader.
 func waitForTopicReady(broker, topic string) error {
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		conn, err := kafka.Dial("tcp", broker)
 		if err != nil {
 			time.Sleep(100 * time.Millisecond)
@@ -354,7 +381,18 @@ func waitForTopicReady(broker, topic string) error {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		return nil
+		// Ensure each partition has a leader (broker is fully ready to accept writes)
+		allReady := true
+		for _, p := range partitions {
+			if p.Leader.ID == 0 {
+				allReady = false
+				break
+			}
+		}
+		if allReady {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("topic %s did not become ready in time", topic)
 }

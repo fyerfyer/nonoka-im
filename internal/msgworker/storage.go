@@ -15,9 +15,10 @@ import (
 
 const (
 	// Collection names
-	CollectionMessages  = "messages"   // group messages (read扩散)
-	CollectionInboxes   = "inboxes"    // user inboxes (write扩散 for P2P)
-	CollectionTopicSeqs = "topic_seqs" // topic max seq backup
+	CollectionMessages       = "messages"        // group messages (read扩散)
+	CollectionInboxes        = "inboxes"         // user inboxes (write扩散 for P2P)
+	CollectionTopicSeqs      = "topic_seqs"      // topic max seq backup
+	CollectionMentionInboxes = "mention_inboxes" // group @mention inbox (for large groups)
 )
 
 // StoredMessage represents a message stored in MongoDB.
@@ -52,6 +53,21 @@ type TopicSeqBackup struct {
 	Topic     string    `bson:"topic"`
 	MaxSeq    uint64    `bson:"max_seq"`
 	UpdatedAt time.Time `bson:"updated_at"`
+}
+
+// MentionMessage stores @mention notifications for users in large groups.
+// This is a special write扩散 for @mentions in read扩散 groups.
+type MentionMessage struct {
+	UserID    int64     `bson:"user_id"`
+	MsgID     int64     `bson:"msg_id"`
+	Topic     string    `bson:"topic"`
+	SenderID  int64     `bson:"sender_id"`
+	MsgType   int32     `bson:"msg_type"`
+	Content   []byte    `bson:"content"`
+	Timestamp int64     `bson:"timestamp"`
+	TopicSeq  uint64    `bson:"topic_seq"`
+	Read      bool      `bson:"read"`
+	CreatedAt time.Time `bson:"created_at"`
 }
 
 // MessageStorage handles MongoDB persistence for messages.
@@ -95,6 +111,15 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create topic_seq index: %w", err)
+	}
+
+	// Index for mention_inboxes: user_id + topic + topic_seq
+	_, err = s.db.Collection(CollectionMentionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("create mention_inbox index: %w", err)
 	}
 
 	return nil
@@ -254,4 +279,134 @@ func (s *MessageStorage) BackupTopicSeq(ctx context.Context, topic string, seq u
 		return fmt.Errorf("backup topic seq: %w", err)
 	}
 	return nil
+}
+
+// SaveMentionInbox saves @mention notifications for specified users.
+// This implements the special write扩散 for @mentions in large groups (read扩散).
+func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64, mentionedUserIDs []int64) error {
+	if len(mentionedUserIDs) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	var docs []interface{}
+	for _, uid := range mentionedUserIDs {
+		docs = append(docs, &MentionMessage{
+			UserID:    uid,
+			MsgID:     msgID,
+			Topic:     msg.GetTopic(),
+			SenderID:  msg.GetSenderId(),
+			MsgType:   msg.GetMsgType(),
+			Content:   msg.GetContent(),
+			Timestamp: msg.GetTimestamp(),
+			TopicSeq:  topicSeq,
+			Read:      false,
+			CreatedAt: now,
+		})
+	}
+
+	_, err := s.db.Collection(CollectionMentionInboxes).InsertMany(ctx, docs)
+	if err != nil {
+		return fmt.Errorf("insert mention inbox: %w", err)
+	}
+
+	s.log.Debugf("mention inbox saved: msg_id=%d, topic=%s, users=%v", msgID, msg.GetTopic(), mentionedUserIDs)
+	return nil
+}
+
+// GetOfflineMessages retrieves offline messages for a user in a topic with seq > lastSeq.
+// For P2P/system topics, queries the inbox collection. For group topics, queries messages collection.
+func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*InboxMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	filter := bson.M{
+		"user_id": userID,
+		"topic":   topic,
+		"topic_seq": bson.M{"$gt": lastSeq},
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := s.db.Collection(CollectionInboxes).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("find offline messages: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []*InboxMessage
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("decode offline messages: %w", err)
+	}
+	return results, nil
+}
+
+// GetGroupMessages retrieves group messages with seq > lastSeq.
+func (s *MessageStorage) GetGroupMessages(ctx context.Context, topic string, lastSeq uint64, limit int) ([]*StoredMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	filter := bson.M{
+		"topic":     topic,
+		"topic_seq": bson.M{"$gt": lastSeq},
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := s.db.Collection(CollectionMessages).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("find group messages: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []*StoredMessage
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("decode group messages: %w", err)
+	}
+	return results, nil
+}
+
+// GetMentionMessages retrieves unread @mention messages for a user.
+func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*MentionMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	filter := bson.M{
+		"user_id": userID,
+		"topic":   topic,
+		"topic_seq": bson.M{"$gt": lastSeq},
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := s.db.Collection(CollectionMentionInboxes).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("find mention messages: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []*MentionMessage
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("decode mention messages: %w", err)
+	}
+	return results, nil
+}
+
+// GetTopicMaxSeq returns the current max seq for a topic from MongoDB backup.
+func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint64, error) {
+	var result TopicSeqBackup
+	err := s.db.Collection(CollectionTopicSeqs).FindOne(ctx, bson.M{"topic": topic}).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("get topic max seq: %w", err)
+	}
+	return result.MaxSeq, nil
 }

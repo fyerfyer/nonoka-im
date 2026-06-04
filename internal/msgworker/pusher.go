@@ -3,7 +3,6 @@ package msgworker
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
@@ -20,12 +19,8 @@ type GatewayPusher struct {
 
 // NewGatewayPusher creates a new GatewayPusher.
 func NewGatewayPusher(gatewayAddr string, logger log.Logger) (*GatewayPusher, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, gatewayAddr,
+	conn, err := grpc.NewClient(gatewayAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("connect to gateway %s: %w", gatewayAddr, err)
