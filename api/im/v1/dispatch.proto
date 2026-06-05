@@ -14,7 +14,9 @@ service DispatchService {
 	}
 }
 
-message GetGatewayRequest {}
+message GetGatewayRequest {
+  int64 user_id = 1;  // optional: for consistent hashing dispatch
+}
 
 message GetGatewayReply {
   string gateway_url = 1;  // e.g. "ws://192.168.1.10:8080/ws"

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
 	"nonoka-im/internal/conf"
+	"nonoka-im/internal/gateway"
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/config"
@@ -33,7 +35,7 @@ func init() {
 	flag.StringVar(&flagconf, "conf", "../../configs", "config path, eg: -conf config.yaml")
 }
 
-func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server) *kratos.App {
+func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry) *kratos.App {
 	return kratos.New(
 		kratos.ID(id),
 		kratos.Name(Name),
@@ -44,6 +46,18 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server) *kratos.App {
 			gs,
 			hs,
 		),
+		kratos.BeforeStart(func(ctx context.Context) error {
+			if registry != nil {
+				registry.StartHeartbeat()
+			}
+			return nil
+		}),
+		kratos.BeforeStop(func(ctx context.Context) error {
+			if registry != nil {
+				registry.Stop(ctx)
+			}
+			return nil
+		}),
 	)
 }
 
@@ -74,7 +88,7 @@ func main() {
 		panic(err)
 	}
 
-	app, cleanup, err := wireApp(bc.Server, bc.Data, bc.Auth, logger)
+	app, cleanup, err := wireApp(bc.Server, bc.Data, bc.Auth, bc.Dispatch, logger)
 	if err != nil {
 		panic(err)
 	}

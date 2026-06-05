@@ -21,6 +21,10 @@ data:
       - 127.0.0.1:9092
     topic: im-messages
     consumer_group: msgworker-group
+dispatch:
+  strategy: "consistent_hash"
+  heartbeat_interval: 10s
+  node_ttl: 30s
 auth:
   jwt_secret: "change-me-in-production-use-random-string"
   token_ttl: 168h

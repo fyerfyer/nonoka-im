@@ -45,13 +45,71 @@ func provideKafkaConfig() gateway.KafkaConfig {
 	}
 }
 
-// provideNodeID returns the unique node ID for this gateway instance.
-func provideNodeID() string {
+// provideNodeIDString returns the unique node ID as a plain string.
+// This is used by gateway.SessionManager which expects a string.
+func provideNodeIDString() string {
 	nodeID, _ := os.Hostname()
 	if nodeID == "" {
 		nodeID = "gateway-0"
 	}
 	return nodeID
+}
+
+// NodeID is a unique identifier for a gateway node, used to disambiguate
+// wire providers that would otherwise have the same type.
+type NodeID string
+
+// provideNodeID returns the unique node ID as a typed NodeID.
+func provideNodeID() NodeID {
+	return NodeID(provideNodeIDString())
+}
+
+// GatewayURL is the WebSocket endpoint advertised to clients.
+type GatewayURL string
+
+// provideGatewayURL derives the WebSocket URL from environment or config.
+func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID NodeID) GatewayURL {
+	id := string(nodeID)
+	// Check static config first
+	if dispatchConf != nil {
+		for _, gw := range dispatchConf.Gateways {
+			if gw.NodeId == id && gw.GatewayUrl != "" {
+				return GatewayURL(gw.GatewayUrl)
+			}
+		}
+		if len(dispatchConf.Gateways) > 0 && dispatchConf.Gateways[0].GatewayUrl != "" {
+			return GatewayURL(dispatchConf.Gateways[0].GatewayUrl)
+		}
+	}
+	// Fallback to env or default
+	wsAddr := os.Getenv("GATEWAY_WS_ADDR")
+	if wsAddr == "" {
+		wsAddr = "ws://localhost:8000/ws"
+	}
+	return GatewayURL(wsAddr)
+}
+
+// GatewayRegistryConfig holds heartbeat configuration for the gateway registry.
+type GatewayRegistryConfig struct {
+	Interval time.Duration
+	TTL      time.Duration
+}
+
+// provideGatewayRegistryConfig returns heartbeat interval and TTL from config or defaults.
+func provideGatewayRegistryConfig(dispatchConf *conf.Dispatch) GatewayRegistryConfig {
+	cfg := GatewayRegistryConfig{
+		Interval: 10 * time.Second,
+		TTL:      30 * time.Second,
+	}
+	if dispatchConf != nil {
+		if dispatchConf.HeartbeatInterval != nil {
+			cfg.Interval = dispatchConf.HeartbeatInterval.AsDuration()
+		}
+		if dispatchConf.NodeTtl != nil {
+			cfg.TTL = dispatchConf.NodeTtl.AsDuration()
+		}
+	}
+	return cfg
 }
 
 // provideJWTSecret extracts the JWT secret from auth config.
@@ -101,15 +159,24 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.Me
 	return storage, nil
 }
 
+// provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
+func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url GatewayURL, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
+	return gateway.NewGatewayRegistry(redis, string(nodeID), string(url), cfg.Interval, cfg.TTL, manager, logger)
+}
+
 // wireApp init kratos application.
-func wireApp(*conf.Server, *conf.Data, *conf.Auth, log.Logger) (*kratos.App, func(), error) {
+func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, log.Logger) (*kratos.App, func(), error) {
 	panic(wire.Build(
 		server.ProviderSet,
 		data.ProviderSet,
 		biz.ProviderSet,
 		service.ProviderSet,
 		gateway.ProviderSet,
+		provideNodeIDString,
 		provideNodeID,
+		provideGatewayURL,
+		provideGatewayRegistryConfig,
+		provideGatewayRegistry,
 		provideJWTSecret,
 		provideHeartbeatConfig,
 		provideRedisClient,

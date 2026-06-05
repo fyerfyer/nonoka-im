@@ -9,6 +9,7 @@ message Bootstrap {
   Server server = 1;
   Data data = 2;
   Auth auth = 3;
+  Dispatch dispatch = 4;
 }
 
 message Server {
@@ -55,4 +56,16 @@ message Data {
 message Auth {
   string jwt_secret = 1;
   google.protobuf.Duration token_ttl = 2;
+}
+
+message Gateway {
+  string node_id = 1;
+  string gateway_url = 2;
+}
+
+message Dispatch {
+  repeated Gateway gateways = 1;
+  string strategy = 2; // "consistent_hash" | "least_connections"
+  google.protobuf.Duration heartbeat_interval = 3;
+  google.protobuf.Duration node_ttl = 4;
 }

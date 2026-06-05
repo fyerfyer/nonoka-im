@@ -122,7 +122,10 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 
 	// 6. Service layer
 	authSvc := service.NewAuthService(authUC)
-	dispatchSvc := service.NewDispatchService()
+	dispatchConf := &conf.Dispatch{
+		Strategy: "consistent_hash",
+	}
+	dispatchSvc := service.NewDispatchService(d.Redis, dispatchConf, testLogger)
 
 	// 7. Gateway layer
 	gwManager := gateway.NewManager(testLogger)

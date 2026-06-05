@@ -24,6 +24,7 @@ const (
 
 type GetGatewayRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // optional: for consistent hashing dispatch
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -56,6 +57,13 @@ func (x *GetGatewayRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetGatewayRequest.ProtoReflect.Descriptor instead.
 func (*GetGatewayRequest) Descriptor() ([]byte, []int) {
 	return file_im_v1_dispatch_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetGatewayRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
 }
 
 type GetGatewayReply struct {
@@ -106,8 +114,9 @@ var File_im_v1_dispatch_proto protoreflect.FileDescriptor
 
 const file_im_v1_dispatch_proto_rawDesc = "" +
 	"\n" +
-	"\x14im/v1/dispatch.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\"\x13\n" +
-	"\x11GetGatewayRequest\"2\n" +
+	"\x14im/v1/dispatch.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\",\n" +
+	"\x11GetGatewayRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"2\n" +
 	"\x0fGetGatewayReply\x12\x1f\n" +
 	"\vgateway_url\x18\x01 \x01(\tR\n" +
 	"gatewayUrl2t\n" +
