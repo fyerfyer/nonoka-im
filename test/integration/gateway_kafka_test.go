@@ -1,14 +1,12 @@
 package integration
 
 import (
-	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
-
 	"google.golang.org/protobuf/proto"
 )
 
@@ -28,14 +26,15 @@ func TestGateway_Kafka_Publish_Basic(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second) // consume auth response
 
@@ -44,17 +43,17 @@ func TestGateway_Kafka_Publish_Basic(t *testing.T) {
 	defer reader.Close()
 
 	// Publish a message
-	req := &v1.SendMessageRequest{
-		Topic:       "p2p_1_2",
-		MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-		Content:     []byte("hello kafka"),
-		ClientMsgId: "kafka-msg-001",
-	}
-	payload, _ := proto.Marshal(req)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     2,
-		Payload: payload,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 2,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("hello kafka"),
+				ClientMsgId: "kafka-msg-001",
+			},
+		},
 	})
 
 	// Wait for ACK from gateway
@@ -63,9 +62,9 @@ func TestGateway_Kafka_Publish_Basic(t *testing.T) {
 		t.Fatalf("expected CMD_PUBLISH ACK, got %v", ack.Cmd)
 	}
 
-	var reply v1.SendMessageReply
-	if err := proto.Unmarshal(ack.Payload, &reply); err != nil {
-		t.Fatalf("failed to unmarshal ACK: %v", err)
+	reply := ack.GetSendReply()
+	if reply == nil {
+		t.Fatalf("expected SendReply payload, got nil")
 	}
 	if reply.ClientMsgId != "kafka-msg-001" {
 		t.Fatalf("expected client_msg_id=kafka-msg-001, got %s", reply.ClientMsgId)
@@ -108,14 +107,15 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-content",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-content",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -124,17 +124,17 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	defer reader.Close()
 
 	// Publish with specific content
-	req := &v1.SendMessageRequest{
-		Topic:       "grp_42",
-		MsgType:     v1.MsgType_MSG_TYPE_IMAGE,
-		Content:     []byte(`{"url":"https://example.com/img.png","width":800}`),
-		ClientMsgId: "content-msg-002",
-	}
-	payload, _ := proto.Marshal(req)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     2,
-		Payload: payload,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 2,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "grp_42",
+				MsgType:     v1.MsgType_MSG_TYPE_IMAGE,
+				Content:     []byte(`{"url":"https://example.com/img.png","width":800}`),
+				ClientMsgId: "content-msg-002",
+			},
+		},
 	})
 
 	// Consume ACK
@@ -215,30 +215,31 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 			defer wsConn.Close()
 
 			// Auth
-			authPayload, _ := json.Marshal(map[string]interface{}{
-				"token":     tokens[idx],
-				"device_id": "device-kafka-" + string(rune('0'+idx)),
-			})
 			wsSendPacket(t, wsConn, &v1.Packet{
-				Cmd:     v1.Command_CMD_AUTH,
-				Seq:     1,
-				Payload: authPayload,
+				Cmd: v1.Command_CMD_AUTH,
+				Seq: 1,
+				Payload: &v1.Packet_AuthReq{
+					AuthReq: &v1.AuthRequest{
+						Token:    tokens[idx],
+						DeviceId: "device-kafka-" + string(rune('0'+idx)),
+					},
+				},
 			})
 			wsReadPacket(t, wsConn, 2*time.Second)
 
 			// Publish messages
 			for j := 0; j < messagesPerClient; j++ {
-				req := &v1.SendMessageRequest{
-					Topic:       "p2p_1_2",
-					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-					Content:     []byte("concurrent kafka message"),
-					ClientMsgId: "kafka-concurrent-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
-				}
-				payload, _ := proto.Marshal(req)
 				wsSendPacket(t, wsConn, &v1.Packet{
-					Cmd:     v1.Command_CMD_PUBLISH,
-					Seq:     uint64(j + 2),
-					Payload: payload,
+					Cmd: v1.Command_CMD_PUBLISH,
+					Seq: uint64(j + 2),
+					Payload: &v1.Packet_SendReq{
+						SendReq: &v1.SendMessageRequest{
+							Topic:       "p2p_1_2",
+							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+							Content:     []byte("concurrent kafka message"),
+							ClientMsgId: "kafka-concurrent-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
+						},
+					},
 				})
 
 				// Read ACK
@@ -302,14 +303,15 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-affinity",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-affinity",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -322,17 +324,17 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 	topic := "p2p_100_200"
 
 	for i := 0; i < messageCount; i++ {
-		req := &v1.SendMessageRequest{
-			Topic:       topic,
-			MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-			Content:     []byte("affinity test message"),
-			ClientMsgId: "affinity-msg-" + string(rune('0'+i)),
-		}
-		payload, _ := proto.Marshal(req)
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_PUBLISH,
-			Seq:     uint64(i + 2),
-			Payload: payload,
+			Cmd: v1.Command_CMD_PUBLISH,
+			Seq: uint64(i + 2),
+			Payload: &v1.Packet_SendReq{
+				SendReq: &v1.SendMessageRequest{
+					Topic:       topic,
+					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+					Content:     []byte("affinity test message"),
+					ClientMsgId: "affinity-msg-" + string(rune('0'+i)),
+				},
+			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}
@@ -362,17 +364,17 @@ func TestGateway_Kafka_Publish_NoAuth(t *testing.T) {
 	defer reader.Close()
 
 	// Try to publish without auth
-	req := &v1.SendMessageRequest{
-		Topic:       "p2p_1_2",
-		MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-		Content:     []byte("unauthorized"),
-		ClientMsgId: "noauth-msg-001",
-	}
-	payload, _ := proto.Marshal(req)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     1,
-		Payload: payload,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 1,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("unauthorized"),
+				ClientMsgId: "noauth-msg-001",
+			},
+		},
 	})
 
 	// Expect error response
@@ -381,12 +383,12 @@ func TestGateway_Kafka_Publish_NoAuth(t *testing.T) {
 		t.Fatalf("expected CMD_PUBLISH response, got %v", resp.Cmd)
 	}
 
-	var errReply map[string]interface{}
-	if err := json.Unmarshal(resp.Payload, &errReply); err != nil {
-		t.Fatalf("failed to unmarshal error reply: %v", err)
+	errResp := resp.GetError()
+	if errResp == nil {
+		t.Fatalf("expected Error payload, got nil")
 	}
-	if errReply["error"] != "authentication required" {
-		t.Fatalf("expected 'authentication required' error, got: %+v", errReply)
+	if errResp.Message != "authentication required" {
+		t.Fatalf("expected 'authentication required' error, got: %+v", errResp)
 	}
 
 	// Verify no message was produced to Kafka within short timeout
@@ -409,14 +411,15 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-multi",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-multi",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -427,17 +430,17 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	// Send messages to different topics
 	topics := []string{"p2p_1_2", "grp_42", "sys_123"}
 	for i, topic := range topics {
-		req := &v1.SendMessageRequest{
-			Topic:       topic,
-			MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-			Content:     []byte("topic specific message"),
-			ClientMsgId: "multi-topic-" + string(rune('0'+i)),
-		}
-		payload, _ := proto.Marshal(req)
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_PUBLISH,
-			Seq:     uint64(i + 2),
-			Payload: payload,
+			Cmd: v1.Command_CMD_PUBLISH,
+			Seq: uint64(i + 2),
+			Payload: &v1.Packet_SendReq{
+				SendReq: &v1.SendMessageRequest{
+					Topic:       topic,
+					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+					Content:     []byte("topic specific message"),
+					ClientMsgId: "multi-topic-" + string(rune('0'+i)),
+				},
+			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}

@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -11,7 +10,6 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/proto"
 )
 
 // ============================================
@@ -41,14 +39,15 @@ func TestGateway_Concurrent_Auth(t *testing.T) {
 			wsConn := wsConnect(t)
 			defer wsConn.Close()
 
-			authPayload, _ := json.Marshal(map[string]interface{}{
-				"token":     token,
-				"device_id": "device-" + string(rune('0'+idx%10)),
-			})
 			wsSendPacket(t, wsConn, &v1.Packet{
-				Cmd:     v1.Command_CMD_AUTH,
-				Seq:     uint64(idx + 1),
-				Payload: authPayload,
+				Cmd: v1.Command_CMD_AUTH,
+				Seq: uint64(idx + 1),
+				Payload: &v1.Packet_AuthReq{
+					AuthReq: &v1.AuthRequest{
+						Token:    token,
+						DeviceId: "device-" + string(rune('0'+idx%10)),
+					},
+				},
 			})
 
 			resp := wsReadPacketOrNil(t, wsConn, 3*time.Second)
@@ -64,12 +63,12 @@ func TestGateway_Concurrent_Auth(t *testing.T) {
 				return
 			}
 
-			var authReply map[string]interface{}
-			if err := json.Unmarshal(resp.Payload, &authReply); err != nil {
+			authResp := resp.GetAuthResp()
+			if authResp == nil {
 				atomic.AddInt32(&failCount, 1)
 				return
 			}
-			if success, ok := authReply["success"].(bool); ok && success {
+			if authResp.Success {
 				atomic.AddInt32(&successCount, 1)
 			} else {
 				atomic.AddInt32(&failCount, 1)
@@ -107,14 +106,15 @@ func TestGateway_Concurrent_SameUser_MultiDevice(t *testing.T) {
 			wsConn := wsConnect(t)
 			conns[idx] = wsConn
 
-			authPayload, _ := json.Marshal(map[string]interface{}{
-				"token":     token,
-				"device_id": "device-" + string(rune('a'+idx%26)) + "-" + string(rune('0'+idx/26)),
-			})
 			wsSendPacket(t, wsConn, &v1.Packet{
-				Cmd:     v1.Command_CMD_AUTH,
-				Seq:     uint64(idx + 1),
-				Payload: authPayload,
+				Cmd: v1.Command_CMD_AUTH,
+				Seq: uint64(idx + 1),
+				Payload: &v1.Packet_AuthReq{
+					AuthReq: &v1.AuthRequest{
+						Token:    token,
+						DeviceId: "device-" + string(rune('a'+idx%26)) + "-" + string(rune('0'+idx/26)),
+					},
+				},
 			})
 
 			resp := wsReadPacketOrNil(t, wsConn, 3*time.Second)
@@ -181,14 +181,15 @@ func TestGateway_Concurrent_Heartbeat(t *testing.T) {
 		wsConn := wsConnect(t)
 		conns[i] = wsConn
 
-		authPayload, _ := json.Marshal(map[string]interface{}{
-			"token":     token,
-			"device_id": "d1",
-		})
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_AUTH,
-			Seq:     1,
-			Payload: authPayload,
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{
+				AuthReq: &v1.AuthRequest{
+					Token:    token,
+					DeviceId: "d1",
+				},
+			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}
@@ -250,14 +251,15 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 		wsConn := wsConnect(t)
 		conns[i] = wsConn
 
-		authPayload, _ := json.Marshal(map[string]interface{}{
-			"token":     token,
-			"device_id": "d1",
-		})
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_AUTH,
-			Seq:     1,
-			Payload: authPayload,
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{
+				AuthReq: &v1.AuthRequest{
+					Token:    token,
+					DeviceId: "d1",
+				},
+			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}
@@ -274,23 +276,23 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 			wsConn := conns[idx]
 
 			for j := 0; j < messagesPerClient; j++ {
-				req := &v1.SendMessageRequest{
-					Topic:       "p2p_1_2",
-					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-					Content:     []byte("concurrent message"),
-					ClientMsgId: "msg-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
-				}
-				payload, _ := proto.Marshal(req)
 				wsSendPacket(t, wsConn, &v1.Packet{
-					Cmd:     v1.Command_CMD_PUBLISH,
-					Seq:     uint64(j + 1),
-					Payload: payload,
+					Cmd: v1.Command_CMD_PUBLISH,
+					Seq: uint64(j + 1),
+					Payload: &v1.Packet_SendReq{
+						SendReq: &v1.SendMessageRequest{
+							Topic:       "p2p_1_2",
+							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+							Content:     []byte("concurrent message"),
+							ClientMsgId: "msg-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
+						},
+					},
 				})
 
 				resp := wsReadPacketOrNil(t, wsConn, 2*time.Second)
 				if resp != nil && resp.Cmd == v1.Command_CMD_PUBLISH {
-					var reply v1.SendMessageReply
-					if err := proto.Unmarshal(resp.Payload, &reply); err == nil && reply.ClientMsgId == req.ClientMsgId {
+					reply := resp.GetSendReply()
+					if reply != nil && reply.ClientMsgId == "msg-"+string(rune('0'+idx))+"-"+string(rune('0'+j)) {
 						atomic.AddInt32(&ackCount, 1)
 					}
 				}
@@ -325,14 +327,15 @@ func TestGateway_Connection_Reliability_Stress(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		wsConn := wsConnect(t)
 
-		authPayload, _ := json.Marshal(map[string]interface{}{
-			"token":     token,
-			"device_id": "stress-device",
-		})
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_AUTH,
-			Seq:     1,
-			Payload: authPayload,
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{
+				AuthReq: &v1.AuthRequest{
+					Token:    token,
+					DeviceId: "stress-device",
+				},
+			},
 		})
 
 		resp := wsReadPacketOrNil(t, wsConn, 2*time.Second)
@@ -385,14 +388,15 @@ func TestGateway_Broadcast_Concurrent(t *testing.T) {
 			wsConn := wsConnect(t)
 			conns[u][d] = wsConn
 
-			authPayload, _ := json.Marshal(map[string]interface{}{
-				"token":     token,
-				"device_id": "device-" + string(rune('0'+d)),
-			})
 			wsSendPacket(t, wsConn, &v1.Packet{
-				Cmd:     v1.Command_CMD_AUTH,
-				Seq:     1,
-				Payload: authPayload,
+				Cmd: v1.Command_CMD_AUTH,
+				Seq: 1,
+				Payload: &v1.Packet_AuthReq{
+					AuthReq: &v1.AuthRequest{
+						Token:    token,
+						DeviceId: "device-" + string(rune('0'+d)),
+					},
+				},
 			})
 			wsReadPacket(t, wsConn, 2*time.Second)
 		}
@@ -409,9 +413,13 @@ func TestGateway_Broadcast_Concurrent(t *testing.T) {
 			defer wg.Done()
 
 			packet := &v1.Packet{
-				Cmd:     v1.Command_CMD_NOTIFY,
-				Seq:     uint64(idx + 1),
-				Payload: []byte("broadcast to user " + string(rune('0'+idx))),
+				Cmd: v1.Command_CMD_NOTIFY,
+				Seq: uint64(idx + 1),
+				Payload: &v1.Packet_Notify{
+					Notify: &v1.MessagePush{
+						Content: []byte("broadcast to user " + string(rune('0'+idx))),
+					},
+				},
 			}
 			sent := ts.gwManager.BroadcastToUser(userIDs[idx], packet)
 			atomic.AddInt32(&totalSent, int32(sent))
@@ -460,14 +468,15 @@ func TestGateway_RedisSession_ExpireAndRefresh(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate with short TTL
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "expire-device",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "expire-device",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -520,31 +529,32 @@ func TestGateway_Concurrent_RapidMessages(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "rapid-device",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "rapid-device",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
 	// Send many messages rapidly
 	const messageCount = 100
 	for i := 0; i < messageCount; i++ {
-		req := &v1.SendMessageRequest{
-			Topic:       "p2p_1_2",
-			MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-			Content:     []byte("rapid message"),
-			ClientMsgId: "rapid-" + string(rune('0'+i%10)),
-		}
-		payload, _ := proto.Marshal(req)
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_PUBLISH,
-			Seq:     uint64(i + 1),
-			Payload: payload,
+			Cmd: v1.Command_CMD_PUBLISH,
+			Seq: uint64(i + 1),
+			Payload: &v1.Packet_SendReq{
+				SendReq: &v1.SendMessageRequest{
+					Topic:       "p2p_1_2",
+					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+					Content:     []byte("rapid message"),
+					ClientMsgId: "rapid-" + string(rune('0'+i%10)),
+				},
+			},
 		})
 	}
 
@@ -581,14 +591,15 @@ func TestGateway_MixedTraffic(t *testing.T) {
 		wsConn := wsConnect(t)
 		conns[i] = wsConn
 
-		authPayload, _ := json.Marshal(map[string]interface{}{
-			"token":     token,
-			"device_id": "d1",
-		})
 		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd:     v1.Command_CMD_AUTH,
-			Seq:     1,
-			Payload: authPayload,
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{
+				AuthReq: &v1.AuthRequest{
+					Token:    token,
+					DeviceId: "d1",
+				},
+			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}
@@ -612,17 +623,17 @@ func TestGateway_MixedTraffic(t *testing.T) {
 					wsReadPacketOrNil(t, wsConn, 2*time.Second)
 
 				case 1, 2: // publish
-					req := &v1.SendMessageRequest{
-						Topic:       "p2p_1_2",
-						MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-						Content:     []byte("mixed traffic"),
-						ClientMsgId: "mixed-" + string(rune('0'+idx)) + "-" + string(rune('0'+j%10)),
-					}
-					payload, _ := proto.Marshal(req)
 					wsSendPacket(t, wsConn, &v1.Packet{
-						Cmd:     v1.Command_CMD_PUBLISH,
-						Seq:     uint64(j + 1),
-						Payload: payload,
+						Cmd: v1.Command_CMD_PUBLISH,
+						Seq: uint64(j + 1),
+						Payload: &v1.Packet_SendReq{
+							SendReq: &v1.SendMessageRequest{
+								Topic:       "p2p_1_2",
+								MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+								Content:     []byte("mixed traffic"),
+								ClientMsgId: "mixed-" + string(rune('0'+idx)) + "-" + string(rune('0'+j%10)),
+							},
+						},
 					})
 					wsReadPacketOrNil(t, wsConn, 2*time.Second)
 				}

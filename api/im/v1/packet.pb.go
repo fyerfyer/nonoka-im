@@ -82,11 +82,27 @@ func (Command) EnumDescriptor() ([]byte, []int) {
 	return file_im_v1_packet_proto_rawDescGZIP(), []int{0}
 }
 
+// Packet is the unified wire format for all WebSocket messages.
+// The payload is self-describing via oneof — clients no longer need to
+// guess the serialization format for each command.
 type Packet struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cmd           Command                `protobuf:"varint,1,opt,name=cmd,proto3,enum=api.im.v1.Command" json:"cmd,omitempty"`
-	Seq           uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	Payload       []byte                 `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Cmd   Command                `protobuf:"varint,1,opt,name=cmd,proto3,enum=api.im.v1.Command" json:"cmd,omitempty"`
+	Seq   uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	// Typed payload — exactly one field is set per packet.
+	//
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*Packet_AuthReq
+	//	*Packet_AuthResp
+	//	*Packet_SendReq
+	//	*Packet_SendReply
+	//	*Packet_PullReq
+	//	*Packet_PullReply
+	//	*Packet_AckReq
+	//	*Packet_Notify
+	//	*Packet_Error
+	Payload       isPacket_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -135,22 +151,440 @@ func (x *Packet) GetSeq() uint64 {
 	return 0
 }
 
-func (x *Packet) GetPayload() []byte {
+func (x *Packet) GetPayload() isPacket_Payload {
 	if x != nil {
 		return x.Payload
 	}
 	return nil
 }
 
+func (x *Packet) GetAuthReq() *AuthRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_AuthReq); ok {
+			return x.AuthReq
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetAuthResp() *AuthResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_AuthResp); ok {
+			return x.AuthResp
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetSendReq() *SendMessageRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_SendReq); ok {
+			return x.SendReq
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetSendReply() *SendMessageReply {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_SendReply); ok {
+			return x.SendReply
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetPullReq() *PullRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_PullReq); ok {
+			return x.PullReq
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetPullReply() *PullReply {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_PullReply); ok {
+			return x.PullReply
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetAckReq() *AckRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_AckReq); ok {
+			return x.AckReq
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetNotify() *MessagePush {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_Notify); ok {
+			return x.Notify
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetError() *ErrorResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isPacket_Payload interface {
+	isPacket_Payload()
+}
+
+type Packet_AuthReq struct {
+	// CMD_AUTH
+	AuthReq *AuthRequest `protobuf:"bytes,10,opt,name=auth_req,json=authReq,proto3,oneof"`
+}
+
+type Packet_AuthResp struct {
+	AuthResp *AuthResponse `protobuf:"bytes,11,opt,name=auth_resp,json=authResp,proto3,oneof"`
+}
+
+type Packet_SendReq struct {
+	// CMD_PUBLISH
+	SendReq *SendMessageRequest `protobuf:"bytes,20,opt,name=send_req,json=sendReq,proto3,oneof"`
+}
+
+type Packet_SendReply struct {
+	SendReply *SendMessageReply `protobuf:"bytes,21,opt,name=send_reply,json=sendReply,proto3,oneof"`
+}
+
+type Packet_PullReq struct {
+	// CMD_PULL
+	PullReq *PullRequest `protobuf:"bytes,30,opt,name=pull_req,json=pullReq,proto3,oneof"`
+}
+
+type Packet_PullReply struct {
+	PullReply *PullReply `protobuf:"bytes,31,opt,name=pull_reply,json=pullReply,proto3,oneof"`
+}
+
+type Packet_AckReq struct {
+	// CMD_ACK
+	AckReq *AckRequest `protobuf:"bytes,40,opt,name=ack_req,json=ackReq,proto3,oneof"`
+}
+
+type Packet_Notify struct {
+	// CMD_NOTIFY
+	Notify *MessagePush `protobuf:"bytes,50,opt,name=notify,proto3,oneof"`
+}
+
+type Packet_Error struct {
+	// Unified error response (can be returned for any command).
+	Error *ErrorResponse `protobuf:"bytes,99,opt,name=error,proto3,oneof"`
+}
+
+func (*Packet_AuthReq) isPacket_Payload() {}
+
+func (*Packet_AuthResp) isPacket_Payload() {}
+
+func (*Packet_SendReq) isPacket_Payload() {}
+
+func (*Packet_SendReply) isPacket_Payload() {}
+
+func (*Packet_PullReq) isPacket_Payload() {}
+
+func (*Packet_PullReply) isPacket_Payload() {}
+
+func (*Packet_AckReq) isPacket_Payload() {}
+
+func (*Packet_Notify) isPacket_Payload() {}
+
+func (*Packet_Error) isPacket_Payload() {}
+
+// AuthRequest is sent by the client to authenticate the WebSocket connection.
+type AuthRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthRequest) Reset() {
+	*x = AuthRequest{}
+	mi := &file_im_v1_packet_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthRequest) ProtoMessage() {}
+
+func (x *AuthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthRequest.ProtoReflect.Descriptor instead.
+func (*AuthRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AuthRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *AuthRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// AuthResponse is returned by the server after successful authentication.
+type AuthResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthResponse) Reset() {
+	*x = AuthResponse{}
+	mi := &file_im_v1_packet_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthResponse) ProtoMessage() {}
+
+func (x *AuthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthResponse.ProtoReflect.Descriptor instead.
+func (*AuthResponse) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *AuthResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *AuthResponse) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *AuthResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// AckRequest is sent by the client to acknowledge receipt of a pushed message.
+type AckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MsgId         int64                  `protobuf:"varint,1,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`          // confirmed message ID
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`                        // topic the message belongs to
+	TopicSeq      uint64                 `protobuf:"varint,3,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"` // sequence number being acknowledged
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckRequest) Reset() {
+	*x = AckRequest{}
+	mi := &file_im_v1_packet_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckRequest) ProtoMessage() {}
+
+func (x *AckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckRequest.ProtoReflect.Descriptor instead.
+func (*AckRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *AckRequest) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+func (x *AckRequest) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *AckRequest) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+// ErrorResponse is the unified error format returned by the server.
+type ErrorResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          int32                  `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`                                       // business error code
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`                                  // human-readable description
+	Retryable     bool                   `protobuf:"varint,3,opt,name=retryable,proto3" json:"retryable,omitempty"`                             // whether the client should retry
+	RetryAfterMs  uint64                 `protobuf:"varint,4,opt,name=retry_after_ms,json=retryAfterMs,proto3" json:"retry_after_ms,omitempty"` // suggested retry delay in milliseconds
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorResponse) Reset() {
+	*x = ErrorResponse{}
+	mi := &file_im_v1_packet_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorResponse) ProtoMessage() {}
+
+func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
+func (*ErrorResponse) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ErrorResponse) GetCode() int32 {
+	if x != nil {
+		return x.Code
+	}
+	return 0
+}
+
+func (x *ErrorResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ErrorResponse) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *ErrorResponse) GetRetryAfterMs() uint64 {
+	if x != nil {
+		return x.RetryAfterMs
+	}
+	return 0
+}
+
 var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\"Z\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xb4\x04\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\fR\apayload*w\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +
+	"\bauth_req\x18\n" +
+	" \x01(\v2\x16.api.im.v1.AuthRequestH\x00R\aauthReq\x126\n" +
+	"\tauth_resp\x18\v \x01(\v2\x17.api.im.v1.AuthResponseH\x00R\bauthResp\x12:\n" +
+	"\bsend_req\x18\x14 \x01(\v2\x1d.api.im.v1.SendMessageRequestH\x00R\asendReq\x12<\n" +
+	"\n" +
+	"send_reply\x18\x15 \x01(\v2\x1b.api.im.v1.SendMessageReplyH\x00R\tsendReply\x123\n" +
+	"\bpull_req\x18\x1e \x01(\v2\x16.api.im.v1.PullRequestH\x00R\apullReq\x125\n" +
+	"\n" +
+	"pull_reply\x18\x1f \x01(\v2\x14.api.im.v1.PullReplyH\x00R\tpullReply\x120\n" +
+	"\aack_req\x18( \x01(\v2\x15.api.im.v1.AckRequestH\x00R\x06ackReq\x120\n" +
+	"\x06notify\x182 \x01(\v2\x16.api.im.v1.MessagePushH\x00R\x06notify\x120\n" +
+	"\x05error\x18c \x01(\v2\x18.api.im.v1.ErrorResponseH\x00R\x05errorB\t\n" +
+	"\apayload\"@\n" +
+	"\vAuthRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"^\n" +
+	"\fAuthResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\"V\n" +
+	"\n" +
+	"AckRequest\x12\x15\n" +
+	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
+	"\ttopic_seq\x18\x03 \x01(\x04R\btopicSeq\"\x81\x01\n" +
+	"\rErrorResponse\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
+	"\tretryable\x18\x03 \x01(\bR\tretryable\x12$\n" +
+	"\x0eretry_after_ms\x18\x04 \x01(\x04R\fretryAfterMs*w\n" +
 	"\aCommand\x12\x0f\n" +
 	"\vCMD_UNKNOWN\x10\x00\x12\x11\n" +
 	"\rCMD_HEARTBEAT\x10\x01\x12\f\n" +
@@ -174,18 +608,36 @@ func file_im_v1_packet_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_packet_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_im_v1_packet_proto_goTypes = []any{
-	(Command)(0),   // 0: api.im.v1.Command
-	(*Packet)(nil), // 1: api.im.v1.Packet
+	(Command)(0),               // 0: api.im.v1.Command
+	(*Packet)(nil),             // 1: api.im.v1.Packet
+	(*AuthRequest)(nil),        // 2: api.im.v1.AuthRequest
+	(*AuthResponse)(nil),       // 3: api.im.v1.AuthResponse
+	(*AckRequest)(nil),         // 4: api.im.v1.AckRequest
+	(*ErrorResponse)(nil),      // 5: api.im.v1.ErrorResponse
+	(*SendMessageRequest)(nil), // 6: api.im.v1.SendMessageRequest
+	(*SendMessageReply)(nil),   // 7: api.im.v1.SendMessageReply
+	(*PullRequest)(nil),        // 8: api.im.v1.PullRequest
+	(*PullReply)(nil),          // 9: api.im.v1.PullReply
+	(*MessagePush)(nil),        // 10: api.im.v1.MessagePush
 }
 var file_im_v1_packet_proto_depIdxs = []int32{
-	0, // 0: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0,  // 0: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
+	2,  // 1: api.im.v1.Packet.auth_req:type_name -> api.im.v1.AuthRequest
+	3,  // 2: api.im.v1.Packet.auth_resp:type_name -> api.im.v1.AuthResponse
+	6,  // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
+	7,  // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
+	8,  // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
+	9,  // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
+	4,  // 7: api.im.v1.Packet.ack_req:type_name -> api.im.v1.AckRequest
+	10, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
+	5,  // 9: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_packet_proto_init() }
@@ -193,13 +645,25 @@ func file_im_v1_packet_proto_init() {
 	if File_im_v1_packet_proto != nil {
 		return
 	}
+	file_im_v1_message_proto_init()
+	file_im_v1_packet_proto_msgTypes[0].OneofWrappers = []any{
+		(*Packet_AuthReq)(nil),
+		(*Packet_AuthResp)(nil),
+		(*Packet_SendReq)(nil),
+		(*Packet_SendReply)(nil),
+		(*Packet_PullReq)(nil),
+		(*Packet_PullReply)(nil),
+		(*Packet_AckReq)(nil),
+		(*Packet_Notify)(nil),
+		(*Packet_Error)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_packet_proto_rawDesc), len(file_im_v1_packet_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   1,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

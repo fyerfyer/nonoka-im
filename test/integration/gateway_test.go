@@ -2,14 +2,11 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
-	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/proto"
 )
 
 // ============================================
@@ -48,14 +45,15 @@ func TestGateway_Auth_Success(t *testing.T) {
 	defer wsConn.Close()
 
 	// Send auth packet
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 
 	// Expect auth success response
@@ -67,12 +65,12 @@ func TestGateway_Auth_Success(t *testing.T) {
 		t.Fatalf("expected seq=1, got %d", resp.Seq)
 	}
 
-	var authReply map[string]interface{}
-	if err := json.Unmarshal(resp.Payload, &authReply); err != nil {
-		t.Fatalf("failed to unmarshal auth reply: %v", err)
+	authResp := resp.GetAuthResp()
+	if authResp == nil {
+		t.Fatalf("expected AuthResp payload, got nil")
 	}
-	if success, ok := authReply["success"].(bool); !ok || !success {
-		t.Fatalf("expected auth success, got: %+v", authReply)
+	if !authResp.Success {
+		t.Fatalf("expected auth success, got: %+v", authResp)
 	}
 }
 
@@ -84,14 +82,15 @@ func TestGateway_Auth_InvalidToken(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     "this-is-an-invalid-token",
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    "this-is-an-invalid-token",
+				DeviceId: "web-001",
+			},
+		},
 	})
 
 	resp := wsReadPacket(t, wsConn, 2*time.Second)
@@ -99,12 +98,12 @@ func TestGateway_Auth_InvalidToken(t *testing.T) {
 		t.Fatalf("expected CMD_AUTH response, got %v", resp.Cmd)
 	}
 
-	var errReply map[string]interface{}
-	if err := json.Unmarshal(resp.Payload, &errReply); err != nil {
-		t.Fatalf("failed to unmarshal error reply: %v", err)
+	errResp := resp.GetError()
+	if errResp == nil {
+		t.Fatalf("expected Error payload, got nil")
 	}
-	if errReply["error"] != "invalid token" {
-		t.Fatalf("expected 'invalid token' error, got: %+v", errReply)
+	if errResp.Message != "invalid token" {
+		t.Fatalf("expected 'invalid token' error, got: %+v", errResp)
 	}
 }
 
@@ -116,14 +115,15 @@ func TestGateway_Auth_MissingToken(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     "",
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    "",
+				DeviceId: "web-001",
+			},
+		},
 	})
 
 	resp := wsReadPacket(t, wsConn, 2*time.Second)
@@ -131,12 +131,12 @@ func TestGateway_Auth_MissingToken(t *testing.T) {
 		t.Fatalf("expected CMD_AUTH response, got %v", resp.Cmd)
 	}
 
-	var errReply map[string]interface{}
-	if err := json.Unmarshal(resp.Payload, &errReply); err != nil {
-		t.Fatalf("failed to unmarshal error reply: %v", err)
+	errResp := resp.GetError()
+	if errResp == nil {
+		t.Fatalf("expected Error payload, got nil")
 	}
-	if errReply["error"] != "token required" {
-		t.Fatalf("expected 'token required' error, got: %+v", errReply)
+	if errResp.Message != "token required" {
+		t.Fatalf("expected 'token required' error, got: %+v", errResp)
 	}
 }
 
@@ -151,14 +151,15 @@ func TestGateway_Auth_DoubleAuth(t *testing.T) {
 	defer wsConn.Close()
 
 	// First auth
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 
 	resp1 := wsReadPacket(t, wsConn, 2*time.Second)
@@ -168,9 +169,14 @@ func TestGateway_Auth_DoubleAuth(t *testing.T) {
 
 	// Second auth should be rejected (no response or ignored)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     2,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 2,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 
 	// Connection should still be alive; send a heartbeat to verify
@@ -196,14 +202,15 @@ func TestGateway_Heartbeat(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate first
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second) // consume auth response
 
@@ -248,17 +255,17 @@ func TestGateway_Publish_WithoutAuth(t *testing.T) {
 	defer wsConn.Close()
 
 	// Try to publish without auth
-	req := &v1.SendMessageRequest{
-		Topic:       "p2p_1_2",
-		MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-		Content:     []byte("hello"),
-		ClientMsgId: "client-msg-001",
-	}
-	payload, _ := proto.Marshal(req)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     1,
-		Payload: payload,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 1,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("hello"),
+				ClientMsgId: "client-msg-001",
+			},
+		},
 	})
 
 	resp := wsReadPacket(t, wsConn, 2*time.Second)
@@ -266,12 +273,12 @@ func TestGateway_Publish_WithoutAuth(t *testing.T) {
 		t.Fatalf("expected CMD_PUBLISH response, got %v", resp.Cmd)
 	}
 
-	var errReply map[string]interface{}
-	if err := json.Unmarshal(resp.Payload, &errReply); err != nil {
-		t.Fatalf("failed to unmarshal error reply: %v", err)
+	errResp := resp.GetError()
+	if errResp == nil {
+		t.Fatalf("expected Error payload, got nil")
 	}
-	if errReply["error"] != "authentication required" {
-		t.Fatalf("expected 'authentication required' error, got: %+v", errReply)
+	if errResp.Message != "authentication required" {
+		t.Fatalf("expected 'authentication required' error, got: %+v", errResp)
 	}
 }
 
@@ -286,29 +293,30 @@ func TestGateway_Publish_WithAuth(t *testing.T) {
 	defer wsConn.Close()
 
 	// Authenticate
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-001",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-001",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second) // consume auth response
 
 	// Publish a message
-	req := &v1.SendMessageRequest{
-		Topic:       "p2p_1_2",
-		MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-		Content:     []byte("hello world"),
-		ClientMsgId: "client-msg-002",
-	}
-	payload, _ := proto.Marshal(req)
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     2,
-		Payload: payload,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 2,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("hello world"),
+				ClientMsgId: "client-msg-002",
+			},
+		},
 	})
 
 	resp := wsReadPacket(t, wsConn, 2*time.Second)
@@ -316,9 +324,9 @@ func TestGateway_Publish_WithAuth(t *testing.T) {
 		t.Fatalf("expected CMD_PUBLISH response, got %v", resp.Cmd)
 	}
 
-	var reply v1.SendMessageReply
-	if err := proto.Unmarshal(resp.Payload, &reply); err != nil {
-		t.Fatalf("failed to unmarshal publish reply: %v", err)
+	reply := resp.GetSendReply()
+	if reply == nil {
+		t.Fatalf("expected SendReply payload, got nil")
 	}
 	if reply.ClientMsgId != "client-msg-002" {
 		t.Fatalf("expected client_msg_id=client-msg-002, got %s", reply.ClientMsgId)
@@ -343,14 +351,15 @@ func TestGateway_MultiDevice_SameUser(t *testing.T) {
 	ws1 := wsConnect(t)
 	defer ws1.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "device-1",
-	})
 	wsSendPacket(t, ws1, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "device-1",
+			},
+		},
 	})
 	wsReadPacket(t, ws1, 2*time.Second)
 
@@ -358,14 +367,15 @@ func TestGateway_MultiDevice_SameUser(t *testing.T) {
 	ws2 := wsConnect(t)
 	defer ws2.Close()
 
-	authPayload2, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "device-2",
-	})
 	wsSendPacket(t, ws2, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload2,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "device-2",
+			},
+		},
 	})
 	wsReadPacket(t, ws2, 2*time.Second)
 
@@ -401,14 +411,15 @@ func TestGateway_ConnectionClose_Cleanup(t *testing.T) {
 
 	wsConn := wsConnect(t)
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "web-cleanup",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-cleanup",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -449,35 +460,41 @@ func TestGateway_BroadcastToUser(t *testing.T) {
 	// Connect two devices
 	ws1 := wsConnect(t)
 	defer ws1.Close()
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "device-a",
-	})
 	wsSendPacket(t, ws1, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "device-a",
+			},
+		},
 	})
 	wsReadPacket(t, ws1, 2*time.Second)
 
 	ws2 := wsConnect(t)
 	defer ws2.Close()
-	authPayload2, _ := json.Marshal(map[string]interface{}{
-		"token":     token,
-		"device_id": "device-b",
-	})
 	wsSendPacket(t, ws2, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload2,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "device-b",
+			},
+		},
 	})
 	wsReadPacket(t, ws2, 2*time.Second)
 
 	// Broadcast a message
 	broadcastPacket := &v1.Packet{
-		Cmd:     v1.Command_CMD_NOTIFY,
-		Seq:     99,
-		Payload: []byte("test broadcast"),
+		Cmd: v1.Command_CMD_NOTIFY,
+		Seq: 99,
+		Payload: &v1.Packet_Notify{
+			Notify: &v1.MessagePush{
+				Content: []byte("test broadcast"),
+			},
+		},
 	}
 	sent := ts.gwManager.BroadcastToUser(userID, broadcastPacket)
 	if sent != 2 {
@@ -489,16 +506,16 @@ func TestGateway_BroadcastToUser(t *testing.T) {
 	if resp1.Cmd != v1.Command_CMD_NOTIFY {
 		t.Fatalf("device-a expected CMD_NOTIFY, got %v", resp1.Cmd)
 	}
-	if string(resp1.Payload) != "test broadcast" {
-		t.Fatalf("device-a expected 'test broadcast', got %s", string(resp1.Payload))
+	if string(resp1.GetNotify().GetContent()) != "test broadcast" {
+		t.Fatalf("device-a expected 'test broadcast', got %s", string(resp1.GetNotify().GetContent()))
 	}
 
 	resp2 := wsReadPacket(t, ws2, 2*time.Second)
 	if resp2.Cmd != v1.Command_CMD_NOTIFY {
 		t.Fatalf("device-b expected CMD_NOTIFY, got %v", resp2.Cmd)
 	}
-	if string(resp2.Payload) != "test broadcast" {
-		t.Fatalf("device-b expected 'test broadcast', got %s", string(resp2.Payload))
+	if string(resp2.GetNotify().GetContent()) != "test broadcast" {
+		t.Fatalf("device-b expected 'test broadcast', got %s", string(resp2.GetNotify().GetContent()))
 	}
 }
 
@@ -519,14 +536,15 @@ func TestGateway_ManagerCounts(t *testing.T) {
 	token1, _ := registerAndLogin(t, "count-user-1", "123456")
 	ws1 := wsConnect(t)
 	defer ws1.Close()
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     token1,
-		"device_id": "d1",
-	})
 	wsSendPacket(t, ws1, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token1,
+				DeviceId: "d1",
+			},
+		},
 	})
 	wsReadPacket(t, ws1, 2*time.Second)
 
@@ -541,14 +559,15 @@ func TestGateway_ManagerCounts(t *testing.T) {
 	token2, _ := registerAndLogin(t, "count-user-2", "123456")
 	ws2 := wsConnect(t)
 	defer ws2.Close()
-	authPayload2, _ := json.Marshal(map[string]interface{}{
-		"token":     token2,
-		"device_id": "d1",
-	})
 	wsSendPacket(t, ws2, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload2,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token2,
+				DeviceId: "d1",
+			},
+		},
 	})
 	wsReadPacket(t, ws2, 2*time.Second)
 
@@ -595,10 +614,7 @@ func TestGateway_WebSocket_BinaryFrame(t *testing.T) {
 		Cmd: v1.Command_CMD_HEARTBEAT,
 		Seq: 1,
 	}
-	data, _ := proto.Marshal(packet)
-	if err := wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		t.Fatalf("failed to write binary message: %v", err)
-	}
+	wsSendPacket(t, wsConn, packet)
 
 	resp := wsReadPacket(t, wsConn, 2*time.Second)
 	if resp.Cmd != v1.Command_CMD_HEARTBEAT {

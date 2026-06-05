@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package api.im.v1;
 
+import "im/v1/message.proto";
+
 option go_package = "nonoka-im/api/im/v1;v1";
 
 enum Command {
@@ -14,8 +16,62 @@ enum Command {
   CMD_NOTIFY = 6;      // server -> client: push notification
 }
 
+// Packet is the unified wire format for all WebSocket messages.
+// The payload is self-describing via oneof — clients no longer need to
+// guess the serialization format for each command.
 message Packet {
   Command cmd = 1;
   uint64 seq = 2;
-  bytes payload = 3;
+
+  // Typed payload — exactly one field is set per packet.
+  oneof payload {
+    // CMD_AUTH
+    AuthRequest  auth_req  = 10;
+    AuthResponse auth_resp = 11;
+
+    // CMD_PUBLISH
+    SendMessageRequest send_req   = 20;
+    SendMessageReply   send_reply = 21;
+
+    // CMD_PULL
+    PullRequest pull_req   = 30;
+    PullReply   pull_reply = 31;
+
+    // CMD_ACK
+    AckRequest ack_req = 40;
+
+    // CMD_NOTIFY
+    MessagePush notify = 50;
+
+    // Unified error response (can be returned for any command).
+    ErrorResponse error = 99;
+  }
+}
+
+// AuthRequest is sent by the client to authenticate the WebSocket connection.
+message AuthRequest {
+  string token     = 1;
+  string device_id = 2;
+}
+
+// AuthResponse is returned by the server after successful authentication.
+message AuthResponse {
+  bool   success = 1;
+  int64  user_id = 2;
+  string device_id = 3;
+}
+
+// AckRequest is sent by the client to acknowledge receipt of a pushed message.
+message AckRequest {
+  int64  msg_id    = 1; // confirmed message ID
+  string topic     = 2; // topic the message belongs to
+  uint64 topic_seq = 3; // sequence number being acknowledged
+}
+
+// ErrorResponse is the unified error format returned by the server.
+message ErrorResponse {
+  int32  code          = 1; // business error code
+  string message       = 2; // human-readable description
+  bool   retryable     = 3; // whether the client should retry
+  uint64 retry_after_ms = 4; // suggested retry delay in milliseconds
 }

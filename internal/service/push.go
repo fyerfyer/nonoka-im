@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/go-kratos/kratos/v2/log"
-	"google.golang.org/protobuf/proto"
 	pb "nonoka-im/api/im/v1"
 	"nonoka-im/internal/gateway"
 )
@@ -31,15 +30,11 @@ func (s *PushService) PushToUser(ctx context.Context, req *pb.PushToUserRequest)
 		return &pb.PushToUserReply{Success: false, DeliveredCount: 0}, nil
 	}
 
-	payload, err := proto.Marshal(msg)
-	if err != nil {
-		s.log.Errorf("marshal push message failed: %v", err)
-		return &pb.PushToUserReply{Success: false, DeliveredCount: 0}, nil
-	}
-
 	packet := &pb.Packet{
-		Cmd:     pb.Command_CMD_NOTIFY,
-		Payload: payload,
+		Cmd: pb.Command_CMD_NOTIFY,
+		Payload: &pb.Packet_Notify{
+			Notify: msg,
+		},
 	}
 
 	delivered := s.manager.BroadcastToUser(req.GetUserId(), packet)
@@ -58,15 +53,11 @@ func (s *PushService) BatchPushToUsers(ctx context.Context, req *pb.BatchPushToU
 		return &pb.BatchPushToUsersReply{TotalDelivered: 0}, nil
 	}
 
-	payload, err := proto.Marshal(msg)
-	if err != nil {
-		s.log.Errorf("marshal batch push message failed: %v", err)
-		return &pb.BatchPushToUsersReply{TotalDelivered: 0}, nil
-	}
-
 	packet := &pb.Packet{
-		Cmd:     pb.Command_CMD_NOTIFY,
-		Payload: payload,
+		Cmd: pb.Command_CMD_NOTIFY,
+		Payload: &pb.Packet_Notify{
+			Notify: msg,
+		},
 	}
 
 	totalDelivered := 0
@@ -83,7 +74,7 @@ func (s *PushService) BatchPushToUsers(ctx context.Context, req *pb.BatchPushToU
 	s.log.Debugf("batch push: users=%d, total_delivered=%d", len(req.GetUserIds()), totalDelivered)
 
 	return &pb.BatchPushToUsersReply{
-		TotalDelivered:  int32(totalDelivered),
-		FailedUserIds:   failedUserIDs,
+		TotalDelivered: int32(totalDelivered),
+		FailedUserIds:  failedUserIDs,
 	}, nil
 }

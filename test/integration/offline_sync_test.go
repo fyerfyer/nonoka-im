@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -647,14 +646,15 @@ func TestGateway_Pull_P2POfflineMessages(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(receiverID, ts.authConf.JwtSecret),
-		"device_id": "web-pull-test",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(receiverID, ts.authConf.JwtSecret),
+				DeviceId: "web-pull-test",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second) // consume auth response
 
@@ -664,11 +664,10 @@ func TestGateway_Pull_P2POfflineMessages(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayload, _ := proto.Marshal(pullReq)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayload,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq},
 	})
 
 	// Read pull response
@@ -680,9 +679,9 @@ func TestGateway_Pull_P2POfflineMessages(t *testing.T) {
 		t.Fatalf("expected seq=2, got %d", resp.Seq)
 	}
 
-	var pullReply v1.PullReply
-	if err := proto.Unmarshal(resp.Payload, &pullReply); err != nil {
-		t.Fatalf("failed to unmarshal pull reply: %v", err)
+	pullReply := resp.GetPullReply()
+	if pullReply == nil {
+		t.Fatalf("expected PullReply payload, got nil")
 	}
 
 	if len(pullReply.Messages) != 3 {
@@ -691,8 +690,8 @@ func TestGateway_Pull_P2POfflineMessages(t *testing.T) {
 	if pullReply.HasMore {
 		t.Fatal("expected has_more=false")
 	}
-	if pullReply.NextSeq != 3 {
-		t.Fatalf("expected next_seq=3, got %d", pullReply.NextSeq)
+	if pullReply.NextSeq != 4 {
+		t.Fatalf("expected next_seq=6, got %d", pullReply.NextSeq)
 	}
 
 	// Verify message content and order
@@ -748,14 +747,15 @@ func TestGateway_Pull_GroupOfflineMessages(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(userID, ts.authConf.JwtSecret),
-		"device_id": "web-grp-pull",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(userID, ts.authConf.JwtSecret),
+				DeviceId: "web-grp-pull",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -765,11 +765,10 @@ func TestGateway_Pull_GroupOfflineMessages(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayload, _ := proto.Marshal(pullReq)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayload,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq},
 	})
 
 	resp := wsReadPacket(t, wsConn, 3*time.Second)
@@ -777,9 +776,9 @@ func TestGateway_Pull_GroupOfflineMessages(t *testing.T) {
 		t.Fatalf("expected CMD_PULL response, got %v", resp.Cmd)
 	}
 
-	var pullReply v1.PullReply
-	if err := proto.Unmarshal(resp.Payload, &pullReply); err != nil {
-		t.Fatalf("failed to unmarshal pull reply: %v", err)
+	pullReply := resp.GetPullReply()
+	if pullReply == nil {
+		t.Fatalf("expected PullReply payload, got nil")
 	}
 
 	if len(pullReply.Messages) != 3 {
@@ -869,14 +868,15 @@ func TestGateway_Pull_MentionMessages(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(mentionedUserID, ts.authConf.JwtSecret),
-		"device_id": "web-mention-pull",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(mentionedUserID, ts.authConf.JwtSecret),
+				DeviceId: "web-mention-pull",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -886,11 +886,10 @@ func TestGateway_Pull_MentionMessages(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayload, _ := proto.Marshal(pullReq)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayload,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq},
 	})
 
 	resp := wsReadPacket(t, wsConn, 3*time.Second)
@@ -898,9 +897,9 @@ func TestGateway_Pull_MentionMessages(t *testing.T) {
 		t.Fatalf("expected CMD_PULL response, got %v", resp.Cmd)
 	}
 
-	var pullReply v1.PullReply
-	if err := proto.Unmarshal(resp.Payload, &pullReply); err != nil {
-		t.Fatalf("failed to unmarshal pull reply: %v", err)
+	pullReply := resp.GetPullReply()
+	if pullReply == nil {
+		t.Fatalf("expected PullReply payload, got nil")
 	}
 
 	// Should have 3 messages: regular (seq1), mention (seq2), group copy of mention (seq2)
@@ -957,14 +956,15 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(receiverID, ts.authConf.JwtSecret),
-		"device_id": "web-page-pull",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(receiverID, ts.authConf.JwtSecret),
+				DeviceId: "web-page-pull",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -974,16 +974,17 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 		LastSeq: 0,
 		Limit:   2,
 	}
-	pullPayload, _ := proto.Marshal(pullReq)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayload,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq},
 	})
 
 	resp1 := wsReadPacket(t, wsConn, 3*time.Second)
-	var reply1 v1.PullReply
-	proto.Unmarshal(resp1.Payload, &reply1)
+	reply1 := resp1.GetPullReply()
+	if reply1 == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	if len(reply1.Messages) != 2 {
 		t.Fatalf("expected 2 messages on page 1, got %d", len(reply1.Messages))
@@ -991,8 +992,8 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 	if !reply1.HasMore {
 		t.Fatal("expected has_more=true on page 1")
 	}
-	if reply1.NextSeq != 2 {
-		t.Fatalf("expected next_seq=2, got %d", reply1.NextSeq)
+	if reply1.NextSeq != 3 {
+		t.Fatalf("expected next_seq=3, got %d", reply1.NextSeq)
 	}
 
 	// Page 2: limit=2, lastSeq=2
@@ -1001,16 +1002,17 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 		LastSeq: 2,
 		Limit:   2,
 	}
-	pullPayload2, _ := proto.Marshal(pullReq2)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     3,
-		Payload: pullPayload2,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq2},
 	})
 
 	resp2 := wsReadPacket(t, wsConn, 3*time.Second)
-	var reply2 v1.PullReply
-	proto.Unmarshal(resp2.Payload, &reply2)
+	reply2 := resp2.GetPullReply()
+	if reply2 == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	if len(reply2.Messages) != 2 {
 		t.Fatalf("expected 2 messages on page 2, got %d", len(reply2.Messages))
@@ -1018,8 +1020,8 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 	if !reply2.HasMore {
 		t.Fatal("expected has_more=true on page 2")
 	}
-	if reply2.NextSeq != 4 {
-		t.Fatalf("expected next_seq=4, got %d", reply2.NextSeq)
+	if reply2.NextSeq != 5 {
+		t.Fatalf("expected next_seq=6, got %d", reply2.NextSeq)
 	}
 
 	// Page 3: limit=2, lastSeq=4
@@ -1028,16 +1030,17 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 		LastSeq: 4,
 		Limit:   2,
 	}
-	pullPayload3, _ := proto.Marshal(pullReq3)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     4,
-		Payload: pullPayload3,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq3},
 	})
 
 	resp3 := wsReadPacket(t, wsConn, 3*time.Second)
-	var reply3 v1.PullReply
-	proto.Unmarshal(resp3.Payload, &reply3)
+	reply3 := resp3.GetPullReply()
+	if reply3 == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	if len(reply3.Messages) != 1 {
 		t.Fatalf("expected 1 message on page 3, got %d", len(reply3.Messages))
@@ -1045,8 +1048,8 @@ func TestGateway_Pull_Pagination(t *testing.T) {
 	if reply3.HasMore {
 		t.Fatal("expected has_more=false on page 3")
 	}
-	if reply3.NextSeq != 5 {
-		t.Fatalf("expected next_seq=5, got %d", reply3.NextSeq)
+	if reply3.NextSeq != 6 {
+		t.Fatalf("expected next_seq=6, got %d", reply3.NextSeq)
 	}
 
 	t.Logf("gateway pull pagination verified: 5 messages in 3 pages")
@@ -1063,14 +1066,15 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(userID, ts.authConf.JwtSecret),
-		"device_id": "web-empty-pull",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(userID, ts.authConf.JwtSecret),
+				DeviceId: "web-empty-pull",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -1080,11 +1084,10 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayload, _ := proto.Marshal(pullReq)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayload,
+		Payload: &v1.Packet_PullReq{PullReq: pullReq},
 	})
 
 	resp := wsReadPacket(t, wsConn, 3*time.Second)
@@ -1092,9 +1095,9 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 		t.Fatalf("expected CMD_PULL response, got %v", resp.Cmd)
 	}
 
-	var pullReply v1.PullReply
-	if err := proto.Unmarshal(resp.Payload, &pullReply); err != nil {
-		t.Fatalf("failed to unmarshal pull reply: %v", err)
+	pullReply := resp.GetPullReply()
+	if pullReply == nil {
+		t.Fatalf("expected PullReply payload, got nil")
 	}
 
 	if len(pullReply.Messages) != 0 {
@@ -1218,14 +1221,15 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(mentionedID, ts.authConf.JwtSecret),
-		"device_id": "web-mention-push",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(mentionedID, ts.authConf.JwtSecret),
+				DeviceId: "web-mention-push",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 	time.Sleep(100 * time.Millisecond)
@@ -1256,9 +1260,9 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 		t.Fatalf("expected CMD_NOTIFY, got %v", pushedPacket.Cmd)
 	}
 
-	var pushMsg v1.MessagePush
-	if err := proto.Unmarshal(pushedPacket.Payload, &pushMsg); err != nil {
-		t.Fatalf("failed to unmarshal push message: %v", err)
+	pushMsg := pushedPacket.GetNotify()
+	if pushMsg == nil {
+		t.Fatalf("expected Notify payload, got nil")
 	}
 	if pushMsg.SenderId != senderID {
 		t.Fatalf("expected sender_id=%d, got %d", senderID, pushMsg.SenderId)
@@ -1488,14 +1492,15 @@ func TestOfflineSync_FullScenario(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(receiverID, ts.authConf.JwtSecret),
-		"device_id": "web-full-sync",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(receiverID, ts.authConf.JwtSecret),
+				DeviceId: "web-full-sync",
+			},
+		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
@@ -1505,22 +1510,23 @@ func TestOfflineSync_FullScenario(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayloadP2P, _ := proto.Marshal(pullReqP2P)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     2,
-		Payload: pullPayloadP2P,
+		Payload: &v1.Packet_PullReq{PullReq: pullReqP2P},
 	})
 
 	respP2P := wsReadPacket(t, wsConn, 3*time.Second)
-	var replyP2P v1.PullReply
-	proto.Unmarshal(respP2P.Payload, &replyP2P)
+	replyP2P := respP2P.GetPullReply()
+	if replyP2P == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	if len(replyP2P.Messages) != 3 {
 		t.Fatalf("expected 3 P2P messages, got %d", len(replyP2P.Messages))
 	}
-	if replyP2P.NextSeq != 3 {
-		t.Fatalf("expected P2P next_seq=3, got %d", replyP2P.NextSeq)
+	if replyP2P.NextSeq != 4 {
+		t.Fatalf("expected P2P next_seq=4, got %d", replyP2P.NextSeq)
 	}
 
 	// Phase 4: Pull group messages (should include regular + mention)
@@ -1529,16 +1535,17 @@ func TestOfflineSync_FullScenario(t *testing.T) {
 		LastSeq: 0,
 		Limit:   50,
 	}
-	pullPayloadGrp, _ := proto.Marshal(pullReqGrp)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     3,
-		Payload: pullPayloadGrp,
+		Payload: &v1.Packet_PullReq{PullReq: pullReqGrp},
 	})
 
 	respGrp := wsReadPacket(t, wsConn, 3*time.Second)
-	var replyGrp v1.PullReply
-	proto.Unmarshal(respGrp.Payload, &replyGrp)
+	replyGrp := respGrp.GetPullReply()
+	if replyGrp == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	// Should have: 2 regular group + 1 mention = 3 messages
 	if len(replyGrp.Messages) != 3 {
@@ -1572,16 +1579,17 @@ func TestOfflineSync_FullScenario(t *testing.T) {
 		LastSeq: 3,
 		Limit:   50,
 	}
-	pullPayloadP2P2, _ := proto.Marshal(pullReqP2P2)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd:     v1.Command_CMD_PULL,
 		Seq:     4,
-		Payload: pullPayloadP2P2,
+		Payload: &v1.Packet_PullReq{PullReq: pullReqP2P2},
 	})
 
 	respP2P2 := wsReadPacket(t, wsConn, 3*time.Second)
-	var replyP2P2 v1.PullReply
-	proto.Unmarshal(respP2P2.Payload, &replyP2P2)
+	replyP2P2 := respP2P2.GetPullReply()
+	if replyP2P2 == nil {
+		t.Fatalf("expected PullReply payload, got nil")
+	}
 
 	if len(replyP2P2.Messages) != 0 {
 		t.Fatalf("expected 0 messages after sync, got %d", len(replyP2P2.Messages))

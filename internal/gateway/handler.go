@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -10,7 +10,6 @@ import (
 	"nonoka-im/internal/msgworker"
 
 	jwt5 "github.com/golang-jwt/jwt/v5"
-	"google.golang.org/protobuf/proto"
 )
 
 // Handler handles incoming WebSocket packets.
@@ -27,7 +26,6 @@ type Handler struct {
 	heartbeatTimeout  time.Duration
 
 	// Send timeout for critical messages (e.g., ACKs, auth responses).
-	// Use non-blocking Send for heartbeats and non-critical traffic.
 	sendTimeout time.Duration
 }
 
@@ -89,12 +87,6 @@ func (h *Handler) handleHeartbeat(c *Connection, packet *v1.Packet) {
 	})
 }
 
-// AuthPayload represents the authentication request body.
-type AuthPayload struct {
-	Token    string `json:"token"`
-	DeviceID string `json:"device_id"`
-}
-
 // handleAuth validates JWT token and binds the connection to a user.
 func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 	if c.State() != ConnStateConnected {
@@ -102,20 +94,19 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 		return
 	}
 
-	var payload AuthPayload
-	if err := json.Unmarshal(packet.Payload, &payload); err != nil {
-		h.log.Warnf("auth unmarshal failed: conn %s, err=%v", c.ConnID(), err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, "invalid payload")
+	req := packet.GetAuthReq()
+	if req == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, 4001, "invalid payload")
 		return
 	}
 
-	if payload.Token == "" {
-		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, "token required")
+	if req.Token == "" {
+		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, 4002, "token required")
 		return
 	}
 
 	// Parse and validate JWT
-	token, err := jwt5.Parse(payload.Token, func(token *jwt5.Token) (interface{}, error) {
+	token, err := jwt5.Parse(req.Token, func(token *jwt5.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt5.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken
 		}
@@ -123,23 +114,23 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 	})
 	if err != nil || !token.Valid {
 		h.log.Warnf("auth invalid token: conn %s, err=%v", c.ConnID(), err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, "invalid token")
+		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, 4003, "invalid token")
 		return
 	}
 
 	claims, ok := token.Claims.(jwt5.MapClaims)
 	if !ok {
-		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, "invalid claims")
+		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, 4004, "invalid claims")
 		return
 	}
 
 	userID, ok := claims["user_id"].(float64)
 	if !ok {
-		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, "invalid user_id")
+		h.sendError(c, packet.Seq, v1.Command_CMD_AUTH, 4005, "invalid user_id")
 		return
 	}
 
-	deviceID := payload.DeviceID
+	deviceID := req.DeviceId
 	if deviceID == "" {
 		deviceID = "default"
 	}
@@ -160,14 +151,16 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 	}
 
 	// Send auth success response (critical: client is waiting).
-	authReply, _ := json.Marshal(map[string]interface{}{
-		"success": true,
-		"user_id": int64(userID),
-	})
 	_ = c.SendWithTimeout(&v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     packet.Seq,
-		Payload: authReply,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: packet.Seq,
+		Payload: &v1.Packet_AuthResp{
+			AuthResp: &v1.AuthResponse{
+				Success:  true,
+				UserId:   int64(userID),
+				DeviceId: deviceID,
+			},
+		},
 	}, h.sendTimeout)
 
 	h.log.Infof("auth success: user_id=%d, conn_id=%s, device_id=%s", int64(userID), c.ConnID(), deviceID)
@@ -177,31 +170,30 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 // It validates the message, produces it to Kafka, and ACKs the client.
 func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 	if c.State() != ConnStateAuthed {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "authentication required")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4001, "authentication required")
 		return
 	}
 
-	var req v1.SendMessageRequest
-	if err := proto.Unmarshal(packet.Payload, &req); err != nil {
-		h.log.Warnf("publish unmarshal failed: conn %s, err=%v", c.ConnID(), err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "invalid message format")
+	req := packet.GetSendReq()
+	if req == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4001, "invalid message format")
 		return
 	}
 
 	// Basic validation
 	if req.Topic == "" {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "topic required")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4006, "topic required")
 		return
 	}
 	if req.ClientMsgId == "" {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "client_msg_id required")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4007, "client_msg_id required")
 		return
 	}
 
 	// Message size limit (64KB max content to prevent abuse).
 	const maxContentSize = 64 * 1024
 	if len(req.Content) > maxContentSize {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "message too large")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4008, "message too large")
 		return
 	}
 
@@ -225,39 +217,38 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 	if err := h.producer.Produce(ctx, upstream); err != nil {
 		h.log.Errorf("produce to kafka failed: user_id=%d, client_msg_id=%s, err=%v",
 			c.UserID(), req.ClientMsgId, err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, "message delivery failed")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 5001, "message delivery failed")
 		return
 	}
 
 	// Send ACK (critical: client is waiting for confirmation).
-	reply, _ := proto.Marshal(&v1.SendMessageReply{
-		ClientMsgId: req.ClientMsgId,
-		Timestamp:   upstream.Timestamp,
-	})
-
 	_ = c.SendWithTimeout(&v1.Packet{
-		Cmd:     v1.Command_CMD_PUBLISH,
-		Seq:     packet.Seq,
-		Payload: reply,
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: packet.Seq,
+		Payload: &v1.Packet_SendReply{
+			SendReply: &v1.SendMessageReply{
+				ClientMsgId: req.ClientMsgId,
+				Timestamp:   upstream.Timestamp,
+			},
+		},
 	}, h.sendTimeout)
 }
 
 // handlePull handles offline message pull requests.
 func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 	if c.State() != ConnStateAuthed {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "authentication required")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4001, "authentication required")
 		return
 	}
 
-	var req v1.PullRequest
-	if err := proto.Unmarshal(packet.Payload, &req); err != nil {
-		h.log.Warnf("pull unmarshal failed: conn %s, err=%v", c.ConnID(), err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "invalid request format")
+	req := packet.GetPullReq()
+	if req == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4001, "invalid request format")
 		return
 	}
 
 	if req.Topic == "" {
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "topic required")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4006, "topic required")
 		return
 	}
 
@@ -268,7 +259,6 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 
 	topicType := msgworker.ParseTopicType(req.Topic)
 	var pullMessages []*v1.PullMessage
-	var nextSeq uint64
 	var hasMore bool
 
 	switch topicType {
@@ -277,115 +267,159 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 		msgs, err := h.storage.GetOfflineMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
 		if err != nil {
 			h.log.Warnf("get offline messages failed: user_id=%d, err=%v", c.UserID(), err)
-			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "failed to fetch messages")
+			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
 			return
 		}
-		for _, m := range msgs {
-			pullMessages = append(pullMessages, &v1.PullMessage{
-				MsgId:     m.MsgID,
-				Topic:     m.Topic,
-				SenderId:  m.SenderID,
-				MsgType:   m.MsgType,
-				Content:   m.Content,
-				Timestamp: m.Timestamp,
-				TopicSeq:  m.TopicSeq,
-			})
-			if m.TopicSeq > nextSeq {
-				nextSeq = m.TopicSeq
-			}
-		}
+		pullMessages = inboxToPullMessages(msgs)
 		hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
 
 	case msgworker.TopicTypeGroup:
 		// Group messages are stored in messages collection (read扩散).
-		msgs, err := h.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, int(req.Limit))
+		groupMsgs, err := h.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, int(req.Limit))
 		if err != nil {
 			h.log.Warnf("get group messages failed: user_id=%d, err=%v", c.UserID(), err)
-			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "failed to fetch messages")
+			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
 			return
 		}
-		for _, m := range msgs {
-			pullMessages = append(pullMessages, &v1.PullMessage{
-				MsgId:     m.MsgID,
-				Topic:     m.Topic,
-				SenderId:  m.SenderID,
-				MsgType:   m.MsgType,
-				Content:   m.Content,
-				Timestamp: m.Timestamp,
-				TopicSeq:  m.TopicSeq,
-			})
-			if m.TopicSeq > nextSeq {
-				nextSeq = m.TopicSeq
-			}
-		}
-		hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
 
 		// Also fetch @mention messages for the user in this group.
 		mentionMsgs, err := h.storage.GetMentionMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
 		if err != nil {
 			h.log.Warnf("get mention messages failed: user_id=%d, err=%v", c.UserID(), err)
 			// Non-fatal: continue without mentions
-		} else {
-			for _, m := range mentionMsgs {
-				// Avoid duplicates: mentions are also in the group messages collection,
-				// but the client should deduplicate by msg_id.
-				pullMessages = append(pullMessages, &v1.PullMessage{
-					MsgId:     m.MsgID,
-					Topic:     m.Topic,
-					SenderId:  m.SenderID,
-					MsgType:   m.MsgType,
-					Content:   m.Content,
-					Timestamp: m.Timestamp,
-					TopicSeq:  m.TopicSeq,
-				})
-				if m.TopicSeq > nextSeq {
-					nextSeq = m.TopicSeq
-				}
-			}
 		}
 
+		// Merge and sort by topic_seq to ensure correct order.
+		pullMessages = mergeAndSortMessages(groupMsgs, mentionMsgs)
+
+		// Apply limit after merge.
+		if len(pullMessages) > int(req.Limit) && int(req.Limit) > 0 {
+			pullMessages = pullMessages[:req.Limit]
+		}
+		hasMore = len(pullMessages) >= int(req.Limit) && int(req.Limit) > 0
+
 	default:
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "invalid topic")
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4009, "invalid topic")
 		return
 	}
 
-	reply, err := proto.Marshal(&v1.PullReply{
-		Messages: pullMessages,
-		HasMore:  hasMore,
-		NextSeq:  nextSeq,
-	})
-	if err != nil {
-		h.log.Errorf("marshal pull reply failed: %v", err)
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, "internal error")
-		return
+	// Compute next_seq: if we have messages, next_seq = last_message.topic_seq + 1.
+	// This means "client should start pulling from this seq next time".
+	// The query condition remains $gt: lastSeq, so using lastSeq = nextSeq will
+	// correctly fetch messages after the last one we returned.
+	var nextSeq uint64
+	if len(pullMessages) > 0 {
+		nextSeq = pullMessages[len(pullMessages)-1].TopicSeq + 1
 	}
 
 	_ = c.SendWithTimeout(&v1.Packet{
-		Cmd:     v1.Command_CMD_PULL,
-		Seq:     packet.Seq,
-		Payload: reply,
+		Cmd: v1.Command_CMD_PULL,
+		Seq: packet.Seq,
+		Payload: &v1.Packet_PullReply{
+			PullReply: &v1.PullReply{
+				Messages: pullMessages,
+				HasMore:  hasMore,
+				NextSeq:  nextSeq,
+			},
+		},
 	}, h.sendTimeout)
 
-	h.log.Debugf("pull reply sent: user_id=%d, topic=%s, count=%d", c.UserID(), req.Topic, len(pullMessages))
+	h.log.Debugf("pull reply sent: user_id=%d, topic=%s, count=%d, next_seq=%d",
+		c.UserID(), req.Topic, len(pullMessages), nextSeq)
+}
+
+// inboxToPullMessages converts inbox messages to PullMessage protobufs.
+func inboxToPullMessages(msgs []*msgworker.InboxMessage) []*v1.PullMessage {
+	result := make([]*v1.PullMessage, len(msgs))
+	for i, m := range msgs {
+		result[i] = &v1.PullMessage{
+			MsgId:     m.MsgID,
+			Topic:     m.Topic,
+			SenderId:  m.SenderID,
+			MsgType:   m.MsgType,
+			Content:   m.Content,
+			Timestamp: m.Timestamp,
+			TopicSeq:  m.TopicSeq,
+		}
+	}
+	return result
+}
+
+// mergeAndSortMessages merges group messages and mention messages,
+// then sorts the result by topic_seq in ascending order.
+func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*msgworker.MentionMessage) []*v1.PullMessage {
+	// Pre-allocate with total capacity.
+	total := len(groupMsgs) + len(mentionMsgs)
+	result := make([]*v1.PullMessage, 0, total)
+
+	for _, m := range groupMsgs {
+		result = append(result, &v1.PullMessage{
+			MsgId:     m.MsgID,
+			Topic:     m.Topic,
+			SenderId:  m.SenderID,
+			MsgType:   m.MsgType,
+			Content:   m.Content,
+			Timestamp: m.Timestamp,
+			TopicSeq:  m.TopicSeq,
+		})
+	}
+	for _, m := range mentionMsgs {
+		result = append(result, &v1.PullMessage{
+			MsgId:     m.MsgID,
+			Topic:     m.Topic,
+			SenderId:  m.SenderID,
+			MsgType:   m.MsgType,
+			Content:   m.Content,
+			Timestamp: m.Timestamp,
+			TopicSeq:  m.TopicSeq,
+		})
+	}
+
+	// Sort by topic_seq ascending. Stable sort preserves original order for equal seqs.
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].TopicSeq < result[j].TopicSeq
+	})
+
+	return result
 }
 
 // handleAck handles client ACKs for delivered messages.
+// Updates the delivery status in MongoDB so the server knows the client received the push.
 func (h *Handler) handleAck(c *Connection, packet *v1.Packet) {
 	if c.State() != ConnStateAuthed {
 		return
 	}
-	// TODO: update message delivery status
+
+	req := packet.GetAckReq()
+	if req == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Update delivery status in storage.
+	if err := h.storage.UpdateDeliveryStatus(ctx, c.UserID(), req.Topic, req.TopicSeq); err != nil {
+		h.log.Warnf("update delivery status failed: user_id=%d, topic=%s, seq=%d, err=%v",
+			c.UserID(), req.Topic, req.TopicSeq, err)
+	} else {
+		h.log.Debugf("ack received: user_id=%d, topic=%s, msg_id=%d, seq=%d",
+			c.UserID(), req.Topic, req.MsgId, req.TopicSeq)
+	}
 }
 
-// sendError sends an error response to the client.
-func (h *Handler) sendError(c *Connection, seq uint64, cmd v1.Command, message string) {
-	payload, _ := json.Marshal(map[string]interface{}{
-		"error": message,
-	})
+// sendError sends a structured error response to the client.
+func (h *Handler) sendError(c *Connection, seq uint64, cmd v1.Command, code int32, message string) {
 	_ = c.SendWithTimeout(&v1.Packet{
-		Cmd:     cmd,
-		Seq:     seq,
-		Payload: payload,
+		Cmd: cmd,
+		Seq: seq,
+		Payload: &v1.Packet_Error{
+			Error: &v1.ErrorResponse{
+				Code:      code,
+				Message:   message,
+				Retryable: code >= 5000, // server errors are retryable
+			},
+		},
 	}, h.sendTimeout)
 }
 

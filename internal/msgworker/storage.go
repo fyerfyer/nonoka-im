@@ -19,9 +19,10 @@ const (
 	CollectionInboxes        = "inboxes"         // user inboxes (write扩散 for P2P)
 	CollectionTopicSeqs      = "topic_seqs"      // topic max seq backup
 	CollectionMentionInboxes = "mention_inboxes" // group @mention inbox (for large groups)
+	CollectionDeliveryStatus = "delivery_status" // message delivery tracking per user
 )
 
-// StoredMessage represents a message stored in MongoDB.
+// StoredMessage represents a message stored in MongoDB (read扩散 for groups).
 type StoredMessage struct {
 	MsgID       int64     `bson:"msg_id"`
 	Topic       string    `bson:"topic"`
@@ -36,16 +37,18 @@ type StoredMessage struct {
 
 // InboxMessage represents a message in user's inbox (write扩散).
 type InboxMessage struct {
-	UserID    int64     `bson:"user_id"`
-	MsgID     int64     `bson:"msg_id"`
-	Topic     string    `bson:"topic"`
-	SenderID  int64     `bson:"sender_id"`
-	MsgType   int32     `bson:"msg_type"`
-	Content   []byte    `bson:"content"`
-	Timestamp int64     `bson:"timestamp"`
-	TopicSeq  uint64    `bson:"topic_seq"`
-	Read      bool      `bson:"read"`
-	CreatedAt time.Time `bson:"created_at"`
+	UserID      int64     `bson:"user_id"`
+	MsgID       int64     `bson:"msg_id"`
+	Topic       string    `bson:"topic"`
+	SenderID    int64     `bson:"sender_id"`
+	MsgType     int32     `bson:"msg_type"`
+	Content     []byte    `bson:"content"`
+	Timestamp   int64     `bson:"timestamp"`
+	TopicSeq    uint64    `bson:"topic_seq"`
+	ClientMsgID string    `bson:"client_msg_id,omitempty"`
+	Read        bool      `bson:"read"`
+	DeliveredAt time.Time `bson:"delivered_at,omitempty"`
+	CreatedAt   time.Time `bson:"created_at"`
 }
 
 // TopicSeqBackup stores the max seq for a topic as a fallback.
@@ -58,16 +61,28 @@ type TopicSeqBackup struct {
 // MentionMessage stores @mention notifications for users in large groups.
 // This is a special write扩散 for @mentions in read扩散 groups.
 type MentionMessage struct {
-	UserID    int64     `bson:"user_id"`
-	MsgID     int64     `bson:"msg_id"`
-	Topic     string    `bson:"topic"`
-	SenderID  int64     `bson:"sender_id"`
-	MsgType   int32     `bson:"msg_type"`
-	Content   []byte    `bson:"content"`
-	Timestamp int64     `bson:"timestamp"`
-	TopicSeq  uint64    `bson:"topic_seq"`
-	Read      bool      `bson:"read"`
-	CreatedAt time.Time `bson:"created_at"`
+	UserID      int64     `bson:"user_id"`
+	MsgID       int64     `bson:"msg_id"`
+	Topic       string    `bson:"topic"`
+	SenderID    int64     `bson:"sender_id"`
+	MsgType     int32     `bson:"msg_type"`
+	Content     []byte    `bson:"content"`
+	Timestamp   int64     `bson:"timestamp"`
+	TopicSeq    uint64    `bson:"topic_seq"`
+	ClientMsgID string    `bson:"client_msg_id,omitempty"`
+	Read        bool      `bson:"read"`
+	DeliveredAt time.Time `bson:"delivered_at,omitempty"`
+	CreatedAt   time.Time `bson:"created_at"`
+}
+
+// DeliveryStatus tracks whether a message has been delivered to a specific user.
+// Used for both write扩散 and read扩散 messages.
+type DeliveryStatus struct {
+	UserID      int64     `bson:"user_id"`
+	MsgID       int64     `bson:"msg_id"`
+	Topic       string    `bson:"topic"`
+	TopicSeq    uint64    `bson:"topic_seq"`
+	DeliveredAt time.Time `bson:"delivered_at"`
 }
 
 // MessageStorage handles MongoDB persistence for messages.
@@ -86,6 +101,11 @@ func NewMessageStorage(db *mongo.Database, logger log.Logger) *MessageStorage {
 
 // EnsureIndexes creates necessary indexes.
 func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
+	// Drop all old indexes first to avoid conflicts when index options change.
+	for _, coll := range []string{CollectionMessages, CollectionInboxes, CollectionTopicSeqs, CollectionMentionInboxes, CollectionDeliveryStatus} {
+		_ = s.db.Collection(coll).Indexes().DropAll(ctx)
+	}
+
 	// Index for group messages: topic + topic_seq
 	_, err := s.db.Collection(CollectionMessages).Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
@@ -95,6 +115,18 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create messages index: %w", err)
 	}
 
+	// Unique index on client_msg_id + sender_id for deduplication (messages collection)
+	// Only index documents where client_msg_id exists and is not null.
+	_, err = s.db.Collection(CollectionMessages).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
+			bson.M{"client_msg_id": bson.M{"$exists": true}},
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("create messages dedup index: %w", err)
+	}
+
 	// Index for inbox: user_id + topic + topic_seq
 	_, err = s.db.Collection(CollectionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
@@ -102,6 +134,17 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create inbox index: %w", err)
+	}
+
+	// Unique index on client_msg_id + sender_id for inbox deduplication
+	_, err = s.db.Collection(CollectionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
+			bson.M{"client_msg_id": bson.M{"$exists": true}},
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("create inbox dedup index: %w", err)
 	}
 
 	// Index for topic_seqs
@@ -120,6 +163,26 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create mention_inbox index: %w", err)
+	}
+
+	// Unique index on client_msg_id + sender_id for mention inbox deduplication
+	_, err = s.db.Collection(CollectionMentionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
+			bson.M{"client_msg_id": bson.M{"$exists": true}},
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("create mention_inbox dedup index: %w", err)
+	}
+
+	// Index for delivery_status: user_id + topic + topic_seq (for fast ACK lookups)
+	_, err = s.db.Collection(CollectionDeliveryStatus).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("create delivery_status index: %w", err)
 	}
 
 	return nil
@@ -163,8 +226,17 @@ func ExtractUserIDsFromP2PTopic(topic string) (uid1, uid2 int64, err error) {
 	return uid1, uid2, nil
 }
 
+// IsDuplicateError checks if a MongoDB error is a duplicate key error.
+func IsDuplicateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return mongo.IsDuplicateKeyError(err)
+}
+
 // SaveP2PMessage saves a P2P message using write扩散.
 // Writes the message to the receiver's inbox.
+// Returns ErrDuplicateKey if the message already exists (idempotent).
 func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, error) {
 	uid1, uid2, err := ExtractUserIDsFromP2PTopic(msg.GetTopic())
 	if err != nil {
@@ -180,20 +252,26 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 
 	now := time.Now()
 	inbox := &InboxMessage{
-		UserID:    receiverID,
-		MsgID:     msgID,
-		Topic:     msg.GetTopic(),
-		SenderID:  msg.GetSenderId(),
-		MsgType:   msg.GetMsgType(),
-		Content:   msg.GetContent(),
-		Timestamp: msg.GetTimestamp(),
-		TopicSeq:  topicSeq,
-		Read:      false,
-		CreatedAt: now,
+		UserID:      receiverID,
+		MsgID:       msgID,
+		Topic:       msg.GetTopic(),
+		SenderID:    msg.GetSenderId(),
+		MsgType:     msg.GetMsgType(),
+		Content:     msg.GetContent(),
+		Timestamp:   msg.GetTimestamp(),
+		TopicSeq:    topicSeq,
+		ClientMsgID: msg.GetClientMsgId(),
+		Read:        false,
+		CreatedAt:   now,
 	}
 
 	_, err = s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
 	if err != nil {
+		if IsDuplicateError(err) {
+			s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
+				msg.GetClientMsgId(), msg.GetSenderId())
+			return []int64{receiverID}, nil
+		}
 		return nil, fmt.Errorf("insert inbox message: %w", err)
 	}
 
@@ -203,6 +281,7 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 
 // SaveGroupMessage saves a group message using read扩散.
 // Only stores one copy in the group messages collection.
+// Returns ErrDuplicateKey if the message already exists (idempotent).
 func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) error {
 	now := time.Now()
 	stored := &StoredMessage{
@@ -219,6 +298,11 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 
 	_, err := s.db.Collection(CollectionMessages).InsertOne(ctx, stored)
 	if err != nil {
+		if IsDuplicateError(err) {
+			s.log.Debugf("duplicate group message ignored: client_msg_id=%s, sender=%d",
+				msg.GetClientMsgId(), msg.GetSenderId())
+			return nil
+		}
 		return fmt.Errorf("insert group message: %w", err)
 	}
 
@@ -227,6 +311,7 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 }
 
 // SaveSystemMessage saves a system notification using write扩散.
+// Returns ErrDuplicateKey if the message already exists (idempotent).
 func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, error) {
 	parts := strings.Split(msg.GetTopic(), "_")
 	if len(parts) != 2 {
@@ -239,20 +324,26 @@ func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.Upstream
 
 	now := time.Now()
 	inbox := &InboxMessage{
-		UserID:    targetUID,
-		MsgID:     msgID,
-		Topic:     msg.GetTopic(),
-		SenderID:  msg.GetSenderId(),
-		MsgType:   msg.GetMsgType(),
-		Content:   msg.GetContent(),
-		Timestamp: msg.GetTimestamp(),
-		TopicSeq:  topicSeq,
-		Read:      false,
-		CreatedAt: now,
+		UserID:      targetUID,
+		MsgID:       msgID,
+		Topic:       msg.GetTopic(),
+		SenderID:    msg.GetSenderId(),
+		MsgType:     msg.GetMsgType(),
+		Content:     msg.GetContent(),
+		Timestamp:   msg.GetTimestamp(),
+		TopicSeq:    topicSeq,
+		ClientMsgID: msg.GetClientMsgId(),
+		Read:        false,
+		CreatedAt:   now,
 	}
 
 	_, err := s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
 	if err != nil {
+		if IsDuplicateError(err) {
+			s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
+				msg.GetClientMsgId(), msg.GetSenderId())
+			return []int64{targetUID}, nil
+		}
 		return nil, fmt.Errorf("insert system inbox message: %w", err)
 	}
 
@@ -283,6 +374,7 @@ func (s *MessageStorage) BackupTopicSeq(ctx context.Context, topic string, seq u
 
 // SaveMentionInbox saves @mention notifications for specified users.
 // This implements the special write扩散 for @mentions in large groups (read扩散).
+// Returns ErrDuplicateKey if a mention already exists (idempotent).
 func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64, mentionedUserIDs []int64) error {
 	if len(mentionedUserIDs) == 0 {
 		return nil
@@ -292,21 +384,37 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 	var docs []interface{}
 	for _, uid := range mentionedUserIDs {
 		docs = append(docs, &MentionMessage{
-			UserID:    uid,
-			MsgID:     msgID,
-			Topic:     msg.GetTopic(),
-			SenderID:  msg.GetSenderId(),
-			MsgType:   msg.GetMsgType(),
-			Content:   msg.GetContent(),
-			Timestamp: msg.GetTimestamp(),
-			TopicSeq:  topicSeq,
-			Read:      false,
-			CreatedAt: now,
+			UserID:      uid,
+			MsgID:       msgID,
+			Topic:       msg.GetTopic(),
+			SenderID:    msg.GetSenderId(),
+			MsgType:     msg.GetMsgType(),
+			Content:     msg.GetContent(),
+			Timestamp:   msg.GetTimestamp(),
+			TopicSeq:    topicSeq,
+			ClientMsgID: msg.GetClientMsgId(),
+			Read:        false,
+			CreatedAt:   now,
 		})
 	}
 
 	_, err := s.db.Collection(CollectionMentionInboxes).InsertMany(ctx, docs)
 	if err != nil {
+		// Check if all errors are duplicate key errors (idempotent batch insert)
+		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+			allDuplicate := true
+			for _, we := range bulkErr.WriteErrors {
+				if !IsDuplicateError(we) {
+					allDuplicate = false
+					break
+				}
+			}
+			if allDuplicate {
+				s.log.Debugf("duplicate mention inbox ignored: client_msg_id=%s",
+					msg.GetClientMsgId())
+				return nil
+			}
+		}
 		return fmt.Errorf("insert mention inbox: %w", err)
 	}
 
@@ -409,4 +517,47 @@ func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint
 		return 0, fmt.Errorf("get topic max seq: %w", err)
 	}
 	return result.MaxSeq, nil
+}
+
+// UpdateDeliveryStatus marks a message as delivered for a user.
+// It updates the inbox/mention_inbox directly and also records in delivery_status.
+func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64, topic string, topicSeq uint64) error {
+	now := time.Now()
+
+	// Try to update inbox first
+	inboxFilter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
+	inboxUpdate := bson.M{"$set": bson.M{"delivered_at": now}}
+	inboxRes, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, inboxFilter, inboxUpdate)
+	if err != nil {
+		return fmt.Errorf("update inbox delivery status: %w", err)
+	}
+
+	// If not found in inbox, try mention_inbox
+	if inboxRes.MatchedCount == 0 {
+		mentionFilter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
+		mentionUpdate := bson.M{"$set": bson.M{"delivered_at": now}}
+		mentionRes, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, mentionFilter, mentionUpdate)
+		if err != nil {
+			return fmt.Errorf("update mention inbox delivery status: %w", err)
+		}
+
+		// Also record in delivery_status for read扩散 (group) messages
+		if mentionRes.MatchedCount == 0 {
+			ds := &DeliveryStatus{
+				UserID:      userID,
+				Topic:       topic,
+				TopicSeq:    topicSeq,
+				DeliveredAt: now,
+			}
+			_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
+			if err != nil {
+				if IsDuplicateError(err) {
+					return nil // already recorded, ignore
+				}
+				return fmt.Errorf("insert delivery status: %w", err)
+			}
+		}
+	}
+
+	return nil
 }

@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -606,14 +605,15 @@ func TestMsgWorker_PushToOnlineUser(t *testing.T) {
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
 
-	authPayload, _ := json.Marshal(map[string]interface{}{
-		"token":     generateJWTToken(receiverID, ts.authConf.JwtSecret),
-		"device_id": "web-push-test",
-	})
 	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd:     v1.Command_CMD_AUTH,
-		Seq:     1,
-		Payload: authPayload,
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(receiverID, ts.authConf.JwtSecret),
+				DeviceId: "web-push-test",
+			},
+		},
 	})
 	// Consume auth response
 	wsReadPacket(t, wsConn, 2*time.Second)
@@ -651,9 +651,9 @@ func TestMsgWorker_PushToOnlineUser(t *testing.T) {
 		t.Fatalf("expected CMD_NOTIFY, got %v", pushedPacket.Cmd)
 	}
 
-	var pushMsg v1.MessagePush
-	if err := proto.Unmarshal(pushedPacket.Payload, &pushMsg); err != nil {
-		t.Fatalf("failed to unmarshal push message: %v", err)
+	pushMsg := pushedPacket.GetNotify()
+	if pushMsg == nil {
+		t.Fatalf("expected Notify payload, got nil")
 	}
 	if pushMsg.SenderId != senderID {
 		t.Fatalf("expected sender_id=%d, got %d", senderID, pushMsg.SenderId)
