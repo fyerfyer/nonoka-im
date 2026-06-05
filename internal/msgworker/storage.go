@@ -165,9 +165,11 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create mention_inbox index: %w", err)
 	}
 
-	// Unique index on client_msg_id + sender_id for mention inbox deduplication
+	// Unique index on user_id + client_msg_id for mention inbox deduplication.
+	// Note: sender_id + client_msg_id would be wrong because one message can @mention
+	// multiple users, each needing their own inbox record.
 	_, err = s.db.Collection(CollectionMentionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
+		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
 			bson.M{"client_msg_id": bson.M{"$exists": true}},
 		),

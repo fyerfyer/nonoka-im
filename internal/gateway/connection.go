@@ -30,7 +30,7 @@ type Connection struct {
 
 	state atomic.Int32
 
-	sendCh chan *v1.Packet
+	sendCh chan []byte // pre-marshaled data to avoid repeated serialization
 
 	closeCh   chan struct{}
 	closeOnce sync.Once
@@ -47,7 +47,7 @@ func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Durat
 	c := &Connection{
 		wsConn:      wsConn,
 		connID:      connID,
-		sendCh:      make(chan *v1.Packet, 128),
+		sendCh:      make(chan []byte, 128),
 		closeCh:     make(chan struct{}),
 		lastActive:  time.Now(),
 		onClose:     onClose,
@@ -95,17 +95,13 @@ func (c *Connection) readLoop(handler func(*v1.Packet)) {
 	}
 }
 
-// writeLoop sends packets to the client.
+// writeLoop sends pre-marshaled packets to the client.
 func (c *Connection) writeLoop() {
 	defer c.Close()
 
 	for {
 		select {
-		case packet := <-c.sendCh:
-			data, err := proto.Marshal(packet)
-			if err != nil {
-				continue
-			}
+		case data := <-c.sendCh:
 			if err := c.wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 				return
 			}
@@ -116,15 +112,30 @@ func (c *Connection) writeLoop() {
 	}
 }
 
-// Send sends a packet to the client asynchronously (non-blocking).
+// Send marshals and sends a packet to the client asynchronously (non-blocking).
 // Returns ErrSendChannelFull if the send buffer is full.
 func (c *Connection) Send(packet *v1.Packet) error {
+	data, err := proto.Marshal(packet)
+	if err != nil {
+		return err
+	}
+	return c.SendRawBytes(data)
+}
+
+// SendRawBytes sends pre-marshaled data to the client asynchronously (non-blocking).
+// The data is copied before sending to avoid modification by the caller.
+// Returns ErrSendChannelFull if the send buffer is full.
+func (c *Connection) SendRawBytes(data []byte) error {
 	if c.State() == ConnStateClosed {
 		return ErrConnectionClosed
 	}
 
+	// Copy data to prevent caller from modifying it after send
+	buf := make([]byte, len(data))
+	copy(buf, data)
+
 	select {
-	case c.sendCh <- packet:
+	case c.sendCh <- buf:
 		return nil
 	case <-c.closeCh:
 		return ErrConnectionClosed
@@ -136,15 +147,29 @@ func (c *Connection) Send(packet *v1.Packet) error {
 // SendWithTimeout sends a packet with a timeout.
 // Use this for critical messages (e.g., ACKs, auth responses) where delivery is important.
 func (c *Connection) SendWithTimeout(packet *v1.Packet, timeout time.Duration) error {
+	data, err := proto.Marshal(packet)
+	if err != nil {
+		return err
+	}
+	return c.SendRawBytesWithTimeout(data, timeout)
+}
+
+// SendRawBytesWithTimeout sends pre-marshaled data with a timeout.
+// The data is copied before sending to avoid modification by the caller.
+func (c *Connection) SendRawBytesWithTimeout(data []byte, timeout time.Duration) error {
 	if c.State() == ConnStateClosed {
 		return ErrConnectionClosed
 	}
+
+	// Copy data to prevent caller from modifying it after send
+	buf := make([]byte, len(data))
+	copy(buf, data)
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
-	case c.sendCh <- packet:
+	case c.sendCh <- buf:
 		return nil
 	case <-c.closeCh:
 		return ErrConnectionClosed

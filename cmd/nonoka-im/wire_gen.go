@@ -88,6 +88,7 @@ func provideKafkaConfig() gateway.KafkaConfig {
 		Brokers:   []string{brokers},
 		Topic:     topic,
 		BatchSize: 100,
+		Async:     true,
 	}
 }
 

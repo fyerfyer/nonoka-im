@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 // ============================================
@@ -649,4 +651,127 @@ func TestGateway_MixedTraffic(t *testing.T) {
 			c.Close()
 		}
 	}
+}
+
+// TestGateway_ShardedManager_LargeScale verifies the sharded connection manager
+// handles large-scale concurrent connections (50 users × 3 devices = 150 conns)
+// and concurrent broadcasts correctly. This validates the P2-1 connection manager
+// sharding optimization.
+func TestGateway_ShardedManager_LargeScale(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	const userCount = 50
+	const devicesPerUser = 3
+	totalConns := userCount * devicesPerUser
+
+	tokens := make([]string, userCount)
+	userIDs := make([]int64, userCount)
+	for i := 0; i < userCount; i++ {
+		username := fmt.Sprintf("scale-user-%d", i)
+		tokens[i], userIDs[i] = registerAndLogin(t, username, "123456")
+	}
+
+	// Concurrent connections from all users/devices
+	var wg sync.WaitGroup
+	conns := make([][]*websocket.Conn, userCount)
+
+	for u := 0; u < userCount; u++ {
+		conns[u] = make([]*websocket.Conn, devicesPerUser)
+		for d := 0; d < devicesPerUser; d++ {
+			wg.Add(1)
+			go func(userIdx, devIdx int) {
+				defer wg.Done()
+
+				wsConn := wsConnect(t)
+				conns[userIdx][devIdx] = wsConn
+
+				wsSendPacket(t, wsConn, &v1.Packet{
+					Cmd: v1.Command_CMD_AUTH,
+					Seq: 1,
+					Payload: &v1.Packet_AuthReq{
+						AuthReq: &v1.AuthRequest{
+							Token:    tokens[userIdx],
+							DeviceId: fmt.Sprintf("device-%d", devIdx),
+						},
+					},
+				})
+				wsReadPacketOrNil(t, wsConn, 3*time.Second)
+			}(u, d)
+		}
+	}
+	wg.Wait()
+
+	// Verify all connections registered in sharded manager
+	if ts.gwManager.Count() != totalConns {
+		t.Fatalf("expected %d connections, got %d", totalConns, ts.gwManager.Count())
+	}
+	if ts.gwManager.UserCount() != userCount {
+		t.Fatalf("expected %d users, got %d", userCount, ts.gwManager.UserCount())
+	}
+
+	// Verify each user's connections via GetAll
+	for u := 0; u < userCount; u++ {
+		allConns := ts.gwManager.GetAll(userIDs[u])
+		if len(allConns) != devicesPerUser {
+			t.Fatalf("user %d: expected %d connections, got %d", userIDs[u], devicesPerUser, len(allConns))
+		}
+	}
+
+	// Concurrent broadcast to all users using pre-serialized data (P1-5 optimization)
+	packet := &v1.Packet{
+		Cmd: v1.Command_CMD_NOTIFY,
+		Payload: &v1.Packet_Notify{
+			Notify: &v1.MessagePush{
+				Content: []byte("sharded broadcast test"),
+			},
+		},
+	}
+	marshaled, _ := proto.Marshal(packet)
+
+	var broadcastWg sync.WaitGroup
+	var totalSent int32
+	for u := 0; u < userCount; u++ {
+		broadcastWg.Add(1)
+		go func(idx int) {
+			defer broadcastWg.Done()
+			sent := ts.gwManager.BroadcastToUserRaw(userIDs[idx], marshaled)
+			atomic.AddInt32(&totalSent, int32(sent))
+		}(u)
+	}
+	broadcastWg.Wait()
+
+	if int(totalSent) != totalConns {
+		t.Fatalf("expected %d total sent, got %d", totalConns, totalSent)
+	}
+
+	// Verify each device received the broadcast
+	receivedCount := 0
+	for u := 0; u < userCount; u++ {
+		for d := 0; d < devicesPerUser; d++ {
+			resp := wsReadPacketOrNil(t, conns[u][d], 2*time.Second)
+			if resp != nil && resp.Cmd == v1.Command_CMD_NOTIFY {
+				receivedCount++
+			}
+		}
+	}
+	if receivedCount != totalConns {
+		t.Fatalf("expected %d received, got %d", totalConns, receivedCount)
+	}
+
+	// Cleanup all connections
+	for u := 0; u < userCount; u++ {
+		for d := 0; d < devicesPerUser; d++ {
+			if conns[u][d] != nil {
+				conns[u][d].Close()
+			}
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	if ts.gwManager.Count() != 0 {
+		t.Fatalf("expected 0 connections after cleanup, got %d", ts.gwManager.Count())
+	}
+
+	t.Logf("sharded manager large scale verified: %d users, %d conns, broadcast ok", userCount, totalConns)
 }

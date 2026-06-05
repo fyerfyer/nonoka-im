@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -28,12 +29,15 @@ type KafkaConfig struct {
 	ReadTimeout   time.Duration
 	WriteTimeout  time.Duration
 	MaxAttempts   int
+	Async         bool // true for async mode, false for sync mode
 }
 
 // KafkaProducer implements MessageProducer using kafka-go.
 type KafkaProducer struct {
-	writer *kafka.Writer
-	log    *log.Helper
+	writer      *kafka.Writer
+	log         *log.Helper
+	failedMu    sync.RWMutex
+	failedCount int64
 }
 
 // NewKafkaProducer creates a new Kafka producer.
@@ -49,7 +53,6 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 	}
 	if cfg.RequiredAcks == 0 {
 		// RequireAll ensures message is replicated to all ISR members before ack.
-		// This prevents message loss when the leader fails immediately after ack.
 		cfg.RequiredAcks = kafka.RequireAll
 	}
 	if cfg.Compression == 0 {
@@ -60,10 +63,14 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 		cfg.ReadTimeout = 10 * time.Second
 	}
 	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = 10 * time.Second
+		cfg.WriteTimeout = 2 * time.Second // reduced from 10s for faster failure detection
 	}
 	if cfg.MaxAttempts == 0 {
 		cfg.MaxAttempts = 3
+	}
+
+	p := &KafkaProducer{
+		log: log.NewHelper(logger),
 	}
 
 	writer := &kafka.Writer{
@@ -73,16 +80,39 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 		BatchTimeout: cfg.BatchTimeout,
 		RequiredAcks: cfg.RequiredAcks,
 		Compression:  cfg.Compression,
-		Async:        false, // sync for guaranteed delivery in gateway
+		Async:        cfg.Async,
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		MaxAttempts:  cfg.MaxAttempts,
+		Completion:   p.onCompletion, // track async delivery results
 	}
 
-	return &KafkaProducer{
-		writer: writer,
-		log:    log.NewHelper(logger),
+	p.writer = writer
+	return p
+}
+
+// onCompletion handles async delivery results from kafka-go.
+func (p *KafkaProducer) onCompletion(messages []kafka.Message, err error) {
+	if err != nil {
+		p.failedMu.Lock()
+		p.failedCount += int64(len(messages))
+		p.failedMu.Unlock()
+
+		// Log first message key for debugging
+		key := ""
+		if len(messages) > 0 {
+			key = string(messages[0].Key)
+		}
+		p.log.Warnf("kafka async delivery failed: messages=%d key=%s err=%v",
+			len(messages), key, err)
 	}
+}
+
+// FailedCount returns the number of failed async deliveries since startup.
+func (p *KafkaProducer) FailedCount() int64 {
+	p.failedMu.RLock()
+	defer p.failedMu.RUnlock()
+	return p.failedCount
 }
 
 // Produce sends an upstream message to Kafka.

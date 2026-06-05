@@ -12,6 +12,7 @@ import (
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/msgworker"
 
+	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -999,4 +1000,140 @@ func TestMsgWorker_SnowflakeUniqueness(t *testing.T) {
 	}
 
 	t.Logf("snowflake uniqueness verified: %d concurrent messages, all %d msg_ids unique", expectedCount, len(idSet))
+}
+
+// TestMsgWorker_GroupMention_SameUser_Duplicate verifies that duplicate
+// @mention entries for the same user are handled idempotently.
+func TestMsgWorker_GroupMention_SameUser_Duplicate(t *testing.T) {
+	worker, db, cleanup := setupMsgWorker(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	senderID := int64(100)
+	topic := "grp_42"
+	mentionedUser := int64(200)
+
+	upstream := &v1.UpstreamMessage{
+		SenderId:         senderID,
+		Topic:            topic,
+		MsgType:          int32(v1.MsgType_MSG_TYPE_TEXT),
+		Content:          []byte("hello @user1"),
+		ClientMsgId:      "mention-msg-dup-001",
+		Timestamp:        time.Now().UnixMilli(),
+		MentionedUserIds: []int64{mentionedUser},
+	}
+	data, _ := proto.Marshal(upstream)
+
+	// First handle
+	if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+		t.Fatalf("first handle failed: %v", err)
+	}
+
+	// Second handle with same client_msg_id (should be idempotent)
+	if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+		t.Fatalf("second handle failed: %v", err)
+	}
+
+	// Verify only 1 mention record exists
+	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	count := countMongoDocs(t, mentionColl, bson.M{"user_id": mentionedUser, "topic": topic})
+	if count != 1 {
+		t.Fatalf("expected 1 mention inbox after duplicate, got %d", count)
+	}
+
+	t.Log("duplicate mention handled idempotently")
+}
+
+// TestMsgWorker_BatchPushToUsers_Concurrent verifies that BatchPushToUsers
+// correctly delivers messages to multiple online users concurrently.
+// This validates the P1-6 MsgWorker push concurrent optimization.
+func TestMsgWorker_BatchPushToUsers_Concurrent(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	db := setupMongoDB(t)
+	_ = setupTestRedis(t)
+	ctx := context.Background()
+
+	// Clean collections
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs"} {
+		_ = db.Collection(coll).Drop(ctx)
+	}
+
+	// Start gRPC PushServer using the same gateway manager
+	grpcAddr, grpcCleanup := setupGRPCPushServer(t, ts.gwManager)
+	defer grpcCleanup()
+
+	// Create GatewayPusher
+	pusher, err := msgworker.NewGatewayPusher(grpcAddr, testLogger)
+	if err != nil {
+		t.Fatalf("failed to create gateway pusher: %v", err)
+	}
+	defer pusher.Close()
+
+	// Create multiple users and connect them via WebSocket
+	const userCount = 20
+	userIDs := make([]int64, userCount)
+	wsConns := make([]*websocket.Conn, userCount)
+
+	for i := 0; i < userCount; i++ {
+		username := fmt.Sprintf("batch-push-user-%d", i)
+		_, userID := registerAndLogin(t, username, "123456")
+		userIDs[i] = userID
+
+		wsConn := wsConnect(t)
+		wsConns[i] = wsConn
+
+		wsSendPacket(t, wsConn, &v1.Packet{
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{
+				AuthReq: &v1.AuthRequest{
+					Token:    generateJWTToken(userID, ts.authConf.JwtSecret),
+					DeviceId: fmt.Sprintf("device-%d", i),
+				},
+			},
+		})
+		wsReadPacket(t, wsConn, 2*time.Second)
+	}
+	// Give gateway time to register all connections
+	time.Sleep(200 * time.Millisecond)
+
+	// Batch push to all users
+	msg := &v1.MessagePush{
+		SenderId: 999,
+		Topic:    "grp_test",
+		Content:  []byte("batch push test message"),
+	}
+
+	delivered, failedIDs, err := pusher.BatchPushToUsers(ctx, userIDs, msg)
+	if err != nil {
+		t.Fatalf("batch push failed: %v", err)
+	}
+
+	if delivered != int32(userCount) {
+		t.Fatalf("expected %d delivered, got %d, failed: %v", userCount, delivered, failedIDs)
+	}
+
+	// Verify each user received the push
+	for i := 0; i < userCount; i++ {
+		resp := wsReadPacketOrNil(t, wsConns[i], 3*time.Second)
+		if resp == nil {
+			t.Fatalf("user %d did not receive push", userIDs[i])
+		}
+		if resp.Cmd != v1.Command_CMD_NOTIFY {
+			t.Fatalf("user %d expected CMD_NOTIFY, got %v", userIDs[i], resp.Cmd)
+		}
+		notify := resp.GetNotify()
+		if string(notify.Content) != "batch push test message" {
+			t.Fatalf("user %d expected 'batch push test message', got %s", userIDs[i], string(notify.Content))
+		}
+	}
+
+	// Cleanup
+	for _, c := range wsConns {
+		c.Close()
+	}
+
+	t.Logf("batch push concurrent verified: %d users, all received", userCount)
 }

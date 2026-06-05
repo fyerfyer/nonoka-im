@@ -5,26 +5,60 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"google.golang.org/protobuf/proto"
 	v1 "nonoka-im/api/im/v1"
 )
 
-// Manager manages all active WebSocket connections.
+const shardCount = 32
+
+// connShard holds a subset of connections, protected by its own RWMutex.
+// This design reduces lock contention compared to a single sync.Map.
+type connShard struct {
+	mu    sync.RWMutex
+	conns map[string]*Connection        // connID -> Connection
+	users map[int64]map[string]struct{} // userID -> set of connIDs
+}
+
+func newConnShard() *connShard {
+	return &connShard{
+		conns: make(map[string]*Connection),
+		users: make(map[int64]map[string]struct{}),
+	}
+}
+
+// Manager manages all active WebSocket connections using sharded maps.
 // It supports multi-device login: one user can have multiple connections.
 type Manager struct {
-	// userID -> connID -> *Connection
-	users sync.Map
-
-	// connID -> *Connection (for quick lookup by connection ID)
-	conns sync.Map
-
-	log *log.Helper
+	shards [shardCount]*connShard
+	log    *log.Helper
 }
 
 // NewManager creates a new connection manager.
 func NewManager(logger log.Logger) *Manager {
-	return &Manager{
+	m := &Manager{
 		log: log.NewHelper(logger),
 	}
+	for i := range shardCount {
+		m.shards[i] = newConnShard()
+	}
+	return m
+}
+
+func (m *Manager) getShard(userID int64) *connShard {
+	if userID == 0 {
+		return m.shards[0]
+	}
+	return m.shards[userID%shardCount]
+}
+
+func (m *Manager) getShardByConnID(connID string) *connShard {
+	// Use FNV-like hash for connID distribution
+	h := uint32(2166136261)
+	for i := 0; i < len(connID); i++ {
+		h ^= uint32(connID[i])
+		h *= 16777619
+	}
+	return m.shards[h%shardCount]
 }
 
 // Add registers a connection to the manager.
@@ -34,34 +68,32 @@ func (m *Manager) Add(c *Connection) {
 		return
 	}
 
-	// Store in global conn map
-	m.conns.Store(c.ConnID(), c)
+	shard := m.getShard(c.UserID())
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
-	// Store in user map
-	actual, _ := m.users.LoadOrStore(c.UserID(), &sync.Map{})
-	userConns := actual.(*sync.Map)
-	userConns.Store(c.ConnID(), c)
+	shard.conns[c.ConnID()] = c
+	if shard.users[c.UserID()] == nil {
+		shard.users[c.UserID()] = make(map[string]struct{})
+	}
+	shard.users[c.UserID()][c.ConnID()] = struct{}{}
 
 	m.log.Infof("connection added: user_id=%d conn_id=%s device_id=%s", c.UserID(), c.ConnID(), c.DeviceID())
 }
 
 // Remove removes a connection from the manager.
 func (m *Manager) Remove(c *Connection) {
-	m.conns.Delete(c.ConnID())
+	shard := m.getShard(c.UserID())
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	delete(shard.conns, c.ConnID())
 
 	if c.UserID() != 0 {
-		if actual, ok := m.users.Load(c.UserID()); ok {
-			userConns := actual.(*sync.Map)
-			userConns.Delete(c.ConnID())
-
-			// Clean up user map if no connections left
-			empty := true
-			userConns.Range(func(_, _ interface{}) bool {
-				empty = false
-				return false
-			})
-			if empty {
-				m.users.Delete(c.UserID())
+		if userConns, ok := shard.users[c.UserID()]; ok {
+			delete(userConns, c.ConnID())
+			if len(userConns) == 0 {
+				delete(shard.users, c.UserID())
 			}
 		}
 	}
@@ -72,41 +104,49 @@ func (m *Manager) Remove(c *Connection) {
 // Get returns a single connection by user ID.
 // If multiple devices are online, returns any one of them.
 func (m *Manager) Get(userID int64) *Connection {
-	actual, ok := m.users.Load(userID)
-	if !ok {
-		return nil
-	}
+	shard := m.getShard(userID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
 
-	userConns := actual.(*sync.Map)
-	var result *Connection
-	userConns.Range(func(_, value interface{}) bool {
-		result = value.(*Connection)
-		return false // break after first
-	})
-	return result
+	if userConns, ok := shard.users[userID]; ok {
+		for connID := range userConns {
+			if c, ok := shard.conns[connID]; ok {
+				return c
+			}
+		}
+	}
+	return nil
 }
 
 // GetByConnID returns a connection by its unique connID.
 func (m *Manager) GetByConnID(connID string) *Connection {
-	if value, ok := m.conns.Load(connID); ok {
-		return value.(*Connection)
+	shard := m.getShardByConnID(connID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
+	if c, ok := shard.conns[connID]; ok {
+		return c
 	}
 	return nil
 }
 
 // GetAll returns all connections of a user.
 func (m *Manager) GetAll(userID int64) []*Connection {
-	actual, ok := m.users.Load(userID)
-	if !ok {
+	shard := m.getShard(userID)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
+	userConns, ok := shard.users[userID]
+	if !ok || len(userConns) == 0 {
 		return nil
 	}
 
-	userConns := actual.(*sync.Map)
-	var result []*Connection
-	userConns.Range(func(_, value interface{}) bool {
-		result = append(result, value.(*Connection))
-		return true
-	})
+	result := make([]*Connection, 0, len(userConns))
+	for connID := range userConns {
+		if c, ok := shard.conns[connID]; ok {
+			result = append(result, c)
+		}
+	}
 	return result
 }
 
@@ -114,10 +154,20 @@ func (m *Manager) GetAll(userID int64) []*Connection {
 const broadcastSendTimeout = 100 * time.Millisecond
 
 // BroadcastToUser sends a packet to all devices of a user.
-// With the unified oneof Packet format, the Packet is immutable after construction,
-// so it can be safely shared across all connections (each connection's writeLoop
-// independently marshals it).
+// It pre-serializes the packet once and copies the bytes for each connection,
+// avoiding N repeated protobuf marshals.
 func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
+	data, err := proto.Marshal(packet)
+	if err != nil {
+		m.log.Warnf("marshal packet for broadcast failed: %v", err)
+		return 0
+	}
+	return m.BroadcastToUserRaw(userID, data)
+}
+
+// BroadcastToUserRaw sends pre-marshaled data to all devices of a user.
+// The caller must ensure data is not modified after this call.
+func (m *Manager) BroadcastToUserRaw(userID int64, data []byte) int {
 	conns := m.GetAll(userID)
 	if len(conns) == 0 {
 		return 0
@@ -125,7 +175,7 @@ func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
 
 	sent := 0
 	for _, c := range conns {
-		if err := c.SendWithTimeout(packet, broadcastSendTimeout); err != nil {
+		if err := c.SendRawBytesWithTimeout(data, broadcastSendTimeout); err != nil {
 			m.log.Warnf("broadcast to conn %s failed: %v", c.ConnID(), err)
 			continue
 		}
@@ -136,27 +186,40 @@ func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
 
 // Range iterates over all connections.
 func (m *Manager) Range(f func(c *Connection) bool) {
-	m.conns.Range(func(_, value interface{}) bool {
-		return f(value.(*Connection))
-	})
+	for i := range shardCount {
+		shard := m.shards[i]
+		shard.mu.RLock()
+		for _, c := range shard.conns {
+			shard.mu.RUnlock()
+			if !f(c) {
+				return
+			}
+			shard.mu.RLock()
+		}
+		shard.mu.RUnlock()
+	}
 }
 
 // Count returns the total number of active connections.
 func (m *Manager) Count() int {
 	count := 0
-	m.conns.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
+	for i := 0; i < shardCount; i++ {
+		shard := m.shards[i]
+		shard.mu.RLock()
+		count += len(shard.conns)
+		shard.mu.RUnlock()
+	}
 	return count
 }
 
 // UserCount returns the number of online users.
 func (m *Manager) UserCount() int {
 	count := 0
-	m.users.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
+	for i := 0; i < shardCount; i++ {
+		shard := m.shards[i]
+		shard.mu.RLock()
+		count += len(shard.users)
+		shard.mu.RUnlock()
+	}
 	return count
 }

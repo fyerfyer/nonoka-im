@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/gateway"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -487,4 +488,76 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	}
 
 	t.Logf("multi-topic publish verified: %d messages with correct keys", len(topics))
+}
+
+// TestGateway_Kafka_AsyncProducer_BatchSend verifies that the async producer
+// correctly handles batch message sending without blocking and tracks failures.
+// This validates the P1-4 Kafka producer async optimization.
+func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
+	ts := setupTestServer(t, true)
+	defer ts.stop()
+
+	token, _ := registerAndLogin(t, "kafka-async-user", "123456")
+
+	wsConn := wsConnect(t)
+	defer wsConn.Close()
+
+	wsSendPacket(t, wsConn, &v1.Packet{
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-async",
+			},
+		},
+	})
+	wsReadPacket(t, wsConn, 2*time.Second)
+
+	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-async")
+	defer reader.Close()
+
+	// Send multiple messages rapidly to trigger async batching
+	const messageCount = 20
+	for i := 0; i < messageCount; i++ {
+		wsSendPacket(t, wsConn, &v1.Packet{
+			Cmd: v1.Command_CMD_PUBLISH,
+			Seq: uint64(i + 2),
+			Payload: &v1.Packet_SendReq{
+				SendReq: &v1.SendMessageRequest{
+					Topic:       "p2p_1_2",
+					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+					Content:     []byte("async batch message"),
+					ClientMsgId: "async-msg-" + string(rune('0'+i%10)),
+				},
+			},
+		})
+		wsReadPacket(t, wsConn, 2*time.Second)
+	}
+
+	// Give async producer time to flush batched messages
+	time.Sleep(1 * time.Second)
+
+	// Consume all messages from Kafka
+	var kafkaMessages int32
+	for i := 0; i < messageCount; i++ {
+		msg := consumeKafkaMessageOrNil(reader, 5*time.Second)
+		if msg == nil {
+			break
+		}
+		atomic.AddInt32(&kafkaMessages, 1)
+	}
+
+	if kafkaMessages != messageCount {
+		t.Fatalf("expected %d messages in Kafka, got %d", messageCount, kafkaMessages)
+	}
+
+	// Verify async producer has no failed deliveries
+	if kp, ok := ts.kafkaProducer.(*gateway.KafkaProducer); ok {
+		if kp.FailedCount() > 0 {
+			t.Fatalf("async producer had %d failed deliveries", kp.FailedCount())
+		}
+	}
+
+	t.Logf("async producer batch send verified: %d messages, no failures", messageCount)
 }
