@@ -110,22 +110,15 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 
 	switch topicType {
 	case TopicTypeP2P:
-		recipientIDs, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
+		recipientIDs, isDuplicate, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
 		if err != nil {
 			return fmt.Errorf("save p2p message: %w", err)
 		}
-		// If duplicate, recipientIDs is still returned (idempotent).
-		if IsDuplicateError(err) {
-			isDuplicate = true
-		}
 
 	case TopicTypeGroup:
-		err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)
+		isDuplicate, err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)
 		if err != nil {
 			return fmt.Errorf("save group message: %w", err)
-		}
-		if IsDuplicateError(err) {
-			isDuplicate = true
 		}
 
 		// Handle @mentions for large groups: write扩散 to mention_inbox.
@@ -148,12 +141,9 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		w.log.Debugf("group message persisted: topic=%s", upstream.GetTopic())
 
 	case TopicTypeSystem:
-		recipientIDs, err = w.storage.SaveSystemMessage(ctx, &upstream, msgID, topicSeq)
+		recipientIDs, isDuplicate, err = w.storage.SaveSystemMessage(ctx, &upstream, msgID, topicSeq)
 		if err != nil {
 			return fmt.Errorf("save system message: %w", err)
-		}
-		if IsDuplicateError(err) {
-			isDuplicate = true
 		}
 
 	default:

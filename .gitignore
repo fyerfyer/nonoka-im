@@ -48,3 +48,4 @@ cmd/nonoka-im/nonoka-im
 self-files/
 docs/
 .claude/
+DESIGN.md

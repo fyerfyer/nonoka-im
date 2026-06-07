@@ -14,6 +14,8 @@ enum Command {
   CMD_ACK = 4;         // bi-directional: message ack
   CMD_PULL = 5;        // client -> server: pull offline messages
   CMD_NOTIFY = 6;      // server -> client: push notification
+  CMD_READ_RECEIPT = 7;     // bi-directional: read receipt
+  CMD_DELIVERY_RECEIPT = 8; // server -> client: delivery receipt
 }
 
 // Packet is the unified wire format for all WebSocket messages.
@@ -42,6 +44,12 @@ message Packet {
 
     // CMD_NOTIFY
     MessagePush notify = 50;
+
+    // CMD_READ_RECEIPT
+    ReadReceipt read_receipt = 60;
+
+    // CMD_DELIVERY_RECEIPT
+    DeliveryReceipt delivery_receipt = 70;
 
     // Unified error response (can be returned for any command).
     ErrorResponse error = 99;
@@ -74,4 +82,20 @@ message ErrorResponse {
   string message       = 2; // human-readable description
   bool   retryable     = 3; // whether the client should retry
   uint64 retry_after_ms = 4; // suggested retry delay in milliseconds
+}
+
+// ReadReceipt is sent by the client to mark messages as read,
+// and pushed by the server to notify the sender.
+message ReadReceipt {
+  string topic     = 1;
+  uint64 up_to_seq = 2;   // messages with seq <= up_to_seq are marked as read
+  int64  reader_id = 3;   // who read the messages
+}
+
+// DeliveryReceipt is pushed by the server to notify the sender
+// that the recipient has received the message.
+message DeliveryReceipt {
+  string topic     = 1;
+  uint64 topic_seq = 2;
+  int64  msg_id    = 3;
 }

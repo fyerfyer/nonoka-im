@@ -238,11 +238,11 @@ func IsDuplicateError(err error) bool {
 
 // SaveP2PMessage saves a P2P message using write扩散.
 // Writes the message to the receiver's inbox.
-// Returns ErrDuplicateKey if the message already exists (idempotent).
-func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, error) {
+// Returns isDuplicate=true if the message already exists (idempotent).
+func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, bool, error) {
 	uid1, uid2, err := ExtractUserIDsFromP2PTopic(msg.GetTopic())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var receiverID int64
@@ -272,19 +272,19 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
 				msg.GetClientMsgId(), msg.GetSenderId())
-			return []int64{receiverID}, nil
+			return []int64{receiverID}, true, nil
 		}
-		return nil, fmt.Errorf("insert inbox message: %w", err)
+		return nil, false, fmt.Errorf("insert inbox message: %w", err)
 	}
 
 	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d", msgID, msg.GetTopic(), receiverID)
-	return []int64{receiverID}, nil
+	return []int64{receiverID}, false, nil
 }
 
 // SaveGroupMessage saves a group message using read扩散.
 // Only stores one copy in the group messages collection.
-// Returns ErrDuplicateKey if the message already exists (idempotent).
-func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) error {
+// Returns isDuplicate=true if the message already exists (idempotent).
+func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) (bool, error) {
 	now := time.Now()
 	stored := &StoredMessage{
 		MsgID:       msgID,
@@ -303,25 +303,25 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate group message ignored: client_msg_id=%s, sender=%d",
 				msg.GetClientMsgId(), msg.GetSenderId())
-			return nil
+			return true, nil
 		}
-		return fmt.Errorf("insert group message: %w", err)
+		return false, fmt.Errorf("insert group message: %w", err)
 	}
 
 	s.log.Debugf("group message saved: msg_id=%d, topic=%s", msgID, msg.GetTopic())
-	return nil
+	return false, nil
 }
 
 // SaveSystemMessage saves a system notification using write扩散.
-// Returns ErrDuplicateKey if the message already exists (idempotent).
-func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, error) {
+// Returns isDuplicate=true if the message already exists (idempotent).
+func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, bool, error) {
 	parts := strings.Split(msg.GetTopic(), "_")
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid system topic format: %s", msg.GetTopic())
+		return nil, false, fmt.Errorf("invalid system topic format: %s", msg.GetTopic())
 	}
 	var targetUID int64
 	if _, err := fmt.Sscanf(parts[1], "%d", &targetUID); err != nil {
-		return nil, fmt.Errorf("parse system topic user ID: %w", err)
+		return nil, false, fmt.Errorf("parse system topic user ID: %w", err)
 	}
 
 	now := time.Now()
@@ -344,12 +344,12 @@ func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.Upstream
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
 				msg.GetClientMsgId(), msg.GetSenderId())
-			return []int64{targetUID}, nil
+			return []int64{targetUID}, true, nil
 		}
-		return nil, fmt.Errorf("insert system inbox message: %w", err)
+		return nil, false, fmt.Errorf("insert system inbox message: %w", err)
 	}
 
-	return []int64{targetUID}, nil
+	return []int64{targetUID}, false, nil
 }
 
 // BackupTopicSeq saves the current max seq for a topic to MongoDB as a fallback.
@@ -562,4 +562,78 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 	}
 
 	return nil
+}
+
+// UpdateReadStatus marks messages as read up to a certain seq for a user.
+// It updates both inbox and mention_inbox collections.
+func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, topic string, upToSeq uint64) error {
+	now := time.Now()
+	filter := bson.M{
+		"user_id":   userID,
+		"topic":     topic,
+		"topic_seq": bson.M{"$lte": upToSeq},
+		"read":      bson.M{"$ne": true},
+	}
+	update := bson.M{"$set": bson.M{"read": true, "read_at": now}}
+
+	// Update inbox
+	inboxRes, err := s.db.Collection(CollectionInboxes).UpdateMany(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("update inbox read status: %w", err)
+	}
+
+	// Update mention inbox
+	mentionRes, err := s.db.Collection(CollectionMentionInboxes).UpdateMany(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("update mention inbox read status: %w", err)
+	}
+
+	s.log.Debugf("read status updated: user_id=%d, topic=%s, up_to_seq=%d, inbox=%d, mention=%d",
+		userID, topic, upToSeq, inboxRes.ModifiedCount, mentionRes.ModifiedCount)
+	return nil
+}
+
+// GetMessageSender returns the sender_id of a message by topic and topic_seq.
+// It searches inbox, mention_inbox, and messages collections.
+func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, topicSeq uint64) (int64, error) {
+	// Try inbox first
+	var inboxDoc struct {
+		SenderID int64 `bson:"sender_id"`
+	}
+	err := s.db.Collection(CollectionInboxes).FindOne(ctx, bson.M{
+		"topic":     topic,
+		"topic_seq": topicSeq,
+	}).Decode(&inboxDoc)
+	if err == nil {
+		return inboxDoc.SenderID, nil
+	}
+
+	// Try mention inbox
+	var mentionDoc struct {
+		SenderID int64 `bson:"sender_id"`
+	}
+	err = s.db.Collection(CollectionMentionInboxes).FindOne(ctx, bson.M{
+		"topic":     topic,
+		"topic_seq": topicSeq,
+	}).Decode(&mentionDoc)
+	if err == nil {
+		return mentionDoc.SenderID, nil
+	}
+
+	// Try messages collection (group messages)
+	var msgDoc struct {
+		SenderID int64 `bson:"sender_id"`
+	}
+	err = s.db.Collection(CollectionMessages).FindOne(ctx, bson.M{
+		"topic":     topic,
+		"topic_seq": topicSeq,
+	}).Decode(&msgDoc)
+	if err == nil {
+		return msgDoc.SenderID, nil
+	}
+
+	if err == mongo.ErrNoDocuments {
+		return 0, fmt.Errorf("message not found: topic=%s, seq=%d", topic, topicSeq)
+	}
+	return 0, fmt.Errorf("find message sender: %w", err)
 }

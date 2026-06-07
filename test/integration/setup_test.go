@@ -142,6 +142,10 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		if err := cleanupAndCreateTopic(testKafkaBroker, kafkaTopic, 3); err != nil {
 			t.Fatalf("failed to create kafka topic: %v", err)
 		}
+		// Wait for topic to be fully ready (all partitions have leaders)
+		if err := waitForTopicReady(testKafkaBroker, kafkaTopic); err != nil {
+			t.Fatalf("kafka topic not ready: %v", err)
+		}
 		kafkaCfg := gateway.KafkaConfig{
 			Brokers:   []string{testKafkaBroker},
 			Topic:     kafkaTopic,
