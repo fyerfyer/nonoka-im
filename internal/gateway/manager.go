@@ -175,7 +175,8 @@ func (m *Manager) BroadcastToUserRaw(userID int64, data []byte) int {
 
 	sent := 0
 	for _, c := range conns {
-		if err := c.SendRawBytesWithTimeout(data, broadcastSendTimeout); err != nil {
+		// data is immutable during this call, skip per-connection copy
+		if err := c.SendRawBytesWithTimeoutUnsafe(data, broadcastSendTimeout); err != nil {
 			m.log.Warnf("broadcast to conn %s failed: %v", c.ConnID(), err)
 			continue
 		}

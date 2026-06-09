@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,29 +64,39 @@ func (q *PushRetryQueue) ScheduleRetry(ctx context.Context, userID int64, msg *p
 	}
 
 	item := RetryItem{
-		UserID:    userID,
-		MsgID:     msg.MsgId,
-		Topic:     msg.Topic,
-		SenderID:  msg.SenderId,
-		MsgType:   msg.MsgType,
-		Content:   msg.Content,
-		Timestamp: msg.Timestamp,
-		TopicSeq:  msg.TopicSeq,
+		UserID:     userID,
+		MsgID:      msg.MsgId,
+		Topic:      msg.Topic,
+		SenderID:   msg.SenderId,
+		MsgType:    msg.MsgType,
+		Content:    msg.Content,
+		Timestamp:  msg.Timestamp,
+		TopicSeq:   msg.TopicSeq,
 		RetryCount: 0,
-		RetryAt:   time.Now().Add(defaultRetryDelay).Unix(),
+		RetryAt:    time.Now().Add(defaultRetryDelay).Unix(),
 	}
 
+	return q.enqueueItem(ctx, item)
+}
+
+// enqueueItem serializes the retry item and adds it to the sorted set.
+// The member key is composed of a unique identifier plus the JSON data to
+// avoid collisions when retry_at has the same score.
+func (q *PushRetryQueue) enqueueItem(ctx context.Context, item RetryItem) error {
 	data, err := json.Marshal(item)
 	if err != nil {
 		return fmt.Errorf("marshal retry item: %w", err)
 	}
 
+	memberKey := fmt.Sprintf("%d:%d:%d", item.UserID, item.MsgID, item.RetryCount)
+	member := memberKey + "|" + string(data)
+
 	score := float64(item.RetryAt)
-	if err := q.redis.ZAdd(ctx, pushRetryKey, redis.Z{Score: score, Member: string(data)}).Err(); err != nil {
+	if err := q.redis.ZAdd(ctx, pushRetryKey, redis.Z{Score: score, Member: member}).Err(); err != nil {
 		return fmt.Errorf("zadd retry item: %w", err)
 	}
 
-	q.log.Debugf("scheduled push retry: user_id=%d, msg_id=%d, retry_at=%d", userID, msg.MsgId, item.RetryAt)
+	q.log.Debugf("scheduled push retry: user_id=%d, msg_id=%d, retry_count=%d, retry_at=%d", item.UserID, item.MsgID, item.RetryCount, item.RetryAt)
 	return nil
 }
 
@@ -131,16 +142,25 @@ func (q *PushRetryQueue) processRetries(ctx context.Context) {
 		return
 	}
 
-	for _, itemData := range items {
+	for _, member := range items {
+		// Split member into unique key and JSON data
+		parts := strings.SplitN(member, "|", 2)
+		if len(parts) != 2 {
+			q.log.Warnf("invalid retry member format: %s", member)
+			q.removeRetryItem(ctx, member)
+			continue
+		}
+		data := parts[1]
+
 		var item RetryItem
-		if err := json.Unmarshal([]byte(itemData), &item); err != nil {
+		if err := json.Unmarshal([]byte(data), &item); err != nil {
 			q.log.Warnf("unmarshal retry item failed: %v", err)
-			q.removeRetryItem(ctx, itemData)
+			q.removeRetryItem(ctx, member)
 			continue
 		}
 
 		// Remove from queue before processing (avoid double processing)
-		q.removeRetryItem(ctx, itemData)
+		q.removeRetryItem(ctx, member)
 
 		// Check retry limit
 		if item.RetryCount >= maxRetryAttempts {
@@ -185,14 +205,7 @@ func (q *PushRetryQueue) requeueIfNeeded(ctx context.Context, item RetryItem) {
 	item.RetryCount++
 	item.RetryAt = time.Now().Add(defaultRetryDelay).Unix()
 
-	data, err := json.Marshal(item)
-	if err != nil {
-		q.log.Warnf("marshal requeue item failed: %v", err)
-		return
-	}
-
-	score := float64(item.RetryAt)
-	if err := q.redis.ZAdd(ctx, pushRetryKey, redis.Z{Score: score, Member: string(data)}).Err(); err != nil {
+	if err := q.enqueueItem(ctx, item); err != nil {
 		q.log.Warnf("requeue retry item failed: %v", err)
 	}
 }

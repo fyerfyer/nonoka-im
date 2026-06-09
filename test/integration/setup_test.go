@@ -167,7 +167,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Http: &conf.Server_HTTP{Addr: testHTTPAddr},
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, wsServer, authConf, testLogger)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, nil, wsServer, authConf, testLogger)
 
 	// 8. Start HTTP server in background
 	go func() {

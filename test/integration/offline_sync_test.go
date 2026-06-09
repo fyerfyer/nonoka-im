@@ -1205,7 +1205,7 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher(grpcAddr, testLogger)
+	pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
 	if err != nil {
 		t.Fatalf("failed to create gateway pusher: %v", err)
 	}
@@ -1311,7 +1311,7 @@ func TestMsgWorker_GroupMention_PushToOfflineUser(t *testing.T) {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher(grpcAddr, testLogger)
+	pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
 	if err != nil {
 		t.Fatalf("failed to create gateway pusher: %v", err)
 	}

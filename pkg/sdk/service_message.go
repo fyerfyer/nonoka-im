@@ -40,6 +40,30 @@ func (s *MessageService) SendMessage(ctx context.Context, req *SendMessageReques
 	}, nil
 }
 
+// PullMessages pulls offline messages via HTTP fallback.
+func (s *MessageService) PullMessages(ctx context.Context, req *PullMessagesRequest) (*PullResult, error) {
+	reply, err := s.client.PullMessages(ctx, &v1.PullRequest{
+		Topic:   req.Topic,
+		LastSeq: req.LastSeq,
+		Limit:   req.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &PullResult{
+		Messages: toSDKMessages(reply.Messages),
+		HasMore:  reply.HasMore,
+		NextSeq:  reply.NextSeq,
+	}, nil
+}
+
+// PullMessagesRequest is the request for pulling offline messages via HTTP.
+type PullMessagesRequest struct {
+	Topic   string
+	LastSeq uint64
+	Limit   int32
+}
+
 // SendMessageRequest is the request for sending a message via HTTP.
 type SendMessageRequest struct {
 	Topic            string

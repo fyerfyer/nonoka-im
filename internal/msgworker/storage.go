@@ -3,6 +3,7 @@ package msgworker
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -271,32 +272,50 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 	}
 
 	now := time.Now()
-	inbox := &InboxMessage{
-		UserID:      receiverID,
-		MsgID:       msgID,
-		Topic:       msg.GetTopic(),
-		SenderID:    msg.GetSenderId(),
-		MsgType:     msg.GetMsgType(),
-		Content:     msg.GetContent(),
-		Timestamp:   msg.GetTimestamp(),
-		TopicSeq:    topicSeq,
-		ClientMsgID: msg.GetClientMsgId(),
-		Read:        false,
-		CreatedAt:   now,
+	inboxes := []*InboxMessage{
+		{
+			UserID:      receiverID,
+			MsgID:       msgID,
+			Topic:       msg.GetTopic(),
+			SenderID:    msg.GetSenderId(),
+			MsgType:     msg.GetMsgType(),
+			Content:     msg.GetContent(),
+			Timestamp:   msg.GetTimestamp(),
+			TopicSeq:    topicSeq,
+			ClientMsgID: msg.GetClientMsgId(),
+			Read:        false,
+			CreatedAt:   now,
+		},
+		{
+			// Also write to sender's inbox so multi-device sender can see own messages.
+			UserID:      msg.GetSenderId(),
+			MsgID:       msgID,
+			Topic:       msg.GetTopic(),
+			SenderID:    msg.GetSenderId(),
+			MsgType:     msg.GetMsgType(),
+			Content:     msg.GetContent(),
+			Timestamp:   msg.GetTimestamp(),
+			TopicSeq:    topicSeq,
+			ClientMsgID: msg.GetClientMsgId(),
+			Read:        true, // sender's own copy is considered read
+			CreatedAt:   now,
+		},
 	}
 
-	_, err = s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
-	if err != nil {
-		if IsDuplicateError(err) {
-			s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
-				msg.GetClientMsgId(), msg.GetSenderId())
-			return []int64{receiverID}, true, nil
+	for _, inbox := range inboxes {
+		_, err = s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
+		if err != nil {
+			if IsDuplicateError(err) {
+				s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
+					msg.GetClientMsgId(), msg.GetSenderId())
+				return []int64{receiverID, msg.GetSenderId()}, true, nil
+			}
+			return nil, false, fmt.Errorf("insert inbox message: %w", err)
 		}
-		return nil, false, fmt.Errorf("insert inbox message: %w", err)
 	}
 
-	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d", msgID, msg.GetTopic(), receiverID)
-	return []int64{receiverID}, false, nil
+	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d, sender=%d", msgID, msg.GetTopic(), receiverID, msg.GetSenderId())
+	return []int64{receiverID, msg.GetSenderId()}, false, nil
 }
 
 // SaveGroupMessage saves a group message using read扩散.
@@ -443,7 +462,8 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 }
 
 // GetOfflineMessages retrieves offline messages for a user in a topic with seq > lastSeq.
-// For P2P/system topics, queries the inbox collection. For group topics, queries messages collection.
+// For P2P/system topics, queries the inbox collection.
+// For group topics, also queries the messages collection (read扩散) and merges results.
 func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*InboxMessage, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -468,6 +488,57 @@ func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, t
 	if err := cursor.All(ctx, &results); err != nil {
 		return nil, fmt.Errorf("decode offline messages: %w", err)
 	}
+
+	// For group topics, also fetch from messages collection (read扩散).
+	topicType := ParseTopicType(topic)
+	if topicType == TopicTypeGroup {
+		groupMsgs, err := s.GetGroupMessages(ctx, topic, lastSeq, limit)
+		if err != nil {
+			s.log.Warnf("get group messages for offline pull failed: user_id=%d, topic=%s, err=%v", userID, topic, err)
+		} else if len(groupMsgs) > 0 {
+			// Merge group messages into results, converting StoredMessage -> InboxMessage.
+			existing := make(map[uint64]bool, len(results))
+			for _, m := range results {
+				existing[m.TopicSeq] = true
+			}
+			for _, gm := range groupMsgs {
+				if !existing[gm.TopicSeq] {
+					results = append(results, &InboxMessage{
+						UserID:      userID,
+						MsgID:       gm.MsgID,
+						Topic:       gm.Topic,
+						SenderID:    gm.SenderID,
+						MsgType:     gm.MsgType,
+						Content:     gm.Content,
+						Timestamp:   gm.Timestamp,
+						TopicSeq:    gm.TopicSeq,
+						ClientMsgID: gm.ClientMsgID,
+						CreatedAt:   gm.CreatedAt,
+					})
+					existing[gm.TopicSeq] = true
+				}
+			}
+			// Re-sort by topic_seq after merge.
+			if len(results) > 1 {
+				// Already sorted by individual queries, but merge may be out of order.
+				// Use a simple sort to ensure order.
+				// Actually both are sorted ascending, so we can merge with two-pointer.
+				// But for simplicity, just sort.
+				// Since the original results were already sorted, just append and sort.
+			}
+		}
+	}
+
+	// Ensure final sort by topic_seq
+	if len(results) > 1 {
+		// Use a manual bubble sort or rely on the fact that inbox results are sorted
+		// and group messages are sorted. But they may be interleaved.
+		// For simplicity, use a sort.Slice.
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].TopicSeq < results[j].TopicSeq
+		})
+	}
+
 	return results, nil
 }
 
@@ -541,41 +612,67 @@ func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint
 
 // UpdateDeliveryStatus marks a message as delivered for a user.
 // It updates the inbox/mention_inbox directly and also records in delivery_status.
+// The first two updates are run in parallel to reduce round-trip latency.
 func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64, topic string, topicSeq uint64) error {
 	now := time.Now()
+	filter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
+	update := bson.M{"$set": bson.M{"delivered_at": now}}
 
-	// Try to update inbox first
-	inboxFilter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
-	inboxUpdate := bson.M{"$set": bson.M{"delivered_at": now}}
-	inboxRes, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, inboxFilter, inboxUpdate)
-	if err != nil {
-		return fmt.Errorf("update inbox delivery status: %w", err)
+	// Run inbox and mention_inbox updates in parallel.
+	type result struct {
+		matched int64
+		err     error
 	}
 
-	// If not found in inbox, try mention_inbox
-	if inboxRes.MatchedCount == 0 {
-		mentionFilter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
-		mentionUpdate := bson.M{"$set": bson.M{"delivered_at": now}}
-		mentionRes, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, mentionFilter, mentionUpdate)
-		if err != nil {
-			return fmt.Errorf("update mention inbox delivery status: %w", err)
-		}
+	ch := make(chan result, 2)
 
-		// Also record in delivery_status for read扩散 (group) messages
-		if mentionRes.MatchedCount == 0 {
-			ds := &DeliveryStatus{
-				UserID:      userID,
-				Topic:       topic,
-				TopicSeq:    topicSeq,
-				DeliveredAt: now,
+	go func() {
+		res, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, filter, update)
+		if err != nil {
+			ch <- result{err: err}
+			return
+		}
+		ch <- result{matched: res.MatchedCount}
+	}()
+
+	go func() {
+		res, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update)
+		if err != nil {
+			ch <- result{err: err}
+			return
+		}
+		ch <- result{matched: res.MatchedCount}
+	}()
+
+	var inboxMatched, mentionMatched int64
+	for i := 0; i < 2; i++ {
+		r := <-ch
+		if r.err != nil {
+			return fmt.Errorf("update delivery status: %w", r.err)
+		}
+		if r.matched > 0 {
+			if inboxMatched == 0 {
+				inboxMatched = r.matched
+			} else {
+				mentionMatched = r.matched
 			}
-			_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
-			if err != nil {
-				if IsDuplicateError(err) {
-					return nil // already recorded, ignore
-				}
-				return fmt.Errorf("insert delivery status: %w", err)
+		}
+	}
+
+	// If neither inbox nor mention_inbox matched, insert into delivery_status for read扩散 messages.
+	if inboxMatched == 0 && mentionMatched == 0 {
+		ds := &DeliveryStatus{
+			UserID:      userID,
+			Topic:       topic,
+			TopicSeq:    topicSeq,
+			DeliveredAt: now,
+		}
+		_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
+		if err != nil {
+			if IsDuplicateError(err) {
+				return nil // already recorded, ignore
 			}
+			return fmt.Errorf("insert delivery status: %w", err)
 		}
 	}
 

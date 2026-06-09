@@ -19,15 +19,18 @@ var _ = binding.EncodeURL
 
 const _ = http.SupportPackageIsVersion1
 
+const OperationMessageServicePullMessages = "/api.im.v1.MessageService/PullMessages"
 const OperationMessageServiceSendMessage = "/api.im.v1.MessageService/SendMessage"
 
 type MessageServiceHTTPServer interface {
+	PullMessages(context.Context, *PullRequest) (*PullReply, error)
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageReply, error)
 }
 
 func RegisterMessageServiceHTTPServer(s *http.Server, srv MessageServiceHTTPServer) {
 	r := s.Route("/")
 	r.POST("/v1/message/send", _MessageService_SendMessage0_HTTP_Handler(srv))
+	r.GET("/v1/message/pull", _MessageService_PullMessages0_HTTP_Handler(srv))
 }
 
 func _MessageService_SendMessage0_HTTP_Handler(srv MessageServiceHTTPServer) func(ctx http.Context) error {
@@ -52,7 +55,27 @@ func _MessageService_SendMessage0_HTTP_Handler(srv MessageServiceHTTPServer) fun
 	}
 }
 
+func _MessageService_PullMessages0_HTTP_Handler(srv MessageServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in PullRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationMessageServicePullMessages)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.PullMessages(ctx, req.(*PullRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*PullReply)
+		return ctx.Result(200, reply)
+	}
+}
+
 type MessageServiceHTTPClient interface {
+	PullMessages(ctx context.Context, req *PullRequest, opts ...http.CallOption) (rsp *PullReply, err error)
 	SendMessage(ctx context.Context, req *SendMessageRequest, opts ...http.CallOption) (rsp *SendMessageReply, err error)
 }
 
@@ -62,6 +85,19 @@ type MessageServiceHTTPClientImpl struct {
 
 func NewMessageServiceHTTPClient(client *http.Client) MessageServiceHTTPClient {
 	return &MessageServiceHTTPClientImpl{client}
+}
+
+func (c *MessageServiceHTTPClientImpl) PullMessages(ctx context.Context, in *PullRequest, opts ...http.CallOption) (*PullReply, error) {
+	var out PullReply
+	pattern := "/v1/message/pull"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationMessageServicePullMessages))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *MessageServiceHTTPClientImpl) SendMessage(ctx context.Context, in *SendMessageRequest, opts ...http.CallOption) (*SendMessageReply, error) {

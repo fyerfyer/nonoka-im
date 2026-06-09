@@ -45,10 +45,6 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	manager := gateway.NewManager(logger)
 	pushService := service.NewPushService(manager, logger)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, pushService, auth, logger)
-	string2 := provideNodeIDString()
-	sessionManager := gateway.NewSessionManager(universalClient, string2)
-	kafkaConfig := provideKafkaConfig()
-	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
 	database, cleanup2, err := provideMongoDB(confData)
 	if err != nil {
 		cleanup()
@@ -60,11 +56,16 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
+	messageService := service.NewMessageService(messageStorage, logger)
+	string2 := provideNodeIDString()
+	sessionManager := gateway.NewSessionManager(universalClient, string2)
+	kafkaConfig := provideKafkaConfig()
+	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
 	v := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig()
 	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger)
 	webSocketServer := gateway.NewWebSocketServer(handler, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, webSocketServer, auth, logger)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger)
 	nodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, nodeID)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)

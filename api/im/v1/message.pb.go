@@ -678,9 +678,10 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\rMSG_TYPE_TEXT\x10\x01\x12\x12\n" +
 	"\x0eMSG_TYPE_IMAGE\x10\x02\x12\x11\n" +
 	"\rMSG_TYPE_FILE\x10\x03\x12\x12\n" +
-	"\x0eMSG_TYPE_VOICE\x10\x042x\n" +
+	"\x0eMSG_TYPE_VOICE\x10\x042\xd0\x01\n" +
 	"\x0eMessageService\x12f\n" +
-	"\vSendMessage\x12\x1d.api.im.v1.SendMessageRequest\x1a\x1b.api.im.v1.SendMessageReply\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/v1/message/sendB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\vSendMessage\x12\x1d.api.im.v1.SendMessageRequest\x1a\x1b.api.im.v1.SendMessageReply\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/v1/message/send\x12V\n" +
+	"\fPullMessages\x12\x16.api.im.v1.PullRequest\x1a\x14.api.im.v1.PullReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/message/pullB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_message_proto_rawDescOnce sync.Once
@@ -710,9 +711,11 @@ var file_im_v1_message_proto_depIdxs = []int32{
 	0, // 0: api.im.v1.SendMessageRequest.msg_type:type_name -> api.im.v1.MsgType
 	6, // 1: api.im.v1.PullReply.messages:type_name -> api.im.v1.PullMessage
 	1, // 2: api.im.v1.MessageService.SendMessage:input_type -> api.im.v1.SendMessageRequest
-	2, // 3: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
+	5, // 3: api.im.v1.MessageService.PullMessages:input_type -> api.im.v1.PullRequest
+	2, // 4: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
+	7, // 5: api.im.v1.MessageService.PullMessages:output_type -> api.im.v1.PullReply
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name

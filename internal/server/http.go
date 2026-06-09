@@ -17,7 +17,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, ws *gateway.WebSocketServer, authConf *conf.Auth, logger log.Logger) *http.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, ws *gateway.WebSocketServer, authConf *conf.Auth, logger log.Logger) *http.Server {
 	var opts = []http.ServerOption{
 		http.Middleware(
 			recovery.Recovery(),
@@ -49,6 +49,9 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	srv := http.NewServer(opts...)
 	v1.RegisterAuthServiceHTTPServer(srv, auth)
 	v1.RegisterDispatchServiceHTTPServer(srv, dispatch)
+	if message != nil {
+		v1.RegisterMessageServiceHTTPServer(srv, message)
+	}
 
 	// Register WebSocket handler
 	if ws != nil {

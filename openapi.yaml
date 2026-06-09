@@ -59,6 +59,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.GetGatewayReply'
+    /v1/message/pull:
+        get:
+            tags:
+                - MessageService
+            operationId: MessageService_PullMessages
+            parameters:
+                - name: topic
+                  in: query
+                  schema:
+                    type: string
+                - name: lastSeq
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.PullReply'
     /v1/message/send:
         post:
             tags:
@@ -101,6 +127,38 @@ components:
                 deviceId:
                     type: string
                     description: Reserved for future use
+        api.im.v1.PullMessage:
+            type: object
+            properties:
+                msgId:
+                    type: string
+                topic:
+                    type: string
+                senderId:
+                    type: string
+                msgType:
+                    type: integer
+                    format: int32
+                content:
+                    type: string
+                    format: bytes
+                timestamp:
+                    type: string
+                topicSeq:
+                    type: string
+            description: PullMessage is a message in the pull response.
+        api.im.v1.PullReply:
+            type: object
+            properties:
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.im.v1.PullMessage'
+                hasMore:
+                    type: boolean
+                nextSeq:
+                    type: string
+            description: PullReply is sent by server in response to PullRequest.
         api.im.v1.RegisterReply:
             type: object
             properties:

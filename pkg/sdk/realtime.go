@@ -74,11 +74,44 @@ type RealtimeClient struct {
 }
 
 const (
-	rtStateDisconnected int32 = 0
-	rtStateConnecting   int32 = 1
-	rtStateConnected    int32 = 2
-	rtStateAuthed       int32 = 3
+	rtStateDisconnected  int32 = 0
+	rtStateConnecting    int32 = 1
+	rtStateConnected     int32 = 2
+	rtStateAuthed        int32 = 3
+	rtStateReconnecting  int32 = 4
 )
+
+// ConnectionState represents the current connection state as a string.
+type ConnectionState string
+
+const (
+	ConnectionStateDisconnected ConnectionState = "disconnected"
+	ConnectionStateConnecting   ConnectionState = "connecting"
+	ConnectionStateConnected    ConnectionState = "connected"
+	ConnectionStateAuthed       ConnectionState = "authed"
+	ConnectionStateReconnecting ConnectionState = "reconnecting"
+)
+
+// State returns the current connection state.
+func (rt *RealtimeClient) State() ConnectionState {
+	switch rt.state.Load() {
+	case rtStateConnecting:
+		return ConnectionStateConnecting
+	case rtStateConnected:
+		return ConnectionStateConnected
+	case rtStateAuthed:
+		return ConnectionStateAuthed
+	case rtStateReconnecting:
+		return ConnectionStateReconnecting
+	default:
+		return ConnectionStateDisconnected
+	}
+}
+
+// IsReconnecting returns true if the client is in the reconnecting state.
+func (rt *RealtimeClient) IsReconnecting() bool {
+	return rt.state.Load() == rtStateReconnecting
+}
 
 // NewRealtimeClient creates a new RealtimeClient with the given options.
 func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
@@ -133,15 +166,23 @@ func (rt *RealtimeClient) Connect(ctx context.Context) error {
 
 // connectAndAuth establishes the WebSocket connection and authenticates.
 func (rt *RealtimeClient) connectAndAuth(ctx context.Context) error {
-	if !rt.state.CompareAndSwap(rtStateDisconnected, rtStateConnecting) {
-		if rt.state.Load() == rtStateConnecting {
+	// Determine if this is a reconnection attempt
+	wasAuthed := rt.state.Load() == rtStateAuthed
+	targetState := rtStateConnecting
+	if wasAuthed {
+		targetState = rtStateReconnecting
+	}
+
+	if !rt.state.CompareAndSwap(rtStateDisconnected, targetState) {
+		current := rt.state.Load()
+		if current == rtStateConnecting || current == rtStateReconnecting {
 			return ErrAlreadyConnected
 		}
 		// If already connected/authed, close connection first then reconnect.
 		// Use closeConnection instead of Close to avoid wg.Wait deadlock
 		// when called from within a goroutine (e.g. reconnectMonitor).
 		rt.closeConnection()
-		if !rt.state.CompareAndSwap(rtStateDisconnected, rtStateConnecting) {
+		if !rt.state.CompareAndSwap(rtStateDisconnected, targetState) {
 			return ErrAlreadyConnected
 		}
 	}
@@ -410,6 +451,7 @@ func (rt *RealtimeClient) closeConnection() {
 }
 
 // sendPacket marshals and sends a packet over WebSocket.
+// It holds the writeMu for the entire check-write sequence to avoid races with Close.
 func (rt *RealtimeClient) sendPacket(packet *v1.Packet) error {
 	data, err := proto.Marshal(packet)
 	if err != nil {
@@ -419,11 +461,12 @@ func (rt *RealtimeClient) sendPacket(packet *v1.Packet) error {
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
 
-	if rt.wsConn == nil {
+	conn := rt.wsConn
+	if conn == nil {
 		return ErrNotConnected
 	}
 
-	if err := rt.wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 		return fmt.Errorf("write websocket: %w", err)
 	}
 	return nil
@@ -653,6 +696,14 @@ func (rt *RealtimeClient) reconnectMonitor() {
 				go rt.opts.OnDisconnect(fmt.Errorf("max reconnection attempts exceeded"))
 			}
 			return
+		}
+
+		// Only attempt reconnect if we are in disconnected state.
+		// Use CAS to atomically transition to reconnecting.
+		if !rt.state.CompareAndSwap(rtStateDisconnected, rtStateReconnecting) {
+			// Another goroutine is already handling connection or reconnection.
+			time.Sleep(rt.opts.ReconnectInterval)
+			continue
 		}
 
 		reconnectAttempts++

@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package api.im.v1;
 
-import "google/api/annotations.proto";
 import "im/v1/message.proto";
 
 option go_package = "nonoka-im/api/im/v1;v1";

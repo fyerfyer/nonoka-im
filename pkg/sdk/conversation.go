@@ -54,7 +54,7 @@ func (c *Conversation) SendFile(ctx context.Context, fileURL, name string) (*Sen
 }
 
 // LoadHistory loads the most recent messages from the server.
-// It resets local Messages and fills with the fetched history.
+// It merges fetched history with local pending/sending messages instead of replacing.
 func (c *Conversation) LoadHistory(ctx context.Context, limit int32) ([]*Message, error) {
 	if limit <= 0 {
 		limit = 20
@@ -66,9 +66,28 @@ func (c *Conversation) LoadHistory(ctx context.Context, limit int32) ([]*Message
 	}
 
 	c.mu.Lock()
-	c.Messages = result.Messages
-	if len(result.Messages) > 0 {
-		c.LastSeq = result.Messages[len(result.Messages)-1].TopicSeq
+	// Merge with local pending/sending messages to avoid losing in-flight messages
+	existing := make(map[uint64]bool, len(c.Messages))
+	for _, m := range c.Messages {
+		if m.TopicSeq > 0 {
+			existing[m.TopicSeq] = true
+		}
+	}
+
+	for _, m := range result.Messages {
+		if !existing[m.TopicSeq] {
+			c.Messages = append(c.Messages, m)
+			existing[m.TopicSeq] = true
+		}
+	}
+
+	// Sort by topic seq
+	sort.Slice(c.Messages, func(i, j int) bool {
+		return c.Messages[i].TopicSeq < c.Messages[j].TopicSeq
+	})
+
+	if len(c.Messages) > 0 {
+		c.LastSeq = c.Messages[len(c.Messages)-1].TopicSeq
 	}
 	c.mu.Unlock()
 

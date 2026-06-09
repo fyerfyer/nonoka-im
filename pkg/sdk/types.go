@@ -94,6 +94,7 @@ func toSDKMessage(push *v1.MessagePush) *Message {
 		Content:   push.Content,
 		Timestamp: push.Timestamp,
 		TopicSeq:  push.TopicSeq,
+		Status:    MessageStatusDelivered,
 	}
 }
 

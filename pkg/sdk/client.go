@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	v1 "nonoka-im/api/im/v1"
+
+	"github.com/google/uuid"
 )
 
 // Client is the main entry point of the SDK.
@@ -41,6 +43,9 @@ type Client struct {
 
 	// User-level message handler (called for every message, including those routed to Conversations)
 	onMessage MessageHandler
+
+	// Background cleanup
+	stopCh chan struct{}
 }
 
 type sendCacheEntry struct {
@@ -50,8 +55,10 @@ type sendCacheEntry struct {
 }
 
 const (
-	sendCacheTTL   = 30 * time.Second
-	maxSendRetries = 3
+	sendCacheTTL             = 30 * time.Second
+	maxSendRetries           = 3
+	sendCacheMaxSize         = 10000
+	sendCacheCleanupInterval = 60 * time.Second
 )
 
 // NewClient creates a new IM SDK client with the given options.
@@ -64,7 +71,11 @@ func NewClient(opts Options) *Client {
 		opts:        opts,
 		sendCache:   make(map[string]*sendCacheEntry),
 		sendingMsgs: make(map[string]*Message),
+		stopCh:      make(chan struct{}),
 	}
+
+	// Start background sendCache cleanup goroutine.
+	go client.sendCacheCleanupLoop()
 
 	// Initialize HTTP service layer immediately if BaseURL is available.
 	// This allows standalone use of Auth.Register/Login before Connect().
@@ -160,6 +171,29 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// MsgTypeText is the message type for text messages.
+const (
+	MsgTypeText  = v1.MsgType_MSG_TYPE_TEXT
+	MsgTypeImage = v1.MsgType_MSG_TYPE_IMAGE
+	MsgTypeFile  = v1.MsgType_MSG_TYPE_FILE
+	MsgTypeVoice = v1.MsgType_MSG_TYPE_VOICE
+)
+
+// SendText sends a text message to the specified topic.
+func (c *Client) SendText(ctx context.Context, topic string, text string) (*SendResult, error) {
+	return c.SendMessage(ctx, topic, MsgTypeText, []byte(text))
+}
+
+// SendImage sends an image message to the specified topic.
+func (c *Client) SendImage(ctx context.Context, topic string, imageURL string) (*SendResult, error) {
+	return c.SendMessage(ctx, topic, MsgTypeImage, []byte(imageURL))
+}
+
+// SendFile sends a file message to the specified topic.
+func (c *Client) SendFile(ctx context.Context, topic string, fileURL string) (*SendResult, error) {
+	return c.SendMessage(ctx, topic, MsgTypeFile, []byte(fileURL))
 }
 
 // SendMessage sends a message to the specified topic.
@@ -325,9 +359,14 @@ func (c *Client) pullMessagesInternal(ctx context.Context, topic string, lastSeq
 	if c.Realtime != nil && c.Realtime.IsAuthed() {
 		return c.Realtime.PullMessages(ctx, topic, lastSeq, limit)
 	}
-	// HTTP fallback is not implemented in Phase 1 because the backend's HTTP message API
-	// only supports sending, not pulling. In the future, this can be extended when the
-	// backend exposes a pull HTTP endpoint.
+	// HTTP fallback: use MessageService.PullMessages when WebSocket is unavailable.
+	if c.Message != nil {
+		return c.Message.PullMessages(ctx, &PullMessagesRequest{
+			Topic:   topic,
+			LastSeq: lastSeq,
+			Limit:   limit,
+		})
+	}
 	return nil, ErrNotConnected
 }
 
@@ -363,6 +402,10 @@ func (c *Client) IsAuthed() bool {
 // Close closes all client resources.
 func (c *Client) Close() error {
 	var errs []error
+	// Signal cleanup goroutine to stop
+	if c.stopCh != nil {
+		close(c.stopCh)
+	}
 	if c.Realtime != nil {
 		if err := c.Realtime.Close(); err != nil {
 			errs = append(errs, err)
@@ -381,6 +424,55 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// sendCacheCleanupLoop periodically cleans up expired entries from sendCache.
+func (c *Client) sendCacheCleanupLoop() {
+	ticker := time.NewTicker(sendCacheCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.cleanupSendCache()
+		case <-c.stopCh:
+			return
+		}
+	}
+}
+
+// cleanupSendCache removes expired entries and enforces max size limit.
+func (c *Client) cleanupSendCache() {
+	c.sendCacheMu.Lock()
+	defer c.sendCacheMu.Unlock()
+
+	now := time.Now()
+	for id, entry := range c.sendCache {
+		if now.Sub(entry.time) > sendCacheTTL {
+			delete(c.sendCache, id)
+		}
+	}
+
+	// If still over max size, remove oldest entries
+	if len(c.sendCache) > sendCacheMaxSize {
+		// Collect entries with their IDs
+		type item struct {
+			id   string
+			time time.Time
+		}
+		items := make([]item, 0, len(c.sendCache))
+		for id, entry := range c.sendCache {
+			items = append(items, item{id: id, time: entry.time})
+		}
+		// Sort by time ascending (oldest first)
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].time.Before(items[j].time)
+		})
+		// Remove oldest until under limit
+		toRemove := len(c.sendCache) - sendCacheMaxSize
+		for i := 0; i < toRemove && i < len(items); i++ {
+			delete(c.sendCache, items[i].id)
+		}
+	}
+}
+
 // handleIncomingMessage processes a server push message.
 func (c *Client) handleIncomingMessage(msg *Message) {
 	// Route to conversation manager
@@ -396,14 +488,18 @@ func (c *Client) handleIncomingMessage(msg *Message) {
 // handleReadReceipt processes a server-pushed read receipt.
 // It updates the status of local messages to Read and invokes user callbacks.
 func (c *Client) handleReadReceipt(topic string, upToSeq uint64, readerID int64) {
-	// Update in-flight messages
+	// Update in-flight messages: collect matches under lock, then update outside lock.
+	var toUpdate []*Message
 	c.sendingMu.Lock()
 	for _, msg := range c.sendingMsgs {
 		if msg.Topic == topic && msg.TopicSeq > 0 && msg.TopicSeq <= upToSeq {
-			msg.Status = MessageStatusRead
+			toUpdate = append(toUpdate, msg)
 		}
 	}
 	c.sendingMu.Unlock()
+	for _, msg := range toUpdate {
+		msg.Status = MessageStatusRead
+	}
 
 	// Update conversation messages
 	if c.Conversations != nil {
@@ -425,14 +521,18 @@ func (c *Client) handleReadReceipt(topic string, upToSeq uint64, readerID int64)
 // handleDeliveryReceipt processes a server-pushed delivery receipt.
 // It updates the status of local messages to Delivered and invokes user callbacks.
 func (c *Client) handleDeliveryReceipt(topic string, topicSeq uint64, msgID int64) {
-	// Update in-flight messages
+	// Update in-flight messages: collect matches under lock, then update outside lock.
+	var toUpdate []*Message
 	c.sendingMu.Lock()
 	for _, msg := range c.sendingMsgs {
 		if msg.Topic == topic && msg.TopicSeq == topicSeq {
-			msg.Status = MessageStatusDelivered
+			toUpdate = append(toUpdate, msg)
 		}
 	}
 	c.sendingMu.Unlock()
+	for _, msg := range toUpdate {
+		msg.Status = MessageStatusDelivered
+	}
 
 	// Update conversation messages
 	if c.Conversations != nil {

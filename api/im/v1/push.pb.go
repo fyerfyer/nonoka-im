@@ -7,7 +7,6 @@
 package v1
 
 import (
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -236,7 +235,7 @@ var File_im_v1_push_proto protoreflect.FileDescriptor
 
 const file_im_v1_push_proto_rawDesc = "" +
 	"\n" +
-	"\x10im/v1/push.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x13im/v1/message.proto\"^\n" +
+	"\x10im/v1/push.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"^\n" +
 	"\x11PushToUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x120\n" +
 	"\amessage\x18\x02 \x01(\v2\x16.api.im.v1.MessagePushR\amessage\"T\n" +

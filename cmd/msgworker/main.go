@@ -115,7 +115,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher(gatewayAddr, logger)
+	pusher, err := msgworker.NewGatewayPusher([]string{gatewayAddr}, logger)
 	if err != nil {
 		logger.Log(log.LevelWarn, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
 		// Non-fatal: worker can still persist messages

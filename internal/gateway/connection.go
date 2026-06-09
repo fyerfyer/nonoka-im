@@ -96,13 +96,15 @@ func (c *Connection) readLoop(handler func(*v1.Packet)) {
 }
 
 // writeLoop sends pre-marshaled packets to the client.
+// Note: we do NOT defer c.Close() here because readLoop already does it.
+// Both loops exiting will trigger Close via readLoop's defer.
 func (c *Connection) writeLoop() {
-	defer c.Close()
-
 	for {
 		select {
 		case data := <-c.sendCh:
 			if err := c.wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+				// Trigger readLoop to exit by closing the underlying conn
+				c.wsConn.Close()
 				return
 			}
 
@@ -134,8 +136,21 @@ func (c *Connection) SendRawBytes(data []byte) error {
 	buf := make([]byte, len(data))
 	copy(buf, data)
 
+	return c.sendRawBytesInternal(buf)
+}
+
+// SendRawBytesUnsafe sends pre-marshaled data without copying.
+// The caller MUST ensure the data is not modified after this call.
+func (c *Connection) SendRawBytesUnsafe(data []byte) error {
+	if c.State() == ConnStateClosed {
+		return ErrConnectionClosed
+	}
+	return c.sendRawBytesInternal(data)
+}
+
+func (c *Connection) sendRawBytesInternal(data []byte) error {
 	select {
-	case c.sendCh <- buf:
+	case c.sendCh <- data:
 		return nil
 	case <-c.closeCh:
 		return ErrConnectionClosed
@@ -165,11 +180,24 @@ func (c *Connection) SendRawBytesWithTimeout(data []byte, timeout time.Duration)
 	buf := make([]byte, len(data))
 	copy(buf, data)
 
+	return c.sendRawBytesWithTimeoutInternal(buf, timeout)
+}
+
+// SendRawBytesWithTimeoutUnsafe sends pre-marshaled data with a timeout without copying.
+// The caller MUST ensure the data is not modified after this call.
+func (c *Connection) SendRawBytesWithTimeoutUnsafe(data []byte, timeout time.Duration) error {
+	if c.State() == ConnStateClosed {
+		return ErrConnectionClosed
+	}
+	return c.sendRawBytesWithTimeoutInternal(data, timeout)
+}
+
+func (c *Connection) sendRawBytesWithTimeoutInternal(data []byte, timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
-	case c.sendCh <- buf:
+	case c.sendCh <- data:
 		return nil
 	case <-c.closeCh:
 		return ErrConnectionClosed
