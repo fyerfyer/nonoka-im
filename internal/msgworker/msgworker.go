@@ -12,13 +12,14 @@ import (
 // MsgWorker consumes Kafka upstream messages, persists them to MongoDB,
 // generates sequence numbers, and pushes messages to online users via Gateway.
 type MsgWorker struct {
-	consumer   *KafkaConsumer
-	seqGen     *SeqGenerator
-	snowflake  *Snowflake
-	storage    *MessageStorage
-	pusher     *GatewayPusher
-	retryQueue *PushRetryQueue
-	log        *log.Helper
+	consumer        *KafkaConsumer
+	seqGen          *SeqGenerator
+	snowflake       *IDGenerator
+	storage         *MessageStorage
+	pusher          *GatewayPusher
+	groupMemberSvc  GroupMemberService
+	retryQueue      *PushRetryQueue
+	log             *log.Helper
 }
 
 // Storage returns the underlying MessageStorage for testing purposes.
@@ -36,7 +37,7 @@ type MsgWorkerConfig struct {
 func NewMsgWorker(
 	consumer *KafkaConsumer,
 	seqGen *SeqGenerator,
-	snowflake *Snowflake,
+	snowflake *IDGenerator,
 	storage *MessageStorage,
 	pusher *GatewayPusher,
 	logger log.Logger,
@@ -49,6 +50,12 @@ func NewMsgWorker(
 		pusher:    pusher,
 		log:       log.NewHelper(logger),
 	}
+}
+
+// SetGroupMemberService configures the group member service for group message
+// push and membership queries.
+func (w *MsgWorker) SetGroupMemberService(svc GroupMemberService) {
+	w.groupMemberSvc = svc
 }
 
 // Start begins consuming and processing messages.
@@ -135,6 +142,34 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 					w.log.Warnf("push mentions to online users failed: %v", err)
 				} else {
 					w.handleFailedPushes(ctx, failedIDs, pushMsg)
+				}
+			}
+		}
+
+		// Push group message to all online group members (excluding sender).
+		if w.groupMemberSvc != nil && w.pusher != nil && !isDuplicate {
+			groupID, err := ExtractGroupID(upstream.GetTopic())
+			if err == nil {
+				memberIDs, err := w.groupMemberSvc.GetGroupMembers(ctx, groupID)
+				if err != nil {
+					w.log.Warnf("get group members failed: %v", err)
+				} else if len(memberIDs) > 0 {
+					pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
+					// Exclude sender from push.
+					recipients := make([]int64, 0, len(memberIDs))
+					for _, id := range memberIDs {
+						if id != upstream.GetSenderId() {
+							recipients = append(recipients, id)
+						}
+					}
+					if len(recipients) > 0 {
+						_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
+						if err != nil {
+							w.log.Warnf("push group message to online users failed: %v", err)
+						} else {
+							w.handleFailedPushes(ctx, failedIDs, pushMsg)
+						}
+					}
 				}
 			}
 		}

@@ -3,6 +3,7 @@ module nonoka-im
 go 1.25.0
 
 require (
+	github.com/bwmarrin/snowflake v0.3.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-kratos/kratos/v2 v2.9.2
 	github.com/golang-jwt/jwt/v5 v5.3.1

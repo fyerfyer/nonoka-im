@@ -1137,3 +1137,139 @@ func TestMsgWorker_BatchPushToUsers_Concurrent(t *testing.T) {
 
 	t.Logf("batch push concurrent verified: %d users, all received", userCount)
 }
+
+// TestMsgWorker_GroupMessage_PushToOnlineMembers verifies that group messages
+// are pushed to all online group members (excluding the sender).
+func TestMsgWorker_GroupMessage_PushToOnlineMembers(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	db := setupMongoDB(t)
+	redisClient := setupTestRedis(t)
+	ctx := context.Background()
+
+	// Clean collections
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs"} {
+		_ = db.Collection(coll).Drop(ctx)
+	}
+
+	// Start gRPC PushServer
+	grpcAddr, grpcCleanup := setupGRPCPushServer(t, ts.gwManager)
+	defer grpcCleanup()
+
+	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
+	snowflake := msgworker.NewSnowflake(1)
+	storage := msgworker.NewMessageStorage(db, testLogger)
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("failed to ensure indexes: %v", err)
+	}
+
+	pusher, err := msgworker.NewGatewayPusher(grpcAddr, testLogger)
+	if err != nil {
+		t.Fatalf("failed to create gateway pusher: %v", err)
+	}
+	defer pusher.Close()
+
+	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, storage, pusher, testLogger)
+
+	// Set up in-memory group member service and add members
+	groupMemberSvc := msgworker.NewInMemoryGroupMemberService()
+	groupMemberSvc.AddGroupMember(ctx, "42", 100) // sender
+	groupMemberSvc.AddGroupMember(ctx, "42", 200) // receiver 1
+	groupMemberSvc.AddGroupMember(ctx, "42", 300) // receiver 2
+	groupMemberSvc.AddGroupMember(ctx, "42", 400) // offline member
+	worker.SetGroupMemberService(groupMemberSvc)
+
+	// Create and connect receivers 200 and 300 via WebSocket
+	wsConn1 := wsConnect(t)
+	defer wsConn1.Close()
+	wsSendPacket(t, wsConn1, &v1.Packet{
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(200, ts.authConf.JwtSecret),
+				DeviceId: "web-group-test-1",
+			},
+		},
+	})
+	wsReadPacket(t, wsConn1, 2*time.Second)
+
+	wsConn2 := wsConnect(t)
+	defer wsConn2.Close()
+	wsSendPacket(t, wsConn2, &v1.Packet{
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(300, ts.authConf.JwtSecret),
+				DeviceId: "web-group-test-2",
+			},
+		},
+	})
+	wsReadPacket(t, wsConn2, 2*time.Second)
+
+	// Give gateway time to register connections
+	time.Sleep(100 * time.Millisecond)
+
+	// Send a group message from user 100
+	senderID := int64(100)
+	topic := "grp_42"
+	upstream := &v1.UpstreamMessage{
+		SenderId:    senderID,
+		Topic:       topic,
+		MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+		Content:     []byte("hello group!"),
+		ClientMsgId: "group-msg-001",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	data, _ := proto.Marshal(upstream)
+
+	if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+		t.Fatalf("handle group message failed: %v", err)
+	}
+
+	// Verify receiver 200 got the push
+	pushed1 := wsReadPacketOrNil(t, wsConn1, 3*time.Second)
+	if pushed1 == nil {
+		t.Fatal("receiver 200 expected push message, got nil")
+	}
+	if pushed1.Cmd != v1.Command_CMD_NOTIFY {
+		t.Fatalf("receiver 200 expected CMD_NOTIFY, got %v", pushed1.Cmd)
+	}
+	notify1 := pushed1.GetNotify()
+	if notify1 == nil {
+		t.Fatal("receiver 200 expected Notify payload")
+	}
+	if string(notify1.Content) != "hello group!" {
+		t.Fatalf("receiver 200 expected 'hello group!', got %s", string(notify1.Content))
+	}
+	if notify1.SenderId != senderID {
+		t.Fatalf("receiver 200 expected sender_id=%d, got %d", senderID, notify1.SenderId)
+	}
+
+	// Verify receiver 300 got the push
+	pushed2 := wsReadPacketOrNil(t, wsConn2, 3*time.Second)
+	if pushed2 == nil {
+		t.Fatal("receiver 300 expected push message, got nil")
+	}
+	if pushed2.Cmd != v1.Command_CMD_NOTIFY {
+		t.Fatalf("receiver 300 expected CMD_NOTIFY, got %v", pushed2.Cmd)
+	}
+	notify2 := pushed2.GetNotify()
+	if notify2 == nil {
+		t.Fatal("receiver 300 expected Notify payload")
+	}
+	if string(notify2.Content) != "hello group!" {
+		t.Fatalf("receiver 300 expected 'hello group!', got %s", string(notify2.Content))
+	}
+
+	// Verify group message is persisted
+	msgColl := db.Collection(msgworker.CollectionMessages)
+	count := countMongoDocs(t, msgColl, bson.M{"topic": topic})
+	if count != 1 {
+		t.Fatalf("expected 1 group message, got %d", count)
+	}
+
+	t.Logf("group message push verified: sender=%d, receivers 200+300 received, message persisted", senderID)
+}

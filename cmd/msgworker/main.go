@@ -131,6 +131,11 @@ func main() {
 		pusher,
 		logger,
 	)
+
+	// Initialize group member service (Redis-backed)
+	groupMemberSvc := msgworker.NewRedisGroupMemberService(redisClient, logger)
+	worker.SetGroupMemberService(groupMemberSvc)
+
 	// Wire handler after worker is created
 	consumer.SetHandler(worker.HandleMessage)
 

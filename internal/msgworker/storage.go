@@ -99,95 +99,113 @@ func NewMessageStorage(db *mongo.Database, logger log.Logger) *MessageStorage {
 	}
 }
 
-// EnsureIndexes creates necessary indexes.
+// EnsureIndexes creates necessary indexes. It skips indexes that already exist
+// and does NOT drop existing indexes, making it safe for production use.
 func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
-	// Drop all old indexes first to avoid conflicts when index options change.
-	for _, coll := range []string{CollectionMessages, CollectionInboxes, CollectionTopicSeqs, CollectionMentionInboxes, CollectionDeliveryStatus} {
-		_ = s.db.Collection(coll).Indexes().DropAll(ctx)
-	}
-
 	// Index for group messages: topic + topic_seq
-	_, err := s.db.Collection(CollectionMessages).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionMessages, "topic_seq_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
 		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create messages index: %w", err)
 	}
 
 	// Unique index on client_msg_id + sender_id for deduplication (messages collection)
-	// Only index documents where client_msg_id exists and is not null.
-	_, err = s.db.Collection(CollectionMessages).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionMessages, "client_msg_id_dedup", mongo.IndexModel{
 		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
 			bson.M{"client_msg_id": bson.M{"$exists": true}},
 		),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create messages dedup index: %w", err)
 	}
 
 	// Index for inbox: user_id + topic + topic_seq
-	_, err = s.db.Collection(CollectionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionInboxes, "inbox_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
 		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create inbox index: %w", err)
 	}
 
 	// Unique index on client_msg_id + sender_id for inbox deduplication
-	_, err = s.db.Collection(CollectionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionInboxes, "inbox_client_msg_id_dedup", mongo.IndexModel{
 		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
 			bson.M{"client_msg_id": bson.M{"$exists": true}},
 		),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create inbox dedup index: %w", err)
 	}
 
 	// Index for topic_seqs
-	_, err = s.db.Collection(CollectionTopicSeqs).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionTopicSeqs, "topic_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "topic", Value: 1}},
 		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create topic_seq index: %w", err)
 	}
 
 	// Index for mention_inboxes: user_id + topic + topic_seq
-	_, err = s.db.Collection(CollectionMentionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionMentionInboxes, "mention_inbox_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
 		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create mention_inbox index: %w", err)
 	}
 
 	// Unique index on user_id + client_msg_id for mention inbox deduplication.
-	// Note: sender_id + client_msg_id would be wrong because one message can @mention
-	// multiple users, each needing their own inbox record.
-	_, err = s.db.Collection(CollectionMentionInboxes).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionMentionInboxes, "mention_client_msg_id_dedup", mongo.IndexModel{
 		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
 			bson.M{"client_msg_id": bson.M{"$exists": true}},
 		),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create mention_inbox dedup index: %w", err)
 	}
 
 	// Index for delivery_status: user_id + topic + topic_seq (for fast ACK lookups)
-	_, err = s.db.Collection(CollectionDeliveryStatus).Indexes().CreateOne(ctx, mongo.IndexModel{
+	if err := s.createIndex(ctx, CollectionDeliveryStatus, "delivery_status_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
 		Options: options.Index().SetUnique(true),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("create delivery_status index: %w", err)
 	}
 
 	return nil
+}
+
+// createIndex creates an index if it does not already exist. It ignores
+// "already exists" errors to make startup idempotent and safe in production.
+func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName string, model mongo.IndexModel) error {
+	// Set the index name so we can detect if it already exists.
+	if model.Options == nil {
+		model.Options = options.Index()
+	}
+	model.Options.SetName(indexName)
+
+	_, err := s.db.Collection(collection).Indexes().CreateOne(ctx, model)
+	if err == nil {
+		return nil
+	}
+	// Ignore "already exists" errors for idempotent index creation.
+	if isIndexAlreadyExistsError(err) {
+		s.log.Debugf("index %s on %s already exists, skipping", indexName, collection)
+		return nil
+	}
+	return err
+}
+
+// isIndexAlreadyExistsError checks if the error indicates the index already exists.
+func isIndexAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// MongoDB error messages for existing indexes vary by version.
+	return strings.Contains(errStr, "already exists") ||
+		strings.Contains(errStr, "IndexAlreadyExists") ||
+		strings.Contains(errStr, "duplicate key")
 }
 
 // TopicType determines the type of a topic.

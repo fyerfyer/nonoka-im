@@ -9,10 +9,13 @@ import (
 )
 
 // TestAuthServiceCanRegisterAndLogin verifies the HTTP auth service can register a new user and log them in.
+// It uses the SDK's standalone HTTP service layer without connecting to WebSocket.
 func TestAuthServiceCanRegisterAndLogin(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
+	// With BaseURL provided, the HTTP service layer is initialized immediately
+	// and can be used before Connect().
 	client := sdk.NewClient(sdk.Options{
 		BaseURL: testBaseURL,
 	})
@@ -20,10 +23,6 @@ func TestAuthServiceCanRegisterAndLogin(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("connect failed: %v", err)
-	}
 
 	regResult, err := client.Auth.Register(ctx, "svc-auth-user", "123456")
 	if err != nil {
@@ -58,10 +57,6 @@ func TestDispatchServiceReturnsGatewayURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("connect failed: %v", err)
-	}
-
 	url, err := client.Dispatch.GetGateway(ctx, 1)
 	if err != nil {
 		t.Fatalf("get gateway failed: %v", err)
@@ -80,6 +75,7 @@ func TestMessageServiceCanSendViaHTTP(t *testing.T) {
 
 	client := sdk.NewClient(sdk.Options{
 		BaseURL:        testBaseURL,
+		GatewayURL:     "ws://127.0.0.1:18000/ws", // Use test server port
 		Token:          token,
 		RequestTimeout: 5 * time.Second,
 	})

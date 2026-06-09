@@ -47,7 +47,7 @@ func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Durat
 	c := &Connection{
 		wsConn:      wsConn,
 		connID:      connID,
-		sendCh:      make(chan []byte, 128),
+		sendCh:      make(chan []byte, 4096),
 		closeCh:     make(chan struct{}),
 		lastActive:  time.Now(),
 		onClose:     onClose,

@@ -137,8 +137,10 @@ func (rt *RealtimeClient) connectAndAuth(ctx context.Context) error {
 		if rt.state.Load() == rtStateConnecting {
 			return ErrAlreadyConnected
 		}
-		// If already connected/authed, close first then reconnect
-		rt.Close()
+		// If already connected/authed, close connection first then reconnect.
+		// Use closeConnection instead of Close to avoid wg.Wait deadlock
+		// when called from within a goroutine (e.g. reconnectMonitor).
+		rt.closeConnection()
 		if !rt.state.CompareAndSwap(rtStateDisconnected, rtStateConnecting) {
 			return ErrAlreadyConnected
 		}

@@ -66,14 +66,14 @@ func (o Options) withDefaults() Options {
 	if o.ReconnectInterval <= 0 {
 		o.ReconnectInterval = 5 * time.Second
 	}
-	if !o.AutoReconnect && o.AutoReconnect == false {
-		// zero value is false, so we explicitly default to true
+	if !o.AutoReconnect {
+		// Default to true. Note: Go bool zero value cannot be distinguished
+		// from explicit false. Use DefaultOptions() as base to explicitly disable.
+		o.AutoReconnect = true
 	}
-	if o.MaxReconnectAttempts == 0 && o.MaxReconnectAttempts != 0 {
-		// leave as 0 (unlimited)
-	}
-	if o.AutoAck == false {
-		// zero value is false, default to true
+	// MaxReconnectAttempts: 0 means unlimited, zero value is already correct.
+	if !o.AutoAck {
+		// Default to true. Same note as AutoReconnect applies.
 		o.AutoAck = true
 	}
 	return o

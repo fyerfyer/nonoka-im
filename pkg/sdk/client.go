@@ -55,6 +55,8 @@ const (
 )
 
 // NewClient creates a new IM SDK client with the given options.
+// If BaseURL is provided, the HTTP service layer (Auth, Message, Dispatch)
+// is initialized immediately and can be used before Connect().
 func NewClient(opts Options) *Client {
 	opts = opts.withDefaults()
 
@@ -64,16 +66,27 @@ func NewClient(opts Options) *Client {
 		sendingMsgs: make(map[string]*Message),
 	}
 
-	// Service layer is lazily initialized on Connect so we can surface errors.
+	// Initialize HTTP service layer immediately if BaseURL is available.
+	// This allows standalone use of Auth.Register/Login before Connect().
+	if opts.BaseURL != "" {
+		if svc, err := newServiceClient(opts.BaseURL, opts.RequestTimeout); err == nil {
+			client.svc = svc
+			client.Auth = newAuthService(svc)
+			client.Message = newMessageService(svc)
+			client.Dispatch = newDispatchService(svc)
+		}
+	}
+
 	client.Conversations = newConversationManager(client)
 
 	return client
 }
 
 // Connect establishes connection to the gateway.
-// It initializes the service layer, resolves the gateway URL if needed, and starts the realtime client.
+// It initializes the service layer (if not already done in NewClient), resolves
+// the gateway URL if needed, and starts the realtime client.
 func (c *Client) Connect(ctx context.Context) error {
-	if c.svc != nil {
+	if c.Realtime != nil && c.Realtime.IsConnected() {
 		return ErrAlreadyConnected
 	}
 
@@ -84,16 +97,17 @@ func (c *Client) Connect(ctx context.Context) error {
 		baseURL = deriveBaseURLFromGateway(c.opts.GatewayURL)
 	}
 
-	// Initialize HTTP service layer
-	svc, err := newServiceClient(baseURL, c.opts.RequestTimeout)
-	if err != nil {
-		return fmt.Errorf("init service layer: %w", err)
+	// Initialize HTTP service layer if not already initialized in NewClient.
+	if c.svc == nil && baseURL != "" {
+		svc, err := newServiceClient(baseURL, c.opts.RequestTimeout)
+		if err != nil {
+			return fmt.Errorf("init service layer: %w", err)
+		}
+		c.svc = svc
+		c.Auth = newAuthService(svc)
+		c.Message = newMessageService(svc)
+		c.Dispatch = newDispatchService(svc)
 	}
-	c.svc = svc
-
-	c.Auth = newAuthService(svc)
-	c.Message = newMessageService(svc)
-	c.Dispatch = newDispatchService(svc)
 
 	// Resolve gateway URL automatically if not provided
 	gatewayURL := c.opts.GatewayURL
@@ -138,8 +152,10 @@ func (c *Client) Connect(ctx context.Context) error {
 	})
 
 	if err := c.Realtime.Connect(ctx); err != nil {
-		_ = svc.close()
-		c.svc = nil
+		if c.svc != nil {
+			_ = c.svc.close()
+			c.svc = nil
+		}
 		return err
 	}
 
