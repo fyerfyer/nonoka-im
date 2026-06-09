@@ -35,7 +35,7 @@ type Connection struct {
 	closeCh   chan struct{}
 	closeOnce sync.Once
 
-	lastActive time.Time
+	lastActive atomic.Int64 // UnixNano for atomic access (#28)
 
 	onClose func(c *Connection)
 
@@ -49,10 +49,10 @@ func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Durat
 		connID:      connID,
 		sendCh:      make(chan []byte, 4096),
 		closeCh:     make(chan struct{}),
-		lastActive:  time.Now(),
 		onClose:     onClose,
 		readTimeout: readTimeout,
 	}
+	c.lastActive.Store(time.Now().UnixNano())
 	c.state.Store(int32(ConnStateConnected))
 	return c
 }
@@ -74,14 +74,19 @@ func (c *Connection) readLoop(handler func(*v1.Packet)) {
 
 		_, data, err := c.wsConn.ReadMessage()
 		if err != nil {
-			// Normal close or timeout, no need to log
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				// log handled by caller
+			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				// Client-initiated graceful close — no-op
+			} else if websocket.IsUnexpectedCloseError(err, websocket.CloseAbnormalClosure) {
+				// Abnormal close — connection dropped unexpectedly
+			} else {
+				// Other read errors (timeout, broken pipe, etc.) — log if needed
 			}
+			// In all cases the WebSocket connection is no longer usable; exit.
+			// The defer c.Close() will clean up resources.
 			return
 		}
 
-		c.lastActive = time.Now()
+		c.lastActive.Store(time.Now().UnixNano())
 
 		var packet v1.Packet
 		if err := proto.Unmarshal(data, &packet); err != nil {
@@ -248,10 +253,11 @@ func (c *Connection) ConnID() string {
 
 // IsIdle checks if the connection has been inactive for the specified duration.
 func (c *Connection) IsIdle(timeout time.Duration) bool {
-	return time.Since(c.lastActive) > timeout
+	last := time.Unix(0, c.lastActive.Load())
+	return time.Since(last) > timeout
 }
 
 // RefreshActivity refreshes the last active time.
 func (c *Connection) RefreshActivity() {
-	c.lastActive = time.Now()
+	c.lastActive.Store(time.Now().UnixNano())
 }

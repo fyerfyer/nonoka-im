@@ -32,7 +32,7 @@ import (
 // Injectors from wire.go:
 
 // wireApp init kratos application.
-func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, dispatch *conf.Dispatch, logger log.Logger) (*kratos.App, func(), error) {
+func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, dispatch *conf.Dispatch, gatewayConfig *conf.GatewayConfig, logger log.Logger) (*kratos.App, func(), error) {
 	dataData, cleanup, err := data.NewData(confData)
 	if err != nil {
 		return nil, nil, err
@@ -62,9 +62,9 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	kafkaConfig := provideKafkaConfig()
 	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
 	v := provideJWTSecret(auth)
-	heartbeatConfig := provideHeartbeatConfig()
+	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger)
-	webSocketServer := gateway.NewWebSocketServer(handler, logger)
+	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger)
 	nodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, nodeID)
@@ -169,12 +169,25 @@ func provideJWTSecret(c *conf.Auth) []byte {
 	return []byte(c.JwtSecret)
 }
 
-// provideHeartbeatConfig returns default heartbeat configuration.
-func provideHeartbeatConfig() gateway.HeartbeatConfig {
-	return gateway.HeartbeatConfig{
+// provideHeartbeatConfig returns heartbeat configuration from config or defaults (#32).
+func provideHeartbeatConfig(gatewayConf *conf.GatewayConfig) gateway.HeartbeatConfig {
+	cfg := gateway.HeartbeatConfig{
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}
+	if gatewayConf != nil {
+		if gatewayConf.HeartbeatInterval != nil {
+			cfg.Interval = gatewayConf.HeartbeatInterval.AsDuration()
+		}
+		if gatewayConf.HeartbeatTimeout != nil {
+			cfg.Timeout = gatewayConf.HeartbeatTimeout.AsDuration()
+		}
+		if gatewayConf.ReadTimeout != nil {
+
+			cfg.ReadTimeout = gatewayConf.ReadTimeout.AsDuration()
+		}
+	}
+	return cfg
 }
 
 // provideRedisClient extracts the Redis client from Data.
@@ -209,6 +222,11 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.Me
 		return nil, fmt.Errorf("ensure mongodb indexes: %w", err)
 	}
 	return storage, nil
+}
+
+// provideWebSocketServer creates a WebSocket server with configurable read timeout.
+func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig) *gateway.WebSocketServer {
+	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout)
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.

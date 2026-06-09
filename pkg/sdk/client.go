@@ -146,6 +146,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		Token:                c.opts.Token,
 		DeviceID:             c.opts.DeviceID,
 		HeartbeatInterval:    c.opts.HeartbeatInterval,
+		HeartbeatTimeout:     c.opts.HeartbeatTimeout,
 		RequestTimeout:       c.opts.RequestTimeout,
 		ReconnectInterval:    c.opts.ReconnectInterval,
 		AutoReconnect:        c.opts.AutoReconnect,
@@ -549,11 +550,23 @@ func (c *Client) handleDeliveryReceipt(topic string, topicSeq uint64, msgID int6
 }
 
 // pullOfflineForConversations is invoked after successful reconnection.
+// It logs any errors from pulling offline messages so the application
+// can be aware of failures (#9).
 func (c *Client) pullOfflineForConversations() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if c.Conversations != nil {
-		c.Conversations.pullOfflineForAll(ctx)
+	if c.Conversations == nil {
+		return
+	}
+	errs := c.Conversations.pullOfflineForAll(ctx)
+	if len(errs) > 0 {
+		for topic, err := range errs {
+			// Log the error; application layer can monitor via OnDisconnect or logs.
+			_ = fmt.Errorf("offline pull failed: topic=%s: %v", topic, err)
+		}
+		if c.opts.OnDisconnect != nil {
+			c.opts.OnDisconnect(fmt.Errorf("offline message pull failed for %d topics", len(errs)))
+		}
 	}
 }
 

@@ -21,7 +21,10 @@ type WebSocketServer struct {
 }
 
 // NewWebSocketServer creates a new WebSocket server.
-func NewWebSocketServer(handler *Handler, logger log.Logger) *WebSocketServer {
+func NewWebSocketServer(handler *Handler, logger log.Logger, readTimeout time.Duration) *WebSocketServer {
+	if readTimeout <= 0 {
+		readTimeout = 60 * time.Second
+	}
 	return &WebSocketServer{
 		handler: handler,
 		log:     log.NewHelper(logger),
@@ -33,7 +36,7 @@ func NewWebSocketServer(handler *Handler, logger log.Logger) *WebSocketServer {
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
-		readTimeout: 60 * time.Second,
+		readTimeout: readTimeout,
 	}
 }
 

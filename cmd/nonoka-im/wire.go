@@ -117,12 +117,25 @@ func provideJWTSecret(c *conf.Auth) []byte {
 	return []byte(c.JwtSecret)
 }
 
-// provideHeartbeatConfig returns default heartbeat configuration.
-func provideHeartbeatConfig() gateway.HeartbeatConfig {
-	return gateway.HeartbeatConfig{
+// provideHeartbeatConfig returns heartbeat configuration from config or defaults (#32).
+func provideHeartbeatConfig(gatewayConf *conf.GatewayConfig) gateway.HeartbeatConfig {
+	cfg := gateway.HeartbeatConfig{
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}
+	if gatewayConf != nil {
+		if gatewayConf.HeartbeatInterval != nil {
+			cfg.Interval = gatewayConf.HeartbeatInterval.AsDuration()
+		}
+		if gatewayConf.HeartbeatTimeout != nil {
+			cfg.Timeout = gatewayConf.HeartbeatTimeout.AsDuration()
+		}
+		if gatewayConf.ReadTimeout != nil {
+			// ReadTimeout is used by WebSocketServer, passed through Handler.
+			cfg.ReadTimeout = gatewayConf.ReadTimeout.AsDuration()
+		}
+	}
+	return cfg
 }
 
 // provideRedisClient extracts the Redis client from Data.
@@ -159,13 +172,18 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.Me
 	return storage, nil
 }
 
+// provideWebSocketServer creates a WebSocket server with configurable read timeout.
+func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig) *gateway.WebSocketServer {
+	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout)
+}
+
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
 func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url GatewayURL, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
 	return gateway.NewGatewayRegistry(redis, string(nodeID), string(url), cfg.Interval, cfg.TTL, manager, logger)
 }
 
 // wireApp init kratos application.
-func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, log.Logger) (*kratos.App, func(), error) {
+func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.GatewayConfig, log.Logger) (*kratos.App, func(), error) {
 	panic(wire.Build(
 		server.ProviderSet,
 		data.ProviderSet,
@@ -179,6 +197,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, log.Logger) (
 		provideGatewayRegistry,
 		provideJWTSecret,
 		provideHeartbeatConfig,
+		provideWebSocketServer,
 		provideRedisClient,
 		provideKafkaConfig,
 		provideMongoDB,

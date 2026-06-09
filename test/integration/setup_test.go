@@ -160,7 +160,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
-	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger)
+	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second)
 
 	// 7. HTTP server with WebSocket handler
 	confServer := &conf.Server{

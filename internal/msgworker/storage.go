@@ -709,46 +709,72 @@ func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, top
 }
 
 // GetMessageSender returns the sender_id of a message by topic and topic_seq.
-// It searches inbox, mention_inbox, and messages collections.
+// It searches inbox, mention_inbox, and messages collections in parallel (#25).
 func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, topicSeq uint64) (int64, error) {
-	// Try inbox first
-	var inboxDoc struct {
-		SenderID int64 `bson:"sender_id"`
-	}
-	err := s.db.Collection(CollectionInboxes).FindOne(ctx, bson.M{
-		"topic":     topic,
-		"topic_seq": topicSeq,
-	}).Decode(&inboxDoc)
-	if err == nil {
-		return inboxDoc.SenderID, nil
+	type result struct {
+		senderID int64
+		err      error
 	}
 
-	// Try mention inbox
-	var mentionDoc struct {
-		SenderID int64 `bson:"sender_id"`
-	}
-	err = s.db.Collection(CollectionMentionInboxes).FindOne(ctx, bson.M{
-		"topic":     topic,
-		"topic_seq": topicSeq,
-	}).Decode(&mentionDoc)
-	if err == nil {
-		return mentionDoc.SenderID, nil
+	ch := make(chan result, 3)
+
+	// Query all three collections concurrently
+	go func() {
+		var doc struct {
+			SenderID int64 `bson:"sender_id"`
+		}
+		err := s.db.Collection(CollectionInboxes).FindOne(ctx, bson.M{
+			"topic":     topic,
+			"topic_seq": topicSeq,
+		}).Decode(&doc)
+		if err == nil {
+			ch <- result{senderID: doc.SenderID}
+			return
+		}
+		ch <- result{err: err}
+	}()
+
+	go func() {
+		var doc struct {
+			SenderID int64 `bson:"sender_id"`
+		}
+		err := s.db.Collection(CollectionMentionInboxes).FindOne(ctx, bson.M{
+			"topic":     topic,
+			"topic_seq": topicSeq,
+		}).Decode(&doc)
+		if err == nil {
+			ch <- result{senderID: doc.SenderID}
+			return
+		}
+		ch <- result{err: err}
+	}()
+
+	go func() {
+		var doc struct {
+			SenderID int64 `bson:"sender_id"`
+		}
+		err := s.db.Collection(CollectionMessages).FindOne(ctx, bson.M{
+			"topic":     topic,
+			"topic_seq": topicSeq,
+		}).Decode(&doc)
+		if err == nil {
+			ch <- result{senderID: doc.SenderID}
+			return
+		}
+		ch <- result{err: err}
+	}()
+
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		r := <-ch
+		if r.err == nil {
+			return r.senderID, nil
+		}
+		lastErr = r.err
 	}
 
-	// Try messages collection (group messages)
-	var msgDoc struct {
-		SenderID int64 `bson:"sender_id"`
-	}
-	err = s.db.Collection(CollectionMessages).FindOne(ctx, bson.M{
-		"topic":     topic,
-		"topic_seq": topicSeq,
-	}).Decode(&msgDoc)
-	if err == nil {
-		return msgDoc.SenderID, nil
-	}
-
-	if err == mongo.ErrNoDocuments {
+	if lastErr == mongo.ErrNoDocuments {
 		return 0, fmt.Errorf("message not found: topic=%s, seq=%d", topic, topicSeq)
 	}
-	return 0, fmt.Errorf("find message sender: %w", err)
+	return 0, fmt.Errorf("find message sender: %w", lastErr)
 }

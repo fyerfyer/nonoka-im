@@ -18,7 +18,13 @@ type Options struct {
 	DeviceID string
 
 	// HeartbeatInterval is the interval between heartbeats. Defaults to 30s.
+	// Should be aligned with the server's gateway.heartbeat_interval (#32).
 	HeartbeatInterval time.Duration
+
+	// HeartbeatTimeout is the maximum time to wait for a heartbeat echo
+	// from the server before considering the connection dead. Defaults to 60s.
+	// Should be aligned with the server's gateway.heartbeat_timeout (#32).
+	HeartbeatTimeout time.Duration
 
 	// RequestTimeout is the timeout for request-response operations. Defaults to 10s.
 	RequestTimeout time.Duration
@@ -60,6 +66,9 @@ func (o Options) withDefaults() Options {
 	if o.HeartbeatInterval <= 0 {
 		o.HeartbeatInterval = 30 * time.Second
 	}
+	if o.HeartbeatTimeout <= 0 {
+		o.HeartbeatTimeout = 60 * time.Second
+	}
 	if o.RequestTimeout <= 0 {
 		o.RequestTimeout = 10 * time.Second
 	}
@@ -85,6 +94,7 @@ func DefaultOptions() Options {
 		GatewayURL:           "ws://localhost:8000/ws",
 		DeviceID:             "sdk-default",
 		HeartbeatInterval:    30 * time.Second,
+		HeartbeatTimeout:     60 * time.Second,
 		RequestTimeout:       10 * time.Second,
 		ReconnectInterval:    5 * time.Second,
 		AutoReconnect:        true,

@@ -25,6 +25,10 @@ dispatch:
   strategy: "consistent_hash"
   heartbeat_interval: 10s
   node_ttl: 30s
+gateway:
+  heartbeat_interval: 30s
+  heartbeat_timeout: 90s
+  read_timeout: 60s
 auth:
   jwt_secret: "change-me-in-production-use-random-string"
   token_ttl: 168h

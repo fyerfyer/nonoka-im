@@ -31,8 +31,9 @@ type Handler struct {
 
 // HeartbeatConfig holds heartbeat-related configuration.
 type HeartbeatConfig struct {
-	Interval time.Duration
-	Timeout  time.Duration
+	Interval    time.Duration
+	Timeout     time.Duration
+	ReadTimeout time.Duration // WebSocket read timeout (0 = default)
 }
 
 // NewHandler creates a new packet handler.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -12,10 +13,23 @@ import (
 
 const (
 	// pushWorkerCount is the number of goroutines used for concurrent push.
-	// Tuned for typical IM gateway scenarios: 20 workers balance
-	// parallelism with gRPC connection multiplexing overhead.
-	pushWorkerCount = 20
+	// It defaults to 2 * CPU cores, capped between 4 and 64, to adapt
+	// to different hardware while avoiding excessive gRPC overhead (#21).
+	pushWorkerCountMin = 4
+	pushWorkerCountMax = 64
 )
+
+// getPushWorkerCount returns a dynamic worker count based on CPU cores.
+func getPushWorkerCount() int {
+	n := runtime.NumCPU() * 2
+	if n < pushWorkerCountMin {
+		return pushWorkerCountMin
+	}
+	if n > pushWorkerCountMax {
+		return pushWorkerCountMax
+	}
+	return n
+}
 
 // PushService is exposed by the Gateway for MsgWorker to push messages to online users.
 type PushService struct {
@@ -96,7 +110,7 @@ func (s *PushService) BatchPushToUsers(ctx context.Context, req *pb.BatchPushToU
 
 // batchPushConcurrent distributes users across a fixed worker pool.
 func (s *PushService) batchPushConcurrent(ctx context.Context, userIDs []int64, marshaled []byte) (int, []int64) {
-	workerCount := min(len(userIDs), pushWorkerCount)
+	workerCount := min(len(userIDs), getPushWorkerCount())
 
 	type result struct {
 		userID    int64

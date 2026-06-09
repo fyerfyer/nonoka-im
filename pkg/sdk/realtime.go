@@ -25,6 +25,7 @@ type RealtimeOptions struct {
 	Token                string
 	DeviceID             string
 	HeartbeatInterval    time.Duration
+	HeartbeatTimeout     time.Duration
 	RequestTimeout       time.Duration
 	ReconnectInterval    time.Duration
 	AutoReconnect        bool
@@ -55,6 +56,10 @@ type RealtimeClient struct {
 	seqGen    atomic.Uint64
 	pending   map[uint64]chan *v1.Packet
 	pendingMu sync.RWMutex
+
+	// Heartbeat tracking for detecting one-way network failures (#31)
+	lastHeartbeatAck atomic.Int64 // UnixNano of last heartbeat ack
+	heartbeatMissed  atomic.Int32 // consecutive missed heartbeats
 
 	// Background goroutine management
 	stopCh    chan struct{}
@@ -123,6 +128,9 @@ func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
 	}
 	if opts.HeartbeatInterval <= 0 {
 		opts.HeartbeatInterval = 30 * time.Second
+	}
+	if opts.HeartbeatTimeout <= 0 {
+		opts.HeartbeatTimeout = 60 * time.Second
 	}
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 10 * time.Second
@@ -305,7 +313,10 @@ func (rt *RealtimeClient) SendMessage(ctx context.Context, topic string, msgType
 	}
 
 	select {
-	case resp := <-respCh:
+	case resp, ok := <-respCh:
+		if !ok {
+			return nil, ErrRequestTimeout
+		}
 		if err := rt.checkError(resp); err != nil {
 			return nil, err
 		}
@@ -353,7 +364,10 @@ func (rt *RealtimeClient) PullMessages(ctx context.Context, topic string, lastSe
 	}
 
 	select {
-	case resp := <-respCh:
+	case resp, ok := <-respCh:
+		if !ok {
+			return nil, ErrRequestTimeout
+		}
 		if err := rt.checkError(resp); err != nil {
 			return nil, err
 		}
@@ -486,24 +500,45 @@ func (rt *RealtimeClient) registerPending(seq uint64) chan *v1.Packet {
 	return ch
 }
 
-// unregisterPending removes the pending response channel.
+// unregisterPending removes the pending response channel and closes it
+// to wake up any waiting goroutines (#8).
 func (rt *RealtimeClient) unregisterPending(seq uint64) {
 	rt.pendingMu.Lock()
-	delete(rt.pending, seq)
+	ch, ok := rt.pending[seq]
+	if ok {
+		delete(rt.pending, seq)
+		// Drain any buffered packet to prevent blocked writers, then close.
+		select {
+		case <-ch:
+		default:
+		}
+		close(ch)
+	}
 	rt.pendingMu.Unlock()
 }
 
 // dispatchResponse routes a response packet to its pending request channel.
+// It safely handles channels that may have been closed by unregisterPending.
 func (rt *RealtimeClient) dispatchResponse(packet *v1.Packet) {
 	rt.pendingMu.RLock()
 	ch, ok := rt.pending[packet.Seq]
 	rt.pendingMu.RUnlock()
-	if ok {
+	if !ok {
+		return
+	}
+	// Use recover to handle the case where the channel was closed
+	// between the RLock and the send attempt.
+	func() {
+		defer func() {
+			if recover() != nil {
+				// Channel was closed, ignore
+			}
+		}()
 		select {
 		case ch <- packet:
 		default:
 		}
-	}
+	}()
 }
 
 // checkError checks if a packet contains an error response.
@@ -521,6 +556,8 @@ func (rt *RealtimeClient) checkError(packet *v1.Packet) error {
 }
 
 // heartbeatLoop sends periodic heartbeats to keep the connection alive.
+// It waits for the server's heartbeat echo and closes the connection if
+// the response is not received within 2 * HeartbeatInterval (#31).
 func (rt *RealtimeClient) heartbeatLoop() {
 	defer rt.wg.Done()
 
@@ -538,8 +575,33 @@ func (rt *RealtimeClient) heartbeatLoop() {
 				Cmd: v1.Command_CMD_HEARTBEAT,
 				Seq: seq,
 			}
+			respCh := rt.registerPending(seq)
 			if err := rt.sendPacket(req); err != nil {
-				_ = err
+				rt.unregisterPending(seq)
+				continue
+			}
+
+			select {
+			case _, ok := <-respCh:
+				if ok {
+					rt.lastHeartbeatAck.Store(time.Now().UnixNano())
+					rt.heartbeatMissed.Store(0)
+				}
+				// else: channel was closed by unregisterPending (timeout path)
+			case <-time.After(rt.opts.HeartbeatTimeout):
+				// Heartbeat timeout - close connection to trigger reconnect
+				rt.unregisterPending(seq)
+				missed := rt.heartbeatMissed.Add(1)
+				if missed >= 2 {
+					// Two consecutive missed heartbeats: force disconnect
+					rt.closeConnection()
+					if rt.opts.OnDisconnect != nil {
+						go rt.opts.OnDisconnect(fmt.Errorf("heartbeat timeout: %d consecutive misses", missed))
+					}
+				}
+			case <-rt.stopCh:
+				rt.unregisterPending(seq)
+				return
 			}
 		case <-rt.stopCh:
 			return
@@ -588,7 +650,8 @@ func (rt *RealtimeClient) readLoop() {
 func (rt *RealtimeClient) handlePacket(packet *v1.Packet) {
 	switch packet.Cmd {
 	case v1.Command_CMD_HEARTBEAT:
-		// Heartbeat echo from server, no action needed
+		// Heartbeat echo from server, dispatch to pending request (#31)
+		rt.dispatchResponse(packet)
 
 	case v1.Command_CMD_AUTH:
 		rt.dispatchResponse(packet)

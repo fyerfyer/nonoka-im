@@ -48,7 +48,15 @@ func (m *Manager) getShard(userID int64) *connShard {
 	if userID == 0 {
 		return m.shards[0]
 	}
-	return m.shards[userID%shardCount]
+	// Use FNV-1a hash for better distribution than simple modulo (#13)
+	h := uint32(2166136261)
+	uid := uint64(userID)
+	for i := 0; i < 8; i++ {
+		h ^= uint32(uid & 0xFF)
+		h *= 16777619
+		uid >>= 8
+	}
+	return m.shards[h%shardCount]
 }
 
 func (m *Manager) getShardByConnID(connID string) *connShard {

@@ -10,6 +10,7 @@ message Bootstrap {
   Data data = 2;
   Auth auth = 3;
   Dispatch dispatch = 4;
+  GatewayConfig gateway = 5;
 }
 
 message Server {
@@ -58,14 +59,31 @@ message Auth {
   google.protobuf.Duration token_ttl = 2;
 }
 
-message Gateway {
+message GatewayNode {
   string node_id = 1;
   string gateway_url = 2;
 }
 
+message GatewayConfig {
+  // WebSocket heartbeat interval (e.g., 30s). This controls how often
+  // the server expects heartbeats from connected clients.
+  google.protobuf.Duration heartbeat_interval = 1;
+  // WebSocket heartbeat timeout (e.g., 90s). If no heartbeat is received
+  // within this duration, the server will close the connection.
+  google.protobuf.Duration heartbeat_timeout = 2;
+  // WebSocket read timeout (e.g., 60s). Sets the read deadline on the
+  // underlying WebSocket connection.
+  google.protobuf.Duration read_timeout = 3;
+}
+
 message Dispatch {
-  repeated Gateway gateways = 1;
+  repeated GatewayNode gateways = 1;
   string strategy = 2; // "consistent_hash" | "least_connections"
   google.protobuf.Duration heartbeat_interval = 3;
   google.protobuf.Duration node_ttl = 4;
+}
+
+message Gateway {
+  string node_id = 1;
+  string gateway_url = 2;
 }

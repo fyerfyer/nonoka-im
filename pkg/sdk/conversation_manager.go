@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -64,7 +65,8 @@ func (cm *ConversationManager) onMessage(msg *Message) {
 }
 
 // pullOfflineForAll pulls offline messages for all conversations after reconnect.
-func (cm *ConversationManager) pullOfflineForAll(ctx context.Context) {
+// It returns a map of topic -> error for any failed pulls (#9).
+func (cm *ConversationManager) pullOfflineForAll(ctx context.Context) map[string]error {
 	cm.mu.RLock()
 	convs := make([]*Conversation, 0, len(cm.convs))
 	for _, conv := range cm.convs {
@@ -72,11 +74,13 @@ func (cm *ConversationManager) pullOfflineForAll(ctx context.Context) {
 	}
 	cm.mu.RUnlock()
 
+	errs := make(map[string]error)
 	for _, conv := range convs {
 		lastSeq := conv.LastSeq
 		// Pull messages after lastSeq
 		result, err := cm.client.pullMessagesInternal(ctx, conv.Topic, lastSeq, 50)
 		if err != nil {
+			errs[conv.Topic] = fmt.Errorf("pull offline for topic %s: %w", conv.Topic, err)
 			continue
 		}
 		for _, msg := range result.Messages {
@@ -86,6 +90,7 @@ func (cm *ConversationManager) pullOfflineForAll(ctx context.Context) {
 			}
 		}
 	}
+	return errs
 }
 
 // inferConversationType determines conversation type from topic string.
