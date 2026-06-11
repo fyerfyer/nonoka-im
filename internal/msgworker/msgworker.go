@@ -200,14 +200,24 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		w.log.Warnf("backup topic seq failed: %v", err)
 	}
 
-	// Push to online recipients (only for P2P and system messages in this version)
+	// Push to online recipients (only for P2P and system messages in this version).
+	// Exclude sender from push — sender already has the message locally and will
+	// receive a send receipt confirming server persistence.
 	if len(recipientIDs) > 0 && w.pusher != nil {
 		pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
-		_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipientIDs, pushMsg)
-		if err != nil {
-			w.log.Warnf("push to online users failed: %v", err)
-		} else {
-			w.handleFailedPushes(ctx, failedIDs, pushMsg)
+		recipients := make([]int64, 0, len(recipientIDs))
+		for _, id := range recipientIDs {
+			if id != upstream.GetSenderId() {
+				recipients = append(recipients, id)
+			}
+		}
+		if len(recipients) > 0 {
+			_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
+			if err != nil {
+				w.log.Warnf("push to online users failed: %v", err)
+			} else {
+				w.handleFailedPushes(ctx, failedIDs, pushMsg)
+			}
 		}
 	}
 

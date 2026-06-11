@@ -21,6 +21,10 @@ data:
       - 127.0.0.1:9092
     topic: im-messages
     consumer_group: msgworker-group
+dispatch:
+  strategy: "consistent_hash"
+  heartbeat_interval: 10s
+  node_ttl: 30s
 gateway:
   heartbeat_interval: 30s
   heartbeat_timeout: 90s

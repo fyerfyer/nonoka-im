@@ -25,9 +25,31 @@ func NewMessageHandler() *MessageHandler {
 
 // HandleMessage processes an incoming message.
 // With the refactored SDK, push messages now have Status=Delivered (was Sending before).
+// Deduplicates by clientMsgID: if a message with the same clientMsgID already exists
+// (e.g., a locally sent message waiting for server ACK), it updates the existing
+// message with server-assigned metadata instead of appending a duplicate.
 func (h *MessageHandler) HandleMessage(msg *sdk.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// Deduplication: if a message with the same clientMsgID already exists,
+	// update it with server-assigned fields instead of appending a duplicate.
+	if msg.ClientMsgID != "" {
+		for _, existing := range h.messages {
+			if existing.ClientMsgID == msg.ClientMsgID {
+				if msg.MsgID > 0 {
+					existing.MsgID = msg.MsgID
+				}
+				if msg.TopicSeq > 0 {
+					existing.TopicSeq = msg.TopicSeq
+				}
+				if msg.Status > existing.Status {
+					existing.Status = msg.Status
+				}
+				return
+			}
+		}
+	}
 
 	h.messages = append(h.messages, msg)
 	h.unread[msg.Topic]++

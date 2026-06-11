@@ -103,7 +103,7 @@ func main() {
 	// Gateway address (from env or default)
 	gatewayAddr := os.Getenv("GATEWAY_GRPC_ADDR")
 	if gatewayAddr == "" {
-		gatewayAddr = "127.0.0.1:9000"
+		gatewayAddr = "127.0.0.1:19000"
 	}
 
 	// Build dependencies

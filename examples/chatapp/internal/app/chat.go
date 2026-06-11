@@ -78,7 +78,7 @@ func (app *ChatApp) connectionMonitor() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	prevState := ""
+	prevState := "uninitialized"
 	for {
 		select {
 		case <-app.ctx.Done():
