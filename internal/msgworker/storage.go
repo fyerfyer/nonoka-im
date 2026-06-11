@@ -129,9 +129,12 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create inbox index: %w", err)
 	}
 
-	// Unique index on client_msg_id + sender_id for inbox deduplication
+	// Unique index on client_msg_id + user_id for inbox deduplication.
+	// Uses user_id (not sender_id) because both sender and receiver have
+	// separate inbox entries for the same message, and they must not
+	// conflict with each other.
 	if err := s.createIndex(ctx, CollectionInboxes, "inbox_client_msg_id_dedup", mongo.IndexModel{
-		Keys: bson.D{{Key: "sender_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
+		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "client_msg_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetPartialFilterExpression(
 			bson.M{"client_msg_id": bson.M{"$exists": true}},
 		),
@@ -178,6 +181,8 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 
 // createIndex creates an index if it does not already exist. It ignores
 // "already exists" errors to make startup idempotent and safe in production.
+// If an index with the same name but different key spec exists (e.g., after
+// a schema migration), it drops only that conflicting index and recreates it.
 func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName string, model mongo.IndexModel) error {
 	// Set the index name so we can detect if it already exists.
 	if model.Options == nil {
@@ -194,6 +199,20 @@ func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName 
 		s.log.Debugf("index %s on %s already exists, skipping", indexName, collection)
 		return nil
 	}
+	// Handle key spec conflict: same name but different keys. Drop only
+	// the conflicting index (never drop all) and recreate.
+	if isIndexKeySpecsConflictError(err) {
+		s.log.Warnf("index %s on %s has key spec conflict, dropping and recreating", indexName, collection)
+		dropErr := s.db.Collection(collection).Indexes().DropOne(ctx, indexName)
+		if dropErr != nil {
+			return fmt.Errorf("drop conflicting index %s on %s: %w", indexName, collection, dropErr)
+		}
+		_, err = s.db.Collection(collection).Indexes().CreateOne(ctx, model)
+		if err != nil {
+			return fmt.Errorf("recreate index %s on %s after drop: %w", indexName, collection, err)
+		}
+		return nil
+	}
 	return err
 }
 
@@ -207,6 +226,16 @@ func isIndexAlreadyExistsError(err error) bool {
 	return strings.Contains(errStr, "already exists") ||
 		strings.Contains(errStr, "IndexAlreadyExists") ||
 		strings.Contains(errStr, "duplicate key")
+}
+
+// isIndexKeySpecsConflictError checks if the error indicates an index name
+// conflict where the existing index has a different key specification.
+func isIndexKeySpecsConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "IndexKeySpecsConflict")
 }
 
 // TopicType determines the type of a topic.

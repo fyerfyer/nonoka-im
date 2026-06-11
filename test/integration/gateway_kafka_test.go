@@ -243,10 +243,18 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 					},
 				})
 
-				// Read ACK
-				resp := wsReadPacketOrNil(t, wsConn, 2*time.Second)
-				if resp != nil && resp.Cmd == v1.Command_CMD_PUBLISH {
-					atomic.AddInt32(&successCount, 1)
+				// Read ACK (skip any push notifications that arrive first)
+				deadline := time.Now().Add(3 * time.Second)
+				for time.Now().Before(deadline) {
+					resp := wsReadPacketOrNil(t, wsConn, 300*time.Millisecond)
+					if resp == nil {
+						continue // short read timeout, keep trying until overall deadline
+					}
+					if resp.Cmd == v1.Command_CMD_PUBLISH {
+						atomic.AddInt32(&successCount, 1)
+						break
+					}
+					// Otherwise it's a push notification (CMD_NOTIFY) — continue reading
 				}
 			}
 		}(i)

@@ -175,13 +175,21 @@ func (rt *RealtimeClient) Connect(ctx context.Context) error {
 // connectAndAuth establishes the WebSocket connection and authenticates.
 func (rt *RealtimeClient) connectAndAuth(ctx context.Context) error {
 	// Determine if this is a reconnection attempt
-	wasAuthed := rt.state.Load() == rtStateAuthed
+	currentState := rt.state.Load()
+	wasAuthed := currentState == rtStateAuthed
+	isReconnecting := currentState == rtStateReconnecting
 	targetState := rtStateConnecting
-	if wasAuthed {
+	if wasAuthed || isReconnecting {
 		targetState = rtStateReconnecting
 	}
 
-	if !rt.state.CompareAndSwap(rtStateDisconnected, targetState) {
+	// Accept starting from disconnected or reconnecting state.
+	startState := rtStateDisconnected
+	if isReconnecting {
+		startState = rtStateReconnecting
+	}
+
+	if !rt.state.CompareAndSwap(startState, targetState) {
 		current := rt.state.Load()
 		if current == rtStateConnecting || current == rtStateReconnecting {
 			return ErrAlreadyConnected
@@ -277,6 +285,9 @@ func (rt *RealtimeClient) authenticate(ctx context.Context) error {
 
 		rt.userID.Store(authResp.UserId)
 		rt.state.Store(rtStateAuthed)
+		// Clear the read deadline set during authentication so readLoop can block
+		// indefinitely for normal message reading.
+		rt.wsConn.SetReadDeadline(time.Time{})
 		if rt.opts.OnConnect != nil {
 			go rt.opts.OnConnect()
 		}
@@ -444,6 +455,22 @@ func (rt *RealtimeClient) IsConnected() bool {
 // IsAuthed returns true if the client is authenticated.
 func (rt *RealtimeClient) IsAuthed() bool {
 	return rt.state.Load() == rtStateAuthed
+}
+
+// UpdateToken updates the authentication token. If the client is already
+// connected, it triggers a reconnection with the new token.
+func (rt *RealtimeClient) UpdateToken(token string) {
+	rt.opts.Token = token
+	// If already connected, close and let reconnectMonitor handle reconnection
+	if rt.state.Load() >= rtStateConnected {
+		rt.closeConnection()
+	}
+}
+
+// Disconnect closes the WebSocket connection without stopping background goroutines.
+// This is useful for simulating a network drop to test reconnection behavior.
+func (rt *RealtimeClient) Disconnect() {
+	rt.closeConnection()
 }
 
 // Close closes the client connection and stops all background goroutines.

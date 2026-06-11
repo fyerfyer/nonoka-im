@@ -13,6 +13,18 @@ data:
     addr: 127.0.0.1:6380
     read_timeout: 0.2s
     write_timeout: 0.2s
+  mongodb:
+    uri: mongodb://127.0.0.1:27018
+    database: nonoka_im_test
+  kafka:
+    brokers:
+      - 127.0.0.1:9092
+    topic: im-messages
+    consumer_group: msgworker-group
+gateway:
+  heartbeat_interval: 30s
+  heartbeat_timeout: 90s
+  read_timeout: 60s
 auth:
   jwt_secret: "test-jwt-secret-do-not-use-in-production"
-  token_ttl: 1h
+  token_ttl: 3600s

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
@@ -14,17 +15,37 @@ type serviceClient struct {
 	httpCli *khttp.Client
 }
 
-// newServiceClient creates a new HTTP service client with the given base URL and timeout.
-func newServiceClient(baseURL string, timeout time.Duration) (*serviceClient, error) {
+// authTransport wraps an http.RoundTripper to add JWT Authorization header.
+type authTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
+}
+
+// newServiceClient creates a new HTTP service client with the given base URL, timeout, and optional JWT token.
+func newServiceClient(baseURL string, timeout time.Duration, token string) (*serviceClient, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("baseURL is required for service client")
 	}
 
-	cli, err := khttp.NewClient(
-		context.Background(),
+	opts := []khttp.ClientOption{
 		khttp.WithEndpoint(baseURL),
 		khttp.WithTimeout(timeout),
-	)
+	}
+
+	// If token is provided, wrap the HTTP transport to inject Authorization header.
+	if token != "" {
+		opts = append(opts, khttp.WithTransport(&authTransport{
+			base:  http.DefaultTransport,
+			token: token,
+		}))
+	}
+
+	cli, err := khttp.NewClient(context.Background(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create kratos http client: %w", err)
 	}

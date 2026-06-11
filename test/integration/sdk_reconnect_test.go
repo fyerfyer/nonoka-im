@@ -55,9 +55,9 @@ func TestAutoReconnectTriggersOnConnectCallback(t *testing.T) {
 		t.Fatal("initial OnConnect not fired")
 	}
 
-	// Close realtime to simulate disconnect
+	// Disconnect realtime to simulate network drop without stopping background goroutines
 	if client.Realtime != nil {
-		client.Realtime.Close()
+		client.Realtime.Disconnect()
 	}
 
 	// Wait for reconnect OnConnect
@@ -105,7 +105,7 @@ func TestClientRemainsConnectedAfterSimulatedDrop(t *testing.T) {
 
 	// Force disconnect from client side
 	if client.Realtime != nil {
-		client.Realtime.Close()
+		client.Realtime.Disconnect()
 	}
 
 	// Wait for reconnect logic to kick in
@@ -150,9 +150,9 @@ func TestReconnectPullsOfflineMessages(t *testing.T) {
 	conv := client.Conversations.Get("p2p_1_2")
 	_ = conv
 
-	// Close realtime to simulate disconnect
+	// Disconnect realtime to simulate network drop
 	if client.Realtime != nil {
-		client.Realtime.Close()
+		client.Realtime.Disconnect()
 	}
 
 	// Wait briefly to let reconnect logic run (structural coverage)

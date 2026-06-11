@@ -61,6 +61,8 @@ type testServer struct {
 	kafkaTopic     string
 	mongoDB        *mongo.Database
 	storage        *msgworker.MessageStorage
+	msgWorker      *msgworker.MsgWorker
+	grpcCleanup    func()
 }
 
 // setupTestServer bootstraps a full HTTP server against the test database.
@@ -162,12 +164,53 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	}, testLogger)
 	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second)
 
-	// 7. HTTP server with WebSocket handler
+	// 7. Message service (with producer for HTTP fallback)
+	msgSvc := service.NewMessageService(storage, msgProducer, testLogger)
+
+	// 7.5 Start msgworker and gRPC push server when using Kafka
+	var worker *msgworker.MsgWorker
+	var grpcCleanup func()
+	if useKafka {
+		// Start gRPC push server for msgworker -> gateway push
+		grpcAddr, cleanupGRPC := setupGRPCPushServer(t, gwManager)
+		grpcCleanup = cleanupGRPC
+
+		// Create msgworker dependencies
+		seqGen := msgworker.NewSeqGenerator(d.Redis, testLogger)
+		snowflake := msgworker.NewSnowflake(1)
+		pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create gateway pusher: %v", err)
+		}
+
+		consumerCfg := msgworker.KafkaConsumerConfig{
+			Brokers:     []string{testKafkaBroker},
+			Topic:       kafkaTopic,
+			GroupID:     "test-msgworker-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+			MinBytes:    1,
+			MaxBytes:    10e6,
+			StartOffset: kafka.FirstOffset,
+		}
+		consumer := msgworker.NewKafkaConsumer(consumerCfg, nil, testLogger)
+		worker = msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, pusher, testLogger)
+		consumer.SetHandler(worker.HandleMessage)
+
+		go func() {
+			if err := worker.Start(context.Background()); err != nil {
+				t.Logf("msgworker start error: %v", err)
+			}
+		}()
+
+		// Wait for consumer to be ready
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// 8. HTTP server with WebSocket handler
 	confServer := &conf.Server{
 		Http: &conf.Server_HTTP{Addr: testHTTPAddr},
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, nil, wsServer, authConf, testLogger)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, wsServer, authConf, testLogger)
 
 	// 8. Start HTTP server in background
 	go func() {
@@ -199,10 +242,18 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		kafkaTopic:    kafkaTopic,
 		mongoDB:       mongoDB,
 		storage:       storage,
+		msgWorker:     worker,
+		grpcCleanup:   grpcCleanup,
 	}
 }
 
 func (ts *testServer) stop() {
+	if ts.msgWorker != nil {
+		_ = ts.msgWorker.Stop()
+	}
+	if ts.grpcCleanup != nil {
+		ts.grpcCleanup()
+	}
 	if ts.httpSrv != nil {
 		ts.httpSrv.Stop(context.Background())
 	}

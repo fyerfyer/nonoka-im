@@ -46,6 +46,9 @@ type Client struct {
 
 	// Background cleanup
 	stopCh chan struct{}
+
+	// closeOnce ensures Close is idempotent.
+	closeOnce sync.Once
 }
 
 type sendCacheEntry struct {
@@ -80,7 +83,7 @@ func NewClient(opts Options) *Client {
 	// Initialize HTTP service layer immediately if BaseURL is available.
 	// This allows standalone use of Auth.Register/Login before Connect().
 	if opts.BaseURL != "" {
-		if svc, err := newServiceClient(opts.BaseURL, opts.RequestTimeout); err == nil {
+		if svc, err := newServiceClient(opts.BaseURL, opts.RequestTimeout, opts.Token); err == nil {
 			client.svc = svc
 			client.Auth = newAuthService(svc)
 			client.Message = newMessageService(svc)
@@ -110,7 +113,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	// Initialize HTTP service layer if not already initialized in NewClient.
 	if c.svc == nil && baseURL != "" {
-		svc, err := newServiceClient(baseURL, c.opts.RequestTimeout)
+		svc, err := newServiceClient(baseURL, c.opts.RequestTimeout, c.opts.Token)
 		if err != nil {
 			return fmt.Errorf("init service layer: %w", err)
 		}
@@ -400,13 +403,25 @@ func (c *Client) IsAuthed() bool {
 	return false
 }
 
-// Close closes all client resources.
+// UpdateToken updates the authentication token and triggers reconnection
+// if already connected. This avoids the need to recreate the entire client
+// when the token changes (e.g., after login).
+func (c *Client) UpdateToken(token string) {
+	c.opts.Token = token
+	if c.Realtime != nil {
+		c.Realtime.UpdateToken(token)
+	}
+}
+
+// Close closes all client resources. It is safe to call multiple times.
 func (c *Client) Close() error {
 	var errs []error
-	// Signal cleanup goroutine to stop
-	if c.stopCh != nil {
-		close(c.stopCh)
-	}
+	// Signal cleanup goroutine to stop (idempotent via closeOnce)
+	c.closeOnce.Do(func() {
+		if c.stopCh != nil {
+			close(c.stopCh)
+		}
+	})
 	if c.Realtime != nil {
 		if err := c.Realtime.Close(); err != nil {
 			errs = append(errs, err)

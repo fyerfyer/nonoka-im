@@ -56,11 +56,11 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
-	messageService := service.NewMessageService(messageStorage, logger)
-	string2 := provideNodeIDString()
-	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	kafkaConfig := provideKafkaConfig()
 	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
+	messageService := service.NewMessageService(messageStorage, kafkaProducer, logger)
+	string2 := provideNodeIDString()
+	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	v := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger)

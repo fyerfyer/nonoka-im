@@ -119,13 +119,13 @@ func TestMsgWorker_P2PMessage_WriteSpread(t *testing.T) {
 		t.Fatal("expected message to be unread")
 	}
 
-	// Verify sender does NOT have an inbox entry (write扩散 only to receiver)
+	// Verify sender ALSO has an inbox entry (for multi-device sync)
 	senderCount := countMongoDocs(t, inboxColl, bson.M{"user_id": senderID})
-	if senderCount != 0 {
-		t.Fatalf("expected 0 inbox message for sender %d, got %d", senderID, senderCount)
+	if senderCount != 1 {
+		t.Fatalf("expected 1 inbox message for sender %d, got %d", senderID, senderCount)
 	}
 
-	t.Logf("p2p write spread verified: msg_id=%d, topic_seq=%d, receiver=%d", inbox.MsgID, inbox.TopicSeq, receiverID)
+	t.Logf("p2p write spread verified: msg_id=%d, topic_seq=%d, receiver=%d, sender=%d", inbox.MsgID, inbox.TopicSeq, receiverID, senderID)
 }
 
 // TestMsgWorker_P2PMessage_SenderIsUID2 verifies correct receiver identification
@@ -159,12 +159,13 @@ func TestMsgWorker_P2PMessage_SenderIsUID2(t *testing.T) {
 		t.Fatalf("expected 1 inbox message for receiver %d, got %d", receiverID, count)
 	}
 
+	// Verify sender ALSO has an inbox entry (for multi-device sync)
 	senderCount := countMongoDocs(t, inboxColl, bson.M{"user_id": senderID})
-	if senderCount != 0 {
-		t.Fatalf("expected 0 inbox message for sender %d, got %d", senderID, senderCount)
+	if senderCount != 1 {
+		t.Fatalf("expected 1 inbox message for sender %d, got %d", senderID, senderCount)
 	}
 
-	t.Logf("p2p sender-is-uid2 verified: receiver=%d", receiverID)
+	t.Logf("p2p sender-is-uid2 verified: receiver=%d, sender=%d", receiverID, senderID)
 }
 
 // TestMsgWorker_GroupMessage_ReadSpread verifies that group messages are persisted
@@ -311,9 +312,9 @@ func TestMsgWorker_SeqGeneration(t *testing.T) {
 		}
 	}
 
-	// Verify topic1 seqs are 1,2,3,4,5
+	// Verify topic1 seqs are 1,2,3,4,5 (for receiver)
 	inboxColl := db.Collection(msgworker.CollectionInboxes)
-	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic1})
+	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic1, "user_id": int64(2)})
 	if err != nil {
 		t.Fatalf("failed to find topic1 messages: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestMsgWorker_SeqGeneration(t *testing.T) {
 		seqs = append(seqs, inbox.TopicSeq)
 	}
 	if len(seqs) != 5 {
-		t.Fatalf("expected 5 topic1 messages, got %d", len(seqs))
+		t.Fatalf("expected 5 topic1 messages for receiver, got %d", len(seqs))
 	}
 
 	// Verify seqs are unique and range 1-5
@@ -452,9 +453,10 @@ func TestMsgWorker_ConcurrentMessages(t *testing.T) {
 	wg.Wait()
 
 	// Verify all seqs are unique and continuous from 1 to N
+	// Query only receiver's inbox (sender=1, receiver=2) to avoid duplicates
 	expectedCount := concurrency * msgsPerGoroutine
 	inboxColl := db.Collection(msgworker.CollectionInboxes)
-	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic})
+	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic, "user_id": int64(2)})
 	if err != nil {
 		t.Fatalf("failed to find messages: %v", err)
 	}
@@ -840,13 +842,14 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 	defer verifyCancel()
 
 	inboxColl := db.Collection(msgworker.CollectionInboxes)
-	count := countMongoDocs(t, inboxColl, bson.M{"topic": "p2p_1_2"})
+	// Verify receiver's inbox (sender=1, receiver=2)
+	count := countMongoDocs(t, inboxColl, bson.M{"topic": "p2p_1_2", "user_id": int64(2)})
 	if count != messageCount {
-		t.Fatalf("expected %d inbox messages, got %d", messageCount, count)
+		t.Fatalf("expected %d inbox messages for receiver, got %d", messageCount, count)
 	}
 
-	// Verify seqs are correct
-	cursor, err := inboxColl.Find(verifyCtx, bson.M{"topic": "p2p_1_2"})
+	// Verify seqs are correct (for receiver)
+	cursor, err := inboxColl.Find(verifyCtx, bson.M{"topic": "p2p_1_2", "user_id": int64(2)})
 	if err != nil {
 		t.Fatalf("failed to find messages: %v", err)
 	}
@@ -972,9 +975,9 @@ func TestMsgWorker_SnowflakeUniqueness(t *testing.T) {
 		t.Fatalf("%d messages failed to process", failed)
 	}
 
-	// Collect all msg_ids
+	// Collect all msg_ids from receiver's inbox (sender's copy has same msg_id)
 	inboxColl := db.Collection(msgworker.CollectionInboxes)
-	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic})
+	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic, "user_id": int64(2)})
 	if err != nil {
 		t.Fatalf("failed to find messages: %v", err)
 	}

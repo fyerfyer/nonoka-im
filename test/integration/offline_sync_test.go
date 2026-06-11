@@ -568,13 +568,13 @@ func TestStorage_MentionInbox_Isolation(t *testing.T) {
 		t.Fatalf("expected 1 message in messages collection, got %d", msgCount)
 	}
 
-	// Verify: GetOfflineMessages returns nothing for group topic
+	// Verify: GetOfflineMessages returns the group message for group topic
 	offlineMsgs, err := worker.Storage().GetOfflineMessages(ctx, mentionedUID, topic, 0, 50)
 	if err != nil {
 		t.Fatalf("get offline messages failed: %v", err)
 	}
-	if len(offlineMsgs) != 0 {
-		t.Fatalf("expected 0 offline messages for group topic, got %d", len(offlineMsgs))
+	if len(offlineMsgs) != 1 {
+		t.Fatalf("expected 1 offline message for group topic (from messages collection), got %d", len(offlineMsgs))
 	}
 
 	// Verify: GetMentionMessages returns the mention

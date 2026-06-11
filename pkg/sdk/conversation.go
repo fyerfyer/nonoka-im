@@ -27,6 +27,11 @@ type Conversation struct {
 	mu      sync.RWMutex
 }
 
+// Manager returns the ConversationManager that owns this conversation.
+func (c *Conversation) Manager() *ConversationManager {
+	return c.manager
+}
+
 // newConversation creates a new Conversation managed by the given ConversationManager.
 func newConversation(manager *ConversationManager, topic string, convType ConversationType) *Conversation {
 	return &Conversation{
@@ -212,9 +217,38 @@ func (c *Conversation) LastMessage() *Message {
 }
 
 // appendMessage appends a received message to the conversation.
+// It deduplicates by clientMsgID: if a message with the same clientMsgID
+// already exists (e.g., a locally sent message waiting for server ACK),
+// it updates the existing message with server-assigned msgID and topicSeq
+// instead of appending a duplicate.
 func (c *Conversation) appendMessage(msg *Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Deduplication: if a message with the same clientMsgID already exists,
+	// update it with server-assigned metadata instead of appending a duplicate.
+	if msg.ClientMsgID != "" {
+		for _, existing := range c.Messages {
+			if existing.ClientMsgID == msg.ClientMsgID {
+				// Update server-assigned fields
+				if msg.MsgID > 0 {
+					existing.MsgID = msg.MsgID
+				}
+				if msg.TopicSeq > 0 {
+					existing.TopicSeq = msg.TopicSeq
+				}
+				// Upgrade status if the incoming message has a higher status
+				if msg.Status > existing.Status {
+					existing.Status = msg.Status
+				}
+				// Update LastSeq if needed
+				if msg.TopicSeq > c.LastSeq {
+					c.LastSeq = msg.TopicSeq
+				}
+				return
+			}
+		}
+	}
 
 	c.Messages = append(c.Messages, msg)
 	if msg.TopicSeq > c.LastSeq {

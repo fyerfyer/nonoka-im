@@ -2,34 +2,74 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/msgworker"
 
 	"github.com/go-kratos/kratos/v2/log"
+	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
+	jwt5 "github.com/golang-jwt/jwt/v5"
 )
 
 // MessageService provides message-related HTTP APIs including pull fallback.
 type MessageService struct {
 	v1.UnimplementedMessageServiceServer
-	storage *msgworker.MessageStorage
-	log     *log.Helper
+	storage  *msgworker.MessageStorage
+	producer gateway.MessageProducer
+	log      *log.Helper
 }
 
 // NewMessageService creates a new MessageService.
-func NewMessageService(storage *msgworker.MessageStorage, logger log.Logger) *MessageService {
+func NewMessageService(storage *msgworker.MessageStorage, producer gateway.MessageProducer, logger log.Logger) *MessageService {
 	return &MessageService{
-		storage: storage,
-		log:     log.NewHelper(logger),
+		storage:  storage,
+		producer: producer,
+		log:      log.NewHelper(logger),
 	}
 }
 
-// SendMessage forwards send requests to the gateway via Kafka.
+// SendMessage forwards send requests to Kafka for asynchronous processing.
+// This enables HTTP-based message sending when WebSocket is unavailable.
 func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageRequest) (*v1.SendMessageReply, error) {
-	// TODO: integrate with Kafka producer for HTTP-based message sending.
-	// For now, this is a placeholder that returns unimplemented.
-	return nil, nil
+	if req.Topic == "" {
+		return nil, errors.New("topic is required")
+	}
+	if req.ClientMsgId == "" {
+		return nil, errors.New("client_msg_id is required")
+	}
+
+	userID := extractUserIDFromContext(ctx)
+	if userID == 0 {
+		return nil, errors.New("authentication required")
+	}
+
+	upstream := &v1.UpstreamMessage{
+		SenderId:         userID,
+		Topic:            req.Topic,
+		MsgType:          int32(req.MsgType),
+		Content:          req.Content,
+		ClientMsgId:      req.ClientMsgId,
+		Timestamp:        time.Now().Unix(),
+		MentionedUserIds: req.MentionedUserIds,
+	}
+
+	if err := s.producer.Produce(ctx, upstream); err != nil {
+		s.log.Errorf("produce to kafka failed: user_id=%d, client_msg_id=%s, err=%v",
+			userID, req.ClientMsgId, err)
+		return nil, errors.New("message delivery failed")
+	}
+
+	s.log.Debugf("message forwarded to kafka: user_id=%d, topic=%s, client_msg_id=%s",
+		userID, req.Topic, req.ClientMsgId)
+
+	return &v1.SendMessageReply{
+		ClientMsgId: req.ClientMsgId,
+		Timestamp:   upstream.Timestamp,
+	}, nil
 }
 
 // PullMessages retrieves offline messages via HTTP fallback.
@@ -146,12 +186,13 @@ func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*m
 
 // extractUserIDFromContext extracts user_id from JWT claims in context.
 func extractUserIDFromContext(ctx context.Context) int64 {
-	// The JWT middleware in kratos stores claims in context.
-	// We attempt to extract the user_id claim.
-	// This is a best-effort extraction; production code should use typed context values.
-	type claimsKey struct{}
-	if claims, ok := ctx.Value(claimsKey{}).(map[string]interface{}); ok {
-		if uid, ok := claims["user_id"].(float64); ok {
+	claims, ok := jwtMiddleware.FromContext(ctx)
+	if !ok {
+		return 0
+	}
+	// Try MapClaims first (used by AuthService)
+	if mapClaims, ok := claims.(jwt5.MapClaims); ok {
+		if uid, ok := mapClaims["user_id"].(float64); ok {
 			return int64(uid)
 		}
 	}
