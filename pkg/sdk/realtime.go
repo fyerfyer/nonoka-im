@@ -36,6 +36,7 @@ type RealtimeOptions struct {
 	OnConnect            ConnectHandler
 	OnReadReceipt        ReadReceiptHandler
 	OnDeliveryReceipt    DeliveryReceiptHandler
+	OnSendReceipt        SendReceiptHandler
 }
 
 // RealtimeClient manages WebSocket connection, heartbeat, reconnection, and message handling.
@@ -701,6 +702,9 @@ func (rt *RealtimeClient) handlePacket(packet *v1.Packet) {
 	case v1.Command_CMD_DELIVERY_RECEIPT:
 		rt.handleDeliveryReceipt(packet)
 
+	case v1.Command_CMD_SEND_RECEIPT:
+		rt.handleSendReceipt(packet)
+
 	default:
 		rt.dispatchResponse(packet)
 	}
@@ -727,6 +731,18 @@ func (rt *RealtimeClient) handleDeliveryReceipt(packet *v1.Packet) {
 
 	if rt.opts.OnDeliveryReceipt != nil {
 		go rt.opts.OnDeliveryReceipt(receipt.Topic, receipt.TopicSeq, receipt.MsgId)
+	}
+}
+
+// handleSendReceipt processes server-pushed send receipts (msg_id/topic_seq confirmation).
+func (rt *RealtimeClient) handleSendReceipt(packet *v1.Packet) {
+	receipt := packet.GetSendReceipt()
+	if receipt == nil {
+		return
+	}
+
+	if rt.opts.OnSendReceipt != nil {
+		go rt.opts.OnSendReceipt(receipt.ClientMsgId, receipt.MsgId, receipt.Topic, receipt.TopicSeq)
 	}
 }
 

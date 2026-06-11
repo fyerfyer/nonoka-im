@@ -160,6 +160,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		OnConnect:            c.opts.OnConnect,
 		OnReadReceipt:        c.handleReadReceipt,
 		OnDeliveryReceipt:    c.handleDeliveryReceipt,
+		OnSendReceipt:        c.handleSendReceipt,
 	}
 	c.Realtime = NewRealtimeClient(rtOpts)
 	c.Realtime.setOnReconnect(func() {
@@ -561,6 +562,42 @@ func (c *Client) handleDeliveryReceipt(topic string, topicSeq uint64, msgID int6
 	// Invoke user-level handler
 	if c.opts.OnDeliveryReceipt != nil {
 		go c.opts.OnDeliveryReceipt(topic, topicSeq, msgID)
+	}
+}
+
+// handleSendReceipt processes a server-pushed send receipt (msg_id/topic_seq confirmation).
+// It updates the in-flight message with the assigned msg_id and topic_seq, and invokes user callbacks.
+func (c *Client) handleSendReceipt(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
+	// Update in-flight message with assigned IDs
+	var msg *Message
+	c.sendingMu.Lock()
+	if m, ok := c.sendingMsgs[clientMsgID]; ok {
+		m.MsgID = msgID
+		m.TopicSeq = topicSeq
+		m.Status = MessageStatusSent
+		msg = m
+	}
+	c.sendingMu.Unlock()
+
+	// Update send cache with the full result
+	c.setSendCache(clientMsgID, &SendResult{
+		ClientMsgID: clientMsgID,
+		MsgID:       msgID,
+		TopicSeq:    topicSeq,
+		Timestamp:   time.Now().Unix(),
+	}, nil)
+
+	// Update conversation messages
+	if c.Conversations != nil && msg != nil {
+		conv := c.Conversations.Get(topic)
+		if conv != nil {
+			conv.updateMessageIDAndSeq(clientMsgID, msgID, topicSeq)
+		}
+	}
+
+	// Invoke user-level handler
+	if c.opts.OnSendReceipt != nil {
+		go c.opts.OnSendReceipt(clientMsgID, msgID, topic, topicSeq)
 	}
 }
 

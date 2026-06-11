@@ -3,6 +3,7 @@ package msgworker
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
@@ -207,6 +208,22 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 			w.log.Warnf("push to online users failed: %v", err)
 		} else {
 			w.handleFailedPushes(ctx, failedIDs, pushMsg)
+		}
+	}
+
+	// Push send receipt to the sender so they know the message was persisted
+	// and learn the assigned msg_id and topic_seq.
+	if w.pusher != nil {
+		receipt := &pb.SendReceipt{
+			ClientMsgId: upstream.GetClientMsgId(),
+			MsgId:       msgID,
+			Topic:       upstream.GetTopic(),
+			TopicSeq:    topicSeq,
+			Timestamp:   time.Now().Unix(),
+		}
+		_, err := w.pusher.PushReceiptToUser(ctx, upstream.GetSenderId(), receipt)
+		if err != nil {
+			w.log.Warnf("push send receipt to sender %d failed: %v", upstream.GetSenderId(), err)
 		}
 	}
 

@@ -16,6 +16,9 @@ type DisconnectHandler func(reason error)
 // ConnectHandler is called when the client successfully connects and authenticates.
 type ConnectHandler func()
 
+// SendReceiptHandler is called when a send receipt is received.
+type SendReceiptHandler func(clientMsgID string, msgID int64, topic string, topicSeq uint64)
+
 // MessageStatus represents the delivery status of a message.
 type MessageStatus int
 

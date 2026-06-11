@@ -158,6 +158,106 @@ func (p *GatewayPusher) BatchPushToUsers(ctx context.Context, userIDs []int64, m
 	return totalDelivered, failedUserIDs, nil
 }
 
+// PushReceiptToUser delivers a send receipt to a single user.
+func (p *GatewayPusher) PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
+	req := &pb.PushReceiptToUserRequest{
+		UserId:  userID,
+		Receipt: receipt,
+	}
+
+	p.connMu.RLock()
+	conns := make([]*gatewayConn, len(p.conns))
+	copy(conns, p.conns)
+	p.connMu.RUnlock()
+
+	for _, gc := range conns {
+		resp, err := gc.client.PushReceiptToUser(ctx, req)
+		if err != nil {
+			p.log.Warnf("push receipt to user %d via gateway %s failed: %v", userID, gc.addr, err)
+			continue
+		}
+		if resp.GetDeliveredCount() > 0 {
+			return resp.GetDeliveredCount(), nil
+		}
+	}
+
+	return 0, fmt.Errorf("push receipt to user %d failed on all gateways", userID)
+}
+
+// BatchPushReceiptToUsers delivers send receipts to multiple users.
+func (p *GatewayPusher) BatchPushReceiptToUsers(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error) {
+	if len(userIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	p.connMu.RLock()
+	conns := make([]*gatewayConn, len(p.conns))
+	copy(conns, p.conns)
+	p.connMu.RUnlock()
+
+	if len(conns) == 0 {
+		return 0, userIDs, fmt.Errorf("no gateway connections available")
+	}
+
+	// If only one gateway, use it directly.
+	if len(conns) == 1 {
+		req := &pb.BatchPushReceiptToUsersRequest{
+			UserIds: userIDs,
+			Receipt: receipt,
+		}
+		resp, err := conns[0].client.BatchPushReceiptToUsers(ctx, req)
+		if err != nil {
+			return 0, userIDs, fmt.Errorf("batch push receipts to %d users via gateway %s: %w", len(userIDs), conns[0].addr, err)
+		}
+		return resp.GetTotalDelivered(), resp.GetFailedUserIds(), nil
+	}
+
+	// Multiple gateways: track per-user success across gateways.
+	userSuccess := make(map[int64]bool, len(userIDs))
+	var totalDelivered int32
+
+	for _, gc := range conns {
+		req := &pb.BatchPushReceiptToUsersRequest{
+			UserIds: userIDs,
+			Receipt: receipt,
+		}
+		resp, err := gc.client.BatchPushReceiptToUsers(ctx, req)
+		if err != nil {
+			p.log.Warnf("batch push receipts via gateway %s failed: %v", gc.addr, err)
+			continue
+		}
+		totalDelivered += resp.GetTotalDelivered()
+		for _, uid := range resp.GetFailedUserIds() {
+			// If already succeeded on another gateway, ignore this failure.
+			if !userSuccess[uid] {
+				userSuccess[uid] = false
+			}
+		}
+		// Mark successfully delivered users
+		for _, uid := range userIDs {
+			found := false
+			for _, fid := range resp.GetFailedUserIds() {
+				if uid == fid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				userSuccess[uid] = true
+			}
+		}
+	}
+
+	var failedUserIDs []int64
+	for _, uid := range userIDs {
+		if !userSuccess[uid] {
+			failedUserIDs = append(failedUserIDs, uid)
+		}
+	}
+
+	return totalDelivered, failedUserIDs, nil
+}
+
 // Close closes all gRPC connections.
 func (p *GatewayPusher) Close() error {
 	p.connMu.Lock()

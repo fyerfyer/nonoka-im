@@ -199,6 +199,31 @@ func (c *Conversation) updateSingleMessageStatus(topicSeq uint64, status Message
 	}
 }
 
+// updateMessageIDAndSeq updates a pending message's msgID and topicSeq by clientMsgID.
+// This is called when a send receipt is received from the server.
+func (c *Conversation) updateMessageIDAndSeq(clientMsgID string, msgID int64, topicSeq uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, msg := range c.Messages {
+		if msg.ClientMsgID == clientMsgID {
+			if msgID > 0 {
+				msg.MsgID = msgID
+			}
+			if topicSeq > 0 {
+				msg.TopicSeq = topicSeq
+			}
+			if msg.Status < MessageStatusSent {
+				msg.Status = MessageStatusSent
+			}
+			if topicSeq > c.LastSeq {
+				c.LastSeq = topicSeq
+			}
+			break
+		}
+	}
+}
+
 // GetUnreadCount returns the current unread message count.
 func (c *Conversation) GetUnreadCount() int32 {
 	c.mu.RLock()

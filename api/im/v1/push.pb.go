@@ -231,11 +231,221 @@ func (x *BatchPushToUsersReply) GetFailedUserIds() []int64 {
 	return nil
 }
 
+// PushReceiptToUserRequest is sent by MsgWorker to Gateway for send receipts.
+type PushReceiptToUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Receipt       *SendReceipt           `protobuf:"bytes,2,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushReceiptToUserRequest) Reset() {
+	*x = PushReceiptToUserRequest{}
+	mi := &file_im_v1_push_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushReceiptToUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushReceiptToUserRequest) ProtoMessage() {}
+
+func (x *PushReceiptToUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushReceiptToUserRequest.ProtoReflect.Descriptor instead.
+func (*PushReceiptToUserRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PushReceiptToUserRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *PushReceiptToUserRequest) GetReceipt() *SendReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+type PushReceiptToUserReply struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Success        bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	DeliveredCount int32                  `protobuf:"varint,2,opt,name=delivered_count,json=deliveredCount,proto3" json:"delivered_count,omitempty"` // number of devices the receipt was sent to
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PushReceiptToUserReply) Reset() {
+	*x = PushReceiptToUserReply{}
+	mi := &file_im_v1_push_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushReceiptToUserReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushReceiptToUserReply) ProtoMessage() {}
+
+func (x *PushReceiptToUserReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushReceiptToUserReply.ProtoReflect.Descriptor instead.
+func (*PushReceiptToUserReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PushReceiptToUserReply) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PushReceiptToUserReply) GetDeliveredCount() int32 {
+	if x != nil {
+		return x.DeliveredCount
+	}
+	return 0
+}
+
+// BatchPushReceiptToUsersRequest pushes a send receipt to multiple users.
+type BatchPushReceiptToUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
+	Receipt       *SendReceipt           `protobuf:"bytes,2,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchPushReceiptToUsersRequest) Reset() {
+	*x = BatchPushReceiptToUsersRequest{}
+	mi := &file_im_v1_push_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchPushReceiptToUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchPushReceiptToUsersRequest) ProtoMessage() {}
+
+func (x *BatchPushReceiptToUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchPushReceiptToUsersRequest.ProtoReflect.Descriptor instead.
+func (*BatchPushReceiptToUsersRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *BatchPushReceiptToUsersRequest) GetUserIds() []int64 {
+	if x != nil {
+		return x.UserIds
+	}
+	return nil
+}
+
+func (x *BatchPushReceiptToUsersRequest) GetReceipt() *SendReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+type BatchPushReceiptToUsersReply struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TotalDelivered int32                  `protobuf:"varint,1,opt,name=total_delivered,json=totalDelivered,proto3" json:"total_delivered,omitempty"`
+	FailedUserIds  []int64                `protobuf:"varint,2,rep,packed,name=failed_user_ids,json=failedUserIds,proto3" json:"failed_user_ids,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *BatchPushReceiptToUsersReply) Reset() {
+	*x = BatchPushReceiptToUsersReply{}
+	mi := &file_im_v1_push_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchPushReceiptToUsersReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchPushReceiptToUsersReply) ProtoMessage() {}
+
+func (x *BatchPushReceiptToUsersReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchPushReceiptToUsersReply.ProtoReflect.Descriptor instead.
+func (*BatchPushReceiptToUsersReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BatchPushReceiptToUsersReply) GetTotalDelivered() int32 {
+	if x != nil {
+		return x.TotalDelivered
+	}
+	return 0
+}
+
+func (x *BatchPushReceiptToUsersReply) GetFailedUserIds() []int64 {
+	if x != nil {
+		return x.FailedUserIds
+	}
+	return nil
+}
+
 var File_im_v1_push_proto protoreflect.FileDescriptor
 
 const file_im_v1_push_proto_rawDesc = "" +
 	"\n" +
-	"\x10im/v1/push.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"^\n" +
+	"\x10im/v1/push.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\x1a\x12im/v1/packet.proto\"^\n" +
 	"\x11PushToUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x120\n" +
 	"\amessage\x18\x02 \x01(\v2\x16.api.im.v1.MessagePushR\amessage\"T\n" +
@@ -247,11 +457,25 @@ const file_im_v1_push_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\v2\x16.api.im.v1.MessagePushR\amessage\"h\n" +
 	"\x15BatchPushToUsersReply\x12'\n" +
 	"\x0ftotal_delivered\x18\x01 \x01(\x05R\x0etotalDelivered\x12&\n" +
-	"\x0ffailed_user_ids\x18\x02 \x03(\x03R\rfailedUserIds2\xaf\x01\n" +
+	"\x0ffailed_user_ids\x18\x02 \x03(\x03R\rfailedUserIds\"e\n" +
+	"\x18PushReceiptToUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x120\n" +
+	"\areceipt\x18\x02 \x01(\v2\x16.api.im.v1.SendReceiptR\areceipt\"[\n" +
+	"\x16PushReceiptToUserReply\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12'\n" +
+	"\x0fdelivered_count\x18\x02 \x01(\x05R\x0edeliveredCount\"m\n" +
+	"\x1eBatchPushReceiptToUsersRequest\x12\x19\n" +
+	"\buser_ids\x18\x01 \x03(\x03R\auserIds\x120\n" +
+	"\areceipt\x18\x02 \x01(\v2\x16.api.im.v1.SendReceiptR\areceipt\"o\n" +
+	"\x1cBatchPushReceiptToUsersReply\x12'\n" +
+	"\x0ftotal_delivered\x18\x01 \x01(\x05R\x0etotalDelivered\x12&\n" +
+	"\x0ffailed_user_ids\x18\x02 \x03(\x03R\rfailedUserIds2\xfb\x02\n" +
 	"\vPushService\x12F\n" +
 	"\n" +
 	"PushToUser\x12\x1c.api.im.v1.PushToUserRequest\x1a\x1a.api.im.v1.PushToUserReply\x12X\n" +
-	"\x10BatchPushToUsers\x12\".api.im.v1.BatchPushToUsersRequest\x1a .api.im.v1.BatchPushToUsersReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\x10BatchPushToUsers\x12\".api.im.v1.BatchPushToUsersRequest\x1a .api.im.v1.BatchPushToUsersReply\x12[\n" +
+	"\x11PushReceiptToUser\x12#.api.im.v1.PushReceiptToUserRequest\x1a!.api.im.v1.PushReceiptToUserReply\x12m\n" +
+	"\x17BatchPushReceiptToUsers\x12).api.im.v1.BatchPushReceiptToUsersRequest\x1a'.api.im.v1.BatchPushReceiptToUsersReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_push_proto_rawDescOnce sync.Once
@@ -265,26 +489,37 @@ func file_im_v1_push_proto_rawDescGZIP() []byte {
 	return file_im_v1_push_proto_rawDescData
 }
 
-var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_im_v1_push_proto_goTypes = []any{
-	(*PushToUserRequest)(nil),       // 0: api.im.v1.PushToUserRequest
-	(*PushToUserReply)(nil),         // 1: api.im.v1.PushToUserReply
-	(*BatchPushToUsersRequest)(nil), // 2: api.im.v1.BatchPushToUsersRequest
-	(*BatchPushToUsersReply)(nil),   // 3: api.im.v1.BatchPushToUsersReply
-	(*MessagePush)(nil),             // 4: api.im.v1.MessagePush
+	(*PushToUserRequest)(nil),              // 0: api.im.v1.PushToUserRequest
+	(*PushToUserReply)(nil),                // 1: api.im.v1.PushToUserReply
+	(*BatchPushToUsersRequest)(nil),        // 2: api.im.v1.BatchPushToUsersRequest
+	(*BatchPushToUsersReply)(nil),          // 3: api.im.v1.BatchPushToUsersReply
+	(*PushReceiptToUserRequest)(nil),       // 4: api.im.v1.PushReceiptToUserRequest
+	(*PushReceiptToUserReply)(nil),         // 5: api.im.v1.PushReceiptToUserReply
+	(*BatchPushReceiptToUsersRequest)(nil), // 6: api.im.v1.BatchPushReceiptToUsersRequest
+	(*BatchPushReceiptToUsersReply)(nil),   // 7: api.im.v1.BatchPushReceiptToUsersReply
+	(*MessagePush)(nil),                    // 8: api.im.v1.MessagePush
+	(*SendReceipt)(nil),                    // 9: api.im.v1.SendReceipt
 }
 var file_im_v1_push_proto_depIdxs = []int32{
-	4, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
-	4, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
-	0, // 2: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
-	2, // 3: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
-	1, // 4: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
-	3, // 5: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	8, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
+	8, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
+	9, // 2: api.im.v1.PushReceiptToUserRequest.receipt:type_name -> api.im.v1.SendReceipt
+	9, // 3: api.im.v1.BatchPushReceiptToUsersRequest.receipt:type_name -> api.im.v1.SendReceipt
+	0, // 4: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
+	2, // 5: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
+	4, // 6: api.im.v1.PushService.PushReceiptToUser:input_type -> api.im.v1.PushReceiptToUserRequest
+	6, // 7: api.im.v1.PushService.BatchPushReceiptToUsers:input_type -> api.im.v1.BatchPushReceiptToUsersRequest
+	1, // 8: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
+	3, // 9: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
+	5, // 10: api.im.v1.PushService.PushReceiptToUser:output_type -> api.im.v1.PushReceiptToUserReply
+	7, // 11: api.im.v1.PushService.BatchPushReceiptToUsers:output_type -> api.im.v1.BatchPushReceiptToUsersReply
+	8, // [8:12] is the sub-list for method output_type
+	4, // [4:8] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_push_proto_init() }
@@ -293,13 +528,14 @@ func file_im_v1_push_proto_init() {
 		return
 	}
 	file_im_v1_message_proto_init()
+	file_im_v1_packet_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_push_proto_rawDesc), len(file_im_v1_push_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

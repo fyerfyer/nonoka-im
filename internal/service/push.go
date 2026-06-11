@@ -108,6 +108,66 @@ func (s *PushService) BatchPushToUsers(ctx context.Context, req *pb.BatchPushToU
 	}, nil
 }
 
+// PushReceiptToUser delivers a send receipt to all online devices of a user.
+func (s *PushService) PushReceiptToUser(ctx context.Context, req *pb.PushReceiptToUserRequest) (*pb.PushReceiptToUserReply, error) {
+	receipt := req.GetReceipt()
+	if receipt == nil {
+		return &pb.PushReceiptToUserReply{Success: false, DeliveredCount: 0}, nil
+	}
+
+	packet := &pb.Packet{
+		Cmd: pb.Command_CMD_SEND_RECEIPT,
+		Payload: &pb.Packet_SendReceipt{
+			SendReceipt: receipt,
+		},
+	}
+
+	delivered := s.manager.BroadcastToUser(req.GetUserId(), packet)
+	s.log.Debugf("push receipt to user: user_id=%d, delivered=%d", req.GetUserId(), delivered)
+
+	return &pb.PushReceiptToUserReply{
+		Success:        delivered > 0,
+		DeliveredCount: int32(delivered),
+	}, nil
+}
+
+// BatchPushReceiptToUsers delivers send receipts to multiple users concurrently.
+func (s *PushService) BatchPushReceiptToUsers(ctx context.Context, req *pb.BatchPushReceiptToUsersRequest) (*pb.BatchPushReceiptToUsersReply, error) {
+	receipt := req.GetReceipt()
+	if receipt == nil {
+		return &pb.BatchPushReceiptToUsersReply{TotalDelivered: 0}, nil
+	}
+
+	userIDs := req.GetUserIds()
+	if len(userIDs) == 0 {
+		return &pb.BatchPushReceiptToUsersReply{TotalDelivered: 0}, nil
+	}
+
+	// Pre-serialize the packet once to avoid repeated protobuf marshaling
+	packet := &pb.Packet{
+		Cmd: pb.Command_CMD_SEND_RECEIPT,
+		Payload: &pb.Packet_SendReceipt{
+			SendReceipt: receipt,
+		},
+	}
+	marshaled, err := proto.Marshal(packet)
+	if err != nil {
+		s.log.Errorf("marshal receipt packet for batch push failed: %v", err)
+		return &pb.BatchPushReceiptToUsersReply{TotalDelivered: 0}, nil
+	}
+
+	// Use worker pool for concurrent delivery
+	totalDelivered, failedUserIDs := s.batchPushConcurrent(ctx, userIDs, marshaled)
+
+	s.log.Debugf("batch push receipts: users=%d, total_delivered=%d, failed=%d",
+		len(userIDs), totalDelivered, len(failedUserIDs))
+
+	return &pb.BatchPushReceiptToUsersReply{
+		TotalDelivered: int32(totalDelivered),
+		FailedUserIds:  failedUserIDs,
+	}, nil
+}
+
 // batchPushConcurrent distributes users across a fixed worker pool.
 func (s *PushService) batchPushConcurrent(ctx context.Context, userIDs []int64, marshaled []byte) (int, []int64) {
 	workerCount := min(len(userIDs), getPushWorkerCount())

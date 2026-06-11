@@ -16,6 +16,7 @@ enum Command {
   CMD_NOTIFY = 6;      // server -> client: push notification
   CMD_READ_RECEIPT = 7;     // bi-directional: read receipt
   CMD_DELIVERY_RECEIPT = 8; // server -> client: delivery receipt
+  CMD_SEND_RECEIPT = 9;     // server -> client: send receipt (msg_id/topic_seq confirmation)
 }
 
 // Packet is the unified wire format for all WebSocket messages.
@@ -50,6 +51,9 @@ message Packet {
 
     // CMD_DELIVERY_RECEIPT
     DeliveryReceipt delivery_receipt = 70;
+
+    // CMD_SEND_RECEIPT
+    SendReceipt send_receipt = 80;
 
     // Unified error response (can be returned for any command).
     ErrorResponse error = 99;
@@ -98,4 +102,14 @@ message DeliveryReceipt {
   string topic     = 1;
   uint64 topic_seq = 2;
   int64  msg_id    = 3;
+}
+
+// SendReceipt is pushed by the server to confirm that a message sent by
+// the client has been persisted and assigned a msg_id and topic_seq.
+message SendReceipt {
+  string client_msg_id = 1; // the client_msg_id from the original SendMessageRequest
+  int64  msg_id        = 2; // the globally unique message ID assigned by the server
+  string topic         = 3; // the topic the message was sent to
+  uint64 topic_seq     = 4; // the sequence number within the topic
+  int64  timestamp     = 5; // server processing timestamp
 }

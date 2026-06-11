@@ -569,3 +569,110 @@ func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
 
 	t.Logf("async producer batch send verified: %d messages, no failures", messageCount)
 }
+
+// TestGateway_Kafka_SendReceipt verifies that after a message is published and
+// processed by MsgWorker, the sender receives a CMD_SEND_RECEIPT with the
+// assigned msg_id and topic_seq.
+func TestGateway_Kafka_SendReceipt(t *testing.T) {
+	ts := setupTestServer(t, true)
+	defer ts.stop()
+
+	token, _ := registerAndLogin(t, "kafka-receipt-user", "123456")
+
+	wsConn := wsConnect(t)
+	defer wsConn.Close()
+
+	wsSendPacket(t, wsConn, &v1.Packet{
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    token,
+				DeviceId: "web-receipt",
+			},
+		},
+	})
+	wsReadPacket(t, wsConn, 2*time.Second) // consume auth response
+
+	clientMsgID := "receipt-test-001"
+	wsSendPacket(t, wsConn, &v1.Packet{
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 2,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("receipt test message"),
+				ClientMsgId: clientMsgID,
+			},
+		},
+	})
+
+	// 1. Read ACK for the publish
+	ack := wsReadPacket(t, wsConn, 2*time.Second)
+	if ack.Cmd != v1.Command_CMD_PUBLISH {
+		t.Fatalf("expected CMD_PUBLISH ack, got %v", ack.Cmd)
+	}
+	ackReply := ack.GetSendReply()
+	if ackReply == nil {
+		t.Fatalf("expected SendMessageReply in ACK")
+	}
+	if ackReply.ClientMsgId != clientMsgID {
+		t.Fatalf("ACK client_msg_id mismatch: got %s, want %s", ackReply.ClientMsgId, clientMsgID)
+	}
+	if ackReply.MsgId != 0 {
+		t.Fatalf("ACK should not contain msg_id (expected 0, got %d)", ackReply.MsgId)
+	}
+	if ackReply.TopicSeq != 0 {
+		t.Fatalf("ACK should not contain topic_seq (expected 0, got %d)", ackReply.TopicSeq)
+	}
+
+	// 2. Wait for SendReceipt from MsgWorker
+	// Use a background goroutine to read so that short read deadlines don't
+	// interfere with the server's readLoop (which shares the same TCP conn).
+	receiptCh := make(chan *v1.SendReceipt, 1)
+	go func() {
+		defer close(receiptCh)
+		for {
+			resp := wsReadPacketOrNil(t, wsConn, 10*time.Second)
+			if resp == nil {
+				return
+			}
+			if resp.Cmd == v1.Command_CMD_SEND_RECEIPT {
+				if r := resp.GetSendReceipt(); r != nil {
+					receiptCh <- r
+					return
+				}
+			}
+			// Ignore heartbeats and other packets, keep reading
+		}
+	}()
+
+	var receipt *v1.SendReceipt
+	select {
+	case r, ok := <-receiptCh:
+		if ok {
+			receipt = r
+		}
+	case <-time.After(10 * time.Second):
+	}
+
+	if receipt == nil {
+		t.Fatalf("did not receive CMD_SEND_RECEIPT within timeout")
+	}
+
+	if receipt.ClientMsgId != clientMsgID {
+		t.Fatalf("receipt client_msg_id mismatch: got %s, want %s", receipt.ClientMsgId, clientMsgID)
+	}
+	if receipt.MsgId == 0 {
+		t.Fatalf("receipt should contain non-zero msg_id")
+	}
+	if receipt.TopicSeq == 0 {
+		t.Fatalf("receipt should contain non-zero topic_seq")
+	}
+	if receipt.Topic != "p2p_1_2" {
+		t.Fatalf("receipt topic mismatch: got %s, want p2p_1_2", receipt.Topic)
+	}
+
+	t.Logf("send receipt verified: msg_id=%d, topic_seq=%d", receipt.MsgId, receipt.TopicSeq)
+}

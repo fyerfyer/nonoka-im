@@ -33,6 +33,7 @@ const (
 	Command_CMD_NOTIFY           Command = 6 // server -> client: push notification
 	Command_CMD_READ_RECEIPT     Command = 7 // bi-directional: read receipt
 	Command_CMD_DELIVERY_RECEIPT Command = 8 // server -> client: delivery receipt
+	Command_CMD_SEND_RECEIPT     Command = 9 // server -> client: send receipt (msg_id/topic_seq confirmation)
 )
 
 // Enum value maps for Command.
@@ -47,6 +48,7 @@ var (
 		6: "CMD_NOTIFY",
 		7: "CMD_READ_RECEIPT",
 		8: "CMD_DELIVERY_RECEIPT",
+		9: "CMD_SEND_RECEIPT",
 	}
 	Command_value = map[string]int32{
 		"CMD_UNKNOWN":          0,
@@ -58,6 +60,7 @@ var (
 		"CMD_NOTIFY":           6,
 		"CMD_READ_RECEIPT":     7,
 		"CMD_DELIVERY_RECEIPT": 8,
+		"CMD_SEND_RECEIPT":     9,
 	}
 )
 
@@ -109,6 +112,7 @@ type Packet struct {
 	//	*Packet_Notify
 	//	*Packet_ReadReceipt
 	//	*Packet_DeliveryReceipt
+	//	*Packet_SendReceipt
 	//	*Packet_Error
 	Payload       isPacket_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -256,6 +260,15 @@ func (x *Packet) GetDeliveryReceipt() *DeliveryReceipt {
 	return nil
 }
 
+func (x *Packet) GetSendReceipt() *SendReceipt {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_SendReceipt); ok {
+			return x.SendReceipt
+		}
+	}
+	return nil
+}
+
 func (x *Packet) GetError() *ErrorResponse {
 	if x != nil {
 		if x, ok := x.Payload.(*Packet_Error); ok {
@@ -316,6 +329,11 @@ type Packet_DeliveryReceipt struct {
 	DeliveryReceipt *DeliveryReceipt `protobuf:"bytes,70,opt,name=delivery_receipt,json=deliveryReceipt,proto3,oneof"`
 }
 
+type Packet_SendReceipt struct {
+	// CMD_SEND_RECEIPT
+	SendReceipt *SendReceipt `protobuf:"bytes,80,opt,name=send_receipt,json=sendReceipt,proto3,oneof"`
+}
+
 type Packet_Error struct {
 	// Unified error response (can be returned for any command).
 	Error *ErrorResponse `protobuf:"bytes,99,opt,name=error,proto3,oneof"`
@@ -340,6 +358,8 @@ func (*Packet_Notify) isPacket_Payload() {}
 func (*Packet_ReadReceipt) isPacket_Payload() {}
 
 func (*Packet_DeliveryReceipt) isPacket_Payload() {}
+
+func (*Packet_SendReceipt) isPacket_Payload() {}
 
 func (*Packet_Error) isPacket_Payload() {}
 
@@ -711,11 +731,89 @@ func (x *DeliveryReceipt) GetMsgId() int64 {
 	return 0
 }
 
+// SendReceipt is pushed by the server to confirm that a message sent by
+// the client has been persisted and assigned a msg_id and topic_seq.
+type SendReceipt struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClientMsgId   string                 `protobuf:"bytes,1,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"` // the client_msg_id from the original SendMessageRequest
+	MsgId         int64                  `protobuf:"varint,2,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`                    // the globally unique message ID assigned by the server
+	Topic         string                 `protobuf:"bytes,3,opt,name=topic,proto3" json:"topic,omitempty"`                                  // the topic the message was sent to
+	TopicSeq      uint64                 `protobuf:"varint,4,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`           // the sequence number within the topic
+	Timestamp     int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                         // server processing timestamp
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendReceipt) Reset() {
+	*x = SendReceipt{}
+	mi := &file_im_v1_packet_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendReceipt) ProtoMessage() {}
+
+func (x *SendReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendReceipt.ProtoReflect.Descriptor instead.
+func (*SendReceipt) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SendReceipt) GetClientMsgId() string {
+	if x != nil {
+		return x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *SendReceipt) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+func (x *SendReceipt) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *SendReceipt) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+func (x *SendReceipt) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
 var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xba\x05\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xf7\x05\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +
@@ -731,7 +829,8 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\aack_req\x18( \x01(\v2\x15.api.im.v1.AckRequestH\x00R\x06ackReq\x120\n" +
 	"\x06notify\x182 \x01(\v2\x16.api.im.v1.MessagePushH\x00R\x06notify\x12;\n" +
 	"\fread_receipt\x18< \x01(\v2\x16.api.im.v1.ReadReceiptH\x00R\vreadReceipt\x12G\n" +
-	"\x10delivery_receipt\x18F \x01(\v2\x1a.api.im.v1.DeliveryReceiptH\x00R\x0fdeliveryReceipt\x120\n" +
+	"\x10delivery_receipt\x18F \x01(\v2\x1a.api.im.v1.DeliveryReceiptH\x00R\x0fdeliveryReceipt\x12;\n" +
+	"\fsend_receipt\x18P \x01(\v2\x16.api.im.v1.SendReceiptH\x00R\vsendReceipt\x120\n" +
 	"\x05error\x18c \x01(\v2\x18.api.im.v1.ErrorResponseH\x00R\x05errorB\t\n" +
 	"\apayload\"@\n" +
 	"\vAuthRequest\x12\x14\n" +
@@ -758,7 +857,13 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\x0fDeliveryReceipt\x12\x14\n" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x1b\n" +
 	"\ttopic_seq\x18\x02 \x01(\x04R\btopicSeq\x12\x15\n" +
-	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId*\xa7\x01\n" +
+	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\"\x99\x01\n" +
+	"\vSendReceipt\x12\"\n" +
+	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x15\n" +
+	"\x06msg_id\x18\x02 \x01(\x03R\x05msgId\x12\x14\n" +
+	"\x05topic\x18\x03 \x01(\tR\x05topic\x12\x1b\n" +
+	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\x12\x1c\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp*\xbd\x01\n" +
 	"\aCommand\x12\x0f\n" +
 	"\vCMD_UNKNOWN\x10\x00\x12\x11\n" +
 	"\rCMD_HEARTBEAT\x10\x01\x12\f\n" +
@@ -769,7 +874,8 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
 	"CMD_NOTIFY\x10\x06\x12\x14\n" +
 	"\x10CMD_READ_RECEIPT\x10\a\x12\x18\n" +
-	"\x14CMD_DELIVERY_RECEIPT\x10\bB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\x14CMD_DELIVERY_RECEIPT\x10\b\x12\x14\n" +
+	"\x10CMD_SEND_RECEIPT\x10\tB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_packet_proto_rawDescOnce sync.Once
@@ -784,7 +890,7 @@ func file_im_v1_packet_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_packet_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_im_v1_packet_proto_goTypes = []any{
 	(Command)(0),               // 0: api.im.v1.Command
 	(*Packet)(nil),             // 1: api.im.v1.Packet
@@ -794,30 +900,32 @@ var file_im_v1_packet_proto_goTypes = []any{
 	(*ErrorResponse)(nil),      // 5: api.im.v1.ErrorResponse
 	(*ReadReceipt)(nil),        // 6: api.im.v1.ReadReceipt
 	(*DeliveryReceipt)(nil),    // 7: api.im.v1.DeliveryReceipt
-	(*SendMessageRequest)(nil), // 8: api.im.v1.SendMessageRequest
-	(*SendMessageReply)(nil),   // 9: api.im.v1.SendMessageReply
-	(*PullRequest)(nil),        // 10: api.im.v1.PullRequest
-	(*PullReply)(nil),          // 11: api.im.v1.PullReply
-	(*MessagePush)(nil),        // 12: api.im.v1.MessagePush
+	(*SendReceipt)(nil),        // 8: api.im.v1.SendReceipt
+	(*SendMessageRequest)(nil), // 9: api.im.v1.SendMessageRequest
+	(*SendMessageReply)(nil),   // 10: api.im.v1.SendMessageReply
+	(*PullRequest)(nil),        // 11: api.im.v1.PullRequest
+	(*PullReply)(nil),          // 12: api.im.v1.PullReply
+	(*MessagePush)(nil),        // 13: api.im.v1.MessagePush
 }
 var file_im_v1_packet_proto_depIdxs = []int32{
 	0,  // 0: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
 	2,  // 1: api.im.v1.Packet.auth_req:type_name -> api.im.v1.AuthRequest
 	3,  // 2: api.im.v1.Packet.auth_resp:type_name -> api.im.v1.AuthResponse
-	8,  // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
-	9,  // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
-	10, // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
-	11, // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
+	9,  // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
+	10, // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
+	11, // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
+	12, // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
 	4,  // 7: api.im.v1.Packet.ack_req:type_name -> api.im.v1.AckRequest
-	12, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
+	13, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
 	6,  // 9: api.im.v1.Packet.read_receipt:type_name -> api.im.v1.ReadReceipt
 	7,  // 10: api.im.v1.Packet.delivery_receipt:type_name -> api.im.v1.DeliveryReceipt
-	5,  // 11: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	8,  // 11: api.im.v1.Packet.send_receipt:type_name -> api.im.v1.SendReceipt
+	5,  // 12: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_packet_proto_init() }
@@ -837,6 +945,7 @@ func file_im_v1_packet_proto_init() {
 		(*Packet_Notify)(nil),
 		(*Packet_ReadReceipt)(nil),
 		(*Packet_DeliveryReceipt)(nil),
+		(*Packet_SendReceipt)(nil),
 		(*Packet_Error)(nil),
 	}
 	type x struct{}
@@ -845,7 +954,7 @@ func file_im_v1_packet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_packet_proto_rawDesc), len(file_im_v1_packet_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

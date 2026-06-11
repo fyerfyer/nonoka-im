@@ -56,6 +56,9 @@ type Options struct {
 
 	// OnDeliveryReceipt is called when a delivery receipt is received.
 	OnDeliveryReceipt DeliveryReceiptHandler
+
+	// OnSendReceipt is called when a send receipt (msg_id/topic_seq confirmation) is received.
+	OnSendReceipt SendReceiptHandler
 }
 
 // withDefaults returns a copy of Options with default values filled in.
