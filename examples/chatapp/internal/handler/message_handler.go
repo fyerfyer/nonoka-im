@@ -14,16 +14,12 @@ type MessageHandler struct {
 	mu       sync.RWMutex
 	messages []*sdk.Message
 	unread   map[string]int32 // topic -> unread count
-
-	// Track messages we've sent (clientMsgID -> *sdk.Message)
-	sentMessages map[string]*sdk.Message
 }
 
 // NewMessageHandler creates a new message handler.
 func NewMessageHandler() *MessageHandler {
 	return &MessageHandler{
-		unread:       make(map[string]int32),
-		sentMessages: make(map[string]*sdk.Message),
+		unread: make(map[string]int32),
 	}
 }
 
@@ -46,26 +42,52 @@ func (h *MessageHandler) HandleMessage(msg *sdk.Message) {
 		direction, msg.Topic, msg.SenderID, msg.TopicSeq, statusIcon, msg.Status.String(), string(msg.Content))
 }
 
-// TrackSentMessage tracks a message we've sent for status monitoring.
-func (h *MessageHandler) TrackSentMessage(msg *sdk.Message) {
+// AddSendingMessage adds a message in "sending" state and returns its index for later update.
+func (h *MessageHandler) AddSendingMessage(topic string, senderID int64, content string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if msg.ClientMsgID != "" {
-		h.sentMessages[msg.ClientMsgID] = msg
+	msg := &sdk.Message{
+		Topic:     topic,
+		SenderID:  senderID,
+		MsgType:   sdk.MsgTypeText,
+		Content:   []byte(content),
+		Timestamp: time.Now().Unix(),
+		Status:    sdk.MessageStatusSending,
 	}
 	h.messages = append(h.messages, msg)
+	idx := len(h.messages) - 1
+	fmt.Printf("[📤] Added sending message (idx=%d): %s\n", idx, content)
+	return idx
 }
 
-// UpdateSentStatus updates the status of a sent message by clientMsgID.
-func (h *MessageHandler) UpdateSentStatus(clientMsgID string, status sdk.MessageStatus) {
+// ConfirmSent updates a sending message to "sent" status with server-assigned metadata.
+func (h *MessageHandler) ConfirmSent(idx int, result *sdk.SendResult) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if msg, ok := h.sentMessages[clientMsgID]; ok {
-		oldStatus := msg.Status
-		msg.Status = status
-		fmt.Printf("[📤] Status update: %s -> %s (clientMsgID=%s)\n",
-			oldStatus.String(), status.String(), clientMsgID)
+	if idx < 0 || idx >= len(h.messages) {
+		return
 	}
+	msg := h.messages[idx]
+	oldStatus := msg.Status
+	msg.ClientMsgID = result.ClientMsgID
+	msg.MsgID = result.MsgID
+	msg.TopicSeq = result.TopicSeq
+	msg.Status = sdk.MessageStatusSent
+	fmt.Printf("[📤] Status update: %s -> %s (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
+		oldStatus.String(), msg.Status.String(), result.ClientMsgID, result.MsgID, result.TopicSeq)
+}
+
+// MarkFailed updates a sending message to "failed" status.
+func (h *MessageHandler) MarkFailed(idx int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if idx < 0 || idx >= len(h.messages) {
+		return
+	}
+	msg := h.messages[idx]
+	oldStatus := msg.Status
+	msg.Status = sdk.MessageStatusFailed
+	fmt.Printf("[📤] Status update: %s -> %s\n", oldStatus.String(), msg.Status.String())
 }
 
 // GetUnreadCount returns unread count for a topic.

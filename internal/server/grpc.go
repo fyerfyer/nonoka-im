@@ -29,7 +29,9 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 				switch operation {
 				case "/api.im.v1.AuthService/Register",
 					"/api.im.v1.AuthService/Login",
-					"/api.im.v1.DispatchService/Gateway":
+					"/api.im.v1.DispatchService/Gateway",
+					"/api.im.v1.PushService/PushToUser",
+					"/api.im.v1.PushService/BatchPushToUsers":
 					return false
 				}
 				return true

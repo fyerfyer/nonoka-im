@@ -48,8 +48,17 @@ func main() {
 
 	// Demo: Setup a conversation and send messages
 	// With the refactored SDK, we use Conversation API for message management
-	topic := fmt.Sprintf("p2p_%d_%d", userID, userID+1)
-	fmt.Printf("💬 Demo topic: %s\n", topic)
+	peerID := cfg.PeerUserID
+	if peerID == 0 {
+		peerID = userID + 1
+	}
+	var topic string
+	if userID < peerID {
+		topic = fmt.Sprintf("p2p_%d_%d", userID, peerID)
+	} else {
+		topic = fmt.Sprintf("p2p_%d_%d", peerID, userID)
+	}
+	fmt.Printf("💬 Demo topic: %s (userID=%d, peerID=%d)\n", topic, userID, peerID)
 
 	conv := chatApp.GetConversation(topic)
 	if conv == nil {
@@ -73,29 +82,20 @@ func main() {
 		text := fmt.Sprintf("Hello message #%d", i)
 		fmt.Printf("  Sending: %s\n", text)
 
-		msg := &sdk.Message{
-			Topic:     topic,
-			SenderID:  userID,
-			MsgType:   sdk.MsgTypeText,
-			Content:   []byte(text),
-			Timestamp: time.Now().Unix(),
-			Status:    sdk.MessageStatusSending,
-		}
-		msgHandler.TrackSentMessage(msg)
+		// Track the message before sending (Sending state)
+		idx := msgHandler.AddSendingMessage(topic, userID, text)
 
 		result, err := chatApp.SendMessage(topic, text)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  Send failed: %v\n", err)
-			msgHandler.UpdateSentStatus(msg.ClientMsgID, sdk.MessageStatusFailed)
+			msgHandler.MarkFailed(idx)
 			continue
 		}
 
-		// Update with server-assigned metadata
-		msg.MsgID = result.MsgID
-		msg.TopicSeq = result.TopicSeq
-		msg.Status = sdk.MessageStatusSent
-		msgHandler.UpdateSentStatus(msg.ClientMsgID, sdk.MessageStatusSent)
-		fmt.Printf("  ✅ Sent (msgID=%d, topicSeq=%d)\n", result.MsgID, result.TopicSeq)
+		// Update with server-assigned metadata (Sent state)
+		msgHandler.ConfirmSent(idx, result)
+		fmt.Printf("  ✅ Sent (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
+			result.ClientMsgID, result.MsgID, result.TopicSeq)
 
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -135,8 +135,22 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Println("\nPress Ctrl+C to exit...")
-	<-sigCh
+	// Auto-exit mode: set CHAT_AUTO_EXIT=duration (e.g., "10s") for non-interactive testing
+	if d := os.Getenv("CHAT_AUTO_EXIT"); d != "" {
+		if dur, err := time.ParseDuration(d); err == nil {
+			fmt.Printf("\n⏳ Auto-exit in %s...\n", d)
+			select {
+			case <-sigCh:
+			case <-time.After(dur):
+			}
+		} else {
+			fmt.Println("\nPress Ctrl+C to exit...")
+			<-sigCh
+		}
+	} else {
+		fmt.Println("\nPress Ctrl+C to exit...")
+		<-sigCh
+	}
 
 	fmt.Println("\n👋 Shutting down...")
 	chatApp.Close()

@@ -110,6 +110,8 @@ func toSDKMessages(msgs []*v1.PullMessage) []*Message {
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			// Pulled messages from server are already persisted/delivered.
+			Status: MessageStatusDelivered,
 		}
 	}
 	return result

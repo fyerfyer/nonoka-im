@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Config holds all configuration for the chat application.
@@ -16,6 +17,10 @@ type Config struct {
 	Username string
 	Password string
 	DeviceID string
+
+	// PeerUserID is the ID of the other party in P2P chat.
+	// If 0, defaults to userID+1.
+	PeerUserID int64
 }
 
 // Load loads configuration from environment variables with defaults.
@@ -27,12 +32,22 @@ func Load() *Config {
 		Username:       getEnv("CHAT_USERNAME", "demo-user"),
 		Password:       getEnv("CHAT_PASSWORD", "123456"),
 		DeviceID:       getEnv("CHAT_DEVICE_ID", "demo-device"),
+		PeerUserID:     getEnvInt64("CHAT_PEER_ID", 0),
 	}
 }
 
 func getEnv(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return defaultVal
+}
+
+func getEnvInt64(key string, defaultVal int64) int64 {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i
+		}
 	}
 	return defaultVal
 }
