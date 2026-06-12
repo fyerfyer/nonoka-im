@@ -43,6 +43,7 @@ type RetryItem struct {
 	Content     []byte `json:"content"`
 	Timestamp   int64  `json:"timestamp"`
 	TopicSeq    uint64 `json:"topic_seq"`
+	ClientMsgID string `json:"client_msg_id"`
 	RetryCount  int    `json:"retry_count"`
 	RetryAt     int64  `json:"retry_at"`
 }
@@ -64,16 +65,17 @@ func (q *PushRetryQueue) ScheduleRetry(ctx context.Context, userID int64, msg *p
 	}
 
 	item := RetryItem{
-		UserID:     userID,
-		MsgID:      msg.MsgId,
-		Topic:      msg.Topic,
-		SenderID:   msg.SenderId,
-		MsgType:    msg.MsgType,
-		Content:    msg.Content,
-		Timestamp:  msg.Timestamp,
-		TopicSeq:   msg.TopicSeq,
-		RetryCount: 0,
-		RetryAt:    time.Now().Add(defaultRetryDelay).Unix(),
+		UserID:      userID,
+		MsgID:       msg.MsgId,
+		Topic:       msg.Topic,
+		SenderID:    msg.SenderId,
+		MsgType:     msg.MsgType,
+		Content:     msg.Content,
+		Timestamp:   msg.Timestamp,
+		TopicSeq:    msg.TopicSeq,
+		ClientMsgID: msg.ClientMsgId,
+		RetryCount:  0,
+		RetryAt:     time.Now().Add(defaultRetryDelay).Unix(),
 	}
 
 	return q.enqueueItem(ctx, item)
@@ -170,13 +172,14 @@ func (q *PushRetryQueue) processRetries(ctx context.Context) {
 
 		// Attempt push
 		msg := &pb.MessagePush{
-			MsgId:     item.MsgID,
-			Topic:     item.Topic,
-			SenderId:  item.SenderID,
-			MsgType:   item.MsgType,
-			Content:   item.Content,
-			Timestamp: item.Timestamp,
-			TopicSeq:  item.TopicSeq,
+			MsgId:       item.MsgID,
+			Topic:       item.Topic,
+			SenderId:    item.SenderID,
+			MsgType:     item.MsgType,
+			Content:     item.Content,
+			Timestamp:   item.Timestamp,
+			TopicSeq:    item.TopicSeq,
+			ClientMsgId: item.ClientMsgID,
 		}
 
 		_, failedIDs, err := q.pusher.BatchPushToUsers(ctx, []int64{item.UserID}, msg)

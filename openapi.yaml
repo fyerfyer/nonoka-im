@@ -146,6 +146,8 @@ components:
                     type: string
                 topicSeq:
                     type: string
+                clientMsgId:
+                    type: string
             description: PullMessage is a message in the pull response.
         api.im.v1.PullReply:
             type: object

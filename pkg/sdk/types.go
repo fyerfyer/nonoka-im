@@ -90,14 +90,15 @@ func toSDKMessage(push *v1.MessagePush) *Message {
 		return nil
 	}
 	return &Message{
-		MsgID:     push.MsgId,
-		Topic:     push.Topic,
-		SenderID:  push.SenderId,
-		MsgType:   v1.MsgType(push.MsgType),
-		Content:   push.Content,
-		Timestamp: push.Timestamp,
-		TopicSeq:  push.TopicSeq,
-		Status:    MessageStatusDelivered,
+		MsgID:       push.MsgId,
+		Topic:       push.Topic,
+		SenderID:    push.SenderId,
+		MsgType:     v1.MsgType(push.MsgType),
+		Content:     push.Content,
+		Timestamp:   push.Timestamp,
+		TopicSeq:    push.TopicSeq,
+		Status:      MessageStatusDelivered,
+		ClientMsgID: push.ClientMsgId,
 	}
 }
 
@@ -106,13 +107,14 @@ func toSDKMessages(msgs []*v1.PullMessage) []*Message {
 	result := make([]*Message, len(msgs))
 	for i, m := range msgs {
 		result[i] = &Message{
-			MsgID:     m.MsgId,
-			Topic:     m.Topic,
-			SenderID:  m.SenderId,
-			MsgType:   v1.MsgType(m.MsgType),
-			Content:   m.Content,
-			Timestamp: m.Timestamp,
-			TopicSeq:  m.TopicSeq,
+			MsgID:       m.MsgId,
+			Topic:       m.Topic,
+			SenderID:    m.SenderId,
+			MsgType:     v1.MsgType(m.MsgType),
+			Content:     m.Content,
+			Timestamp:   m.Timestamp,
+			TopicSeq:    m.TopicSeq,
+			ClientMsgID: m.ClientMsgId,
 			// Pulled messages from server are already persisted/delivered.
 			Status: MessageStatusDelivered,
 		}

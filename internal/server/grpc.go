@@ -31,7 +31,9 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 					"/api.im.v1.AuthService/Login",
 					"/api.im.v1.DispatchService/Gateway",
 					"/api.im.v1.PushService/PushToUser",
-					"/api.im.v1.PushService/BatchPushToUsers":
+					"/api.im.v1.PushService/BatchPushToUsers",
+					"/api.im.v1.PushService/PushReceiptToUser",
+					"/api.im.v1.PushService/BatchPushReceiptToUsers":
 					return false
 				}
 				return true

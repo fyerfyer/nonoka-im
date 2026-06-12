@@ -244,13 +244,14 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 // buildMessagePush constructs a MessagePush from upstream message data.
 func (w *MsgWorker) buildMessagePush(msgID int64, topicSeq uint64, upstream *pb.UpstreamMessage) *pb.MessagePush {
 	return &pb.MessagePush{
-		MsgId:     msgID,
-		Topic:     upstream.GetTopic(),
-		SenderId:  upstream.GetSenderId(),
-		MsgType:   upstream.GetMsgType(),
-		Content:   upstream.GetContent(),
-		Timestamp: upstream.GetTimestamp(),
-		TopicSeq:  topicSeq,
+		MsgId:       msgID,
+		Topic:       upstream.GetTopic(),
+		SenderId:    upstream.GetSenderId(),
+		MsgType:     upstream.GetMsgType(),
+		Content:     upstream.GetContent(),
+		Timestamp:   upstream.GetTimestamp(),
+		TopicSeq:    topicSeq,
+		ClientMsgId: upstream.GetClientMsgId(),
 	}
 }
 

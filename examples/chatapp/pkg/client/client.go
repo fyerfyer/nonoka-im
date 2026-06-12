@@ -14,14 +14,24 @@ import (
 type ChatClient struct {
 	sdkClient *sdk.Client
 	config    ChatConfig
+
+	// OnSendReceipt is called when the server confirms a message with its
+	// assigned msg_id and topic_seq. The application layer can use this to
+	// update local message state.
+	OnSendReceipt func(clientMsgID string, msgID int64, topic string, topicSeq uint64)
+
+	// OnDeliveryReceipt is called when the server reports that a message
+	// was delivered to the recipient's device.
+	OnDeliveryReceipt func(topic string, topicSeq uint64, msgID int64)
 }
 
 // ChatConfig holds configuration for the chat client.
 type ChatConfig struct {
-	BaseURL        string
-	GatewayURL     string // optional: empty means auto-resolve via dispatch
-	DeviceID       string
-	RequestTimeout time.Duration
+	BaseURL           string
+	GatewayURL        string // optional: empty means auto-resolve via dispatch
+	DeviceID          string
+	RequestTimeout    time.Duration
+	HeartbeatInterval time.Duration
 }
 
 // NewChatClient creates a new chat client.
@@ -76,7 +86,7 @@ func (c *ChatClient) initSDK(token string) {
 		Token:             token,
 		DeviceID:          c.config.DeviceID,
 		RequestTimeout:    c.config.RequestTimeout,
-		HeartbeatInterval: 30 * time.Second,
+		HeartbeatInterval: c.config.HeartbeatInterval,
 		AutoReconnect:     true,
 		AutoAck:           true,
 		OnConnect: func() {
@@ -84,6 +94,16 @@ func (c *ChatClient) initSDK(token string) {
 		},
 		OnDisconnect: func(reason error) {
 			fmt.Printf("[SDK] Disconnected: %v\n", reason)
+		},
+		OnSendReceipt: func(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
+			if c.OnSendReceipt != nil {
+				c.OnSendReceipt(clientMsgID, msgID, topic, topicSeq)
+			}
+		},
+		OnDeliveryReceipt: func(topic string, topicSeq uint64, msgID int64) {
+			if c.OnDeliveryReceipt != nil {
+				c.OnDeliveryReceipt(topic, topicSeq, msgID)
+			}
 		},
 	})
 }

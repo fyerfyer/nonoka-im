@@ -55,6 +55,7 @@ message MessagePush {
   bytes content = 5;
   int64 timestamp = 6;
   uint64 topic_seq = 7;
+  string client_msg_id = 8;
 }
 
 // UpstreamMessage is sent from the Gateway to Kafka.
@@ -85,6 +86,7 @@ message PullMessage {
   bytes content = 5;
   int64 timestamp = 6;
   uint64 topic_seq = 7;
+  string client_msg_id = 8;
 }
 
 // PullReply is sent by server in response to PullRequest.

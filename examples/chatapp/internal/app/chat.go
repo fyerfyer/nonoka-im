@@ -18,6 +18,14 @@ type ChatApp struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// OnSendReceipt is forwarded to the SDK so the UI can update a sent
+	// message with its server-assigned msg_id and topic_seq.
+	OnSendReceipt func(clientMsgID string, msgID int64, topic string, topicSeq uint64)
+
+	// OnDeliveryReceipt is forwarded to the SDK so the UI can mark a message
+	// as delivered when the recipient receives it.
+	OnDeliveryReceipt func(topic string, topicSeq uint64, msgID int64)
 }
 
 // NewChatApp creates a new chat application.
@@ -34,11 +42,13 @@ func NewChatApp(cfg *config.Config) *ChatApp {
 // The refactored SDK now exposes Auth.Register/Auth.Login — no custom HTTP client needed.
 func (app *ChatApp) RegisterAndLogin(ctx context.Context) (string, int64, error) {
 	app.client = client.NewChatClient(client.ChatConfig{
-		BaseURL:        app.cfg.BaseURL,
-		GatewayURL:     app.cfg.GatewayWSURL,
-		DeviceID:       app.cfg.DeviceID,
-		RequestTimeout: 10 * time.Second,
+		BaseURL:           app.cfg.BaseURL,
+		GatewayURL:        app.cfg.GatewayWSURL,
+		DeviceID:          app.cfg.DeviceID,
+		RequestTimeout:    app.cfg.RequestTimeout,
+		HeartbeatInterval: app.cfg.HeartbeatInterval,
 	})
+	app.client.OnSendReceipt = app.OnSendReceipt
 
 	// Try register (ignore if already exists)
 	_ = app.client.Register(ctx, app.cfg.Username, app.cfg.Password)
@@ -57,8 +67,15 @@ func (app *ChatApp) RegisterAndLogin(ctx context.Context) (string, int64, error)
 
 // Connect establishes connection to the IM server.
 func (app *ChatApp) Connect(token string) error {
-	ctx, cancel := context.WithTimeout(app.ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(app.ctx, app.cfg.ConnectTimeout)
 	defer cancel()
+
+	// Re-sync the send receipt callback in case it was set after the client
+	// was created during RegisterAndLogin.
+	if app.client != nil {
+		app.client.OnSendReceipt = app.OnSendReceipt
+		app.client.OnDeliveryReceipt = app.OnDeliveryReceipt
+	}
 
 	if err := app.client.Connect(ctx, token); err != nil {
 		return fmt.Errorf("connect failed: %w", err)
@@ -75,10 +92,18 @@ func (app *ChatApp) Connect(token string) error {
 // The new SDK exposes State() including "reconnecting" state.
 func (app *ChatApp) connectionMonitor() {
 	defer app.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(app.cfg.ConnectionMonitorInterval)
 	defer ticker.Stop()
 
 	prevState := "uninitialized"
+	// Print initial state immediately so the first state change is not missed.
+	if app.client != nil {
+		state := app.client.ConnectionState()
+		if state != prevState {
+			fmt.Printf("[CONN] State changed: %s -> %s\n", prevState, state)
+			prevState = state
+		}
+	}
 	for {
 		select {
 		case <-app.ctx.Done():
@@ -95,7 +120,7 @@ func (app *ChatApp) connectionMonitor() {
 
 // SendMessage sends a text message to a topic via Conversation API.
 func (app *ChatApp) SendMessage(topic, text string) (*sdk.SendResult, error) {
-	ctx, cancel := context.WithTimeout(app.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(app.ctx, app.cfg.SendTimeout)
 	defer cancel()
 
 	result, err := app.client.SendText(ctx, topic, text)
@@ -118,7 +143,7 @@ func (app *ChatApp) LoadHistory(topic string, limit int32) ([]*sdk.Message, erro
 		return nil, fmt.Errorf("no conversation for topic: %s", topic)
 	}
 
-	ctx, cancel := context.WithTimeout(app.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(app.ctx, app.cfg.LoadHistoryTimeout)
 	defer cancel()
 
 	msgs, err := conv.LoadHistory(ctx, limit)
@@ -134,7 +159,11 @@ func (app *ChatApp) MarkRead(topic string) error {
 	if conv == nil {
 		return fmt.Errorf("no conversation for topic: %s", topic)
 	}
-	return conv.MarkRead(app.ctx)
+
+	ctx, cancel := context.WithTimeout(app.ctx, app.cfg.MarkReadTimeout)
+	defer cancel()
+
+	return conv.MarkRead(ctx)
 }
 
 // IsConnected returns true if connected.

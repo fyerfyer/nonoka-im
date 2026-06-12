@@ -100,8 +100,11 @@ func main() {
 		kafkaCfg.GroupID = "msgworker-group"
 	}
 
-	// Gateway address (from env or default)
+	// Gateway address priority: 1) GATEWAY_GRPC_ADDR env 2) server.grpc.addr from config 3) default
 	gatewayAddr := os.Getenv("GATEWAY_GRPC_ADDR")
+	if gatewayAddr == "" && bc.Server != nil && bc.Server.Grpc != nil && bc.Server.Grpc.Addr != "" {
+		gatewayAddr = bc.Server.Grpc.Addr
+	}
 	if gatewayAddr == "" {
 		gatewayAddr = "127.0.0.1:19000"
 	}

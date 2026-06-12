@@ -22,6 +22,9 @@ data:
     topic: im-messages
     consumer_group: msgworker-group
 dispatch:
+  gateways:
+    - node_id: "default"
+      gateway_url: "ws://127.0.0.1:18000/ws"
   strategy: "consistent_hash"
   heartbeat_interval: 10s
   node_ttl: 30s

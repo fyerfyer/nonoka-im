@@ -25,34 +25,22 @@ func NewMessageHandler() *MessageHandler {
 
 // HandleMessage processes an incoming message.
 // With the refactored SDK, push messages now have Status=Delivered (was Sending before).
-// Deduplicates by clientMsgID: if a message with the same clientMsgID already exists
+// Deduplicates by clientMsgID and topicSeq: if a matching message already exists
 // (e.g., a locally sent message waiting for server ACK), it updates the existing
 // message with server-assigned metadata instead of appending a duplicate.
 func (h *MessageHandler) HandleMessage(msg *sdk.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Deduplication: if a message with the same clientMsgID already exists,
-	// update it with server-assigned fields instead of appending a duplicate.
-	if msg.ClientMsgID != "" {
-		for _, existing := range h.messages {
-			if existing.ClientMsgID == msg.ClientMsgID {
-				if msg.MsgID > 0 {
-					existing.MsgID = msg.MsgID
-				}
-				if msg.TopicSeq > 0 {
-					existing.TopicSeq = msg.TopicSeq
-				}
-				if msg.Status > existing.Status {
-					existing.Status = msg.Status
-				}
-				return
-			}
-		}
+	// Deduplication: try clientMsgID first, then fall back to (topic, topicSeq).
+	if h.deduplicateMessage(msg) {
+		return
 	}
 
 	h.messages = append(h.messages, msg)
-	h.unread[msg.Topic]++
+	if msg.SenderID != 0 {
+		h.unread[msg.Topic]++
+	}
 
 	statusIcon := statusToIcon(msg.Status)
 	direction := "←"
@@ -62,6 +50,48 @@ func (h *MessageHandler) HandleMessage(msg *sdk.Message) {
 
 	fmt.Printf("[📨] %s New message | Topic: %s | From: %d | Seq: %d | Status: %s %s | Content: %s\n",
 		direction, msg.Topic, msg.SenderID, msg.TopicSeq, statusIcon, msg.Status.String(), string(msg.Content))
+}
+
+// deduplicateMessage updates an existing message if a match is found.
+// It returns true if a duplicate was found and updated.
+func (h *MessageHandler) deduplicateMessage(msg *sdk.Message) bool {
+	// First: match by clientMsgID (preferred, works for locally sent messages).
+	if msg.ClientMsgID != "" {
+		for _, existing := range h.messages {
+			if existing.ClientMsgID == msg.ClientMsgID {
+				h.mergeMessageFields(existing, msg)
+				return true
+			}
+		}
+	}
+
+	// Fallback: match by (topic, topicSeq) for messages without clientMsgID.
+	if msg.TopicSeq > 0 {
+		for _, existing := range h.messages {
+			if existing.Topic == msg.Topic && existing.TopicSeq == msg.TopicSeq {
+				h.mergeMessageFields(existing, msg)
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// mergeMessageFields updates existing with server-assigned fields from incoming.
+func (h *MessageHandler) mergeMessageFields(existing, incoming *sdk.Message) {
+	if incoming.MsgID > 0 {
+		existing.MsgID = incoming.MsgID
+	}
+	if incoming.TopicSeq > 0 {
+		existing.TopicSeq = incoming.TopicSeq
+	}
+	if incoming.ClientMsgID != "" {
+		existing.ClientMsgID = incoming.ClientMsgID
+	}
+	if incoming.Status > existing.Status {
+		existing.Status = incoming.Status
+	}
 }
 
 // AddSendingMessage adds a message in "sending" state and returns its index for later update.
@@ -99,6 +129,32 @@ func (h *MessageHandler) ConfirmSent(idx int, result *sdk.SendResult) {
 		oldStatus.String(), msg.Status.String(), result.ClientMsgID, result.MsgID, result.TopicSeq)
 }
 
+// ConfirmReceipt updates a sent message with server-assigned msg_id and topic_seq
+// when the send receipt arrives. This bridges the gap between the local ACK
+// (which does not carry msg_id/topic_seq) and the final server-assigned IDs.
+func (h *MessageHandler) ConfirmReceipt(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, msg := range h.messages {
+		if msg.ClientMsgID == clientMsgID {
+			oldStatus := msg.Status
+			if msgID > 0 {
+				msg.MsgID = msgID
+			}
+			if topicSeq > 0 {
+				msg.TopicSeq = topicSeq
+			}
+			if msg.Status < sdk.MessageStatusSent {
+				msg.Status = sdk.MessageStatusSent
+			}
+			fmt.Printf("[📤] Receipt update: %s -> %s (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
+				oldStatus.String(), msg.Status.String(), clientMsgID, msg.MsgID, msg.TopicSeq)
+			return
+		}
+	}
+}
+
 // MarkFailed updates a sending message to "failed" status.
 func (h *MessageHandler) MarkFailed(idx int) {
 	h.mu.Lock()
@@ -110,6 +166,24 @@ func (h *MessageHandler) MarkFailed(idx int) {
 	oldStatus := msg.Status
 	msg.Status = sdk.MessageStatusFailed
 	fmt.Printf("[📤] Status update: %s -> %s\n", oldStatus.String(), msg.Status.String())
+}
+
+// MarkDelivered marks a message as delivered by topicSeq.
+func (h *MessageHandler) MarkDelivered(topic string, topicSeq uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, msg := range h.messages {
+		if msg.Topic == topic && msg.TopicSeq == topicSeq {
+			oldStatus := msg.Status
+			if msg.Status < sdk.MessageStatusDelivered {
+				msg.Status = sdk.MessageStatusDelivered
+			}
+			fmt.Printf("[📤] Status update: %s -> %s (topic=%s, topicSeq=%d)\n",
+				oldStatus.String(), msg.Status.String(), topic, topicSeq)
+			return
+		}
+	}
 }
 
 // GetUnreadCount returns unread count for a topic.

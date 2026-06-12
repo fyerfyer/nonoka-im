@@ -26,7 +26,7 @@ func main() {
 
 	// Register and login using SDK AuthService (no custom HTTP client needed)
 	fmt.Println("🔐 Registering/Logging in...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.AuthTimeout)
 	token, userID, err := chatApp.RegisterAndLogin(ctx)
 	cancel()
 	if err != nil {
@@ -37,6 +37,18 @@ func main() {
 
 	// Set up message handler with status tracking
 	msgHandler := handler.NewMessageHandler()
+
+	// Bridge send receipts from the SDK to the local message handler so the
+	// server-assigned msg_id and topic_seq are reflected in the UI.
+	chatApp.OnSendReceipt = func(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
+		msgHandler.ConfirmReceipt(clientMsgID, msgID, topic, topicSeq)
+	}
+
+	// Bridge delivery receipts so the UI can show when the recipient receives
+	// a message.
+	chatApp.OnDeliveryReceipt = func(topic string, topicSeq uint64, msgID int64) {
+		msgHandler.MarkDelivered(topic, topicSeq)
+	}
 
 	// Connect to IM server
 	fmt.Println("🔗 Connecting to IM server...")
@@ -123,8 +135,8 @@ func main() {
 	msgHandler.PrintStatusSummary()
 
 	// Keep running for a bit to receive any push messages
-	fmt.Println("\n⏳ Waiting for push messages (5s)...")
-	time.Sleep(5 * time.Second)
+	fmt.Printf("\n⏳ Waiting for push messages (%s)...\n", cfg.PushWaitDuration)
+	time.Sleep(cfg.PushWaitDuration)
 
 	// Print final state
 	fmt.Printf("\n📊 Final connection state: %s\n", chatApp.ConnectionState())
@@ -136,16 +148,11 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Auto-exit mode: set CHAT_AUTO_EXIT=duration (e.g., "10s") for non-interactive testing
-	if d := os.Getenv("CHAT_AUTO_EXIT"); d != "" {
-		if dur, err := time.ParseDuration(d); err == nil {
-			fmt.Printf("\n⏳ Auto-exit in %s...\n", d)
-			select {
-			case <-sigCh:
-			case <-time.After(dur):
-			}
-		} else {
-			fmt.Println("\nPress Ctrl+C to exit...")
-			<-sigCh
+	if cfg.AutoExitDuration > 0 {
+		fmt.Printf("\n⏳ Auto-exit in %s...\n", cfg.AutoExitDuration)
+		select {
+		case <-sigCh:
+		case <-time.After(cfg.AutoExitDuration):
 		}
 	} else {
 		fmt.Println("\nPress Ctrl+C to exit...")
