@@ -110,9 +110,16 @@ func (w *MsgWorker) SetRetryQueue(q *PushRetryQueue) {
 }
 
 // HandleMessage is the Kafka message handler entry point.
-func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) error {
+func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.log.Errorf("HandleMessage panic recovered: %v", r)
+			err = fmt.Errorf("panic recovered: %v", r)
+		}
+	}()
+
 	var upstream pb.UpstreamMessage
-	if err := proto.Unmarshal(value, &upstream); err != nil {
+	if err = proto.Unmarshal(value, &upstream); err != nil {
 		return fmt.Errorf("unmarshal upstream message: %w", err)
 	}
 
@@ -146,13 +153,15 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		}
 
 		// Handle @mentions for large groups: write扩散 to mention_inbox.
-		// Also push @mentions to online users immediately.
+		// SaveMentionInbox is idempotent thanks to MongoDB unique indexes, so it
+		// is safe to call even when the group message itself is a duplicate.
 		if len(upstream.GetMentionedUserIds()) > 0 {
 			if err := w.storage.SaveMentionInbox(ctx, &upstream, msgID, topicSeq, upstream.GetMentionedUserIds()); err != nil {
 				w.log.Warnf("save mention inbox failed: %v", err)
 			}
-			// Push @mention notifications to online users
-			if w.pusher != nil {
+			// Push @mention notifications to online users only for fresh messages
+			// to avoid duplicate notifications on retries.
+			if !isDuplicate && w.pusher != nil {
 				pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
 				_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, upstream.GetMentionedUserIds(), pushMsg)
 				if err != nil {

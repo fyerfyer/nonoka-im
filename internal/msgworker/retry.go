@@ -18,11 +18,23 @@ const (
 	pushRetryKey = "im:push_retry"
 	// Default retry delay.
 	defaultRetryDelay = 5 * time.Second
+	// Max retry delay caps exponential backoff.
+	maxRetryDelay = 5 * time.Minute
 	// Max retry attempts before giving up.
 	maxRetryAttempts = 3
 	// Retry loop scan interval.
 	retryScanInterval = 5 * time.Second
 )
+
+// nextRetryAt calculates the next retry timestamp using exponential backoff.
+// retryCount is the *already performed* retry count (0 for the first retry).
+func nextRetryAt(retryCount int) int64 {
+	backoff := defaultRetryDelay * time.Duration(1<<retryCount)
+	if backoff > maxRetryDelay {
+		backoff = maxRetryDelay
+	}
+	return time.Now().Add(backoff).Unix()
+}
 
 // PushRetryQueue manages delayed retries for failed push deliveries using Redis Sorted Set.
 type PushRetryQueue struct {
@@ -75,7 +87,7 @@ func (q *PushRetryQueue) ScheduleRetry(ctx context.Context, userID int64, msg *p
 		TopicSeq:    msg.TopicSeq,
 		ClientMsgID: msg.ClientMsgId,
 		RetryCount:  0,
-		RetryAt:     time.Now().Add(defaultRetryDelay).Unix(),
+		RetryAt:     nextRetryAt(0),
 	}
 
 	return q.enqueueItem(ctx, item)
@@ -161,8 +173,12 @@ func (q *PushRetryQueue) processRetries(ctx context.Context) {
 			continue
 		}
 
-		// Remove from queue before processing (avoid double processing)
-		q.removeRetryItem(ctx, member)
+		// Remove from queue before processing. Only the instance that
+		// successfully removes the member should process it, preventing
+		// duplicate pushes across multiple MsgWorker instances.
+		if !q.removeRetryItem(ctx, member) {
+			continue
+		}
 
 		// Check retry limit
 		if item.RetryCount >= maxRetryAttempts {
@@ -206,7 +222,7 @@ func (q *PushRetryQueue) requeueIfNeeded(ctx context.Context, item RetryItem) {
 	}
 
 	item.RetryCount++
-	item.RetryAt = time.Now().Add(defaultRetryDelay).Unix()
+	item.RetryAt = nextRetryAt(item.RetryCount)
 
 	if err := q.enqueueItem(ctx, item); err != nil {
 		q.log.Warnf("requeue retry item failed: %v", err)
@@ -214,8 +230,12 @@ func (q *PushRetryQueue) requeueIfNeeded(ctx context.Context, item RetryItem) {
 }
 
 // removeRetryItem removes a specific item from the retry queue.
-func (q *PushRetryQueue) removeRetryItem(ctx context.Context, itemData string) {
-	if err := q.redis.ZRem(ctx, pushRetryKey, itemData).Err(); err != nil {
+// It returns true if the item was actually removed by this call.
+func (q *PushRetryQueue) removeRetryItem(ctx context.Context, itemData string) bool {
+	n, err := q.redis.ZRem(ctx, pushRetryKey, itemData).Result()
+	if err != nil {
 		q.log.Warnf("remove retry item failed: %v", err)
+		return false
 	}
+	return n > 0
 }

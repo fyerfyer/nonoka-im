@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -498,14 +499,14 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	t.Logf("multi-topic publish verified: %d messages with correct keys", len(topics))
 }
 
-// TestGateway_Kafka_AsyncProducer_BatchSend verifies that the async producer
-// correctly handles batch message sending without blocking and tracks failures.
-// This validates the P1-4 Kafka producer async optimization.
-func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
+// TestGateway_Kafka_BatchSend verifies that the producer correctly handles
+// batch message sending and that every message lands in Kafka without failures.
+// This validates the P1-4 Kafka producer batching path in the default sync mode.
+func TestGateway_Kafka_BatchSend(t *testing.T) {
 	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "kafka-async-user", "123456")
+	token, _ := registerAndLogin(t, "kafka-batch-user", "123456")
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -516,16 +517,16 @@ func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
 		Payload: &v1.Packet_AuthReq{
 			AuthReq: &v1.AuthRequest{
 				Token:    token,
-				DeviceId: "web-async",
+				DeviceId: "web-batch",
 			},
 		},
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
-	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-async")
+	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-batch")
 	defer reader.Close()
 
-	// Send multiple messages rapidly to trigger async batching
+	// Send multiple messages rapidly to exercise the producer batch path
 	const messageCount = 20
 	for i := 0; i < messageCount; i++ {
 		wsSendPacket(t, wsConn, &v1.Packet{
@@ -535,16 +536,16 @@ func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
 				SendReq: &v1.SendMessageRequest{
 					Topic:       "p2p_1_2",
 					MsgType:     v1.MsgType_MSG_TYPE_TEXT,
-					Content:     []byte("async batch message"),
-					ClientMsgId: "async-msg-" + string(rune('0'+i%10)),
+					Content:     []byte("batch message"),
+					ClientMsgId: "batch-msg-" + strconv.Itoa(i),
 				},
 			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
 	}
 
-	// Give async producer time to flush batched messages
-	time.Sleep(1 * time.Second)
+	// Allow the consumer reader to catch up with the produced messages
+	time.Sleep(500 * time.Millisecond)
 
 	// Consume all messages from Kafka
 	var kafkaMessages int32
@@ -560,14 +561,14 @@ func TestGateway_Kafka_AsyncProducer_BatchSend(t *testing.T) {
 		t.Fatalf("expected %d messages in Kafka, got %d", messageCount, kafkaMessages)
 	}
 
-	// Verify async producer has no failed deliveries
+	// Verify producer has no failed deliveries
 	if kp, ok := ts.kafkaProducer.(*gateway.KafkaProducer); ok {
 		if kp.FailedCount() > 0 {
-			t.Fatalf("async producer had %d failed deliveries", kp.FailedCount())
+			t.Fatalf("producer had %d failed deliveries", kp.FailedCount())
 		}
 	}
 
-	t.Logf("async producer batch send verified: %d messages, no failures", messageCount)
+	t.Logf("producer batch send verified: %d messages, no failures", messageCount)
 }
 
 // TestGateway_Kafka_SendReceipt verifies that after a message is published and

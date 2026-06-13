@@ -47,6 +47,25 @@ message Data {
     repeated string brokers = 1;
     string topic = 2;
     string consumer_group = 3;
+
+    // Producer settings
+    int32 batch_size = 4;
+    google.protobuf.Duration batch_timeout = 5;
+    string compression = 6;            // "none" | "gzip" | "snappy" | "lz4" | "zstd"
+    string required_acks = 7;          // "none" | "one" | "all"
+    bool async = 8;                    // true = async producer (higher throughput, lower durability)
+    int32 max_attempts = 9;
+    google.protobuf.Duration write_timeout = 10;
+    google.protobuf.Duration read_timeout = 11;
+
+    // Consumer settings
+    int32 worker_count = 12;
+    int32 min_bytes = 13;
+    int32 max_bytes = 14;
+    google.protobuf.Duration max_wait = 15;
+    google.protobuf.Duration commit_interval = 16;  // 0 = manual commit (stronger consistency)
+    int32 max_retries = 17;            // local retry count before DLQ; 0 = DLQ immediately
+    int64 start_offset = 18;           // -1 = first offset, -2 = last offset (kafka-go constants)
   }
   Database database = 1;
   Redis redis = 2;

@@ -833,8 +833,25 @@ type Data_Kafka struct {
 	Brokers       []string               `protobuf:"bytes,1,rep,name=brokers,proto3" json:"brokers,omitempty"`
 	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
 	ConsumerGroup string                 `protobuf:"bytes,3,opt,name=consumer_group,json=consumerGroup,proto3" json:"consumer_group,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Producer settings
+	BatchSize    int32                `protobuf:"varint,4,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
+	BatchTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=batch_timeout,json=batchTimeout,proto3" json:"batch_timeout,omitempty"`
+	Compression  string               `protobuf:"bytes,6,opt,name=compression,proto3" json:"compression,omitempty"`                       // "none" | "gzip" | "snappy" | "lz4" | "zstd"
+	RequiredAcks string               `protobuf:"bytes,7,opt,name=required_acks,json=requiredAcks,proto3" json:"required_acks,omitempty"` // "none" | "one" | "all"
+	Async        bool                 `protobuf:"varint,8,opt,name=async,proto3" json:"async,omitempty"`                                  // true = async producer (higher throughput, lower durability)
+	MaxAttempts  int32                `protobuf:"varint,9,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	WriteTimeout *durationpb.Duration `protobuf:"bytes,10,opt,name=write_timeout,json=writeTimeout,proto3" json:"write_timeout,omitempty"`
+	ReadTimeout  *durationpb.Duration `protobuf:"bytes,11,opt,name=read_timeout,json=readTimeout,proto3" json:"read_timeout,omitempty"`
+	// Consumer settings
+	WorkerCount    int32                `protobuf:"varint,12,opt,name=worker_count,json=workerCount,proto3" json:"worker_count,omitempty"`
+	MinBytes       int32                `protobuf:"varint,13,opt,name=min_bytes,json=minBytes,proto3" json:"min_bytes,omitempty"`
+	MaxBytes       int32                `protobuf:"varint,14,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	MaxWait        *durationpb.Duration `protobuf:"bytes,15,opt,name=max_wait,json=maxWait,proto3" json:"max_wait,omitempty"`
+	CommitInterval *durationpb.Duration `protobuf:"bytes,16,opt,name=commit_interval,json=commitInterval,proto3" json:"commit_interval,omitempty"` // 0 = manual commit (stronger consistency)
+	MaxRetries     int32                `protobuf:"varint,17,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`            // local retry count before DLQ; 0 = DLQ immediately
+	StartOffset    int64                `protobuf:"varint,18,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`         // -1 = first offset, -2 = last offset (kafka-go constants)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Data_Kafka) Reset() {
@@ -888,6 +905,111 @@ func (x *Data_Kafka) GetConsumerGroup() string {
 	return ""
 }
 
+func (x *Data_Kafka) GetBatchSize() int32 {
+	if x != nil {
+		return x.BatchSize
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetBatchTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.BatchTimeout
+	}
+	return nil
+}
+
+func (x *Data_Kafka) GetCompression() string {
+	if x != nil {
+		return x.Compression
+	}
+	return ""
+}
+
+func (x *Data_Kafka) GetRequiredAcks() string {
+	if x != nil {
+		return x.RequiredAcks
+	}
+	return ""
+}
+
+func (x *Data_Kafka) GetAsync() bool {
+	if x != nil {
+		return x.Async
+	}
+	return false
+}
+
+func (x *Data_Kafka) GetMaxAttempts() int32 {
+	if x != nil {
+		return x.MaxAttempts
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetWriteTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.WriteTimeout
+	}
+	return nil
+}
+
+func (x *Data_Kafka) GetReadTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ReadTimeout
+	}
+	return nil
+}
+
+func (x *Data_Kafka) GetWorkerCount() int32 {
+	if x != nil {
+		return x.WorkerCount
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetMinBytes() int32 {
+	if x != nil {
+		return x.MinBytes
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetMaxBytes() int32 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetMaxWait() *durationpb.Duration {
+	if x != nil {
+		return x.MaxWait
+	}
+	return nil
+}
+
+func (x *Data_Kafka) GetCommitInterval() *durationpb.Duration {
+	if x != nil {
+		return x.CommitInterval
+	}
+	return nil
+}
+
+func (x *Data_Kafka) GetMaxRetries() int32 {
+	if x != nil {
+		return x.MaxRetries
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetStartOffset() int64 {
+	if x != nil {
+		return x.StartOffset
+	}
+	return 0
+}
+
 var File_conf_conf_proto protoreflect.FileDescriptor
 
 const file_conf_conf_proto_rawDesc = "" +
@@ -910,7 +1032,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x04GRPC\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\x123\n" +
-	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xd8\x04\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xd1\t\n" +
 	"\x04Data\x125\n" +
 	"\bdatabase\x18\x01 \x01(\v2\x19.kratos.api.Data.DatabaseR\bdatabase\x12,\n" +
 	"\x05redis\x18\x02 \x01(\v2\x16.kratos.api.Data.RedisR\x05redis\x122\n" +
@@ -926,11 +1048,29 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x1a7\n" +
 	"\aMongoDB\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x1a\n" +
-	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x1a^\n" +
+	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x1a\xd6\x05\n" +
 	"\x05Kafka\x12\x18\n" +
 	"\abrokers\x18\x01 \x03(\tR\abrokers\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12%\n" +
-	"\x0econsumer_group\x18\x03 \x01(\tR\rconsumerGroup\"]\n" +
+	"\x0econsumer_group\x18\x03 \x01(\tR\rconsumerGroup\x12\x1d\n" +
+	"\n" +
+	"batch_size\x18\x04 \x01(\x05R\tbatchSize\x12>\n" +
+	"\rbatch_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\fbatchTimeout\x12 \n" +
+	"\vcompression\x18\x06 \x01(\tR\vcompression\x12#\n" +
+	"\rrequired_acks\x18\a \x01(\tR\frequiredAcks\x12\x14\n" +
+	"\x05async\x18\b \x01(\bR\x05async\x12!\n" +
+	"\fmax_attempts\x18\t \x01(\x05R\vmaxAttempts\x12>\n" +
+	"\rwrite_timeout\x18\n" +
+	" \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x12<\n" +
+	"\fread_timeout\x18\v \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\x12!\n" +
+	"\fworker_count\x18\f \x01(\x05R\vworkerCount\x12\x1b\n" +
+	"\tmin_bytes\x18\r \x01(\x05R\bminBytes\x12\x1b\n" +
+	"\tmax_bytes\x18\x0e \x01(\x05R\bmaxBytes\x124\n" +
+	"\bmax_wait\x18\x0f \x01(\v2\x19.google.protobuf.DurationR\amaxWait\x12B\n" +
+	"\x0fcommit_interval\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\x0ecommitInterval\x12\x1f\n" +
+	"\vmax_retries\x18\x11 \x01(\x05R\n" +
+	"maxRetries\x12!\n" +
+	"\fstart_offset\x18\x12 \x01(\x03R\vstartOffset\"]\n" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
@@ -1010,11 +1150,16 @@ var file_conf_conf_proto_depIdxs = []int32{
 	14, // 20: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
 	14, // 21: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
 	14, // 22: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	14, // 23: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
+	14, // 24: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
+	14, // 25: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
+	14, // 26: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
+	14, // 27: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }

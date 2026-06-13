@@ -202,8 +202,16 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 		return
 	}
 
+	// Canonicalize P2P topics so both sides use the same topic string.
+	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
+	if err != nil {
+		h.log.Warnf("invalid topic format: user_id=%d, topic=%s, err=%v", c.UserID(), req.Topic, err)
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4009, "invalid topic")
+		return
+	}
+
 	h.log.Debugf("publish received: user_id=%d, topic=%s, client_msg_id=%s",
-		c.UserID(), req.Topic, req.ClientMsgId)
+		c.UserID(), normalizedTopic, req.ClientMsgId)
 
 	// Produce to Kafka
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -211,7 +219,7 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 
 	upstream := &v1.UpstreamMessage{
 		SenderId:         c.UserID(),
-		Topic:            req.Topic,
+		Topic:            normalizedTopic,
 		MsgType:          int32(req.MsgType),
 		Content:          req.Content,
 		ClientMsgId:      req.ClientMsgId,

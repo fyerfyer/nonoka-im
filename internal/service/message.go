@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -47,9 +48,20 @@ func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageReq
 		return nil, errors.New("authentication required")
 	}
 
+	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
+	if err != nil {
+		return nil, fmt.Errorf("invalid topic: %w", err)
+	}
+
+	// Enforce the same message size limit as the WebSocket gateway.
+	const maxContentSize = 64 * 1024
+	if len(req.Content) > maxContentSize {
+		return nil, errors.New("message too large")
+	}
+
 	upstream := &v1.UpstreamMessage{
 		SenderId:         userID,
-		Topic:            req.Topic,
+		Topic:            normalizedTopic,
 		MsgType:          int32(req.MsgType),
 		Content:          req.Content,
 		ClientMsgId:      req.ClientMsgId,

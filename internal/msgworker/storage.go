@@ -276,6 +276,29 @@ func ExtractUserIDsFromP2PTopic(topic string) (uid1, uid2 int64, err error) {
 	return uid1, uid2, nil
 }
 
+// NormalizeTopic canonicalizes a topic string.
+// For P2P topics it orders the two user IDs ascending so that the same
+// conversation always maps to a single topic regardless of which side initiates
+// the message. Group and system topics are returned unchanged.
+func NormalizeTopic(topic string) (string, error) {
+	topicType := ParseTopicType(topic)
+	switch topicType {
+	case TopicTypeP2P:
+		uid1, uid2, err := ExtractUserIDsFromP2PTopic(topic)
+		if err != nil {
+			return "", err
+		}
+		if uid1 > uid2 {
+			uid1, uid2 = uid2, uid1
+		}
+		return fmt.Sprintf("p2p_%d_%d", uid1, uid2), nil
+	case TopicTypeGroup, TopicTypeSystem:
+		return topic, nil
+	default:
+		return "", fmt.Errorf("invalid topic format: %s", topic)
+	}
+}
+
 // IsDuplicateError checks if a MongoDB error is a duplicate key error.
 func IsDuplicateError(err error) bool {
 	if err == nil {

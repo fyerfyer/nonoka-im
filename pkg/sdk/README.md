@@ -87,7 +87,8 @@ func main() {
     }
 
     // 3. 获取会话并发送消息
-    conv := client.Conversations.Get("p2p_1_2")
+    // 对于单聊，建议使用 sdk.P2PTopic 生成规范化的 topic，保证两端得到同一个会话
+    conv := client.Conversations.Get(sdk.P2PTopic(1, 2))
     result, err := conv.SendText(ctx, "你好!")
     if err != nil {
         log.Fatalf("发送失败: %v", err)
@@ -208,7 +209,11 @@ result, err := client.Message.SendMessage(ctx, &sdk.SendMessageRequest{
 ### 获取会话
 
 ```go
-conv := client.Conversations.Get("p2p_1_2")
+// 单聊 topic 会被规范化为用户 ID 升序，建议统一使用 sdk.P2PTopic
+conv := client.Conversations.Get(sdk.P2PTopic(1, 2))
+
+// 群聊 topic 保持原样
+conv := client.Conversations.Get("grp_100")
 ```
 
 ### 发送消息

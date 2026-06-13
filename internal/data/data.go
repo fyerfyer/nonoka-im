@@ -15,7 +15,7 @@ import (
 )
 
 // ProviderSet is data providers.
-var ProviderSet = wire.NewSet(NewData, NewAuthRepo)
+var ProviderSet = wire.NewSet(NewData, NewAuthRepo, NewGroupMemberRepo)
 
 // Data .
 type Data struct {
@@ -27,7 +27,7 @@ type Data struct {
 // CleanTestData truncates all user tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
-	return d.db.Exec("TRUNCATE TABLE users RESTART IDENTITY CASCADE").Error
+	return d.db.Exec("TRUNCATE TABLE users, group_members RESTART IDENTITY CASCADE").Error
 }
 
 // NewData .
@@ -62,7 +62,7 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	// Auto-migrate schema
-	if err := db.AutoMigrate(&User{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &GroupMember{}); err != nil {
 		return nil, nil, err
 	}
 

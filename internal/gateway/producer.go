@@ -3,11 +3,13 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/conf"
 	"github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
 )
@@ -16,28 +18,32 @@ import (
 type MessageProducer interface {
 	Produce(ctx context.Context, msg *v1.UpstreamMessage) error
 	Close() error
+	Healthy() bool
 }
 
 // KafkaConfig holds Kafka producer configuration.
 type KafkaConfig struct {
-	Brokers       []string
-	Topic         string
-	BatchSize     int
-	BatchTimeout  time.Duration
-	RequiredAcks  kafka.RequiredAcks
-	Compression   kafka.Compression
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
-	MaxAttempts   int
-	Async         bool // true for async mode, false for sync mode
+	Brokers      []string
+	Topic        string
+	BatchSize    int
+	BatchTimeout time.Duration
+	RequiredAcks kafka.RequiredAcks
+	Compression  kafka.Compression
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	MaxAttempts  int
+	Async        bool // true for async mode, false for sync mode (default)
 }
 
 // KafkaProducer implements MessageProducer using kafka-go.
 type KafkaProducer struct {
 	writer      *kafka.Writer
 	log         *log.Helper
+	async       bool
 	failedMu    sync.RWMutex
 	failedCount int64
+	lastErr     error
+	lastErrTime time.Time
 }
 
 // NewKafkaProducer creates a new Kafka producer.
@@ -63,14 +69,15 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 		cfg.ReadTimeout = 10 * time.Second
 	}
 	if cfg.WriteTimeout == 0 {
-		cfg.WriteTimeout = 2 * time.Second // reduced from 10s for faster failure detection
+		cfg.WriteTimeout = 10 * time.Second
 	}
 	if cfg.MaxAttempts == 0 {
 		cfg.MaxAttempts = 3
 	}
 
 	p := &KafkaProducer{
-		log: log.NewHelper(logger),
+		log:   log.NewHelper(logger),
+		async: cfg.Async,
 	}
 
 	writer := &kafka.Writer{
@@ -84,10 +91,12 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		MaxAttempts:  cfg.MaxAttempts,
-		Completion:   p.onCompletion, // track async delivery results
+		Completion:   p.onCompletion,
 	}
 
 	p.writer = writer
+	p.log.Infof("kafka producer created: topic=%s async=%v acks=%d compression=%d",
+		cfg.Topic, cfg.Async, cfg.RequiredAcks, cfg.Compression)
 	return p
 }
 
@@ -96,6 +105,8 @@ func (p *KafkaProducer) onCompletion(messages []kafka.Message, err error) {
 	if err != nil {
 		p.failedMu.Lock()
 		p.failedCount += int64(len(messages))
+		p.lastErr = err
+		p.lastErrTime = time.Now()
 		p.failedMu.Unlock()
 
 		// Log first message key for debugging
@@ -103,9 +114,13 @@ func (p *KafkaProducer) onCompletion(messages []kafka.Message, err error) {
 		if len(messages) > 0 {
 			key = string(messages[0].Key)
 		}
-		p.log.Warnf("kafka async delivery failed: messages=%d key=%s err=%v",
+		p.log.Errorf("kafka async delivery failed: messages=%d key=%s err=%v",
 			len(messages), key, err)
+		return
 	}
+	p.failedMu.Lock()
+	p.lastErr = nil
+	p.failedMu.Unlock()
 }
 
 // FailedCount returns the number of failed async deliveries since startup.
@@ -115,8 +130,24 @@ func (p *KafkaProducer) FailedCount() int64 {
 	return p.failedCount
 }
 
+// Healthy reports whether the producer is considered healthy.
+// For sync producers this is best-effort based on the last async completion
+// callback; callers should also treat Produce errors as unhealthy signals.
+func (p *KafkaProducer) Healthy() bool {
+	p.failedMu.RLock()
+	defer p.failedMu.RUnlock()
+	if p.lastErr == nil {
+		return true
+	}
+	// Consider producer unhealthy if the last async delivery failed within the last minute.
+	return time.Since(p.lastErrTime) > time.Minute
+}
+
 // Produce sends an upstream message to Kafka.
 // Uses the message's Topic field as the Kafka message key for partition affinity.
+// In sync mode (the default) this call blocks until the broker acknowledges the
+// message or an error occurs. In async mode it returns once the message has been
+// accepted into the local batch; delivery failures are tracked via Completion.
 func (p *KafkaProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) error {
 	value, err := proto.Marshal(msg)
 	if err != nil {
@@ -133,17 +164,75 @@ func (p *KafkaProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) er
 	}
 
 	if err := p.writer.WriteMessages(ctx, kmsg); err != nil {
+		p.log.Errorf("write to kafka failed: topic=%s sender=%d client_msg_id=%s err=%v",
+			msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), err)
 		return fmt.Errorf("write to kafka: %w", err)
 	}
 
-	p.log.Debugf("produced message to kafka: topic=%s sender=%d client_msg_id=%s",
-		msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId())
+	p.log.Debugf("produced message to kafka: topic=%s sender=%d client_msg_id=%s async=%v",
+		msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), p.async)
 	return nil
 }
 
 // Close closes the Kafka writer.
 func (p *KafkaProducer) Close() error {
 	return p.writer.Close()
+}
+
+// ParseCompression maps a compression string to kafka.Compression.
+func ParseCompression(s string) kafka.Compression {
+	switch strings.ToLower(s) {
+	case "gzip":
+		return kafka.Gzip
+	case "snappy":
+		return kafka.Snappy
+	case "lz4":
+		return kafka.Lz4
+	case "zstd":
+		return kafka.Zstd
+	default:
+		return kafka.Lz4
+	}
+}
+
+// ParseRequiredAcks maps an acks string to kafka.RequiredAcks.
+func ParseRequiredAcks(s string) kafka.RequiredAcks {
+	switch strings.ToLower(s) {
+	case "none":
+		return kafka.RequireNone
+	case "one":
+		return kafka.RequireOne
+	case "all":
+		return kafka.RequireAll
+	default:
+		return kafka.RequireAll
+	}
+}
+
+// KafkaConfigFromProto builds a gateway.KafkaConfig from the protobuf config.
+func KafkaConfigFromProto(kc *conf.Data_Kafka) KafkaConfig {
+	if kc == nil {
+		return KafkaConfig{}
+	}
+	cfg := KafkaConfig{
+		Brokers:      kc.GetBrokers(),
+		Topic:        kc.GetTopic(),
+		BatchSize:    int(kc.GetBatchSize()),
+		Compression:  ParseCompression(kc.GetCompression()),
+		RequiredAcks: ParseRequiredAcks(kc.GetRequiredAcks()),
+		Async:        kc.GetAsync(),
+		MaxAttempts:  int(kc.GetMaxAttempts()),
+	}
+	if kc.GetBatchTimeout() != nil {
+		cfg.BatchTimeout = kc.GetBatchTimeout().AsDuration()
+	}
+	if kc.GetWriteTimeout() != nil {
+		cfg.WriteTimeout = kc.GetWriteTimeout().AsDuration()
+	}
+	if kc.GetReadTimeout() != nil {
+		cfg.ReadTimeout = kc.GetReadTimeout().AsDuration()
+	}
+	return cfg
 }
 
 // NoopProducer is a no-op producer for testing or when Kafka is disabled.
@@ -162,4 +251,9 @@ func (p *NoopProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) err
 // Close does nothing.
 func (p *NoopProducer) Close() error {
 	return nil
+}
+
+// Healthy reports healthy for no-op producer.
+func (p *NoopProducer) Healthy() bool {
+	return true
 }

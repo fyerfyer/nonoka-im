@@ -51,9 +51,21 @@ func NewGatewayRouter(redis redis.UniversalClient, nodeTTL time.Duration, logger
 // ResolveUserNodes returns a mapping from gateway node ID to the list of user
 // IDs that have at least one active device session on that node.
 // Users that are offline (no session entry) are not included in the result.
+// Sessions hosted on gateway nodes that have missed their heartbeat TTL are
+// treated as offline to avoid pushing to crashed nodes.
 func (r *GatewayRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (map[string][]int64, error) {
 	if r.redis == nil || len(userIDs) == 0 {
 		return map[string][]int64{}, nil
+	}
+
+	aliveNodes, err := r.GetAliveNodes(ctx)
+	if err != nil {
+		r.log.Warnf("resolve user nodes failed: get alive nodes err=%v", err)
+		return map[string][]int64{}, nil
+	}
+	aliveSet := make(map[string]struct{}, len(aliveNodes))
+	for _, n := range aliveNodes {
+		aliveSet[n.NodeID] = struct{}{}
 	}
 
 	result := make(map[string][]int64)
@@ -71,6 +83,10 @@ func (r *GatewayRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (
 		seen := make(map[string]struct{})
 		for _, nodeID := range devices {
 			if _, ok := seen[nodeID]; ok {
+				continue
+			}
+			if _, ok := aliveSet[nodeID]; !ok {
+				// Gateway node missed heartbeats; treat session as offline.
 				continue
 			}
 			seen[nodeID] = struct{}{}

@@ -2,9 +2,11 @@ package msgworker
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -17,11 +19,12 @@ type MessageHandler func(ctx context.Context, key, value []byte, headers map[str
 const (
 	// retryHeaderKey tracks how many times a message has been retried.
 	retryHeaderKey = "x-retry-count"
-	// maxRetries is the maximum number of delivery attempts before sending to DLQ.
-	maxRetries = 3
 	// dlqTopicSuffix is appended to the original topic name to form the DLQ topic.
-
-dlqTopicSuffix = "-dlq"
+	dlqTopicSuffix = "-dlq"
+	// defaultHandlerTimeout is the per-attempt timeout for message handlers.
+	defaultHandlerTimeout = 10 * time.Second
+	// defaultRetryBackoff is the base backoff between local retry attempts.
+	defaultRetryBackoff = 100 * time.Millisecond
 )
 
 // KafkaConsumer consumes messages from Kafka.
@@ -33,11 +36,21 @@ type KafkaConsumer struct {
 	stopCh    chan struct{}
 	startOnce sync.Once
 	stopOnce  sync.Once
+	started   atomic.Bool
 
 	// workerCount controls the number of concurrent message processors.
 	// Messages from the same partition are always handled by the same worker,
 	// preserving per-partition ordering.
 	workerCount int
+
+	// maxRetries is the number of local retry attempts before sending to DLQ.
+	maxRetries int
+
+	// handlerTimeout is the timeout for each handler invocation.
+	handlerTimeout time.Duration
+
+	// retryBackoff is the base backoff duration between local retries.
+	retryBackoff time.Duration
 }
 
 // KafkaConsumerConfig holds consumer configuration.
@@ -48,9 +61,12 @@ type KafkaConsumerConfig struct {
 	MinBytes       int
 	MaxBytes       int
 	MaxWait        time.Duration
-	CommitInterval time.Duration
-	StartOffset    int64 // kafka.FirstOffset or kafka.LastOffset
-	WorkerCount    int   // number of concurrent workers; <=1 means sequential
+	CommitInterval time.Duration // 0 means manual commit
+	StartOffset    int64         // kafka.FirstOffset or kafka.LastOffset
+	WorkerCount    int           // number of concurrent workers; <=1 means sequential
+	MaxRetries     int           // local retry attempts before DLQ; 0 means DLQ on first failure
+	HandlerTimeout time.Duration // per-attempt handler timeout
+	RetryBackoff   time.Duration // base backoff between local retries
 }
 
 // NewKafkaConsumer creates a new Kafka consumer.
@@ -64,14 +80,26 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	if cfg.MaxWait == 0 {
 		cfg.MaxWait = 500 * time.Millisecond
 	}
-	if cfg.CommitInterval == 0 {
-		cfg.CommitInterval = 1 * time.Second
+	if cfg.CommitInterval != 0 {
+		// Manual commit is enforced to preserve ordering and exactly-once-ish
+		// semantics: we only commit after the handler succeeds or the message
+		// lands in DLQ. Inform the caller if a non-zero interval was supplied.
+		log.NewHelper(logger).Infof("KafkaConsumer ignores CommitInterval; manual commit is enforced")
 	}
 	if cfg.WorkerCount <= 0 {
 		cfg.WorkerCount = runtime.NumCPU()
 		if cfg.WorkerCount < 2 {
 			cfg.WorkerCount = 2
 		}
+	}
+	if cfg.MaxRetries < 0 {
+		cfg.MaxRetries = 0
+	}
+	if cfg.HandlerTimeout <= 0 {
+		cfg.HandlerTimeout = defaultHandlerTimeout
+	}
+	if cfg.RetryBackoff <= 0 {
+		cfg.RetryBackoff = defaultRetryBackoff
 	}
 
 	readerCfg := kafka.ReaderConfig{
@@ -81,7 +109,7 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 		MinBytes:       cfg.MinBytes,
 		MaxBytes:       cfg.MaxBytes,
 		MaxWait:        cfg.MaxWait,
-		CommitInterval: cfg.CommitInterval,
+		CommitInterval: 0, // manual commit
 	}
 	if cfg.StartOffset != 0 {
 		readerCfg.StartOffset = cfg.StartOffset
@@ -94,17 +122,21 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 		Addr:         kafka.TCP(cfg.Brokers...),
 		Topic:        cfg.Topic + dlqTopicSuffix,
 		Async:        false,
+		Compression:  kafka.Lz4,
 		WriteTimeout: 5 * time.Second,
 		MaxAttempts:  3,
 	}
 
 	return &KafkaConsumer{
-		reader:      reader,
-		dlqWriter:   dlqWriter,
-		handler:     handler,
-		log:         log.NewHelper(logger),
-		stopCh:      make(chan struct{}),
-		workerCount: cfg.WorkerCount,
+		reader:         reader,
+		dlqWriter:      dlqWriter,
+		handler:        handler,
+		log:            log.NewHelper(logger),
+		stopCh:         make(chan struct{}),
+		workerCount:    cfg.WorkerCount,
+		maxRetries:     cfg.MaxRetries,
+		handlerTimeout: cfg.HandlerTimeout,
+		retryBackoff:   cfg.RetryBackoff,
 	}
 }
 
@@ -112,8 +144,19 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 // It spawns multiple worker goroutines and dispatches messages by partition so
 // that each partition is processed sequentially by a single worker, while
 // different partitions are processed concurrently.
+// Start returns an error if called more than once.
 func (c *KafkaConsumer) Start(ctx context.Context) error {
-	c.startOnce.Do(func() {}) // signal that Start has been called
+	var alreadyStarted bool
+	c.startOnce.Do(func() {
+		alreadyStarted = c.started.Load()
+		if alreadyStarted {
+			return
+		}
+		c.started.Store(true)
+	})
+	if alreadyStarted {
+		return fmt.Errorf("kafka consumer already started")
+	}
 
 	workChs := make([]chan kafka.Message, c.workerCount)
 	var wg sync.WaitGroup
@@ -169,6 +212,12 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 // workerLoop processes messages from a single work channel sequentially.
 // Assigning the same partition to the same worker preserves ordering.
 func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Errorf("worker panic recovered: %v", r)
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -178,78 +227,67 @@ func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 				return
 			}
 			c.handleMessage(ctx, msg)
+			// Manual commit: only commit after the message has been processed
+			// (successfully or moved to DLQ). This keeps per-partition ordering
+			// and avoids losing messages on restart.
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				c.log.Errorf("commit offset failed: partition=%d offset=%d err=%v",
+					msg.Partition, msg.Offset, err)
+			}
 		}
 	}
 }
 
-// handleMessage invokes the handler and routes failures to retry/DLQ.
+// handleMessage invokes the handler with local retries and routes persistent
+// failures to DLQ. Local retries keep the message in the same partition order
+// and do not re-produce it to the original topic, avoiding sequence gaps.
 func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) {
 	headers := make(map[string]string)
 	for _, h := range msg.Headers {
 		headers[h.Key] = string(h.Value)
 	}
 
-	handlerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	err := c.handler(handlerCtx, msg.Key, msg.Value, headers)
-	cancel()
+	var lastErr error
+	attempts := c.maxRetries + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		handlerCtx, cancel := context.WithTimeout(ctx, c.handlerTimeout)
+		lastErr = c.handler(handlerCtx, msg.Key, msg.Value, headers)
+		cancel()
+		if lastErr == nil {
+			return
+		}
 
-	if err != nil {
-		c.handleProcessingError(ctx, msg, headers, err)
+		c.log.Warnf("handle message failed: attempt=%d/%d key=%s err=%v",
+			attempt+1, attempts, string(msg.Key), lastErr)
+
+		if attempt < c.maxRetries {
+			// Exponential backoff: 100ms, 200ms, 400ms, ... capped at 5s.
+			backoff := c.retryBackoff * time.Duration(1<<attempt)
+			const maxBackoff = 5 * time.Second
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				c.log.Warnf("context canceled during retry backoff: key=%s", string(msg.Key))
+				return
+			case <-c.stopCh:
+				c.log.Warnf("consumer stopped during retry backoff: key=%s", string(msg.Key))
+				return
+			}
+		}
 	}
+
+	c.handleProcessingError(ctx, msg, headers, lastErr)
 }
 
-// handleProcessingError routes failed messages to retry or DLQ based on retry count.
+// handleProcessingError routes failed messages to DLQ.
 func (c *KafkaConsumer) handleProcessingError(ctx context.Context, msg kafka.Message, headers map[string]string, procErr error) {
 	retryCount := getRetryCount(headers)
-
-	c.log.Errorf("handle message failed: key=%s retry_count=%d err=%v",
+	c.log.Errorf("handle message failed after retries: key=%s retry_count=%d err=%v",
 		string(msg.Key), retryCount, procErr)
-
-	if retryCount < maxRetries {
-		// Re-produce to the same topic with incremented retry header.
-		// Kafka will redeliver to the consumer group for retry.
-		if err := c.produceRetry(ctx, msg, retryCount+1); err != nil {
-			c.log.Errorf("retry produce failed: key=%s err=%v", string(msg.Key), err)
-			// Fallback to DLQ if retry produce itself fails.
-			c.sendToDLQ(ctx, msg, retryCount, procErr)
-		}
-		return
-	}
-
-	// Max retries exceeded — send to DLQ.
 	c.sendToDLQ(ctx, msg, retryCount, procErr)
-}
-
-// produceRetry re-publishes a failed message to the original topic with an incremented retry header.
-func (c *KafkaConsumer) produceRetry(ctx context.Context, msg kafka.Message, retryCount int) error {
-	newHeaders := make([]kafka.Header, 0, len(msg.Headers)+1)
-	for _, h := range msg.Headers {
-		if h.Key != retryHeaderKey {
-			newHeaders = append(newHeaders, h)
-		}
-	}
-	newHeaders = append(newHeaders, kafka.Header{
-		Key:   retryHeaderKey,
-		Value: []byte(strconv.Itoa(retryCount)),
-	})
-
-	retryMsg := kafka.Message{
-		Key:     msg.Key,
-		Value:   msg.Value,
-		Headers: newHeaders,
-	}
-
-	// Use the same topic for retries; consumer group will pick it up again.
-	writer := &kafka.Writer{
-		Addr:         c.dlqWriter.Addr,
-		Topic:        c.reader.Config().Topic,
-		Async:        false,
-		WriteTimeout: 5 * time.Second,
-		MaxAttempts:  3,
-	}
-	defer writer.Close()
-
-	return writer.WriteMessages(ctx, retryMsg)
 }
 
 // sendToDLQ sends a poison message to the DLQ topic with error metadata.

@@ -242,31 +242,32 @@ func (c *Conversation) LastMessage() *Message {
 }
 
 // appendMessage appends a received message to the conversation.
-// It deduplicates by clientMsgID: if a message with the same clientMsgID
-// already exists (e.g., a locally sent message waiting for server ACK),
-// it updates the existing message with server-assigned msgID and topicSeq
-// instead of appending a duplicate.
+// It deduplicates by topicSeq (server-side redelivery protection) and by
+// clientMsgID (locally sent messages waiting for server ACK).
 func (c *Conversation) appendMessage(msg *Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Deduplication: if a message with the same clientMsgID already exists,
-	// update it with server-assigned metadata instead of appending a duplicate.
+	// 1. Deduplicate by server-assigned topicSeq.
+	// This protects against duplicate delivery when the consumer retries before
+	// committing the Kafka offset.
+	if msg.TopicSeq > 0 {
+		for _, existing := range c.Messages {
+			if existing.TopicSeq == msg.TopicSeq {
+				mergeMessageMetadata(existing, msg)
+				if msg.TopicSeq > c.LastSeq {
+					c.LastSeq = msg.TopicSeq
+				}
+				return
+			}
+		}
+	}
+
+	// 2. Deduplicate by clientMsgID for in-flight local messages.
 	if msg.ClientMsgID != "" {
 		for _, existing := range c.Messages {
 			if existing.ClientMsgID == msg.ClientMsgID {
-				// Update server-assigned fields
-				if msg.MsgID > 0 {
-					existing.MsgID = msg.MsgID
-				}
-				if msg.TopicSeq > 0 {
-					existing.TopicSeq = msg.TopicSeq
-				}
-				// Upgrade status if the incoming message has a higher status
-				if msg.Status > existing.Status {
-					existing.Status = msg.Status
-				}
-				// Update LastSeq if needed
+				mergeMessageMetadata(existing, msg)
 				if msg.TopicSeq > c.LastSeq {
 					c.LastSeq = msg.TopicSeq
 				}
@@ -281,6 +282,23 @@ func (c *Conversation) appendMessage(msg *Message) {
 	}
 	if msg.SenderID != c.manager.client.UserID() {
 		c.UnreadCount++
+	}
+}
+
+// mergeMessageMetadata copies server-assigned fields and status upgrades from
+// src into dst without overwriting already-present values with zeros.
+func mergeMessageMetadata(dst, src *Message) {
+	if src.MsgID > 0 && dst.MsgID == 0 {
+		dst.MsgID = src.MsgID
+	}
+	if src.TopicSeq > 0 && dst.TopicSeq == 0 {
+		dst.TopicSeq = src.TopicSeq
+	}
+	if src.ClientMsgID != "" && dst.ClientMsgID == "" {
+		dst.ClientMsgID = src.ClientMsgID
+	}
+	if src.Status > dst.Status {
+		dst.Status = src.Status
 	}
 }
 

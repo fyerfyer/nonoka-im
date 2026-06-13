@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"nonoka-im/internal/conf"
+	"nonoka-im/internal/data"
 	"nonoka-im/internal/msgworker"
 
 	"github.com/go-kratos/kratos/v2/config"
 	"github.com/go-kratos/kratos/v2/config/file"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware/tracing"
-	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -58,19 +58,26 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize Redis
-	var redisClient redis.UniversalClient
-	if bc.Data != nil && bc.Data.Redis != nil && bc.Data.Redis.Addr != "" {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr: bc.Data.Redis.Addr,
-		})
-	} else {
+	// Initialize data layer (PostgreSQL + Redis)
+	if bc.Data == nil {
+		logger.Log(log.LevelFatal, "msg", "data config is required")
+		os.Exit(1)
+	}
+	dataLayer, dataCleanup, err := data.NewData(bc.Data)
+	if err != nil {
+		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("init data layer: %v", err))
+		os.Exit(1)
+	}
+	defer dataCleanup()
+
+	redisClient := dataLayer.Redis
+	if redisClient == nil {
 		logger.Log(log.LevelFatal, "msg", "redis config is required")
 		os.Exit(1)
 	}
 
 	// Initialize MongoDB
-	if bc.Data == nil || bc.Data.Mongodb == nil || bc.Data.Mongodb.Uri == "" {
+	if bc.Data.Mongodb == nil || bc.Data.Mongodb.Uri == "" {
 		logger.Log(log.LevelFatal, "msg", "mongodb config is required")
 		os.Exit(1)
 	}
@@ -87,12 +94,8 @@ func main() {
 
 	mongoDB := mongoClient.Database(bc.Data.Mongodb.Database)
 
-	// Initialize Kafka config
-	kafkaCfg := msgworker.KafkaConsumerConfig{
-		Brokers: bc.Data.Kafka.Brokers,
-		Topic:   bc.Data.Kafka.Topic,
-		GroupID: bc.Data.Kafka.ConsumerGroup,
-	}
+	// Initialize Kafka config from protobuf settings.
+	kafkaCfg := msgworkerConfigFromProto(bc.Data.Kafka)
 	if kafkaCfg.Topic == "" {
 		kafkaCfg.Topic = "im-messages"
 	}
@@ -152,8 +155,9 @@ func main() {
 		worker.SetRetryQueue(retryQueue)
 	}
 
-	// Initialize group member service (Redis-backed)
-	groupMemberSvc := msgworker.NewRedisGroupMemberService(redisClient, logger)
+	// Initialize group member service (PostgreSQL-backed with Redis cache)
+	groupMemberRepo := data.NewGroupMemberRepo(dataLayer, logger)
+	groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, redisClient, logger)
 	worker.SetGroupMemberService(groupMemberSvc)
 
 	// Wire handler after worker is created
@@ -182,4 +186,31 @@ func mustHostname() string {
 		return "msgworker-0"
 	}
 	return h
+}
+
+// msgworkerConfigFromProto builds a msgworker.KafkaConsumerConfig from the
+// protobuf Kafka config. Defaults are applied by NewKafkaConsumer.
+func msgworkerConfigFromProto(kc *conf.Data_Kafka) msgworker.KafkaConsumerConfig {
+	if kc == nil {
+		return msgworker.KafkaConsumerConfig{}
+	}
+	cfg := msgworker.KafkaConsumerConfig{
+		Brokers:     kc.GetBrokers(),
+		Topic:       kc.GetTopic(),
+		GroupID:     kc.GetConsumerGroup(),
+		WorkerCount: int(kc.GetWorkerCount()),
+		MinBytes:    int(kc.GetMinBytes()),
+		MaxBytes:    int(kc.GetMaxBytes()),
+		MaxRetries:  int(kc.GetMaxRetries()),
+	}
+	if kc.GetMaxWait() != nil {
+		cfg.MaxWait = kc.GetMaxWait().AsDuration()
+	}
+	if kc.GetCommitInterval() != nil {
+		cfg.CommitInterval = kc.GetCommitInterval().AsDuration()
+	}
+	if so := kc.GetStartOffset(); so != 0 {
+		cfg.StartOffset = so
+	}
+	return cfg
 }

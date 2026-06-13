@@ -27,22 +27,34 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// provideKafkaConfig returns Kafka configuration from environment or defaults.
-func provideKafkaConfig() gateway.KafkaConfig {
-	brokers := os.Getenv("KAFKA_BROKERS")
-	if brokers == "" {
-		brokers = "127.0.0.1:9092"
+// provideKafkaConfig returns Kafka configuration from the config file, falling
+// back to environment variables and sensible defaults. By default the producer
+// operates synchronously (Async=false) so that Gateway only ACKs clients after
+// Kafka has acknowledged the message.
+func provideKafkaConfig(confData *conf.Data) gateway.KafkaConfig {
+	var cfg gateway.KafkaConfig
+	if confData != nil && confData.Kafka != nil {
+		cfg = gateway.KafkaConfigFromProto(confData.Kafka)
 	}
-	topic := os.Getenv("KAFKA_TOPIC")
-	if topic == "" {
-		topic = "im-messages"
+
+	// Environment variables override config file values.
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		cfg.Brokers = []string{brokers}
 	}
-	return gateway.KafkaConfig{
-		Brokers:   []string{brokers},
-		Topic:     topic,
-		BatchSize: 100,
-		Async:     true,
+	if topic := os.Getenv("KAFKA_TOPIC"); topic != "" {
+		cfg.Topic = topic
 	}
+
+	if len(cfg.Brokers) == 0 {
+		cfg.Brokers = []string{"127.0.0.1:9092"}
+	}
+	if cfg.Topic == "" {
+		cfg.Topic = "im-messages"
+	}
+	if cfg.BatchSize == 0 {
+		cfg.BatchSize = 100
+	}
+	return cfg
 }
 
 // provideNodeIDString returns the unique node ID as a plain string.

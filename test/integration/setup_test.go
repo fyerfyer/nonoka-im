@@ -149,9 +149,10 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 			t.Fatalf("kafka topic not ready: %v", err)
 		}
 		kafkaCfg := gateway.KafkaConfig{
-			Brokers:   []string{testKafkaBroker},
-			Topic:     kafkaTopic,
-			BatchSize: 10,
+			Brokers:     []string{testKafkaBroker},
+			Topic:       kafkaTopic,
+			BatchSize:   10,
+			MaxAttempts: 10, // extra retries to tolerate test-topic metadata propagation
 		}
 		msgProducer = gateway.NewKafkaProducer(kafkaCfg, testLogger)
 	} else {
@@ -193,6 +194,12 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		}
 		consumer := msgworker.NewKafkaConsumer(consumerCfg, nil, testLogger)
 		worker = msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, pusher, testLogger)
+
+		// Use PostgreSQL-backed group membership with Redis cache.
+		groupMemberRepo := data.NewGroupMemberRepo(d, testLogger)
+		groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, d.Redis, testLogger)
+		worker.SetGroupMemberService(groupMemberSvc)
+
 		consumer.SetHandler(worker.HandleMessage)
 
 		go func() {
