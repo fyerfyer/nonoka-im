@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"time"
 
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/gateway"
@@ -35,7 +36,7 @@ func init() {
 	flag.StringVar(&flagconf, "conf", "../../configs", "config path, eg: -conf config.yaml")
 }
 
-func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry) *kratos.App {
+func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig) *kratos.App {
 	return kratos.New(
 		kratos.ID(id),
 		kratos.Name(Name),
@@ -49,6 +50,17 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gatew
 		kratos.BeforeStart(func(ctx context.Context) error {
 			if registry != nil {
 				registry.StartHeartbeat()
+			}
+			if ws != nil {
+				idleTimeout := hb.Timeout
+				if idleTimeout <= 0 {
+					idleTimeout = 90 * time.Second
+				}
+				interval := hb.Interval
+				if interval <= 0 {
+					interval = 30 * time.Second
+				}
+				ws.StartIdleChecker(idleTimeout, interval)
 			}
 			return nil
 		}),

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -17,26 +18,71 @@ type WebSocketServer struct {
 
 	upgrader websocket.Upgrader
 
-	readTimeout time.Duration
+	readTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 // NewWebSocketServer creates a new WebSocket server.
-func NewWebSocketServer(handler *Handler, logger log.Logger, readTimeout time.Duration) *WebSocketServer {
+// allowedOrigins restricts the Origin header that may initiate a WebSocket
+// handshake. If empty, all origins are allowed (convenient for development but
+// unsafe for production).
+func NewWebSocketServer(handler *Handler, logger log.Logger, readTimeout time.Duration, writeTimeout time.Duration, allowedOrigins []string) *WebSocketServer {
 	if readTimeout <= 0 {
 		readTimeout = 60 * time.Second
 	}
-	return &WebSocketServer{
-		handler: handler,
-		log:     log.NewHelper(logger),
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				// Allow all origins for now; restrict in production
+	if writeTimeout <= 0 {
+		writeTimeout = 10 * time.Second
+	}
+
+	s := &WebSocketServer{
+		handler:      handler,
+		log:          log.NewHelper(logger),
+		readTimeout:  readTimeout,
+		writeTimeout: writeTimeout,
+	}
+
+	s.upgrader = websocket.Upgrader{
+		CheckOrigin:     s.buildCheckOrigin(allowedOrigins),
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	if len(allowedOrigins) == 0 {
+		s.log.Warn("no allowed_origins configured for WebSocket; accepting all origins (unsafe for production)")
+	}
+
+	return s
+}
+
+// buildCheckOrigin returns an Origin validation function.
+// An empty allowedOrigins list permits every origin. Otherwise only the listed
+// origins (matched case-insensitively by suffix) are accepted.
+func (s *WebSocketServer) buildCheckOrigin(allowedOrigins []string) func(r *http.Request) bool {
+	if len(allowedOrigins) == 0 {
+		return func(r *http.Request) bool {
+			return true
+		}
+	}
+
+	// Normalize to lower case for case-insensitive comparison.
+	allowed := make([]string, len(allowedOrigins))
+	for i, o := range allowedOrigins {
+		allowed[i] = strings.ToLower(strings.TrimSpace(o))
+	}
+
+	return func(r *http.Request) bool {
+		origin := strings.ToLower(r.Header.Get("Origin"))
+		if origin == "" {
+			// No Origin header provided; reject unless explicitly allowed.
+			return false
+		}
+		for _, a := range allowed {
+			if a == origin || strings.HasSuffix(origin, a) {
 				return true
-			},
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-		},
-		readTimeout: readTimeout,
+			}
+		}
+		s.log.Warnf("websocket origin rejected: %s", origin)
+		return false
 	}
 }
 
@@ -49,7 +95,7 @@ func (s *WebSocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connID := uuid.New().String()
-	conn := NewConnection(wsConn, connID, s.readTimeout, s.onConnectionClose)
+	conn := NewConnection(wsConn, connID, s.readTimeout, s.writeTimeout, s.onConnectionClose)
 
 	// Start handling packets
 	conn.Start(func(packet *v1.Packet) {

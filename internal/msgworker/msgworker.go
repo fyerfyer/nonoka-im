@@ -10,6 +10,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Pusher pushes messages and receipts to online users via Gateway.
+// It is implemented by GatewayPusher and can be mocked in tests.
+type Pusher interface {
+	PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error)
+	BatchPushToUsers(ctx context.Context, userIDs []int64, msg *pb.MessagePush) (int32, []int64, error)
+	PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error)
+	BatchPushReceiptToUsers(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error)
+	Close() error
+}
+
 // MsgWorker consumes Kafka upstream messages, persists them to MongoDB,
 // generates sequence numbers, and pushes messages to online users via Gateway.
 type MsgWorker struct {
@@ -17,7 +27,7 @@ type MsgWorker struct {
 	seqGen          *SeqGenerator
 	snowflake       *IDGenerator
 	storage         *MessageStorage
-	pusher          *GatewayPusher
+	pusher          Pusher
 	groupMemberSvc  GroupMemberService
 	retryQueue      *PushRetryQueue
 	log             *log.Helper
@@ -40,7 +50,7 @@ func NewMsgWorker(
 	seqGen *SeqGenerator,
 	snowflake *IDGenerator,
 	storage *MessageStorage,
-	pusher *GatewayPusher,
+	pusher Pusher,
 	logger log.Logger,
 ) *MsgWorker {
 	return &MsgWorker{
@@ -57,6 +67,12 @@ func NewMsgWorker(
 // push and membership queries.
 func (w *MsgWorker) SetGroupMemberService(svc GroupMemberService) {
 	w.groupMemberSvc = svc
+}
+
+// SetPusher configures the gateway pusher. Useful for tests and for late
+// initialization when the pusher address is discovered at runtime.
+func (w *MsgWorker) SetPusher(pusher Pusher) {
+	w.pusher = pusher
 }
 
 // Start begins consuming and processing messages.
@@ -156,12 +172,22 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 					w.log.Warnf("get group members failed: %v", err)
 				} else if len(memberIDs) > 0 {
 					pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
-					// Exclude sender from push.
+					// Build a set of users already notified via @mention push so they
+					// don't receive the same message twice.
+					mentionedSet := make(map[int64]struct{}, len(upstream.GetMentionedUserIds()))
+					for _, id := range upstream.GetMentionedUserIds() {
+						mentionedSet[id] = struct{}{}
+					}
+					// Exclude sender and already-mentioned users from group broadcast.
 					recipients := make([]int64, 0, len(memberIDs))
 					for _, id := range memberIDs {
-						if id != upstream.GetSenderId() {
-							recipients = append(recipients, id)
+						if id == upstream.GetSenderId() {
+							continue
 						}
+						if _, ok := mentionedSet[id]; ok {
+							continue
+						}
+						recipients = append(recipients, id)
 					}
 					if len(recipients) > 0 {
 						_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)

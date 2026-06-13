@@ -649,8 +649,9 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 
 	// Run inbox and mention_inbox updates in parallel.
 	type result struct {
-		matched int64
-		err     error
+		collection string
+		matched    int64
+		err        error
 	}
 
 	ch := make(chan result, 2)
@@ -658,19 +659,19 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 	go func() {
 		res, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, filter, update)
 		if err != nil {
-			ch <- result{err: err}
+			ch <- result{collection: CollectionInboxes, err: err}
 			return
 		}
-		ch <- result{matched: res.MatchedCount}
+		ch <- result{collection: CollectionInboxes, matched: res.MatchedCount}
 	}()
 
 	go func() {
 		res, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update)
 		if err != nil {
-			ch <- result{err: err}
+			ch <- result{collection: CollectionMentionInboxes, err: err}
 			return
 		}
-		ch <- result{matched: res.MatchedCount}
+		ch <- result{collection: CollectionMentionInboxes, matched: res.MatchedCount}
 	}()
 
 	var inboxMatched, mentionMatched int64
@@ -679,12 +680,11 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 		if r.err != nil {
 			return fmt.Errorf("update delivery status: %w", r.err)
 		}
-		if r.matched > 0 {
-			if inboxMatched == 0 {
-				inboxMatched = r.matched
-			} else {
-				mentionMatched = r.matched
-			}
+		switch r.collection {
+		case CollectionInboxes:
+			inboxMatched = r.matched
+		case CollectionMentionInboxes:
+			mentionMatched = r.matched
 		}
 	}
 

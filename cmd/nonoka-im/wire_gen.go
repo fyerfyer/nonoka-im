@@ -64,13 +64,14 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	v := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger)
-	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig)
+	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger)
 	nodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, nodeID)
+	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, nodeID)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
-	gatewayRegistry := provideGatewayRegistry(universalClient, nodeID, gatewayURL, gatewayRegistryConfig, manager, logger)
-	app := newApp(logger, grpcServer, httpServer, gatewayRegistry)
+	gatewayRegistry := provideGatewayRegistry(universalClient, nodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
+	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig)
 	return app, func() {
 		cleanup2()
 		cleanup()
@@ -141,6 +142,34 @@ func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID NodeID) GatewayURL {
 	return GatewayURL(wsAddr)
 }
 
+// GatewayGrpcAddr is the gRPC endpoint advertised to other services (msgworker).
+type GatewayGrpcAddr string
+
+// provideGatewayGrpcAddr derives the gRPC address from environment or config.
+func provideGatewayGrpcAddr(dispatchConf *conf.Dispatch, serverConf *conf.Server, nodeID NodeID) GatewayGrpcAddr {
+	id2 := string(nodeID)
+
+	if dispatchConf != nil {
+		for _, gw := range dispatchConf.Gateways {
+			if gw.NodeId == id2 && gw.GetGatewayGrpcAddr() != "" {
+				return GatewayGrpcAddr(gw.GetGatewayGrpcAddr())
+			}
+		}
+		if len(dispatchConf.Gateways) > 0 && dispatchConf.Gateways[0].GetGatewayGrpcAddr() != "" {
+			return GatewayGrpcAddr(dispatchConf.Gateways[0].GetGatewayGrpcAddr())
+		}
+	}
+
+	grpcAddr := os.Getenv("GATEWAY_GRPC_ADDR")
+	if grpcAddr == "" && serverConf != nil && serverConf.Grpc != nil && serverConf.Grpc.Addr != "" {
+		grpcAddr = serverConf.Grpc.Addr
+	}
+	if grpcAddr == "" {
+		grpcAddr = "127.0.0.1:9000"
+	}
+	return GatewayGrpcAddr(grpcAddr)
+}
+
 // GatewayRegistryConfig holds heartbeat configuration for the gateway registry.
 type GatewayRegistryConfig struct {
 	Interval time.Duration
@@ -183,8 +212,10 @@ func provideHeartbeatConfig(gatewayConf *conf.GatewayConfig) gateway.HeartbeatCo
 			cfg.Timeout = gatewayConf.HeartbeatTimeout.AsDuration()
 		}
 		if gatewayConf.ReadTimeout != nil {
-
 			cfg.ReadTimeout = gatewayConf.ReadTimeout.AsDuration()
+		}
+		if gatewayConf.WriteTimeout != nil {
+			cfg.WriteTimeout = gatewayConf.WriteTimeout.AsDuration()
 		}
 	}
 	return cfg
@@ -224,12 +255,16 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.Me
 	return storage, nil
 }
 
-// provideWebSocketServer creates a WebSocket server with configurable read timeout.
-func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig) *gateway.WebSocketServer {
-	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout)
+// provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.
+func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig) *gateway.WebSocketServer {
+	allowedOrigins := []string(nil)
+	if gatewayConf != nil {
+		allowedOrigins = gatewayConf.AllowedOrigins
+	}
+	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout, hb.WriteTimeout, allowedOrigins)
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
-func provideGatewayRegistry(redis2 redis.UniversalClient, nodeID NodeID, url GatewayURL, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
-	return gateway.NewGatewayRegistry(redis2, string(nodeID), string(url), cfg.Interval, cfg.TTL, manager, logger)
+func provideGatewayRegistry(redis2 redis.UniversalClient, nodeID NodeID, url GatewayURL, grpcAddr GatewayGrpcAddr, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
+	return gateway.NewGatewayRegistry(redis2, string(nodeID), string(url), string(grpcAddr), cfg.Interval, cfg.TTL, manager, logger)
 }

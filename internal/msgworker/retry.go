@@ -27,7 +27,7 @@ const (
 // PushRetryQueue manages delayed retries for failed push deliveries using Redis Sorted Set.
 type PushRetryQueue struct {
 	redis      redis.UniversalClient
-	pusher     *GatewayPusher
+	pusher     Pusher
 	log        *log.Helper
 	stopCh     chan struct{}
 	stopOnce   sync.Once
@@ -49,7 +49,7 @@ type RetryItem struct {
 }
 
 // NewPushRetryQueue creates a new push retry queue.
-func NewPushRetryQueue(redis redis.UniversalClient, pusher *GatewayPusher, logger log.Logger) *PushRetryQueue {
+func NewPushRetryQueue(redis redis.UniversalClient, pusher Pusher, logger log.Logger) *PushRetryQueue {
 	return &PushRetryQueue{
 		redis:  redis,
 		pusher: pusher,

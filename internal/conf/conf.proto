@@ -62,6 +62,7 @@ message Auth {
 message GatewayNode {
   string node_id = 1;
   string gateway_url = 2;
+  string gateway_grpc_addr = 3;
 }
 
 message GatewayConfig {
@@ -74,6 +75,12 @@ message GatewayConfig {
   // WebSocket read timeout (e.g., 60s). Sets the read deadline on the
   // underlying WebSocket connection.
   google.protobuf.Duration read_timeout = 3;
+  // WebSocket write timeout (e.g., 10s). Sets the write deadline on the
+  // underlying WebSocket connection. A slow client will be closed after this.
+  google.protobuf.Duration write_timeout = 4;
+  // Allowed WebSocket origins. If empty, all origins are allowed (development
+  // default). In production, set this to the exact origins that may connect.
+  repeated string allowed_origins = 5;
 }
 
 message Dispatch {

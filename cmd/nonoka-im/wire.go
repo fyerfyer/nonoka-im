@@ -89,6 +89,34 @@ func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID NodeID) GatewayURL {
 	return GatewayURL(wsAddr)
 }
 
+// GatewayGrpcAddr is the gRPC endpoint advertised to other services (msgworker).
+type GatewayGrpcAddr string
+
+// provideGatewayGrpcAddr derives the gRPC address from environment or config.
+func provideGatewayGrpcAddr(dispatchConf *conf.Dispatch, serverConf *conf.Server, nodeID NodeID) GatewayGrpcAddr {
+	id := string(nodeID)
+	// Check static config first
+	if dispatchConf != nil {
+		for _, gw := range dispatchConf.Gateways {
+			if gw.NodeId == id && gw.GetGatewayGrpcAddr() != "" {
+				return GatewayGrpcAddr(gw.GetGatewayGrpcAddr())
+			}
+		}
+		if len(dispatchConf.Gateways) > 0 && dispatchConf.Gateways[0].GetGatewayGrpcAddr() != "" {
+			return GatewayGrpcAddr(dispatchConf.Gateways[0].GetGatewayGrpcAddr())
+		}
+	}
+	// Fallback to env, then server config, then default
+	grpcAddr := os.Getenv("GATEWAY_GRPC_ADDR")
+	if grpcAddr == "" && serverConf != nil && serverConf.Grpc != nil && serverConf.Grpc.Addr != "" {
+		grpcAddr = serverConf.Grpc.Addr
+	}
+	if grpcAddr == "" {
+		grpcAddr = "127.0.0.1:9000"
+	}
+	return GatewayGrpcAddr(grpcAddr)
+}
+
 // GatewayRegistryConfig holds heartbeat configuration for the gateway registry.
 type GatewayRegistryConfig struct {
 	Interval time.Duration
@@ -131,8 +159,10 @@ func provideHeartbeatConfig(gatewayConf *conf.GatewayConfig) gateway.HeartbeatCo
 			cfg.Timeout = gatewayConf.HeartbeatTimeout.AsDuration()
 		}
 		if gatewayConf.ReadTimeout != nil {
-			// ReadTimeout is used by WebSocketServer, passed through Handler.
 			cfg.ReadTimeout = gatewayConf.ReadTimeout.AsDuration()
+		}
+		if gatewayConf.WriteTimeout != nil {
+			cfg.WriteTimeout = gatewayConf.WriteTimeout.AsDuration()
 		}
 	}
 	return cfg
@@ -172,14 +202,18 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.Me
 	return storage, nil
 }
 
-// provideWebSocketServer creates a WebSocket server with configurable read timeout.
-func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig) *gateway.WebSocketServer {
-	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout)
+// provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.
+func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig) *gateway.WebSocketServer {
+	allowedOrigins := []string(nil)
+	if gatewayConf != nil {
+		allowedOrigins = gatewayConf.AllowedOrigins
+	}
+	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout, hb.WriteTimeout, allowedOrigins)
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
-func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url GatewayURL, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
-	return gateway.NewGatewayRegistry(redis, string(nodeID), string(url), cfg.Interval, cfg.TTL, manager, logger)
+func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url GatewayURL, grpcAddr GatewayGrpcAddr, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
+	return gateway.NewGatewayRegistry(redis, string(nodeID), string(url), string(grpcAddr), cfg.Interval, cfg.TTL, manager, logger)
 }
 
 // wireApp init kratos application.
@@ -193,6 +227,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideNodeIDString,
 		provideNodeID,
 		provideGatewayURL,
+		provideGatewayGrpcAddr,
 		provideGatewayRegistryConfig,
 		provideGatewayRegistry,
 		provideJWTSecret,

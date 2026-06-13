@@ -124,6 +124,17 @@ func main() {
 		// Non-fatal: worker can still persist messages
 	}
 
+	// Configure dynamic gateway routing so pushes go only to nodes that host
+	// the target user's sessions, instead of broadcasting to all gateways.
+	nodeTTL := 30 * time.Second
+	if bc.Dispatch != nil && bc.Dispatch.NodeTtl != nil {
+		nodeTTL = bc.Dispatch.NodeTtl.AsDuration()
+	}
+	if pusher != nil {
+		router := msgworker.NewGatewayRouter(redisClient, nodeTTL, logger)
+		pusher.SetRouter(router)
+	}
+
 	// Create consumer with handler wired to worker
 	consumer := msgworker.NewKafkaConsumer(kafkaCfg, nil, logger)
 	worker := msgworker.NewMsgWorker(
@@ -134,6 +145,12 @@ func main() {
 		pusher,
 		logger,
 	)
+
+	// Wire push retry queue so failed online pushes are retried asynchronously.
+	if pusher != nil {
+		retryQueue := msgworker.NewPushRetryQueue(redisClient, pusher, logger)
+		worker.SetRetryQueue(retryQueue)
+	}
 
 	// Initialize group member service (Redis-backed)
 	groupMemberSvc := msgworker.NewRedisGroupMemberService(redisClient, logger)

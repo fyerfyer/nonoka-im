@@ -20,7 +20,6 @@ const (
 	strategyLeastConnections   = "least_connections"
 	defaultHeartbeatInterval   = 10 * time.Second
 	defaultNodeTTL             = 30 * time.Second
-	defaultVirtualReplicas     = 150
 )
 
 // DispatchService implements the gateway dispatch logic.
@@ -116,7 +115,7 @@ func (s *DispatchService) selectNode(nodes []*gateway.GatewayNode, userID int64)
 		// Use user_id as the hash key for sticky routing.
 		// If user_id is 0 (anonymous), fall through to least-connections.
 		if userID != 0 {
-			return gateway.SelectByHash(nodes, fmt.Sprintf("%d", userID))
+			return gateway.SelectByConsistentHash(nodes, fmt.Sprintf("%d", userID))
 		}
 		return gateway.SelectByLeastConnections(nodes)
 	}

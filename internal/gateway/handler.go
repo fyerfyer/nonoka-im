@@ -5,9 +5,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/go-kratos/kratos/v2/log"
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/msgworker"
+
+	"github.com/go-kratos/kratos/v2/log"
 
 	jwt5 "github.com/golang-jwt/jwt/v5"
 )
@@ -31,9 +32,10 @@ type Handler struct {
 
 // HeartbeatConfig holds heartbeat-related configuration.
 type HeartbeatConfig struct {
-	Interval    time.Duration
-	Timeout     time.Duration
-	ReadTimeout time.Duration // WebSocket read timeout (0 = default)
+	Interval     time.Duration
+	Timeout      time.Duration
+	ReadTimeout  time.Duration // WebSocket read timeout (0 = default)
+	WriteTimeout time.Duration // WebSocket write timeout (0 = default)
 }
 
 // NewHandler creates a new packet handler.
@@ -109,7 +111,7 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 	}
 
 	// Parse and validate JWT
-	token, err := jwt5.Parse(req.Token, func(token *jwt5.Token) (interface{}, error) {
+	token, err := jwt5.Parse(req.Token, func(token *jwt5.Token) (any, error) {
 		if _, ok := token.Method.(*jwt5.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken
 		}

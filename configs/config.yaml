@@ -32,6 +32,8 @@ gateway:
   heartbeat_interval: 30s
   heartbeat_timeout: 90s
   read_timeout: 60s
+  write_timeout: 10s
+  allowed_origins: []
 auth:
   jwt_secret: "change-me-in-production-use-random-string"
   token_ttl: 168h

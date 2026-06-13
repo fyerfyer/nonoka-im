@@ -162,7 +162,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
-	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second)
+	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second, 10*time.Second, nil)
 
 	// 7. Message service (with producer for HTTP fallback)
 	msgSvc := service.NewMessageService(storage, msgProducer, testLogger)

@@ -568,7 +568,9 @@ func (c *Client) handleDeliveryReceipt(topic string, topicSeq uint64, msgID int6
 // handleSendReceipt processes a server-pushed send receipt (msg_id/topic_seq confirmation).
 // It updates the in-flight message with the assigned msg_id and topic_seq, and invokes user callbacks.
 func (c *Client) handleSendReceipt(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
-	// Update in-flight message with assigned IDs
+	// Update in-flight message with assigned IDs and remove it from the in-flight map.
+	// The message is now fully acknowledged by the server; keeping it in sendingMsgs
+	// would leak memory.
 	var msg *Message
 	c.sendingMu.Lock()
 	if m, ok := c.sendingMsgs[clientMsgID]; ok {
@@ -576,6 +578,7 @@ func (c *Client) handleSendReceipt(clientMsgID string, msgID int64, topic string
 		m.TopicSeq = topicSeq
 		m.Status = MessageStatusSent
 		msg = m
+		delete(c.sendingMsgs, clientMsgID)
 	}
 	c.sendingMu.Unlock()
 

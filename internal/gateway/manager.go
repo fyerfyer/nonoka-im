@@ -4,9 +4,10 @@ import (
 	"sync"
 	"time"
 
+	v1 "nonoka-im/api/im/v1"
+
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/protobuf/proto"
-	v1 "nonoka-im/api/im/v1"
 )
 
 const shardCount = 32
@@ -48,10 +49,10 @@ func (m *Manager) getShard(userID int64) *connShard {
 	if userID == 0 {
 		return m.shards[0]
 	}
-	// Use FNV-1a hash for better distribution than simple modulo (#13)
+	// Use FNV-1a hash for better distribution than simple modulo
 	h := uint32(2166136261)
 	uid := uint64(userID)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		h ^= uint32(uid & 0xFF)
 		h *= 16777619
 		uid >>= 8
@@ -212,7 +213,7 @@ func (m *Manager) Range(f func(c *Connection) bool) {
 // Count returns the total number of active connections.
 func (m *Manager) Count() int {
 	count := 0
-	for i := 0; i < shardCount; i++ {
+	for i := range shardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
 		count += len(shard.conns)
@@ -224,7 +225,7 @@ func (m *Manager) Count() int {
 // UserCount returns the number of online users.
 func (m *Manager) UserCount() int {
 	count := 0
-	for i := 0; i < shardCount; i++ {
+	for i := range shardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
 		count += len(shard.users)

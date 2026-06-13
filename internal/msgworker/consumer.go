@@ -2,6 +2,7 @@ package msgworker
 
 import (
 	"context"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -20,7 +21,7 @@ const (
 	maxRetries = 3
 	// dlqTopicSuffix is appended to the original topic name to form the DLQ topic.
 
-	dlqTopicSuffix = "-dlq"
+dlqTopicSuffix = "-dlq"
 )
 
 // KafkaConsumer consumes messages from Kafka.
@@ -32,6 +33,11 @@ type KafkaConsumer struct {
 	stopCh    chan struct{}
 	startOnce sync.Once
 	stopOnce  sync.Once
+
+	// workerCount controls the number of concurrent message processors.
+	// Messages from the same partition are always handled by the same worker,
+	// preserving per-partition ordering.
+	workerCount int
 }
 
 // KafkaConsumerConfig holds consumer configuration.
@@ -44,6 +50,7 @@ type KafkaConsumerConfig struct {
 	MaxWait        time.Duration
 	CommitInterval time.Duration
 	StartOffset    int64 // kafka.FirstOffset or kafka.LastOffset
+	WorkerCount    int   // number of concurrent workers; <=1 means sequential
 }
 
 // NewKafkaConsumer creates a new Kafka consumer.
@@ -59,6 +66,12 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	}
 	if cfg.CommitInterval == 0 {
 		cfg.CommitInterval = 1 * time.Second
+	}
+	if cfg.WorkerCount <= 0 {
+		cfg.WorkerCount = runtime.NumCPU()
+		if cfg.WorkerCount < 2 {
+			cfg.WorkerCount = 2
+		}
 	}
 
 	readerCfg := kafka.ReaderConfig{
@@ -86,17 +99,41 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	}
 
 	return &KafkaConsumer{
-		reader:    reader,
-		dlqWriter: dlqWriter,
-		handler:   handler,
-		log:       log.NewHelper(logger),
-		stopCh:    make(chan struct{}),
+		reader:      reader,
+		dlqWriter:   dlqWriter,
+		handler:     handler,
+		log:         log.NewHelper(logger),
+		stopCh:      make(chan struct{}),
+		workerCount: cfg.WorkerCount,
 	}
 }
 
-// Start begins consuming messages in a blocking loop.
+// Start begins consuming messages.
+// It spawns multiple worker goroutines and dispatches messages by partition so
+// that each partition is processed sequentially by a single worker, while
+// different partitions are processed concurrently.
 func (c *KafkaConsumer) Start(ctx context.Context) error {
 	c.startOnce.Do(func() {}) // signal that Start has been called
+
+	workChs := make([]chan kafka.Message, c.workerCount)
+	var wg sync.WaitGroup
+	for i := 0; i < c.workerCount; i++ {
+		workChs[i] = make(chan kafka.Message, 64)
+		wg.Add(1)
+		go func(ch chan kafka.Message) {
+			defer wg.Done()
+			c.workerLoop(ctx, ch)
+		}(workChs[i])
+	}
+
+	// Close all worker channels when the read loop exits so workers shut down.
+	defer func() {
+		for _, ch := range workChs {
+			close(ch)
+		}
+		wg.Wait()
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,21 +152,49 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			continue
 		}
 
-		headers := make(map[string]string)
-		for _, h := range msg.Headers {
-			headers[h.Key] = string(h.Value)
-		}
-
 		c.log.Debugf("consumed message: topic=%s partition=%d offset=%d key=%s",
 			msg.Topic, msg.Partition, msg.Offset, string(msg.Key))
 
-		handlerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err = c.handler(handlerCtx, msg.Key, msg.Value, headers)
-		cancel()
-
-		if err != nil {
-			c.handleProcessingError(ctx, msg, headers, err)
+		workerID := msg.Partition % c.workerCount
+		select {
+		case workChs[workerID] <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.stopCh:
+			return nil
 		}
+	}
+}
+
+// workerLoop processes messages from a single work channel sequentially.
+// Assigning the same partition to the same worker preserves ordering.
+func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			c.handleMessage(ctx, msg)
+		}
+	}
+}
+
+// handleMessage invokes the handler and routes failures to retry/DLQ.
+func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) {
+	headers := make(map[string]string)
+	for _, h := range msg.Headers {
+		headers[h.Key] = string(h.Value)
+	}
+
+	handlerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	err := c.handler(handlerCtx, msg.Key, msg.Value, headers)
+	cancel()
+
+	if err != nil {
+		c.handleProcessingError(ctx, msg, headers, err)
 	}
 }
 

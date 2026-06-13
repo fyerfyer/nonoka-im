@@ -61,6 +61,7 @@ func TestDispatch_SingleNode_Heartbeat(t *testing.T) {
 		ts.redis,
 		"gateway-alpha",
 		"ws://10.0.0.1:8080/ws",
+		"10.0.0.1:9000",
 		2*time.Second,
 		10*time.Second,
 		mgr,

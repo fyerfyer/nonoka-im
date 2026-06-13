@@ -39,18 +39,20 @@ type Connection struct {
 
 	onClose func(c *Connection)
 
-	readTimeout time.Duration
+	readTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 // NewConnection creates a new connection wrapper.
-func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Duration, onClose func(c *Connection)) *Connection {
+func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Duration, writeTimeout time.Duration, onClose func(c *Connection)) *Connection {
 	c := &Connection{
-		wsConn:      wsConn,
-		connID:      connID,
-		sendCh:      make(chan []byte, 4096),
-		closeCh:     make(chan struct{}),
-		onClose:     onClose,
-		readTimeout: readTimeout,
+		wsConn:       wsConn,
+		connID:       connID,
+		sendCh:       make(chan []byte, 4096),
+		closeCh:      make(chan struct{}),
+		onClose:      onClose,
+		readTimeout:  readTimeout,
+		writeTimeout: writeTimeout,
 	}
 	c.lastActive.Store(time.Now().UnixNano())
 	c.state.Store(int32(ConnStateConnected))
@@ -107,10 +109,17 @@ func (c *Connection) writeLoop() {
 	for {
 		select {
 		case data := <-c.sendCh:
+			if c.writeTimeout > 0 {
+				_ = c.wsConn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+			}
 			if err := c.wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 				// Trigger readLoop to exit by closing the underlying conn
 				c.wsConn.Close()
 				return
+			}
+			if c.writeTimeout > 0 {
+				// Clear write deadline after a successful write.
+				_ = c.wsConn.SetWriteDeadline(time.Time{})
 			}
 
 		case <-c.closeCh:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -18,12 +19,17 @@ const (
 	// Redis keys
 	gatewayNodesKey = "im:gateway:nodes"
 	gatewayNodeKey  = "im:gateway:%s"
+
+	// DefaultVirtualReplicas is the default number of virtual replicas per node
+	// on the consistent hash ring.
+	DefaultVirtualReplicas = 150
 )
 
 // GatewayNode represents a discovered gateway instance.
 type GatewayNode struct {
 	NodeID    string
 	URL       string
+	GrpcAddr  string
 	ConnCount int
 	UpdatedAt time.Time
 }
@@ -34,6 +40,7 @@ type GatewayRegistry struct {
 	redis    redis.UniversalClient
 	nodeID   string
 	url      string
+	grpcAddr string
 	interval time.Duration
 	ttl      time.Duration
 	manager  *Manager
@@ -44,11 +51,12 @@ type GatewayRegistry struct {
 }
 
 // NewGatewayRegistry creates a new registry for this gateway node.
-func NewGatewayRegistry(redis redis.UniversalClient, nodeID string, url string, interval time.Duration, ttl time.Duration, manager *Manager, logger log.Logger) *GatewayRegistry {
+func NewGatewayRegistry(redis redis.UniversalClient, nodeID string, url string, grpcAddr string, interval time.Duration, ttl time.Duration, manager *Manager, logger log.Logger) *GatewayRegistry {
 	return &GatewayRegistry{
 		redis:    redis,
 		nodeID:   nodeID,
 		url:      url,
+		grpcAddr: grpcAddr,
 		interval: interval,
 		ttl:      ttl,
 		manager:  manager,
@@ -59,9 +67,7 @@ func NewGatewayRegistry(redis redis.UniversalClient, nodeID string, url string, 
 
 // StartHeartbeat begins the periodic heartbeat reporting in a background goroutine.
 func (r *GatewayRegistry) StartHeartbeat() {
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
+	r.wg.Go(func() {
 
 		// Report immediately on start
 		if err := r.reportOnce(); err != nil {
@@ -81,7 +87,7 @@ func (r *GatewayRegistry) StartHeartbeat() {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop stops the heartbeat goroutine and removes this node from the registry.
@@ -112,9 +118,10 @@ func (r *GatewayRegistry) reportOnce() error {
 	pipe := r.redis.Pipeline()
 	pipe.SAdd(ctx, gatewayNodesKey, r.nodeID)
 	pipe.HSet(ctx, nodeKey, map[string]interface{}{
-		"url":       r.url,
-		"conns":     connCount,
-		"heartbeat": time.Now().Unix(),
+		"url":        r.url,
+		"grpc_addr":  r.grpcAddr,
+		"conns":      connCount,
+		"heartbeat":  time.Now().Unix(),
 	})
 	pipe.Expire(ctx, nodeKey, r.ttl)
 	pipe.Expire(ctx, gatewayNodesKey, r.ttl*2)
@@ -158,6 +165,7 @@ func GetAliveNodes(ctx context.Context, redis redis.UniversalClient, nodeTTL tim
 		nodes = append(nodes, &GatewayNode{
 			NodeID:    id,
 			URL:       vals["url"],
+			GrpcAddr:  vals["grpc_addr"],
 			ConnCount: conns,
 			UpdatedAt: time.Unix(heartbeat, 0),
 		})
@@ -180,7 +188,7 @@ type consistentHash struct {
 // newConsistentHash creates a new consistent hash with the given virtual replicas per node.
 func newConsistentHash(replicas int) *consistentHash {
 	if replicas <= 0 {
-		replicas = 150
+		replicas = DefaultVirtualReplicas
 	}
 	return &consistentHash{
 		replicas: replicas,
@@ -206,9 +214,7 @@ func (ch *consistentHash) Add(node string) {
 		ch.ring = append(ch.ring, h)
 		ch.nodes[h] = node
 	}
-	sort.Slice(ch.ring, func(i, j int) bool {
-		return ch.ring[i] < ch.ring[j]
-	})
+	slices.Sort(ch.ring)
 }
 
 // Remove removes a node from the hash ring.
@@ -286,4 +292,31 @@ func SelectByLeastConnections(nodes []*GatewayNode) *GatewayNode {
 		}
 	}
 	return best
+}
+
+// SelectByConsistentHash selects a node using a consistent hash ring.
+// It builds a temporary ring from the provided nodes, which is correct but
+// not optimal for very high throughput; callers may cache the ring and rebuild
+// it only when node membership changes.
+func SelectByConsistentHash(nodes []*GatewayNode, key string) *GatewayNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if len(nodes) == 1 {
+		return nodes[0]
+	}
+
+	ch := newConsistentHash(DefaultVirtualReplicas)
+	for _, n := range nodes {
+		ch.Add(n.NodeID)
+	}
+
+	selectedID := ch.Get(key)
+	for _, n := range nodes {
+		if n.NodeID == selectedID {
+			return n
+		}
+	}
+	// Fallback to the first node if the ring returns an unexpected ID.
+	return nodes[0]
 }

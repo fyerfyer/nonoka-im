@@ -271,11 +271,12 @@ func (x *Auth) GetTokenTtl() *durationpb.Duration {
 }
 
 type GatewayNode struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	GatewayUrl    string                 `protobuf:"bytes,2,opt,name=gateway_url,json=gatewayUrl,proto3" json:"gateway_url,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	NodeId          string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	GatewayUrl      string                 `protobuf:"bytes,2,opt,name=gateway_url,json=gatewayUrl,proto3" json:"gateway_url,omitempty"`
+	GatewayGrpcAddr string                 `protobuf:"bytes,3,opt,name=gateway_grpc_addr,json=gatewayGrpcAddr,proto3" json:"gateway_grpc_addr,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GatewayNode) Reset() {
@@ -322,6 +323,13 @@ func (x *GatewayNode) GetGatewayUrl() string {
 	return ""
 }
 
+func (x *GatewayNode) GetGatewayGrpcAddr() string {
+	if x != nil {
+		return x.GatewayGrpcAddr
+	}
+	return ""
+}
+
 type GatewayConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// WebSocket heartbeat interval (e.g., 30s). This controls how often
@@ -332,9 +340,15 @@ type GatewayConfig struct {
 	HeartbeatTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=heartbeat_timeout,json=heartbeatTimeout,proto3" json:"heartbeat_timeout,omitempty"`
 	// WebSocket read timeout (e.g., 60s). Sets the read deadline on the
 	// underlying WebSocket connection.
-	ReadTimeout   *durationpb.Duration `protobuf:"bytes,3,opt,name=read_timeout,json=readTimeout,proto3" json:"read_timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ReadTimeout *durationpb.Duration `protobuf:"bytes,3,opt,name=read_timeout,json=readTimeout,proto3" json:"read_timeout,omitempty"`
+	// WebSocket write timeout (e.g., 10s). Sets the write deadline on the
+	// underlying WebSocket connection. A slow client will be closed after this.
+	WriteTimeout *durationpb.Duration `protobuf:"bytes,4,opt,name=write_timeout,json=writeTimeout,proto3" json:"write_timeout,omitempty"`
+	// Allowed WebSocket origins. If empty, all origins are allowed (development
+	// default). In production, set this to the exact origins that may connect.
+	AllowedOrigins []string `protobuf:"bytes,5,rep,name=allowed_origins,json=allowedOrigins,proto3" json:"allowed_origins,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GatewayConfig) Reset() {
@@ -384,6 +398,20 @@ func (x *GatewayConfig) GetHeartbeatTimeout() *durationpb.Duration {
 func (x *GatewayConfig) GetReadTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.ReadTimeout
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetWriteTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.WriteTimeout
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetAllowedOrigins() []string {
+	if x != nil {
+		return x.AllowedOrigins
 	}
 	return nil
 }
@@ -906,15 +934,18 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
-	"\ttoken_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\btokenTtl\"G\n" +
+	"\ttoken_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\btokenTtl\"s\n" +
 	"\vGatewayNode\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +
-	"gatewayUrl\"\xdf\x01\n" +
+	"gatewayUrl\x12*\n" +
+	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xc8\x02\n" +
 	"\rGatewayConfig\x12H\n" +
 	"\x12heartbeat_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x12F\n" +
 	"\x11heartbeat_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10heartbeatTimeout\x12<\n" +
-	"\fread_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\"\xdb\x01\n" +
+	"\fread_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\x12>\n" +
+	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x12'\n" +
+	"\x0fallowed_origins\x18\x05 \x03(\tR\x0eallowedOrigins\"\xdb\x01\n" +
 	"\bDispatch\x123\n" +
 	"\bgateways\x18\x01 \x03(\v2\x17.kratos.api.GatewayNodeR\bgateways\x12\x1a\n" +
 	"\bstrategy\x18\x02 \x01(\tR\bstrategy\x12H\n" +
@@ -971,18 +1002,19 @@ var file_conf_conf_proto_depIdxs = []int32{
 	14, // 12: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
 	14, // 13: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
 	14, // 14: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
-	4,  // 15: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
-	14, // 16: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
-	14, // 17: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
-	14, // 18: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	14, // 19: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	14, // 20: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	14, // 21: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	14, // 15: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
+	4,  // 16: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
+	14, // 17: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
+	14, // 18: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
+	14, // 19: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	14, // 20: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	14, // 21: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	14, // 22: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }
