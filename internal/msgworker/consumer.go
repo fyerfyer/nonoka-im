@@ -25,6 +25,10 @@ const (
 	defaultHandlerTimeout = 10 * time.Second
 	// defaultRetryBackoff is the base backoff between local retry attempts.
 	defaultRetryBackoff = 100 * time.Millisecond
+	// defaultCommitBatchSize is the number of messages to batch before committing offsets.
+	defaultCommitBatchSize = 100
+	// defaultCommitInterval is the maximum time between offset commits.
+	defaultCommitInterval = 1 * time.Second
 )
 
 // KafkaConsumer consumes messages from Kafka.
@@ -51,22 +55,30 @@ type KafkaConsumer struct {
 
 	// retryBackoff is the base backoff duration between local retries.
 	retryBackoff time.Duration
+
+	// commitBatchSize is the number of messages to batch before committing offsets.
+	commitBatchSize int
+
+	// commitFlushInterval is the maximum time between offset commits.
+	commitFlushInterval time.Duration
 }
 
 // KafkaConsumerConfig holds consumer configuration.
 type KafkaConsumerConfig struct {
-	Brokers        []string
-	Topic          string
-	GroupID        string
-	MinBytes       int
-	MaxBytes       int
-	MaxWait        time.Duration
-	CommitInterval time.Duration // 0 means manual commit
-	StartOffset    int64         // kafka.FirstOffset or kafka.LastOffset
-	WorkerCount    int           // number of concurrent workers; <=1 means sequential
-	MaxRetries     int           // local retry attempts before DLQ; 0 means DLQ on first failure
-	HandlerTimeout time.Duration // per-attempt handler timeout
-	RetryBackoff   time.Duration // base backoff between local retries
+	Brokers          []string
+	Topic            string
+	GroupID          string
+	MinBytes         int
+	MaxBytes         int
+	MaxWait          time.Duration
+	CommitInterval   time.Duration // 0 means manual commit
+	StartOffset      int64         // kafka.FirstOffset or kafka.LastOffset
+	WorkerCount      int           // number of concurrent workers; <=1 means sequential
+	MaxRetries       int           // local retry attempts before DLQ; 0 means DLQ on first failure
+	HandlerTimeout   time.Duration // per-attempt handler timeout
+	RetryBackoff     time.Duration // base backoff between local retries
+	CommitBatchSize  int           // number of messages to batch before committing offsets
+	CommitFlushInterval time.Duration // maximum time between offset commits
 }
 
 // NewKafkaConsumer creates a new Kafka consumer.
@@ -101,6 +113,12 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	if cfg.RetryBackoff <= 0 {
 		cfg.RetryBackoff = defaultRetryBackoff
 	}
+	if cfg.CommitBatchSize <= 0 {
+		cfg.CommitBatchSize = defaultCommitBatchSize
+	}
+	if cfg.CommitFlushInterval <= 0 {
+		cfg.CommitFlushInterval = defaultCommitInterval
+	}
 
 	readerCfg := kafka.ReaderConfig{
 		Brokers:        cfg.Brokers,
@@ -128,15 +146,17 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	}
 
 	return &KafkaConsumer{
-		reader:         reader,
-		dlqWriter:      dlqWriter,
-		handler:        handler,
-		log:            log.NewHelper(logger),
-		stopCh:         make(chan struct{}),
-		workerCount:    cfg.WorkerCount,
-		maxRetries:     cfg.MaxRetries,
-		handlerTimeout: cfg.HandlerTimeout,
-		retryBackoff:   cfg.RetryBackoff,
+		reader:              reader,
+		dlqWriter:           dlqWriter,
+		handler:             handler,
+		log:                 log.NewHelper(logger),
+		stopCh:              make(chan struct{}),
+		workerCount:         cfg.WorkerCount,
+		maxRetries:          cfg.MaxRetries,
+		handlerTimeout:      cfg.HandlerTimeout,
+		retryBackoff:        cfg.RetryBackoff,
+		commitBatchSize:     cfg.CommitBatchSize,
+		commitFlushInterval: cfg.CommitFlushInterval,
 	}
 }
 
@@ -211,6 +231,7 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 
 // workerLoop processes messages from a single work channel sequentially.
 // Assigning the same partition to the same worker preserves ordering.
+// Offsets are committed in batches to reduce Kafka round-trips.
 func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -218,21 +239,45 @@ func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 		}
 	}()
 
+	pending := make([]kafka.Message, 0, c.commitBatchSize)
+	commit := func() {
+		if len(pending) == 0 {
+			return
+		}
+		if err := c.reader.CommitMessages(ctx, pending...); err != nil {
+			c.log.Errorf("commit offsets failed: count=%d err=%v", len(pending), err)
+		} else {
+			c.log.Debugf("committed offsets: count=%d", len(pending))
+		}
+		pending = pending[:0]
+	}
+
+	ticker := time.NewTicker(c.commitFlushInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
+			commit()
 			return
+		case <-c.stopCh:
+			commit()
+			return
+		case <-ticker.C:
+			commit()
 		case msg, ok := <-ch:
 			if !ok {
+				commit()
 				return
 			}
-			c.handleMessage(ctx, msg)
-			// Manual commit: only commit after the message has been processed
-			// (successfully or moved to DLQ). This keeps per-partition ordering
-			// and avoids losing messages on restart.
-			if err := c.reader.CommitMessages(ctx, msg); err != nil {
-				c.log.Errorf("commit offset failed: partition=%d offset=%d err=%v",
-					msg.Partition, msg.Offset, err)
+			// Only append to pending commits if the message was fully processed
+			// (successfully or moved to DLQ). If processing was interrupted by
+			// shutdown/context cancellation, do not commit so it will be redelivered.
+			if c.handleMessage(ctx, msg) {
+				pending = append(pending, msg)
+				if len(pending) >= c.commitBatchSize {
+					commit()
+				}
 			}
 		}
 	}
@@ -241,7 +286,9 @@ func (c *KafkaConsumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 // handleMessage invokes the handler with local retries and routes persistent
 // failures to DLQ. Local retries keep the message in the same partition order
 // and do not re-produce it to the original topic, avoiding sequence gaps.
-func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) {
+// It returns true if the message was fully processed (success or DLQ) and
+// false if processing was interrupted by shutdown/context cancellation.
+func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 	headers := make(map[string]string)
 	for _, h := range msg.Headers {
 		headers[h.Key] = string(h.Value)
@@ -254,7 +301,7 @@ func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) {
 		lastErr = c.handler(handlerCtx, msg.Key, msg.Value, headers)
 		cancel()
 		if lastErr == nil {
-			return
+			return true
 		}
 
 		c.log.Warnf("handle message failed: attempt=%d/%d key=%s err=%v",
@@ -271,15 +318,16 @@ func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) {
 			case <-time.After(backoff):
 			case <-ctx.Done():
 				c.log.Warnf("context canceled during retry backoff: key=%s", string(msg.Key))
-				return
+				return false
 			case <-c.stopCh:
 				c.log.Warnf("consumer stopped during retry backoff: key=%s", string(msg.Key))
-				return
+				return false
 			}
 		}
 	}
 
 	c.handleProcessingError(ctx, msg, headers, lastErr)
+	return true
 }
 
 // handleProcessingError routes failed messages to DLQ.

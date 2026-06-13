@@ -26,6 +26,15 @@ type GatewayNodeInfo struct {
 	ConnCount int
 }
 
+// Router resolves online users to gateway nodes for targeted push delivery.
+// It is implemented by GatewayRouter and can be mocked in tests.
+type Router interface {
+	ResolveUserNodes(ctx context.Context, userIDs []int64) (map[string][]int64, error)
+	ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) map[string][]int64
+	GetAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, error)
+	GetAliveNodesMap(ctx context.Context) (map[string]*GatewayNodeInfo, error)
+}
+
 // GatewayRouter resolves online users to gateway nodes using the distributed
 // session index stored in Redis. It allows MsgWorker to push messages only to
 // the gateway nodes that actually host the target user's devices, instead of
@@ -35,6 +44,8 @@ type GatewayRouter struct {
 	nodeTTL time.Duration
 	log     *log.Helper
 }
+
+var _ Router = (*GatewayRouter)(nil)
 
 // NewGatewayRouter creates a new gateway router backed by Redis.
 func NewGatewayRouter(redis redis.UniversalClient, nodeTTL time.Duration, logger log.Logger) *GatewayRouter {
@@ -61,17 +72,39 @@ func (r *GatewayRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (
 	aliveNodes, err := r.GetAliveNodes(ctx)
 	if err != nil {
 		r.log.Warnf("resolve user nodes failed: get alive nodes err=%v", err)
-		return map[string][]int64{}, nil
+		return nil, err
 	}
+	return r.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes), nil
+}
+
+// ResolveUserNodesWithNodes is like ResolveUserNodes but uses the provided
+// alive node list instead of fetching it from Redis. This avoids repeated
+// Redis round-trips when the caller already has the node list.
+func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) map[string][]int64 {
+	if r.redis == nil || len(userIDs) == 0 {
+		return map[string][]int64{}
+	}
+
 	aliveSet := make(map[string]struct{}, len(aliveNodes))
 	for _, n := range aliveNodes {
 		aliveSet[n.NodeID] = struct{}{}
 	}
 
-	result := make(map[string][]int64)
-	for _, uid := range userIDs {
+	// Pipeline HGetAll for all users to reduce Redis round-trips.
+	pipe := r.redis.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(userIDs))
+	for i, uid := range userIDs {
 		deviceKey := fmt.Sprintf("im:session:%d:devices", uid)
-		devices, err := r.redis.HGetAll(ctx, deviceKey).Result()
+		cmds[i] = pipe.HGetAll(ctx, deviceKey)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		r.log.Warnf("resolve user nodes pipeline failed: err=%v", err)
+		return map[string][]int64{}
+	}
+
+	result := make(map[string][]int64)
+	for i, uid := range userIDs {
+		devices, err := cmds[i].Result()
 		if err != nil {
 			r.log.Warnf("resolve user nodes failed: user_id=%d, err=%v", uid, err)
 			continue
@@ -94,7 +127,7 @@ func (r *GatewayRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.
@@ -136,8 +169,24 @@ func (r *GatewayRouter) GetAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, 
 	return nodes, nil
 }
 
+// GetAliveNodesMap returns alive nodes as a map from node ID to node info.
+// Useful for callers that need O(1) node lookups during batch routing.
+func (r *GatewayRouter) GetAliveNodesMap(ctx context.Context) (map[string]*GatewayNodeInfo, error) {
+	nodes, err := r.GetAliveNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]*GatewayNodeInfo, len(nodes))
+	for _, n := range nodes {
+		m[n.NodeID] = n
+	}
+	return m, nil
+}
+
 // GetNodeGRPCAddr returns the gRPC address of an alive node by its node ID.
 // If the node is not found or has no gRPC address, it returns an empty string.
+// Note: this fetches the full alive node list each time; prefer
+// GetAliveNodesMap when making repeated lookups in a batch.
 func (r *GatewayRouter) GetNodeGRPCAddr(ctx context.Context, nodeID string) string {
 	nodes, err := r.GetAliveNodes(ctx)
 	if err != nil {

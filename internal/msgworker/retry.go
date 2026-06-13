@@ -24,6 +24,11 @@ const (
 	maxRetryAttempts = 3
 	// Retry loop scan interval.
 	retryScanInterval = 5 * time.Second
+	// retryWorkerCount is the number of goroutines used to process retry items concurrently.
+	retryWorkerCount = 8
+	// maxRetryBatchSize limits how many retry items are fetched per scan to avoid
+	// blocking the loop for too long when the queue is large.
+	maxRetryBatchSize = 100
 )
 
 // nextRetryAt calculates the next retry timestamp using exponential backoff.
@@ -38,11 +43,13 @@ func nextRetryAt(retryCount int) int64 {
 
 // PushRetryQueue manages delayed retries for failed push deliveries using Redis Sorted Set.
 type PushRetryQueue struct {
-	redis      redis.UniversalClient
-	pusher     Pusher
-	log        *log.Helper
-	stopCh     chan struct{}
-	stopOnce   sync.Once
+	redis        redis.UniversalClient
+	pusher       Pusher
+	log          *log.Helper
+	stopCh       chan struct{}
+	stopOnce     sync.Once
+	doneCh       chan struct{}
+	processingMu sync.Mutex
 }
 
 // RetryItem represents a single push retry entry.
@@ -67,6 +74,7 @@ func NewPushRetryQueue(redis redis.UniversalClient, pusher Pusher, logger log.Lo
 		pusher: pusher,
 		log:    log.NewHelper(logger),
 		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
 	}
 }
 
@@ -118,6 +126,7 @@ func (q *PushRetryQueue) enqueueItem(ctx context.Context, item RetryItem) error 
 func (q *PushRetryQueue) Start(ctx context.Context) {
 	ticker := time.NewTicker(retryScanInterval)
 	defer ticker.Stop()
+	defer close(q.doneCh)
 
 	for {
 		select {
@@ -131,21 +140,38 @@ func (q *PushRetryQueue) Start(ctx context.Context) {
 	}
 }
 
-// Stop signals the retry loop to stop.
+// Stop signals the retry loop to stop and waits for it to finish.
 func (q *PushRetryQueue) Stop() {
 	q.stopOnce.Do(func() {
 		close(q.stopCh)
 	})
+	<-q.doneCh
+}
+
+// retryTask holds a retry item parsed from the Redis sorted set.
+type retryTask struct {
+	member string
+	data   string
 }
 
 // processRetries scans and processes overdue retry items.
+// It limits the batch size and uses a worker pool to process items concurrently.
 func (q *PushRetryQueue) processRetries(ctx context.Context) {
+	// Only one scan/processing batch at a time to avoid redundant work across
+	// multiple MsgWorker instances and to bound resource usage.
+	if !q.processingMu.TryLock() {
+		return
+	}
+	defer q.processingMu.Unlock()
+
 	now := time.Now().Unix()
 
-	// Fetch items with retry_at <= now
+	// Fetch items with retry_at <= now, bounded by maxRetryBatchSize.
 	items, err := q.redis.ZRangeByScore(ctx, pushRetryKey, &redis.ZRangeBy{
-		Min: "0",
-		Max: fmt.Sprintf("%d", now),
+		Min:    "0",
+		Max:    fmt.Sprintf("%d", now),
+		Offset: 0,
+		Count:  maxRetryBatchSize,
 	}).Result()
 	if err != nil {
 		q.log.Warnf("fetch retry items failed: %v", err)
@@ -156,61 +182,98 @@ func (q *PushRetryQueue) processRetries(ctx context.Context) {
 		return
 	}
 
+	tasks := make([]retryTask, 0, len(items))
 	for _, member := range items {
-		// Split member into unique key and JSON data
 		parts := strings.SplitN(member, "|", 2)
 		if len(parts) != 2 {
 			q.log.Warnf("invalid retry member format: %s", member)
 			q.removeRetryItem(ctx, member)
 			continue
 		}
-		data := parts[1]
+		tasks = append(tasks, retryTask{member: member, data: parts[1]})
+	}
 
-		var item RetryItem
-		if err := json.Unmarshal([]byte(data), &item); err != nil {
-			q.log.Warnf("unmarshal retry item failed: %v", err)
-			q.removeRetryItem(ctx, member)
-			continue
-		}
+	if len(tasks) == 0 {
+		return
+	}
 
-		// Remove from queue before processing. Only the instance that
-		// successfully removes the member should process it, preventing
-		// duplicate pushes across multiple MsgWorker instances.
-		if !q.removeRetryItem(ctx, member) {
-			continue
-		}
+	// Process tasks with a worker pool.
+	workerCount := retryWorkerCount
+	if len(tasks) < workerCount {
+		workerCount = len(tasks)
+	}
 
-		// Check retry limit
-		if item.RetryCount >= maxRetryAttempts {
-			q.log.Debugf("push retry exhausted: user_id=%d, msg_id=%d", item.UserID, item.MsgID)
-			continue
-		}
+	taskCh := make(chan retryTask)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range taskCh {
+				q.processRetryTask(ctx, t)
+			}
+		}()
+	}
 
-		// Attempt push
-		msg := &pb.MessagePush{
-			MsgId:       item.MsgID,
-			Topic:       item.Topic,
-			SenderId:    item.SenderID,
-			MsgType:     item.MsgType,
-			Content:     item.Content,
-			Timestamp:   item.Timestamp,
-			TopicSeq:    item.TopicSeq,
-			ClientMsgId: item.ClientMsgID,
+	for _, t := range tasks {
+		select {
+		case taskCh <- t:
+		case <-ctx.Done():
+			break
+		case <-q.stopCh:
+			break
 		}
+	}
+	close(taskCh)
+	wg.Wait()
+}
 
-		_, failedIDs, err := q.pusher.BatchPushToUsers(ctx, []int64{item.UserID}, msg)
-		if err != nil {
-			q.log.Warnf("retry push failed: user_id=%d, msg_id=%d, err=%v", item.UserID, item.MsgID, err)
-			q.requeueIfNeeded(ctx, item)
-			continue
-		}
+// processRetryTask processes a single retry task.
+func (q *PushRetryQueue) processRetryTask(ctx context.Context, t retryTask) {
+	var item RetryItem
+	if err := json.Unmarshal([]byte(t.data), &item); err != nil {
+		q.log.Warnf("unmarshal retry item failed: %v", err)
+		q.removeRetryItem(ctx, t.member)
+		return
+	}
 
-		if len(failedIDs) > 0 {
-			// Still offline, requeue with incremented retry count
-			q.requeueIfNeeded(ctx, item)
-		} else {
-			q.log.Debugf("retry push succeeded: user_id=%d, msg_id=%d", item.UserID, item.MsgID)
-		}
+	// Remove from queue before processing. Only the instance that
+	// successfully removes the member should process it, preventing
+	// duplicate pushes across multiple MsgWorker instances.
+	if !q.removeRetryItem(ctx, t.member) {
+		return
+	}
+
+	// Check retry limit
+	if item.RetryCount >= maxRetryAttempts {
+		q.log.Debugf("push retry exhausted: user_id=%d, msg_id=%d", item.UserID, item.MsgID)
+		return
+	}
+
+	// Attempt push
+	msg := &pb.MessagePush{
+		MsgId:       item.MsgID,
+		Topic:       item.Topic,
+		SenderId:    item.SenderID,
+		MsgType:     item.MsgType,
+		Content:     item.Content,
+		Timestamp:   item.Timestamp,
+		TopicSeq:    item.TopicSeq,
+		ClientMsgId: item.ClientMsgID,
+	}
+
+	_, failedIDs, err := q.pusher.BatchPushToUsers(ctx, []int64{item.UserID}, msg)
+	if err != nil {
+		q.log.Warnf("retry push failed: user_id=%d, msg_id=%d, err=%v", item.UserID, item.MsgID, err)
+		q.requeueIfNeeded(ctx, item)
+		return
+	}
+
+	if len(failedIDs) > 0 {
+		// Still offline, requeue with incremented retry count
+		q.requeueIfNeeded(ctx, item)
+	} else {
+		q.log.Debugf("retry push succeeded: user_id=%d, msg_id=%d", item.UserID, item.MsgID)
 	}
 }
 

@@ -221,16 +221,16 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		return fmt.Errorf("unknown topic type: %s", upstream.GetTopic())
 	}
 
-	// If duplicate, still backup seq (idempotent) but skip push to avoid duplicate notifications.
+	// If duplicate, skip seq backup and push to avoid duplicate notifications.
+	// We do NOT update topic_seqs.max_seq for duplicates because the allocated
+	// seq was not used by a real message; backing it up would create a gap
+	// between the max seq and the actual latest message.
 	if isDuplicate {
 		w.log.Debugf("duplicate message handled idempotently: client_msg_id=%s", upstream.GetClientMsgId())
-		if err := w.storage.BackupTopicSeq(ctx, upstream.GetTopic(), topicSeq); err != nil {
-			w.log.Warnf("backup topic seq failed: %v", err)
-		}
 		return nil
 	}
 
-	// Backup topic seq to MongoDB as a fallback
+	// Backup topic seq to MongoDB as a fallback for fresh messages only.
 	if err := w.storage.BackupTopicSeq(ctx, upstream.GetTopic(), topicSeq); err != nil {
 		w.log.Warnf("backup topic seq failed: %v", err)
 	}

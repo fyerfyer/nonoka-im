@@ -186,7 +186,7 @@ func TestSendMessageWithMentionsWorks(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
-	result, err := client.SendMessageWithMentions(sendCtx, "group_test", v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
+	result, err := client.SendMessageWithMentions(sendCtx, "grp_test", v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
 	if err != nil {
 		t.Fatalf("send message with mentions failed: %v", err)
 	}

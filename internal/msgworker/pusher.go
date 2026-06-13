@@ -22,7 +22,7 @@ type gatewayConn struct {
 // GatewayPusher pushes messages to online users via Gateway's gRPC PushService.
 // It supports two modes:
 //   1. Static address list (backward compatible): tries every configured gateway.
-//   2. Dynamic routing: when a GatewayRouter is configured, it resolves each user
+//   2. Dynamic routing: when a Router is configured, it resolves each user
 //      to the gateway node hosting their device sessions and pushes only to those
 //      nodes, avoiding O(#gateways) broadcast amplification.
 type GatewayPusher struct {
@@ -30,7 +30,7 @@ type GatewayPusher struct {
 	staticConns []*gatewayConn
 
 	// router resolves user -> gateway node using Redis session index.
-	router *GatewayRouter
+	router Router
 
 	// dynamicConns are connections to gateway nodes discovered via the router.
 	dynamicConns map[string]*gatewayConn // addr -> conn
@@ -71,7 +71,7 @@ func NewGatewayPusher(gatewayAddrs []string, logger log.Logger) (*GatewayPusher,
 }
 
 // SetRouter enables dynamic user-to-node routing. Must be called before the first push.
-func (p *GatewayPusher) SetRouter(router *GatewayRouter) {
+func (p *GatewayPusher) SetRouter(router Router) {
 	p.dynamicMu.Lock()
 	defer p.dynamicMu.Unlock()
 	p.router = router
@@ -79,21 +79,27 @@ func (p *GatewayPusher) SetRouter(router *GatewayRouter) {
 
 // PushToUser delivers a message to a single user.
 // When a router is configured, it pushes only to the node hosting the user's session.
-// Otherwise it falls back to the static gateway list.
+// If the router fails (e.g., Redis unavailable), it falls back to the static gateway list.
 func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
 	if p.router != nil {
 		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
 		if err != nil {
-			return 0, fmt.Errorf("resolve user node: %w", err)
+			p.log.Warnf("router resolve failed, falling back to static gateways: %v", err)
+			return p.pushToUserStatic(ctx, userID, msg)
+		}
+		aliveMap, err := p.router.GetAliveNodesMap(ctx)
+		if err != nil {
+			p.log.Warnf("router alive nodes failed, falling back to static gateways: %v", err)
+			return p.pushToUserStatic(ctx, userID, msg)
 		}
 		for nodeID := range nodeMap {
-			grpcAddr := p.router.GetNodeGRPCAddr(ctx, nodeID)
-			if grpcAddr == "" {
+			node, ok := aliveMap[nodeID]
+			if !ok || node.GrpcAddr == "" {
 				continue
 			}
-			gc, err := p.getOrCreateDynamicConn(grpcAddr)
+			gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
 			if err != nil {
-				p.log.Warnf("connect to gateway %s failed: %v", grpcAddr, err)
+				p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
 				continue
 			}
 			resp, err := gc.client.PushToUser(ctx, &pb.PushToUserRequest{
@@ -101,7 +107,7 @@ func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.Me
 				Message: msg,
 			})
 			if err != nil {
-				p.log.Warnf("push to user %d via gateway %s failed: %v", userID, grpcAddr, err)
+				p.log.Warnf("push to user %d via gateway %s failed: %v", userID, node.GrpcAddr, err)
 				continue
 			}
 			if resp.GetDeliveredCount() > 0 {
@@ -110,6 +116,12 @@ func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.Me
 		}
 		return 0, fmt.Errorf("push to user %d failed: no online session or reachable gateway", userID)
 	}
+
+	return p.pushToUserStatic(ctx, userID, msg)
+}
+
+// pushToUserStatic pushes to a single user using the static gateway list.
+func (p *GatewayPusher) pushToUserStatic(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
 
 	req := &pb.PushToUserRequest{
 		UserId:  userID,
@@ -154,10 +166,19 @@ func (p *GatewayPusher) BatchPushToUsers(ctx context.Context, userIDs []int64, m
 // batchPushWithRouting groups users by the gateway node that hosts their session
 // and sends one batch request per node. Users with no online session are returned
 // as failed so the retry queue can handle them later.
+// If the router fails (e.g., Redis unavailable), it falls back to static broadcast.
 func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int64, msg *pb.MessagePush) (int32, []int64, error) {
-	nodeMap, err := p.router.ResolveUserNodes(ctx, userIDs)
+	aliveNodes, err := p.router.GetAliveNodes(ctx)
 	if err != nil {
-		return 0, userIDs, fmt.Errorf("resolve user nodes: %w", err)
+		p.log.Warnf("router get alive nodes failed, falling back to static gateways: %v", err)
+		return p.batchPushStatic(ctx, userIDs, msg)
+	}
+
+	nodeMap := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+
+	aliveMap := make(map[string]*GatewayNodeInfo, len(aliveNodes))
+	for _, n := range aliveNodes {
+		aliveMap[n.NodeID] = n
 	}
 
 	// Build a set of online users for quick lookup.
@@ -170,19 +191,18 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 
 	var totalDelivered int32
 	var failedUserIDs []int64
-	processedUsers := make(map[int64]struct{})
 
 	for nodeID, ids := range nodeMap {
-		grpcAddr := p.router.GetNodeGRPCAddr(ctx, nodeID)
-		if grpcAddr == "" {
+		node, ok := aliveMap[nodeID]
+		if !ok || node.GrpcAddr == "" {
 			p.log.Warnf("no grpc address for gateway node %s, marking %d users failed", nodeID, len(ids))
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
 
-		gc, err := p.getOrCreateDynamicConn(grpcAddr)
+		gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
 		if err != nil {
-			p.log.Warnf("connect to gateway %s failed: %v", grpcAddr, err)
+			p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
@@ -192,16 +212,13 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 			Message: msg,
 		})
 		if err != nil {
-			p.log.Warnf("batch push via gateway %s failed: %v", grpcAddr, err)
+			p.log.Warnf("batch push via gateway %s failed: %v", node.GrpcAddr, err)
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
 
 		totalDelivered += resp.GetTotalDelivered()
 		failedUserIDs = append(failedUserIDs, resp.GetFailedUserIds()...)
-		for _, uid := range ids {
-			processedUsers[uid] = struct{}{}
-		}
 	}
 
 	// Any input user not present in an online session is offline -> failed.
@@ -313,56 +330,70 @@ func (p *GatewayPusher) getOrCreateDynamicConn(addr string) (*gatewayConn, error
 }
 
 // PushReceiptToUser delivers a send receipt to a single user.
+// If the router is unavailable, it falls back to the static gateway list.
 func (p *GatewayPusher) PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
-	req := &pb.PushReceiptToUserRequest{
-		UserId:  userID,
-		Receipt: receipt,
-	}
-
-	// Receipts are lightweight; reuse static connections if no router is set.
-	if p.router == nil {
-		p.connMu.RLock()
-		conns := make([]*gatewayConn, len(p.staticConns))
-		copy(conns, p.staticConns)
-		p.connMu.RUnlock()
-
-		for _, gc := range conns {
-			resp, err := gc.client.PushReceiptToUser(ctx, req)
+	if p.router != nil {
+		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
+		if err != nil {
+			p.log.Warnf("router resolve failed, falling back to static gateways: %v", err)
+			return p.pushReceiptToUserStatic(ctx, userID, receipt)
+		}
+		aliveMap, err := p.router.GetAliveNodesMap(ctx)
+		if err != nil {
+			p.log.Warnf("router alive nodes failed, falling back to static gateways: %v", err)
+			return p.pushReceiptToUserStatic(ctx, userID, receipt)
+		}
+		for nodeID := range nodeMap {
+			node, ok := aliveMap[nodeID]
+			if !ok || node.GrpcAddr == "" {
+				continue
+			}
+			gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
 			if err != nil {
-				p.log.Warnf("push receipt to user %d via gateway %s failed: %v", userID, gc.addr, err)
+				p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
+				continue
+			}
+			resp, err := gc.client.PushReceiptToUser(ctx, &pb.PushReceiptToUserRequest{
+				UserId:  userID,
+				Receipt: receipt,
+			})
+			if err != nil {
+				p.log.Warnf("push receipt to user %d via gateway %s failed: %v", userID, node.GrpcAddr, err)
 				continue
 			}
 			if resp.GetDeliveredCount() > 0 {
 				return resp.GetDeliveredCount(), nil
 			}
 		}
-		return 0, fmt.Errorf("push receipt to user %d failed on all gateways", userID)
+		return 0, fmt.Errorf("push receipt to user %d failed: no online session or reachable gateway", userID)
 	}
 
-	nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
-	if err != nil {
-		return 0, fmt.Errorf("resolve user node: %w", err)
+	return p.pushReceiptToUserStatic(ctx, userID, receipt)
+}
+
+// pushReceiptToUserStatic pushes a receipt to a single user using static gateways.
+func (p *GatewayPusher) pushReceiptToUserStatic(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
+	req := &pb.PushReceiptToUserRequest{
+		UserId:  userID,
+		Receipt: receipt,
 	}
-	for nodeID := range nodeMap {
-		grpcAddr := p.router.GetNodeGRPCAddr(ctx, nodeID)
-		if grpcAddr == "" {
-			continue
-		}
-		gc, err := p.getOrCreateDynamicConn(grpcAddr)
-		if err != nil {
-			p.log.Warnf("connect to gateway %s failed: %v", grpcAddr, err)
-			continue
-		}
+
+	p.connMu.RLock()
+	conns := make([]*gatewayConn, len(p.staticConns))
+	copy(conns, p.staticConns)
+	p.connMu.RUnlock()
+
+	for _, gc := range conns {
 		resp, err := gc.client.PushReceiptToUser(ctx, req)
 		if err != nil {
-			p.log.Warnf("push receipt to user %d via gateway %s failed: %v", userID, grpcAddr, err)
+			p.log.Warnf("push receipt to user %d via gateway %s failed: %v", userID, gc.addr, err)
 			continue
 		}
 		if resp.GetDeliveredCount() > 0 {
 			return resp.GetDeliveredCount(), nil
 		}
 	}
-	return 0, fmt.Errorf("push receipt to user %d failed: no online session or reachable gateway", userID)
+	return 0, fmt.Errorf("push receipt to user %d failed on all gateways", userID)
 }
 
 // BatchPushReceiptToUsers delivers send receipts to multiple users concurrently.
@@ -380,10 +411,19 @@ func (p *GatewayPusher) BatchPushReceiptToUsers(ctx context.Context, userIDs []i
 
 // batchPushReceiptsWithRouting routes receipt batches to the gateway nodes that
 // host the target users' sessions.
+// If the router fails (e.g., Redis unavailable), it falls back to static broadcast.
 func (p *GatewayPusher) batchPushReceiptsWithRouting(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error) {
-	nodeMap, err := p.router.ResolveUserNodes(ctx, userIDs)
+	aliveNodes, err := p.router.GetAliveNodes(ctx)
 	if err != nil {
-		return 0, userIDs, fmt.Errorf("resolve user nodes: %w", err)
+		p.log.Warnf("router get alive nodes failed, falling back to static gateways: %v", err)
+		return p.batchPushReceiptsStatic(ctx, userIDs, receipt)
+	}
+
+	nodeMap := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+
+	aliveMap := make(map[string]*GatewayNodeInfo, len(aliveNodes))
+	for _, n := range aliveNodes {
+		aliveMap[n.NodeID] = n
 	}
 
 	onlineUserSet := make(map[int64]struct{}, len(userIDs))
@@ -397,15 +437,15 @@ func (p *GatewayPusher) batchPushReceiptsWithRouting(ctx context.Context, userID
 	var failedUserIDs []int64
 
 	for nodeID, ids := range nodeMap {
-		grpcAddr := p.router.GetNodeGRPCAddr(ctx, nodeID)
-		if grpcAddr == "" {
+		node, ok := aliveMap[nodeID]
+		if !ok || node.GrpcAddr == "" {
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
 
-		gc, err := p.getOrCreateDynamicConn(grpcAddr)
+		gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
 		if err != nil {
-			p.log.Warnf("connect to gateway %s failed: %v", grpcAddr, err)
+			p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
@@ -415,7 +455,7 @@ func (p *GatewayPusher) batchPushReceiptsWithRouting(ctx context.Context, userID
 			Receipt: receipt,
 		})
 		if err != nil {
-			p.log.Warnf("batch push receipts via gateway %s failed: %v", grpcAddr, err)
+			p.log.Warnf("batch push receipts via gateway %s failed: %v", node.GrpcAddr, err)
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}

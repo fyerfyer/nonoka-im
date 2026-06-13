@@ -476,7 +476,9 @@ func waitForKafka(broker string) error {
 }
 
 // cleanupAndCreateTopic deletes a Kafka topic if it exists and recreates it fresh.
-// This ensures each test starts with a clean topic.
+// It waits for deletion to propagate before creating and then waits for the new
+// topic to be fully visible, reducing metadata propagation races in a busy
+// test suite.
 func cleanupAndCreateTopic(broker, topic string, partitions int) error {
 	conn, err := kafka.Dial("tcp", broker)
 	if err != nil {
@@ -484,18 +486,64 @@ func cleanupAndCreateTopic(broker, topic string, partitions int) error {
 	}
 	defer conn.Close()
 
-	// Try to delete the topic if it exists
+	// Try to delete the topic if it exists.
 	_ = conn.DeleteTopics(topic)
 
-	// Wait a moment for deletion to propagate
-	time.Sleep(200 * time.Millisecond)
+	// Wait for deletion to propagate before recreating. Recreating while a
+	// previous incarnation is still being removed can leave the topic in an
+	// inconsistent state.
+	for i := 0; i < 50; i++ {
+		parts, err := conn.ReadPartitions(topic)
+		if err != nil || len(parts) == 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
-	// Create the topic fresh
-	return conn.CreateTopics(kafka.TopicConfig{
+	// Create the topic fresh.
+	if err := conn.CreateTopics(kafka.TopicConfig{
 		Topic:             topic,
 		NumPartitions:     partitions,
 		ReplicationFactor: 1,
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Ensure the topic is actually visible and ready before returning.
+	return waitForTopicReady(broker, topic)
+}
+
+// produceMessageWithRetry attempts to produce a message, retrying transient
+// errors such as "Unknown Topic Or Partition" while Kafka metadata propagates.
+// It is safe for idempotent messages thanks to client_msg_id deduplication.
+func produceMessageWithRetry(ctx context.Context, t *testing.T, producer *gateway.KafkaProducer, upstream *v1.UpstreamMessage) {
+	t.Helper()
+	const maxAttempts = 10
+	for i := 0; i < maxAttempts; i++ {
+		err := producer.Produce(ctx, upstream)
+		if err == nil {
+			return
+		}
+		errStr := err.Error()
+		if i == maxAttempts-1 {
+			t.Fatalf("failed to produce message after %d attempts: %v", maxAttempts, err)
+		}
+		// Retry only metadata propagation / transient errors.
+		if !containsAny(errStr, []string{"Unknown Topic Or Partition", "Leader Not Available", "Not Leader For Partition"}) {
+			t.Fatalf("failed to produce message: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// containsAny reports whether s contains any of the substrings.
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if bytes.Contains([]byte(s), []byte(sub)) {
+			return true
+		}
+	}
+	return false
 }
 
 // createKafkaReader creates a new Kafka reader using a consumer group.

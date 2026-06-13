@@ -92,6 +92,15 @@ func main() {
 		_ = mongoClient.Disconnect(ctx)
 	}()
 
+	// Verify MongoDB connectivity early.
+	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := mongoClient.Ping(pingCtx, nil); err != nil {
+		pingCancel()
+		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ping mongodb: %v", err))
+		os.Exit(1)
+	}
+	pingCancel()
+
 	mongoDB := mongoClient.Database(bc.Data.Mongodb.Database)
 
 	// Initialize Kafka config from protobuf settings.
@@ -116,6 +125,7 @@ func main() {
 	seqGen := msgworker.NewSeqGenerator(redisClient, logger)
 	snowflake := msgworker.NewSnowflake(1)
 	storage := msgworker.NewMessageStorage(mongoDB, logger)
+	storage.SetRedis(redisClient)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ensure indexes: %v", err))
 		os.Exit(1)
@@ -123,8 +133,8 @@ func main() {
 
 	pusher, err := msgworker.NewGatewayPusher([]string{gatewayAddr}, logger)
 	if err != nil {
-		logger.Log(log.LevelWarn, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
-		// Non-fatal: worker can still persist messages
+		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
+		os.Exit(1)
 	}
 
 	// Configure dynamic gateway routing so pushes go only to nodes that host
@@ -162,6 +172,13 @@ func main() {
 
 	// Wire handler after worker is created
 	consumer.SetHandler(worker.HandleMessage)
+
+	// Ensure graceful shutdown: close consumer, retry queue, and pusher.
+	defer func() {
+		if err := worker.Stop(); err != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("worker stop error: %v", err))
+		}
+	}()
 
 	// Handle shutdown gracefully
 	sigCh := make(chan os.Signal, 1)

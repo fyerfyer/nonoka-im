@@ -78,6 +78,29 @@ func (s *staticGroupMemberService) GetGroupMembers(ctx context.Context, groupID 
 	return s.members[groupID], nil
 }
 
+// failingRouter is a GatewayRouter test double that always returns an error.
+type failingRouter struct{}
+
+func (f *failingRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (map[string][]int64, error) {
+	return nil, fmt.Errorf("simulated redis failure")
+}
+
+func (f *failingRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*msgworker.GatewayNodeInfo) map[string][]int64 {
+	return map[string][]int64{}
+}
+
+func (f *failingRouter) GetAliveNodes(ctx context.Context) ([]*msgworker.GatewayNodeInfo, error) {
+	return nil, fmt.Errorf("simulated redis failure")
+}
+
+func (f *failingRouter) GetAliveNodesMap(ctx context.Context) (map[string]*msgworker.GatewayNodeInfo, error) {
+	return nil, fmt.Errorf("simulated redis failure")
+}
+
+func (f *failingRouter) GetNodeGRPCAddr(ctx context.Context, nodeID string) string {
+	return ""
+}
+
 // TestMsgWorker_GroupMention_NoDuplicatePush verifies that a user who is both
 // @mentioned and a group member receives the group message only once.
 func TestMsgWorker_GroupMention_NoDuplicatePush(t *testing.T) {
@@ -288,9 +311,7 @@ func TestMsgWorker_KafkaConsumer_ParallelWorkers(t *testing.T) {
 			ClientMsgId: fmt.Sprintf("parallel-msg-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
-		if err := producer.Produce(ctx, upstream); err != nil {
-			t.Fatalf("failed to produce message %d: %v", i, err)
-		}
+		produceMessageWithRetry(ctx, t, producer, upstream)
 	}
 
 	// Wait for workers to process all messages.
@@ -305,4 +326,165 @@ func TestMsgWorker_KafkaConsumer_ParallelWorkers(t *testing.T) {
 	}
 
 	t.Logf("parallel kafka consumer verified: %d messages processed with %d workers", messageCount, kafkaCfg.WorkerCount)
+}
+
+// TestMsgWorker_DuplicateMessage_DoesNotAdvanceMaxSeq verifies that handling a
+// duplicate message does not raise topic_seqs.max_seq, avoiding seq gaps.
+func TestMsgWorker_DuplicateMessage_DoesNotAdvanceMaxSeq(t *testing.T) {
+	worker, db, cleanup := setupMsgWorker(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	topic := "p2p_1_2"
+	clientMsgID := "dup-seq-test-001"
+
+	// First message: seq = 1.
+	upstream1 := &v1.UpstreamMessage{
+		SenderId:    1,
+		Topic:       topic,
+		MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+		Content:     []byte("first"),
+		ClientMsgId: clientMsgID,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	data1, _ := proto.Marshal(upstream1)
+	if err := worker.HandleMessage(ctx, []byte(topic), data1, nil); err != nil {
+		t.Fatalf("handle first message failed: %v", err)
+	}
+
+	seqColl := db.Collection(msgworker.CollectionTopicSeqs)
+	var backup msgworker.TopicSeqBackup
+	if err := seqColl.FindOne(ctx, bson.M{"topic": topic}).Decode(&backup); err != nil {
+		t.Fatalf("find topic seq backup failed: %v", err)
+	}
+	if backup.MaxSeq != 1 {
+		t.Fatalf("expected max_seq=1 after first message, got %d", backup.MaxSeq)
+	}
+
+	// Duplicate message: should be ignored and NOT advance max_seq.
+	upstream2 := &v1.UpstreamMessage{
+		SenderId:    1,
+		Topic:       topic,
+		MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+		Content:     []byte("duplicate"),
+		ClientMsgId: clientMsgID,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	data2, _ := proto.Marshal(upstream2)
+	if err := worker.HandleMessage(ctx, []byte(topic), data2, nil); err != nil {
+		t.Fatalf("handle duplicate message failed: %v", err)
+	}
+
+	if err := seqColl.FindOne(ctx, bson.M{"topic": topic}).Decode(&backup); err != nil {
+		t.Fatalf("find topic seq backup after duplicate failed: %v", err)
+	}
+	if backup.MaxSeq != 1 {
+		t.Fatalf("expected max_seq=1 after duplicate (not advanced), got %d", backup.MaxSeq)
+	}
+
+	t.Log("duplicate message did not advance topic_seqs.max_seq")
+}
+
+// TestStorage_GetOfflineMessages_GroupEnforcesLimit verifies that group offline
+// messages are truncated to the requested limit after merging group messages and
+// @mention messages.
+func TestStorage_GetOfflineMessages_GroupEnforcesLimit(t *testing.T) {
+	worker, _, cleanup := setupMsgWorker(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	userID := int64(200)
+	mentionedUserID := int64(200)
+	topic := "grp_limit_42"
+
+	// Store 3 regular group messages.
+	for i := 0; i < 3; i++ {
+		upstream := &v1.UpstreamMessage{
+			SenderId:    int64(100 + i),
+			Topic:       topic,
+			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+			Content:     []byte(fmt.Sprintf("group msg %d", i+1)),
+			ClientMsgId: fmt.Sprintf("limit-grp-%d", i),
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		data, _ := proto.Marshal(upstream)
+		if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+			t.Fatalf("handle group message %d failed: %v", i, err)
+		}
+	}
+
+	// Store 2 @mention messages for the same user.
+	for i := 0; i < 2; i++ {
+		upstream := &v1.UpstreamMessage{
+			SenderId:         int64(100 + i),
+			Topic:            topic,
+			MsgType:          int32(v1.MsgType_MSG_TYPE_TEXT),
+			Content:          []byte(fmt.Sprintf("mention msg %d", i+1)),
+			ClientMsgId:      fmt.Sprintf("limit-mention-%d", i),
+			Timestamp:        time.Now().UnixMilli(),
+			MentionedUserIds: []int64{mentionedUserID},
+		}
+		data, _ := proto.Marshal(upstream)
+		if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+			t.Fatalf("handle mention message %d failed: %v", i, err)
+		}
+	}
+
+	// Request limit=3; merged result should be truncated to 3.
+	msgs, err := worker.Storage().GetOfflineMessages(ctx, userID, topic, 0, 3)
+	if err != nil {
+		t.Fatalf("get offline messages failed: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages (limit enforced), got %d", len(msgs))
+	}
+
+	// Verify ascending order.
+	for i := 1; i < len(msgs); i++ {
+		if msgs[i].TopicSeq < msgs[i-1].TopicSeq {
+			t.Fatalf("messages not sorted by seq: %v", msgs)
+		}
+	}
+
+	t.Logf("group offline messages limit enforced: requested 3, got %d", len(msgs))
+}
+
+// TestGatewayPusher_RouterFallbackToStatic verifies that when the router fails
+// (e.g., Redis unavailable), the pusher falls back to static gateway broadcast.
+func TestGatewayPusher_RouterFallbackToStatic(t *testing.T) {
+	// Static gateway: a recording pusher is not enough because we need real
+	// gRPC connections. Use a real local gRPC push server.
+	mgr := gateway.NewManager(testLogger)
+	grpcAddr, grpcCleanup := setupGRPCPushServer(t, mgr)
+	defer grpcCleanup()
+
+	pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
+	if err != nil {
+		t.Fatalf("failed to create gateway pusher: %v", err)
+	}
+	defer pusher.Close()
+
+	// Attach a failing router: dynamic resolve should error and fallback.
+	pusher.SetRouter(&failingRouter{})
+
+	ctx := context.Background()
+	msg := &pb.MessagePush{
+		MsgId:    1,
+		Topic:    "p2p_1_2",
+		SenderId: 1,
+		MsgType:  int32(v1.MsgType_MSG_TYPE_TEXT),
+		Content:  []byte("fallback test"),
+	}
+
+	// Since the static gateway has no connections, the user is offline.
+	// The important thing is that fallback was attempted and did not error.
+	_, failedIDs, err := pusher.BatchPushToUsers(ctx, []int64{100}, msg)
+	if err != nil {
+		t.Fatalf("batch push with router fallback failed: %v", err)
+	}
+	if len(failedIDs) != 1 || failedIDs[0] != 100 {
+		t.Fatalf("expected user 100 to be reported as failed (offline), got %v", failedIDs)
+	}
+
+	t.Log("gateway pusher correctly fell back to static gateways when router failed")
 }

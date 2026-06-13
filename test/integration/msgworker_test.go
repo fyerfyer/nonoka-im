@@ -822,9 +822,7 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 			ClientMsgId: "e2e-msg-" + string(rune('0'+i)),
 			Timestamp:   time.Now().UnixMilli(),
 		}
-		if err := producer.Produce(ctx, upstream); err != nil {
-			t.Fatalf("failed to produce message %d: %v", i, err)
-		}
+		produceMessageWithRetry(ctx, t, producer, upstream)
 	}
 
 	// Wait for messages to be consumed and processed

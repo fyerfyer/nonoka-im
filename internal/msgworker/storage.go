@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -21,6 +24,11 @@ const (
 	CollectionTopicSeqs      = "topic_seqs"      // topic max seq backup
 	CollectionMentionInboxes = "mention_inboxes" // group @mention inbox (for large groups)
 	CollectionDeliveryStatus = "delivery_status" // message delivery tracking per user
+
+	// senderCacheKeyPrefix is the Redis key prefix for message sender cache.
+	senderCacheKeyPrefix = "im:sender"
+	// senderCacheTTL is the time-to-live for sender cache entries.
+	senderCacheTTL = 24 * time.Hour
 )
 
 // StoredMessage represents a message stored in MongoDB (read扩散 for groups).
@@ -88,8 +96,9 @@ type DeliveryStatus struct {
 
 // MessageStorage handles MongoDB persistence for messages.
 type MessageStorage struct {
-	db  *mongo.Database
-	log *log.Helper
+	db    *mongo.Database
+	redis redis.UniversalClient
+	log   *log.Helper
 }
 
 // NewMessageStorage creates a new MessageStorage.
@@ -98,6 +107,44 @@ func NewMessageStorage(db *mongo.Database, logger log.Logger) *MessageStorage {
 		db:  db,
 		log: log.NewHelper(logger),
 	}
+}
+
+// SetRedis configures an optional Redis client for caches (e.g., sender lookup).
+func (s *MessageStorage) SetRedis(redis redis.UniversalClient) {
+	s.redis = redis
+}
+
+// senderCacheKey returns the Redis key for caching a message's sender.
+func senderCacheKey(topic string, topicSeq uint64) string {
+	return fmt.Sprintf("%s:%s:%d", senderCacheKeyPrefix, topic, topicSeq)
+}
+
+// cacheMessageSender writes the sender ID to Redis for fast lookup.
+func (s *MessageStorage) cacheMessageSender(ctx context.Context, topic string, topicSeq uint64, senderID int64) {
+	if s.redis == nil {
+		return
+	}
+	key := senderCacheKey(topic, topicSeq)
+	if err := s.redis.Set(ctx, key, senderID, senderCacheTTL).Err(); err != nil {
+		s.log.Warnf("cache message sender failed: topic=%s seq=%d err=%v", topic, topicSeq, err)
+	}
+}
+
+// getCachedMessageSender reads the sender ID from Redis cache if available.
+func (s *MessageStorage) getCachedMessageSender(ctx context.Context, topic string, topicSeq uint64) (int64, bool) {
+	if s.redis == nil {
+		return 0, false
+	}
+	key := senderCacheKey(topic, topicSeq)
+	val, err := s.redis.Get(ctx, key).Result()
+	if err != nil {
+		return 0, false
+	}
+	senderID, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return senderID, true
 }
 
 // EnsureIndexes creates necessary indexes. It skips indexes that already exist
@@ -366,6 +413,7 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 		}
 	}
 
+	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
 	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d, sender=%d", msgID, msg.GetTopic(), receiverID, msg.GetSenderId())
 	return []int64{receiverID, msg.GetSenderId()}, false, nil
 }
@@ -397,6 +445,7 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 		return false, fmt.Errorf("insert group message: %w", err)
 	}
 
+	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
 	s.log.Debugf("group message saved: msg_id=%d, topic=%s", msgID, msg.GetTopic())
 	return false, nil
 }
@@ -438,6 +487,7 @@ func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.Upstream
 		return nil, false, fmt.Errorf("insert system inbox message: %w", err)
 	}
 
+	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
 	return []int64{targetUID}, false, nil
 }
 
@@ -581,14 +631,14 @@ func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, t
 		}
 	}
 
-	// Ensure final sort by topic_seq
+	// Ensure final sort by topic_seq and enforce the requested limit.
 	if len(results) > 1 {
-		// Use a manual bubble sort or rely on the fact that inbox results are sorted
-		// and group messages are sorted. But they may be interleaved.
-		// For simplicity, use a sort.Slice.
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].TopicSeq < results[j].TopicSeq
 		})
+	}
+	if len(results) > limit {
+		results = results[:limit]
 	}
 
 	return results, nil
@@ -663,69 +713,63 @@ func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint
 }
 
 // UpdateDeliveryStatus marks a message as delivered for a user.
-// It updates the inbox/mention_inbox directly and also records in delivery_status.
-// The first two updates are run in parallel to reduce round-trip latency.
+// It updates inbox and mention_inbox in parallel (a message may exist in both
+// for group @mentions that are also delivered via write扩散). If neither
+// collection contains the message, it falls back to delivery_status for read扩散
+// group messages. This keeps the common case to a single parallel round-trip.
 func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64, topic string, topicSeq uint64) error {
 	now := time.Now()
 	filter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
 	update := bson.M{"$set": bson.M{"delivered_at": now}}
 
-	// Run inbox and mention_inbox updates in parallel.
-	type result struct {
-		collection string
-		matched    int64
-		err        error
+	type updateResult struct {
+		matched int64
+		err     error
 	}
+	results := make(chan updateResult, 2)
 
-	ch := make(chan result, 2)
-
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		res, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, filter, update)
-		if err != nil {
-			ch <- result{collection: CollectionInboxes, err: err}
-			return
-		}
-		ch <- result{collection: CollectionInboxes, matched: res.MatchedCount}
+		results <- updateResult{matched: res.MatchedCount, err: err}
 	}()
-
 	go func() {
+		defer wg.Done()
 		res, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update)
-		if err != nil {
-			ch <- result{collection: CollectionMentionInboxes, err: err}
-			return
-		}
-		ch <- result{collection: CollectionMentionInboxes, matched: res.MatchedCount}
+		results <- updateResult{matched: res.MatchedCount, err: err}
 	}()
+	wg.Wait()
+	close(results)
 
-	var inboxMatched, mentionMatched int64
-	for i := 0; i < 2; i++ {
-		r := <-ch
+	anyMatched := false
+	for r := range results {
 		if r.err != nil {
 			return fmt.Errorf("update delivery status: %w", r.err)
 		}
-		switch r.collection {
-		case CollectionInboxes:
-			inboxMatched = r.matched
-		case CollectionMentionInboxes:
-			mentionMatched = r.matched
+		if r.matched > 0 {
+			anyMatched = true
 		}
 	}
 
-	// If neither inbox nor mention_inbox matched, insert into delivery_status for read扩散 messages.
-	if inboxMatched == 0 && mentionMatched == 0 {
-		ds := &DeliveryStatus{
-			UserID:      userID,
-			Topic:       topic,
-			TopicSeq:    topicSeq,
-			DeliveredAt: now,
+	if anyMatched {
+		return nil
+	}
+
+	// Fall back to delivery_status for read扩散 group messages.
+	ds := &DeliveryStatus{
+		UserID:      userID,
+		Topic:       topic,
+		TopicSeq:    topicSeq,
+		DeliveredAt: now,
+	}
+	_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
+	if err != nil {
+		if IsDuplicateError(err) {
+			return nil // already recorded, ignore
 		}
-		_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
-		if err != nil {
-			if IsDuplicateError(err) {
-				return nil // already recorded, ignore
-			}
-			return fmt.Errorf("insert delivery status: %w", err)
-		}
+		return fmt.Errorf("insert delivery status: %w", err)
 	}
 
 	return nil
@@ -761,8 +805,13 @@ func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, top
 }
 
 // GetMessageSender returns the sender_id of a message by topic and topic_seq.
-// It searches inbox, mention_inbox, and messages collections in parallel (#25).
+// It first checks Redis cache, then searches inbox, mention_inbox, and messages
+// collections in parallel (#25).
 func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, topicSeq uint64) (int64, error) {
+	if senderID, ok := s.getCachedMessageSender(ctx, topic, topicSeq); ok {
+		return senderID, nil
+	}
+
 	type result struct {
 		senderID int64
 		err      error
@@ -820,6 +869,7 @@ func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, top
 	for i := 0; i < 3; i++ {
 		r := <-ch
 		if r.err == nil {
+			s.cacheMessageSender(ctx, topic, topicSeq, r.senderID)
 			return r.senderID, nil
 		}
 		lastErr = r.err
