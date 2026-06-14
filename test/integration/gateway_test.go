@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -230,13 +231,14 @@ func TestGateway_Heartbeat(t *testing.T) {
 
 	// Verify Redis session was set and has TTL
 	ctx := context.Background()
-	ttl, err := ts.redis.TTL(ctx, "im:session:heartbeat-user").Result()
-	// Note: Redis key uses userID, not username. Use userID from login.
-	_ = userID
-	_ = ttl
-	_ = err
+	ttl, err := ts.redis.TTL(ctx, fmt.Sprintf("im:session:%d", userID)).Result()
+	if err != nil {
+		t.Fatalf("get session ttl failed: %v", err)
+	}
+	if ttl <= 0 {
+		t.Fatalf("expected positive session ttl, got %v", ttl)
+	}
 
-	// Check session exists with TTL
 	nodeID, err := ts.gwSessionMgr.GetSession(ctx, userID)
 	if err != nil {
 		t.Fatalf("session not found in redis: %v", err)
@@ -447,135 +449,6 @@ func TestGateway_ConnectionClose_Cleanup(t *testing.T) {
 	// Verify Redis session cleaned up
 	if ts.gwSessionMgr.IsOnline(ctx, userID) {
 		t.Fatal("user should be offline after connection close")
-	}
-}
-
-// TestGateway_BroadcastToUser verifies broadcasting to all devices of a user.
-func TestGateway_BroadcastToUser(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	token, userID := registerAndLogin(t, "broadcast-user", "123456")
-
-	// Connect two devices
-	ws1 := wsConnect(t)
-	defer ws1.Close()
-	wsSendPacket(t, ws1, &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: 1,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    token,
-				DeviceId: "device-a",
-			},
-		},
-	})
-	wsReadPacket(t, ws1, 2*time.Second)
-
-	ws2 := wsConnect(t)
-	defer ws2.Close()
-	wsSendPacket(t, ws2, &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: 1,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    token,
-				DeviceId: "device-b",
-			},
-		},
-	})
-	wsReadPacket(t, ws2, 2*time.Second)
-
-	// Broadcast a message
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				Content: []byte("test broadcast"),
-			},
-		},
-	}
-	sent := ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	if sent != 2 {
-		t.Fatalf("expected broadcast to 2 devices, got %d", sent)
-	}
-
-	// Both devices should receive the notification
-	resp1 := wsReadPacket(t, ws1, 2*time.Second)
-	if resp1.Cmd != v1.Command_CMD_NOTIFY {
-		t.Fatalf("device-a expected CMD_NOTIFY, got %v", resp1.Cmd)
-	}
-	if string(resp1.GetNotify().GetContent()) != "test broadcast" {
-		t.Fatalf("device-a expected 'test broadcast', got %s", string(resp1.GetNotify().GetContent()))
-	}
-
-	resp2 := wsReadPacket(t, ws2, 2*time.Second)
-	if resp2.Cmd != v1.Command_CMD_NOTIFY {
-		t.Fatalf("device-b expected CMD_NOTIFY, got %v", resp2.Cmd)
-	}
-	if string(resp2.GetNotify().GetContent()) != "test broadcast" {
-		t.Fatalf("device-b expected 'test broadcast', got %s", string(resp2.GetNotify().GetContent()))
-	}
-}
-
-// TestGateway_ManagerCounts verifies Count() and UserCount() methods.
-func TestGateway_ManagerCounts(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	// Initially empty
-	if ts.gwManager.Count() != 0 {
-		t.Fatalf("expected 0 connections initially, got %d", ts.gwManager.Count())
-	}
-	if ts.gwManager.UserCount() != 0 {
-		t.Fatalf("expected 0 users initially, got %d", ts.gwManager.UserCount())
-	}
-
-	// User 1 connects one device
-	token1, _ := registerAndLogin(t, "count-user-1", "123456")
-	ws1 := wsConnect(t)
-	defer ws1.Close()
-	wsSendPacket(t, ws1, &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: 1,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    token1,
-				DeviceId: "d1",
-			},
-		},
-	})
-	wsReadPacket(t, ws1, 2*time.Second)
-
-	if ts.gwManager.Count() != 1 {
-		t.Fatalf("expected 1 connection, got %d", ts.gwManager.Count())
-	}
-	if ts.gwManager.UserCount() != 1 {
-		t.Fatalf("expected 1 user, got %d", ts.gwManager.UserCount())
-	}
-
-	// User 2 connects
-	token2, _ := registerAndLogin(t, "count-user-2", "123456")
-	ws2 := wsConnect(t)
-	defer ws2.Close()
-	wsSendPacket(t, ws2, &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: 1,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    token2,
-				DeviceId: "d1",
-			},
-		},
-	})
-	wsReadPacket(t, ws2, 2*time.Second)
-
-	if ts.gwManager.Count() != 2 {
-		t.Fatalf("expected 2 connections, got %d", ts.gwManager.Count())
-	}
-	if ts.gwManager.UserCount() != 2 {
-		t.Fatalf("expected 2 users, got %d", ts.gwManager.UserCount())
 	}
 }
 

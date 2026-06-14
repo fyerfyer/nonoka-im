@@ -195,18 +195,23 @@ func (m *Manager) BroadcastToUserRaw(userID int64, data []byte) int {
 }
 
 // Range iterates over all connections.
+// It copies the connection pointers under each shard's read lock before calling f,
+// so f can safely trigger Add/Remove without causing map iteration races.
 func (m *Manager) Range(f func(c *Connection) bool) {
 	for i := range shardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
+		conns := make([]*Connection, 0, len(shard.conns))
 		for _, c := range shard.conns {
-			shard.mu.RUnlock()
+			conns = append(conns, c)
+		}
+		shard.mu.RUnlock()
+
+		for _, c := range conns {
 			if !f(c) {
 				return
 			}
-			shard.mu.RLock()
 		}
-		shard.mu.RUnlock()
 	}
 }
 

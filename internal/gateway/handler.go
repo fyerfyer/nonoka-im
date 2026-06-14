@@ -268,6 +268,15 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 		return
 	}
 
+	// Canonicalize P2P topics so both sides pull from the same topic string.
+	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
+	if err != nil {
+		h.log.Warnf("invalid topic format: user_id=%d, topic=%s, err=%v", c.UserID(), req.Topic, err)
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4009, "invalid topic")
+		return
+	}
+	req.Topic = normalizedTopic
+
 	h.log.Debugf("pull request: user_id=%d, topic=%s, last_seq=%d", c.UserID(), req.Topic, req.LastSeq)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

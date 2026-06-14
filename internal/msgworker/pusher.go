@@ -9,14 +9,23 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+const (
+	// maxDynamicConnAge is the maximum lifetime of a dynamically discovered gateway
+	// connection. Older connections are closed and recreated to prevent fd leaks
+	// when gateway nodes are replaced frequently.
+	maxDynamicConnAge = 30 * time.Minute
 )
 
 // gatewayConn holds a connection to a single gateway node.
 type gatewayConn struct {
-	addr   string
-	client pb.PushServiceClient
-	conn   *grpc.ClientConn
+	addr      string
+	client    pb.PushServiceClient
+	conn      *grpc.ClientConn
+	createdAt time.Time
 }
 
 // GatewayPusher pushes messages to online users via Gateway's gRPC PushService.
@@ -61,9 +70,10 @@ func NewGatewayPusher(gatewayAddrs []string, logger log.Logger) (*GatewayPusher,
 			return nil, fmt.Errorf("connect to gateway %s: %w", addr, err)
 		}
 		p.staticConns = append(p.staticConns, &gatewayConn{
-			addr:   addr,
-			client: pb.NewPushServiceClient(conn),
-			conn:   conn,
+			addr:      addr,
+			client:    pb.NewPushServiceClient(conn),
+			conn:      conn,
+			createdAt: time.Now(),
 		})
 	}
 
@@ -174,7 +184,11 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 		return p.batchPushStatic(ctx, userIDs, msg)
 	}
 
-	nodeMap := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+	nodeMap, err := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+	if err != nil {
+		p.log.Warnf("router resolve user nodes failed, falling back to static gateways: %v", err)
+		return p.batchPushStatic(ctx, userIDs, msg)
+	}
 
 	aliveMap := make(map[string]*GatewayNodeInfo, len(aliveNodes))
 	for _, n := range aliveNodes {
@@ -293,11 +307,13 @@ func (p *GatewayPusher) batchPushStatic(ctx context.Context, userIDs []int64, ms
 }
 
 // getOrCreateDynamicConn returns an existing gRPC connection to addr or creates one.
+// It evicts connections that are shut down or older than maxDynamicConnAge to
+// avoid leaking fds when gateway nodes churn.
 func (p *GatewayPusher) getOrCreateDynamicConn(addr string) (*gatewayConn, error) {
 	p.dynamicMu.RLock()
 	gc, ok := p.dynamicConns[addr]
 	p.dynamicMu.RUnlock()
-	if ok {
+	if ok && p.isDynamicConnUsable(gc) {
 		return gc, nil
 	}
 
@@ -306,7 +322,12 @@ func (p *GatewayPusher) getOrCreateDynamicConn(addr string) (*gatewayConn, error
 
 	// Double-check after acquiring write lock.
 	if gc, ok := p.dynamicConns[addr]; ok {
-		return gc, nil
+		if p.isDynamicConnUsable(gc) {
+			return gc, nil
+		}
+		// Evict stale/dead connection.
+		_ = gc.conn.Close()
+		delete(p.dynamicConns, addr)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -321,12 +342,28 @@ func (p *GatewayPusher) getOrCreateDynamicConn(addr string) (*gatewayConn, error
 	}
 
 	gc = &gatewayConn{
-		addr:   addr,
-		client: pb.NewPushServiceClient(conn),
-		conn:   conn,
+		addr:      addr,
+		client:    pb.NewPushServiceClient(conn),
+		conn:      conn,
+		createdAt: time.Now(),
 	}
 	p.dynamicConns[addr] = gc
 	return gc, nil
+}
+
+// isDynamicConnUsable reports whether a dynamic connection is healthy enough to reuse.
+func (p *GatewayPusher) isDynamicConnUsable(gc *gatewayConn) bool {
+	if gc == nil || gc.conn == nil {
+		return false
+	}
+	state := gc.conn.GetState()
+	if state == connectivity.Shutdown {
+		return false
+	}
+	if time.Since(gc.createdAt) > maxDynamicConnAge {
+		return false
+	}
+	return true
 }
 
 // PushReceiptToUser delivers a send receipt to a single user.
@@ -419,7 +456,11 @@ func (p *GatewayPusher) batchPushReceiptsWithRouting(ctx context.Context, userID
 		return p.batchPushReceiptsStatic(ctx, userIDs, receipt)
 	}
 
-	nodeMap := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+	nodeMap, err := p.router.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
+	if err != nil {
+		p.log.Warnf("router resolve user nodes failed, falling back to static gateways: %v", err)
+		return p.batchPushReceiptsStatic(ctx, userIDs, receipt)
+	}
 
 	aliveMap := make(map[string]*GatewayNodeInfo, len(aliveNodes))
 	for _, n := range aliveNodes {

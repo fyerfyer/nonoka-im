@@ -166,17 +166,12 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 // different partitions are processed concurrently.
 // Start returns an error if called more than once.
 func (c *KafkaConsumer) Start(ctx context.Context) error {
-	var alreadyStarted bool
-	c.startOnce.Do(func() {
-		alreadyStarted = c.started.Load()
-		if alreadyStarted {
-			return
-		}
-		c.started.Store(true)
-	})
-	if alreadyStarted {
+	if c.started.Load() {
 		return fmt.Errorf("kafka consumer already started")
 	}
+	c.startOnce.Do(func() {
+		c.started.Store(true)
+	})
 
 	workChs := make([]chan kafka.Message, c.workerCount)
 	var wg sync.WaitGroup
@@ -326,20 +321,24 @@ func (c *KafkaConsumer) handleMessage(ctx context.Context, msg kafka.Message) bo
 		}
 	}
 
-	c.handleProcessingError(ctx, msg, headers, lastErr)
+	if err := c.handleProcessingError(ctx, msg, headers, lastErr); err != nil {
+		return false
+	}
 	return true
 }
 
 // handleProcessingError routes failed messages to DLQ.
-func (c *KafkaConsumer) handleProcessingError(ctx context.Context, msg kafka.Message, headers map[string]string, procErr error) {
+// It returns the DLQ send error so the caller can decide whether to commit offset.
+func (c *KafkaConsumer) handleProcessingError(ctx context.Context, msg kafka.Message, headers map[string]string, procErr error) error {
 	retryCount := getRetryCount(headers)
 	c.log.Errorf("handle message failed after retries: key=%s retry_count=%d err=%v",
 		string(msg.Key), retryCount, procErr)
-	c.sendToDLQ(ctx, msg, retryCount, procErr)
+	return c.sendToDLQ(ctx, msg, retryCount, procErr)
 }
 
 // sendToDLQ sends a poison message to the DLQ topic with error metadata.
-func (c *KafkaConsumer) sendToDLQ(ctx context.Context, msg kafka.Message, retryCount int, procErr error) {
+// It returns any error encountered while writing to DLQ.
+func (c *KafkaConsumer) sendToDLQ(ctx context.Context, msg kafka.Message, retryCount int, procErr error) error {
 	dlqHeaders := make([]kafka.Header, 0, len(msg.Headers)+3)
 	for _, h := range msg.Headers {
 		dlqHeaders = append(dlqHeaders, h)
@@ -358,9 +357,10 @@ func (c *KafkaConsumer) sendToDLQ(ctx context.Context, msg kafka.Message, retryC
 
 	if err := c.dlqWriter.WriteMessages(ctx, dlqMsg); err != nil {
 		c.log.Errorf("send to DLQ failed: key=%s err=%v", string(msg.Key), err)
-	} else {
-		c.log.Warnf("message sent to DLQ: key=%s retry_count=%d", string(msg.Key), retryCount)
+		return err
 	}
+	c.log.Warnf("message sent to DLQ: key=%s retry_count=%d", string(msg.Key), retryCount)
+	return nil
 }
 
 // getRetryCount extracts the retry count from message headers.

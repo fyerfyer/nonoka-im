@@ -94,7 +94,13 @@ type IDGenerator struct {
 // NewSnowflake creates a new Snowflake ID generator using the bwmarrin/snowflake
 // library, which provides a high-performance lock-free implementation.
 func NewSnowflake(nodeID int64) *IDGenerator {
-	node, err := snowflake.NewNode(nodeID % 1024)
+	// Normalize to [0, 1023]. Go's % operator can return negative values,
+	// so we adjust to avoid mapping different physical nodes to the same ID.
+	normalized := nodeID % 1024
+	if normalized < 0 {
+		normalized += 1024
+	}
+	node, err := snowflake.NewNode(normalized)
 	if err != nil {
 		// Fallback to node 0 if the requested nodeID is invalid.
 		node, _ = snowflake.NewNode(0)

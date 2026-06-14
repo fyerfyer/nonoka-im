@@ -196,10 +196,15 @@ func (s *PushService) batchPushConcurrent(ctx context.Context, userIDs []int64, 
 		wg.Add(1)
 		go func(ids []int64) {
 			defer wg.Done()
-			for _, userID := range ids {
+			for idx, userID := range ids {
 				// Check context cancellation between users
 				select {
 				case <-ctx.Done():
+					// Report all remaining users in this chunk as failed so callers
+					// can retry them; otherwise these users would silently disappear.
+					for _, uid := range ids[idx:] {
+						resultCh <- result{userID: uid, delivered: 0}
+					}
 					return
 				default:
 				}

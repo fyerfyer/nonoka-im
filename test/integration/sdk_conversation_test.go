@@ -5,11 +5,9 @@ import (
 	"testing"
 	"time"
 
-	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/pkg/sdk"
 )
 
-// TestConversationManagerCreatesConversationsOnDemand verifies Get lazily creates and caches conversations.
 func TestConversationManagerCreatesConversationsOnDemand(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -44,7 +42,6 @@ func TestConversationManagerCreatesConversationsOnDemand(t *testing.T) {
 		t.Fatalf("expected P2P conversation type")
 	}
 
-	// Second Get should return the exact same instance
 	conv2 := client.Conversations.Get("p2p_1_2")
 	if conv != conv2 {
 		t.Fatal("expected same conversation instance for same topic")
@@ -56,7 +53,6 @@ func TestConversationManagerCreatesConversationsOnDemand(t *testing.T) {
 	}
 }
 
-// TestConversationCanSendTextMessage verifies a conversation can send a text message.
 func TestConversationCanSendTextMessage(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -97,62 +93,65 @@ func TestConversationCanSendTextMessage(t *testing.T) {
 	}
 }
 
-// TestConversationRoutesIncomingMessages verifies server pushes are routed to the correct conversation.
 func TestConversationRoutesIncomingMessages(t *testing.T) {
-	ts := setupTestServer(t, false)
+	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, userID := registerAndLogin(t, "conv-route-user", "123456")
+	token1, userID1 := registerAndLogin(t, "conv-route-sender", "123456")
+	token2, userID2 := registerAndLogin(t, "conv-route-receiver", "123456")
+	topic := sdk.P2PTopic(userID1, userID2)
 
-	client := sdk.NewClient(sdk.Options{
+	receiver := sdk.NewClient(sdk.Options{
 		BaseURL:           testBaseURL,
 		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
+		Token:             token2,
+		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
 		RequestTimeout:    5 * time.Second,
 		AutoAck:           true,
 	})
-	defer client.Close()
+	defer receiver.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("connect failed: %v", err)
-	}
-
-	conv := client.Conversations.Get("p2p_1_2")
+	conv := receiver.Conversations.Get(topic)
 	msgReceived := make(chan *sdk.Message, 1)
 	conv.OnMessage = func(msg *sdk.Message) {
-		msgReceived <- msg
+		select {
+		case msgReceived <- msg:
+		default:
+		}
 	}
 
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				MsgId:     12345,
-				Topic:     "p2p_1_2",
-				SenderId:  2,
-				MsgType:   int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:   []byte("routed message"),
-				Timestamp: time.Now().Unix(),
-				TopicSeq:  1,
-			},
-		},
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := receiver.Connect(ctx); err != nil {
+		t.Fatalf("receiver connect failed: %v", err)
 	}
 
-	sent := ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	if sent != 1 {
-		t.Fatalf("expected broadcast to 1 device, got %d", sent)
+	sender := sdk.NewClient(sdk.Options{
+		BaseURL:           testBaseURL,
+		GatewayURL:        testWSURL,
+		Token:             token1,
+		DeviceID:          "sdk-sender",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+	})
+	defer sender.Close()
+
+	if err := sender.Connect(ctx); err != nil {
+		t.Fatalf("sender connect failed: %v", err)
+	}
+
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	if _, err := sender.SendText(sendCtx, topic, "routed message"); err != nil {
+		t.Fatalf("sender send failed: %v", err)
 	}
 
 	select {
 	case msg := <-msgReceived:
-		if msg.Topic != "p2p_1_2" {
-			t.Fatalf("expected topic=p2p_1_2, got %s", msg.Topic)
+		if msg.Topic != topic {
+			t.Fatalf("expected topic=%s, got %s", topic, msg.Topic)
 		}
 		if string(msg.Content) != "routed message" {
 			t.Fatalf("expected content='routed message', got %s", string(msg.Content))
@@ -160,66 +159,82 @@ func TestConversationRoutesIncomingMessages(t *testing.T) {
 		if len(conv.Messages) == 0 {
 			t.Fatal("expected message to be appended to conversation.Messages")
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("conversation OnMessage not fired within timeout")
 	}
 }
 
-// TestConversationTracksUnreadCount verifies unread count increments on received messages and resets on mark read.
 func TestConversationTracksUnreadCount(t *testing.T) {
-	ts := setupTestServer(t, false)
+	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, userID := registerAndLogin(t, "conv-unread-user", "123456")
+	token1, userID1 := registerAndLogin(t, "conv-unread-sender", "123456")
+	token2, userID2 := registerAndLogin(t, "conv-unread-receiver", "123456")
+	topic := sdk.P2PTopic(userID1, userID2)
 
-	client := sdk.NewClient(sdk.Options{
+	receiver := sdk.NewClient(sdk.Options{
 		BaseURL:           testBaseURL,
 		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
+		Token:             token2,
+		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
 		RequestTimeout:    5 * time.Second,
 		AutoAck:           true,
 	})
-	defer client.Close()
+	defer receiver.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("connect failed: %v", err)
+	conv := receiver.Conversations.Get(topic)
+	msgReceived := make(chan *sdk.Message, 1)
+	conv.OnMessage = func(msg *sdk.Message) {
+		select {
+		case msgReceived <- msg:
+		default:
+		}
 	}
 
-	conv := client.Conversations.Get("p2p_1_2")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := receiver.Connect(ctx); err != nil {
+		t.Fatalf("receiver connect failed: %v", err)
+	}
 
 	if conv.GetUnreadCount() != 0 {
 		t.Fatalf("expected unread count 0, got %d", conv.GetUnreadCount())
 	}
 
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				MsgId:     12345,
-				Topic:     "p2p_1_2",
-				SenderId:  2,
-				MsgType:   int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:   []byte("unread test"),
-				Timestamp: time.Now().Unix(),
-				TopicSeq:  1,
-			},
-		},
+	sender := sdk.NewClient(sdk.Options{
+		BaseURL:           testBaseURL,
+		GatewayURL:        testWSURL,
+		Token:             token1,
+		DeviceID:          "sdk-sender",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+	})
+	defer sender.Close()
+
+	if err := sender.Connect(ctx); err != nil {
+		t.Fatalf("sender connect failed: %v", err)
 	}
 
-	ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	time.Sleep(500 * time.Millisecond)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	if _, err := sender.SendText(sendCtx, topic, "unread test"); err != nil {
+		t.Fatalf("sender send failed: %v", err)
+	}
 
+	select {
+	case <-msgReceived:
+	case <-time.After(15 * time.Second):
+		t.Fatal("message not received within timeout")
+	}
+
+	time.Sleep(200 * time.Millisecond)
 	if conv.GetUnreadCount() != 1 {
 		t.Fatalf("expected unread count 1, got %d", conv.GetUnreadCount())
 	}
 
-	markCtx, markCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer markCancel()
 	if err := conv.MarkRead(markCtx); err != nil {
 		t.Fatalf("mark read failed: %v", err)
@@ -230,7 +245,6 @@ func TestConversationTracksUnreadCount(t *testing.T) {
 	}
 }
 
-// TestConversationManagerListsAllConversations verifies All returns every managed conversation.
 func TestConversationManagerListsAllConversations(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -264,66 +278,81 @@ func TestConversationManagerListsAllConversations(t *testing.T) {
 	}
 }
 
-// TestConversationReturnsLastMessage verifies LastMessage returns the most recently received message.
 func TestConversationReturnsLastMessage(t *testing.T) {
-	ts := setupTestServer(t, false)
+	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, userID := registerAndLogin(t, "conv-last-user", "123456")
+	token1, userID1 := registerAndLogin(t, "conv-last-sender", "123456")
+	token2, userID2 := registerAndLogin(t, "conv-last-receiver", "123456")
+	topic := sdk.P2PTopic(userID1, userID2)
 
-	client := sdk.NewClient(sdk.Options{
+	receiver := sdk.NewClient(sdk.Options{
 		BaseURL:           testBaseURL,
 		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
+		Token:             token2,
+		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
 		RequestTimeout:    5 * time.Second,
 		AutoAck:           true,
 	})
-	defer client.Close()
+	defer receiver.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("connect failed: %v", err)
+	conv := receiver.Conversations.Get(topic)
+	msgReceived := make(chan *sdk.Message, 1)
+	conv.OnMessage = func(msg *sdk.Message) {
+		select {
+		case msgReceived <- msg:
+		default:
+		}
 	}
 
-	conv := client.Conversations.Get("p2p_1_2")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := receiver.Connect(ctx); err != nil {
+		t.Fatalf("receiver connect failed: %v", err)
+	}
 
 	if conv.LastMessage() != nil {
 		t.Fatal("expected nil LastMessage for empty conversation")
 	}
 
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				MsgId:     12345,
-				Topic:     "p2p_1_2",
-				SenderId:  2,
-				MsgType:   int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:   []byte("last msg test"),
-				Timestamp: time.Now().Unix(),
-				TopicSeq:  5,
-			},
-		},
+	sender := sdk.NewClient(sdk.Options{
+		BaseURL:           testBaseURL,
+		GatewayURL:        testWSURL,
+		Token:             token1,
+		DeviceID:          "sdk-sender",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+	})
+	defer sender.Close()
+
+	if err := sender.Connect(ctx); err != nil {
+		t.Fatalf("sender connect failed: %v", err)
 	}
 
-	ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	time.Sleep(300 * time.Millisecond)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	if _, err := sender.SendText(sendCtx, topic, "last msg test"); err != nil {
+		t.Fatalf("sender send failed: %v", err)
+	}
 
+	select {
+	case <-msgReceived:
+	case <-time.After(15 * time.Second):
+		t.Fatal("message not received within timeout")
+	}
+
+	time.Sleep(200 * time.Millisecond)
 	last := conv.LastMessage()
 	if last == nil {
 		t.Fatal("expected non-nil LastMessage")
 	}
-	if last.TopicSeq != 5 {
-		t.Fatalf("expected topicSeq=5, got %d", last.TopicSeq)
+	if last.TopicSeq == 0 {
+		t.Fatal("expected non-zero topicSeq for last message")
 	}
 }
 
-// TestConversationCanSendImageAndFile verifies media messages can be sent through a conversation.
 func TestConversationCanSendImageAndFile(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()

@@ -227,20 +227,6 @@ func TestPushedMessageHasDeliveredStatus(t *testing.T) {
 	}
 }
 
-// TestSendCacheCleanupEnforcesMaxSize verifies sendCache is limited to max size.
-func TestSendCacheCleanupEnforcesMaxSize(t *testing.T) {
-	c := sdk.NewClient(sdk.Options{})
-	defer c.Close()
-
-	// Fill cache beyond max size (use internal test hook if available)
-	// Since sendCacheMaxSize is unexported, we test via repeated sends
-	// or verify that cleanup loop doesn't crash.
-	// For this test we just verify the client can be created and closed cleanly.
-	if c == nil {
-		t.Fatal("expected non-nil client")
-	}
-}
-
 // TestConversationLoadHistoryMergesLocalMessages verifies LoadHistory merges instead of replacing.
 func TestConversationLoadHistoryMergesLocalMessages(t *testing.T) {
 	ts := setupTestServer(t, false)

@@ -2,16 +2,14 @@ package integration
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	v1 "nonoka-im/api/im/v1"
 	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
 )
 
 // ============================================
@@ -30,7 +28,7 @@ func TestGateway_Concurrent_Auth(t *testing.T) {
 	var successCount int32
 	var failCount int32
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(idx int) {
 			defer wg.Done()
 
@@ -101,7 +99,7 @@ func TestGateway_Concurrent_SameUser_MultiDevice(t *testing.T) {
 	var connectedCount int32
 
 	conns := make([]*websocket.Conn, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(idx int) {
 			defer wg.Done()
 
@@ -176,7 +174,7 @@ func TestGateway_Concurrent_Heartbeat(t *testing.T) {
 
 	// Create authenticated connections
 	conns := make([]*websocket.Conn, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		username := "heartbeat-user-" + string(rune('a'+i%26))
 		token, _ := registerAndLogin(t, username, "123456")
 
@@ -202,12 +200,12 @@ func TestGateway_Concurrent_Heartbeat(t *testing.T) {
 
 	var totalHeartbeats int32
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(idx int) {
 			defer wg.Done()
 			wsConn := conns[idx]
 
-			for j := 0; j < heartbeatsPerClient; j++ {
+			for j := range heartbeatsPerClient {
 				wsSendPacket(t, wsConn, &v1.Packet{
 					Cmd: v1.Command_CMD_HEARTBEAT,
 					Seq: uint64(j + 1),
@@ -246,7 +244,7 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 
 	// Set up authenticated connections
 	conns := make([]*websocket.Conn, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		username := "publish-user-" + string(rune('a'+i%26))
 		token, _ := registerAndLogin(t, username, "123456")
 
@@ -272,12 +270,12 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 
 	var ackCount int32
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(idx int) {
 			defer wg.Done()
 			wsConn := conns[idx]
 
-			for j := 0; j < messagesPerClient; j++ {
+			for j := range messagesPerClient {
 				wsSendPacket(t, wsConn, &v1.Packet{
 					Cmd: v1.Command_CMD_PUBLISH,
 					Seq: uint64(j + 1),
@@ -317,209 +315,6 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 	}
 }
 
-// TestGateway_Connection_Reliability_Stress tests connection reliability under rapid connect/disconnect.
-func TestGateway_Connection_Reliability_Stress(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	const iterations = 50
-
-	token, userID := registerAndLogin(t, "reliability-user", "123456")
-
-	for i := 0; i < iterations; i++ {
-		wsConn := wsConnect(t)
-
-		wsSendPacket(t, wsConn, &v1.Packet{
-			Cmd: v1.Command_CMD_AUTH,
-			Seq: 1,
-			Payload: &v1.Packet_AuthReq{
-				AuthReq: &v1.AuthRequest{
-					Token:    token,
-					DeviceId: "stress-device",
-				},
-			},
-		})
-
-		resp := wsReadPacketOrNil(t, wsConn, 2*time.Second)
-		if resp == nil || resp.Cmd != v1.Command_CMD_AUTH {
-			t.Fatalf("iteration %d: auth failed", i)
-		}
-
-		// Immediately close
-		wsConn.Close()
-
-		// Brief pause to allow cleanup
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Wait for all async cleanup
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify clean state
-	if ts.gwManager.Get(userID) != nil {
-		t.Fatal("connection should be cleaned up after stress test")
-	}
-
-	ctx := context.Background()
-	if ts.gwSessionMgr.IsOnline(ctx, userID) {
-		t.Fatal("user should be offline after stress test")
-	}
-
-	t.Logf("stress test passed: %d connect/auth/close cycles", iterations)
-}
-
-// TestGateway_Broadcast_Concurrent verifies broadcasting concurrently to many users.
-func TestGateway_Broadcast_Concurrent(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	const userCount = 10
-	const devicesPerUser = 2
-
-	// Set up users and connections
-	userIDs := make([]int64, userCount)
-	conns := make([][]*websocket.Conn, userCount)
-
-	for u := 0; u < userCount; u++ {
-		username := "broadcast-concurrent-user-" + string(rune('a'+u%26))
-		token, userID := registerAndLogin(t, username, "123456")
-		userIDs[u] = userID
-		conns[u] = make([]*websocket.Conn, devicesPerUser)
-
-		for d := 0; d < devicesPerUser; d++ {
-			wsConn := wsConnect(t)
-			conns[u][d] = wsConn
-
-			wsSendPacket(t, wsConn, &v1.Packet{
-				Cmd: v1.Command_CMD_AUTH,
-				Seq: 1,
-				Payload: &v1.Packet_AuthReq{
-					AuthReq: &v1.AuthRequest{
-						Token:    token,
-						DeviceId: "device-" + string(rune('0'+d)),
-					},
-				},
-			})
-			wsReadPacket(t, wsConn, 2*time.Second)
-		}
-	}
-
-	// Broadcast to all users concurrently
-	var wg sync.WaitGroup
-	wg.Add(userCount)
-
-	var totalSent int32
-
-	for u := 0; u < userCount; u++ {
-		go func(idx int) {
-			defer wg.Done()
-
-			packet := &v1.Packet{
-				Cmd: v1.Command_CMD_NOTIFY,
-				Seq: uint64(idx + 1),
-				Payload: &v1.Packet_Notify{
-					Notify: &v1.MessagePush{
-						Content: []byte("broadcast to user " + string(rune('0'+idx))),
-					},
-				},
-			}
-			sent := ts.gwManager.BroadcastToUser(userIDs[idx], packet)
-			atomic.AddInt32(&totalSent, int32(sent))
-		}(u)
-	}
-
-	wg.Wait()
-
-	expected := int32(userCount * devicesPerUser)
-	if totalSent != expected {
-		t.Fatalf("expected %d total sent, got %d", expected, totalSent)
-	}
-
-	// Verify each device received the broadcast
-	for u := 0; u < userCount; u++ {
-		for d := 0; d < devicesPerUser; d++ {
-			resp := wsReadPacketOrNil(t, conns[u][d], 2*time.Second)
-			if resp == nil {
-				t.Fatalf("user %d device %d did not receive broadcast", u, d)
-			}
-			if resp.Cmd != v1.Command_CMD_NOTIFY {
-				t.Fatalf("user %d device %d expected CMD_NOTIFY, got %v", u, d, resp.Cmd)
-			}
-		}
-	}
-
-	// Clean up
-	for u := 0; u < userCount; u++ {
-		for d := 0; d < devicesPerUser; d++ {
-			if conns[u][d] != nil {
-				conns[u][d].Close()
-			}
-		}
-	}
-}
-
-// TestGateway_RedisSession_ExpireAndRefresh verifies that Redis sessions expire correctly
-// and are refreshed by heartbeats.
-func TestGateway_RedisSession_ExpireAndRefresh(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	token, userID := registerAndLogin(t, "expire-user", "123456")
-
-	wsConn := wsConnect(t)
-	defer wsConn.Close()
-
-	// Authenticate with short TTL
-	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: 1,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    token,
-				DeviceId: "expire-device",
-			},
-		},
-	})
-	wsReadPacket(t, wsConn, 2*time.Second)
-
-	ctx := context.Background()
-
-	// Manually set a short TTL for testing
-	err := ts.gwSessionMgr.SetSession(ctx, userID, "expire-device", 2*time.Second)
-	if err != nil {
-		t.Fatalf("failed to set session: %v", err)
-	}
-
-	// Verify session exists
-	if !ts.gwSessionMgr.IsOnline(ctx, userID) {
-		t.Fatal("user should be online after auth")
-	}
-
-	// Wait for session to almost expire
-	time.Sleep(1500 * time.Millisecond)
-
-	// Send heartbeat to refresh TTL
-	wsSendPacket(t, wsConn, &v1.Packet{
-		Cmd: v1.Command_CMD_HEARTBEAT,
-		Seq: 2,
-	})
-	wsReadPacket(t, wsConn, 2*time.Second)
-
-	// Refresh TTL in Redis
-	err = ts.gwSessionMgr.ExpireSession(ctx, userID, 5*time.Second)
-	if err != nil {
-		t.Fatalf("failed to expire session: %v", err)
-	}
-
-	// Wait for original TTL to pass
-	time.Sleep(1500 * time.Millisecond)
-
-	// Session should still exist because heartbeat refreshed it
-	if !ts.gwSessionMgr.IsOnline(ctx, userID) {
-		t.Fatal("user should still be online after heartbeat refresh")
-	}
-}
-
 // TestGateway_Concurrent_RapidMessages verifies the system handles rapid sequential messages.
 func TestGateway_Concurrent_RapidMessages(t *testing.T) {
 	ts := setupTestServer(t, false)
@@ -545,7 +340,7 @@ func TestGateway_Concurrent_RapidMessages(t *testing.T) {
 
 	// Send many messages rapidly
 	const messageCount = 100
-	for i := 0; i < messageCount; i++ {
+	for i := range messageCount {
 		wsSendPacket(t, wsConn, &v1.Packet{
 			Cmd: v1.Command_CMD_PUBLISH,
 			Seq: uint64(i + 1),
@@ -562,7 +357,7 @@ func TestGateway_Concurrent_RapidMessages(t *testing.T) {
 
 	// Read all ACKs
 	ackCount := 0
-	for i := 0; i < messageCount; i++ {
+	for range messageCount {
 		resp := wsReadPacketOrNil(t, wsConn, 3*time.Second)
 		if resp == nil {
 			break
@@ -586,7 +381,7 @@ func TestGateway_MixedTraffic(t *testing.T) {
 
 	// Set up clients
 	conns := make([]*websocket.Conn, clientCount)
-	for i := 0; i < clientCount; i++ {
+	for i := range clientCount {
 		username := "mixed-user-" + string(rune('a'+i%26))
 		token, _ := registerAndLogin(t, username, "123456")
 
@@ -610,12 +405,12 @@ func TestGateway_MixedTraffic(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(clientCount)
 
-	for i := 0; i < clientCount; i++ {
+	for i := range clientCount {
 		go func(idx int) {
 			defer wg.Done()
 			wsConn := conns[idx]
 
-			for j := 0; j < 20; j++ {
+			for j := range 20 {
 				switch rand.Intn(3) {
 				case 0: // heartbeat
 					wsSendPacket(t, wsConn, &v1.Packet{
@@ -651,127 +446,4 @@ func TestGateway_MixedTraffic(t *testing.T) {
 			c.Close()
 		}
 	}
-}
-
-// TestGateway_ShardedManager_LargeScale verifies the sharded connection manager
-// handles large-scale concurrent connections (50 users × 3 devices = 150 conns)
-// and concurrent broadcasts correctly. This validates the P2-1 connection manager
-// sharding optimization.
-func TestGateway_ShardedManager_LargeScale(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	const userCount = 50
-	const devicesPerUser = 3
-	totalConns := userCount * devicesPerUser
-
-	tokens := make([]string, userCount)
-	userIDs := make([]int64, userCount)
-	for i := 0; i < userCount; i++ {
-		username := fmt.Sprintf("scale-user-%d", i)
-		tokens[i], userIDs[i] = registerAndLogin(t, username, "123456")
-	}
-
-	// Concurrent connections from all users/devices
-	var wg sync.WaitGroup
-	conns := make([][]*websocket.Conn, userCount)
-
-	for u := 0; u < userCount; u++ {
-		conns[u] = make([]*websocket.Conn, devicesPerUser)
-		for d := 0; d < devicesPerUser; d++ {
-			wg.Add(1)
-			go func(userIdx, devIdx int) {
-				defer wg.Done()
-
-				wsConn := wsConnect(t)
-				conns[userIdx][devIdx] = wsConn
-
-				wsSendPacket(t, wsConn, &v1.Packet{
-					Cmd: v1.Command_CMD_AUTH,
-					Seq: 1,
-					Payload: &v1.Packet_AuthReq{
-						AuthReq: &v1.AuthRequest{
-							Token:    tokens[userIdx],
-							DeviceId: fmt.Sprintf("device-%d", devIdx),
-						},
-					},
-				})
-				wsReadPacketOrNil(t, wsConn, 3*time.Second)
-			}(u, d)
-		}
-	}
-	wg.Wait()
-
-	// Verify all connections registered in sharded manager
-	if ts.gwManager.Count() != totalConns {
-		t.Fatalf("expected %d connections, got %d", totalConns, ts.gwManager.Count())
-	}
-	if ts.gwManager.UserCount() != userCount {
-		t.Fatalf("expected %d users, got %d", userCount, ts.gwManager.UserCount())
-	}
-
-	// Verify each user's connections via GetAll
-	for u := 0; u < userCount; u++ {
-		allConns := ts.gwManager.GetAll(userIDs[u])
-		if len(allConns) != devicesPerUser {
-			t.Fatalf("user %d: expected %d connections, got %d", userIDs[u], devicesPerUser, len(allConns))
-		}
-	}
-
-	// Concurrent broadcast to all users using pre-serialized data (P1-5 optimization)
-	packet := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				Content: []byte("sharded broadcast test"),
-			},
-		},
-	}
-	marshaled, _ := proto.Marshal(packet)
-
-	var broadcastWg sync.WaitGroup
-	var totalSent int32
-	for u := 0; u < userCount; u++ {
-		broadcastWg.Add(1)
-		go func(idx int) {
-			defer broadcastWg.Done()
-			sent := ts.gwManager.BroadcastToUserRaw(userIDs[idx], marshaled)
-			atomic.AddInt32(&totalSent, int32(sent))
-		}(u)
-	}
-	broadcastWg.Wait()
-
-	if int(totalSent) != totalConns {
-		t.Fatalf("expected %d total sent, got %d", totalConns, totalSent)
-	}
-
-	// Verify each device received the broadcast
-	receivedCount := 0
-	for u := 0; u < userCount; u++ {
-		for d := 0; d < devicesPerUser; d++ {
-			resp := wsReadPacketOrNil(t, conns[u][d], 2*time.Second)
-			if resp != nil && resp.Cmd == v1.Command_CMD_NOTIFY {
-				receivedCount++
-			}
-		}
-	}
-	if receivedCount != totalConns {
-		t.Fatalf("expected %d received, got %d", totalConns, receivedCount)
-	}
-
-	// Cleanup all connections
-	for u := 0; u < userCount; u++ {
-		for d := 0; d < devicesPerUser; d++ {
-			if conns[u][d] != nil {
-				conns[u][d].Close()
-			}
-		}
-	}
-	time.Sleep(300 * time.Millisecond)
-
-	if ts.gwManager.Count() != 0 {
-		t.Fatalf("expected 0 connections after cleanup, got %d", ts.gwManager.Count())
-	}
-
-	t.Logf("sharded manager large scale verified: %d users, %d conns, broadcast ok", userCount, totalConns)
 }

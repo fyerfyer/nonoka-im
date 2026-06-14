@@ -401,19 +401,26 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 		},
 	}
 
+	allDuplicate := true
 	for _, inbox := range inboxes {
 		_, err = s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
 		if err != nil {
 			if IsDuplicateError(err) {
-				s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
-					msg.GetClientMsgId(), msg.GetSenderId())
-				return []int64{receiverID, msg.GetSenderId()}, true, nil
+				s.log.Debugf("duplicate p2p inbox ignored: user_id=%d, client_msg_id=%s",
+					inbox.UserID, msg.GetClientMsgId())
+				continue
 			}
 			return nil, false, fmt.Errorf("insert inbox message: %w", err)
 		}
+		allDuplicate = false
 	}
 
 	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
+	if allDuplicate {
+		s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
+			msg.GetClientMsgId(), msg.GetSenderId())
+		return []int64{receiverID, msg.GetSenderId()}, true, nil
+	}
 	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d, sender=%d", msgID, msg.GetTopic(), receiverID, msg.GetSenderId())
 	return []int64{receiverID, msg.GetSenderId()}, false, nil
 }
@@ -539,11 +546,12 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 		})
 	}
 
-	_, err := s.db.Collection(CollectionMentionInboxes).InsertMany(ctx, docs)
+	_, err := s.db.Collection(CollectionMentionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
 	if err != nil {
-		// Check if all errors are duplicate key errors (idempotent batch insert)
+		// With unordered inserts, duplicate errors are returned as BulkWriteException.
+		// If every write error is a duplicate key, the operation is idempotent.
 		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
-			allDuplicate := true
+			allDuplicate := len(bulkErr.WriteErrors) > 0
 			for _, we := range bulkErr.WriteErrors {
 				if !IsDuplicateError(we) {
 					allDuplicate = false
@@ -733,12 +741,20 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 	go func() {
 		defer wg.Done()
 		res, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, filter, update)
-		results <- updateResult{matched: res.MatchedCount, err: err}
+		matched := int64(0)
+		if err == nil && res != nil {
+			matched = res.MatchedCount
+		}
+		results <- updateResult{matched: matched, err: err}
 	}()
 	go func() {
 		defer wg.Done()
 		res, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update)
-		results <- updateResult{matched: res.MatchedCount, err: err}
+		matched := int64(0)
+		if err == nil && res != nil {
+			matched = res.MatchedCount
+		}
+		results <- updateResult{matched: matched, err: err}
 	}()
 	wg.Wait()
 	close(results)

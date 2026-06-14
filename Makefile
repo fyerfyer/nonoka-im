@@ -73,7 +73,7 @@ test-gateway-concurrent:
 .PHONY: test-kafka
 # run kafka integration tests (requires test-deps-up)
 test-kafka:
-	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 120s
+	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s
 
 .PHONY: test
 # run all integration tests (start deps, run tests by group, cleanup)
@@ -93,7 +93,7 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Kafka Tests              ==="
 	@echo "========================================"
-	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"

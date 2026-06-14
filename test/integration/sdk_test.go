@@ -11,11 +11,6 @@ import (
 	"nonoka-im/pkg/sdk"
 )
 
-// ============================================
-// SDK Integration Tests
-// ============================================
-
-// TestSDK_Connect_Auth_Success verifies SDK can connect and authenticate.
 func TestSDK_Connect_Auth_Success(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -42,10 +37,8 @@ func TestSDK_Connect_Auth_Success(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Wait for OnConnect callback
 	select {
 	case <-connected:
-		// success
 	case <-time.After(3 * time.Second):
 		t.Fatal("OnConnect callback not fired")
 	}
@@ -61,7 +54,6 @@ func TestSDK_Connect_Auth_Success(t *testing.T) {
 	}
 }
 
-// TestSDK_Connect_InvalidToken verifies SDK fails to auth with invalid token.
 func TestSDK_Connect_InvalidToken(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -83,7 +75,6 @@ func TestSDK_Connect_InvalidToken(t *testing.T) {
 	}
 }
 
-// TestSDK_SendMessage_Success verifies SDK can send a message and receive ACK.
 func TestSDK_SendMessage_Success(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -106,7 +97,6 @@ func TestSDK_SendMessage_Success(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Send a message
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
@@ -125,26 +115,22 @@ func TestSDK_SendMessage_Success(t *testing.T) {
 	}
 }
 
-// TestSDK_SendMessage_WithoutAuth verifies send fails without auth.
 func TestSDK_SendMessage_WithoutAuth(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	// Connect without token (no auth)
 	client := sdk.NewClient(sdk.Options{
 		GatewayURL:     testWSURL,
 		RequestTimeout: 2 * time.Second,
 	})
 	defer client.Close()
 
-	// Manually connect WebSocket without auth
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := client.Connect(ctx); err != nil {
 		t.Fatalf("connect without auth should succeed: %v", err)
 	}
 
-	// Try to send without auth
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer sendCancel()
 
@@ -154,7 +140,6 @@ func TestSDK_SendMessage_WithoutAuth(t *testing.T) {
 	}
 }
 
-// TestSDK_PullMessages verifies SDK can pull offline messages.
 func TestSDK_PullMessages(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -177,7 +162,6 @@ func TestSDK_PullMessages(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Pull messages from a topic
 	pullCtx, pullCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pullCancel()
 
@@ -188,7 +172,6 @@ func TestSDK_PullMessages(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil pull result")
 	}
-	// No messages yet, should be empty
 	if len(result.Messages) != 0 {
 		t.Fatalf("expected 0 messages, got %d", len(result.Messages))
 	}
@@ -200,7 +183,6 @@ func TestSDK_PullMessages(t *testing.T) {
 	}
 }
 
-// TestSDK_Heartbeat verifies heartbeat keeps connection alive.
 func TestSDK_Heartbeat(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -223,10 +205,8 @@ func TestSDK_Heartbeat(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Wait for a few heartbeats
 	time.Sleep(3 * time.Second)
 
-	// Connection should still be alive
 	if !client.IsConnected() {
 		t.Fatal("client should still be connected after heartbeats")
 	}
@@ -235,77 +215,149 @@ func TestSDK_Heartbeat(t *testing.T) {
 	}
 }
 
-// TestSDK_MessageHandler verifies push messages trigger the OnMessage callback.
 func TestSDK_MessageHandler(t *testing.T) {
-	ts := setupTestServer(t, false)
+	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, userID := registerAndLogin(t, "sdk-receive-user", "123456")
+	token1, userID1 := registerAndLogin(t, "sdk-msg-sender", "123456")
+	token2, userID2 := registerAndLogin(t, "sdk-msg-receiver", "123456")
+	topic := sdk.P2PTopic(userID1, userID2)
 
-	var receivedMsgs sync.Map
-	msgReceived := make(chan *sdk.Message, 10)
-
-	client := sdk.NewClient(sdk.Options{
+	msgReceived := make(chan *sdk.Message, 1)
+	receiver := sdk.NewClient(sdk.Options{
 		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
+		Token:             token2,
+		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
 		RequestTimeout:    5 * time.Second,
 		AutoAck:           true,
 		OnMessage: func(msg *sdk.Message) {
-			receivedMsgs.Store(msg.MsgID, msg)
-			msgReceived <- msg
+			select {
+			case msgReceived <- msg:
+			default:
+			}
 		},
 	})
-	defer client.Close()
+	defer receiver.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("sdk connect failed: %v", err)
+	if err := receiver.Connect(ctx); err != nil {
+		t.Fatalf("receiver connect failed: %v", err)
 	}
 
-	// Broadcast a message to the user via the manager directly
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				MsgId:     12345,
-				Topic:     "p2p_1_2",
-				SenderId:  2,
-				MsgType:   int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:   []byte("test push message"),
-				Timestamp: time.Now().Unix(),
-				TopicSeq:  1,
-			},
-		},
+	sender := sdk.NewClient(sdk.Options{
+		GatewayURL:        testWSURL,
+		Token:             token1,
+		DeviceID:          "sdk-sender",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+	})
+	defer sender.Close()
+
+	if err := sender.Connect(ctx); err != nil {
+		t.Fatalf("sender connect failed: %v", err)
 	}
 
-	sent := ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	if sent != 1 {
-		t.Fatalf("expected broadcast to 1 device, got %d", sent)
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+	if _, err := sender.SendText(sendCtx, topic, "hello via sdk"); err != nil {
+		t.Fatalf("sender send failed: %v", err)
 	}
 
-	// Wait for message callback
 	select {
 	case msg := <-msgReceived:
-		if msg.Topic != "p2p_1_2" {
-			t.Fatalf("expected topic=p2p_1_2, got %s", msg.Topic)
+		if msg.Topic != topic {
+			t.Fatalf("expected topic=%s, got %s", topic, msg.Topic)
 		}
-		if string(msg.Content) != "test push message" {
-			t.Fatalf("expected content='test push message', got %s", string(msg.Content))
+		if string(msg.Content) != "hello via sdk" {
+			t.Fatalf("expected content='hello via sdk', got %s", string(msg.Content))
 		}
-		if msg.TopicSeq != 1 {
-			t.Fatalf("expected topicSeq=1, got %d", msg.TopicSeq)
+		if msg.TopicSeq == 0 {
+			t.Fatal("expected non-zero topicSeq")
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("message callback not fired within timeout")
 	}
 }
 
-// TestSDK_Reconnect verifies auto-reconnect works after connection drops.
+func TestSDK_MessageDeduplication(t *testing.T) {
+	ts := setupTestServer(t, true)
+	defer ts.stop()
+
+	token1, userID1 := registerAndLogin(t, "sdk-dedup-sender", "123456")
+	token2, userID2 := registerAndLogin(t, "sdk-dedup-receiver", "123456")
+	topic := sdk.P2PTopic(userID1, userID2)
+
+	var msgCount atomic.Int32
+	msgReceived := make(chan *sdk.Message, 2)
+
+	receiver := sdk.NewClient(sdk.Options{
+		GatewayURL:        testWSURL,
+		Token:             token2,
+		DeviceID:          "sdk-receiver",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+		AutoAck:           true,
+		OnMessage: func(msg *sdk.Message) {
+			msgCount.Add(1)
+			select {
+			case msgReceived <- msg:
+			default:
+			}
+		},
+	})
+	defer receiver.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := receiver.Connect(ctx); err != nil {
+		t.Fatalf("receiver connect failed: %v", err)
+	}
+
+	sender := sdk.NewClient(sdk.Options{
+		GatewayURL:        testWSURL,
+		Token:             token1,
+		DeviceID:          "sdk-sender",
+		HeartbeatInterval: 5 * time.Second,
+		RequestTimeout:    5 * time.Second,
+	})
+	defer sender.Close()
+
+	if err := sender.Connect(ctx); err != nil {
+		t.Fatalf("sender connect failed: %v", err)
+	}
+
+	clientMsgID := "dedup-sdk-001"
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer sendCancel()
+
+	if _, err := sender.Realtime.SendMessage(sendCtx, topic, v1.MsgType_MSG_TYPE_TEXT, []byte("dedup test"), clientMsgID); err != nil {
+		t.Fatalf("first send failed: %v", err)
+	}
+	if _, err := sender.Realtime.SendMessage(sendCtx, topic, v1.MsgType_MSG_TYPE_TEXT, []byte("dedup test"), clientMsgID); err != nil {
+		t.Fatalf("second send failed: %v", err)
+	}
+
+	select {
+	case <-msgReceived:
+	case <-time.After(15 * time.Second):
+		t.Fatal("first message callback not fired")
+	}
+
+	select {
+	case <-msgReceived:
+		t.Fatal("duplicate message should have been deduplicated")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	if msgCount.Load() != 1 {
+		t.Fatalf("expected exactly 1 message callback, got %d", msgCount.Load())
+	}
+}
+
 func TestSDK_Reconnect(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -345,107 +397,26 @@ func TestSDK_Reconnect(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Wait for initial connection
 	select {
 	case <-connected:
-		// connected
 	case <-time.After(3 * time.Second):
 		t.Fatal("initial connect callback not fired")
 	}
 
-	// Simulate connection drop by closing from server side
-	// The SDK should reconnect automatically
-	// We'll check if the connection remains alive after some time
 	time.Sleep(2 * time.Second)
 
-	// Client should still be connected (either original or reconnected)
 	if !client.IsConnected() {
 		t.Fatal("client should still be connected after potential reconnect")
 	}
 }
 
-// TestSDK_MessageDeduplication verifies duplicate push messages are deduplicated.
-func TestSDK_MessageDeduplication(t *testing.T) {
+func TestSDK_SendMessage_Ack(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, userID := registerAndLogin(t, "sdk-dedup-user", "123456")
-
-	var msgCount atomic.Int32
-	msgReceived := make(chan *sdk.Message, 10)
-
-	client := sdk.NewClient(sdk.Options{
-		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
-		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
-		AutoAck:           true,
-		OnMessage: func(msg *sdk.Message) {
-			msgCount.Add(1)
-			msgReceived <- msg
-		},
-	})
-	defer client.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := client.Connect(ctx); err != nil {
-		t.Fatalf("sdk connect failed: %v", err)
-	}
-
-	// Broadcast the same message twice
-	broadcastPacket := &v1.Packet{
-		Cmd: v1.Command_CMD_NOTIFY,
-		Seq: 99,
-		Payload: &v1.Packet_Notify{
-			Notify: &v1.MessagePush{
-				MsgId:     12345,
-				Topic:     "p2p_1_2",
-				SenderId:  2,
-				MsgType:   int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:   []byte("dedup test"),
-				Timestamp: time.Now().Unix(),
-				TopicSeq:  1,
-			},
-		},
-	}
-
-	ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-	ts.gwManager.BroadcastToUser(userID, broadcastPacket)
-
-	// Wait for first message
-	select {
-	case <-msgReceived:
-		// received first
-	case <-time.After(3 * time.Second):
-		t.Fatal("first message callback not fired")
-	}
-
-	// Wait a bit to see if duplicate arrives
-	select {
-	case <-msgReceived:
-		t.Fatal("duplicate message should have been deduplicated")
-	case <-time.After(500 * time.Millisecond):
-		// good, no duplicate
-	}
-
-	if msgCount.Load() != 1 {
-		t.Fatalf("expected exactly 1 message callback, got %d", msgCount.Load())
-	}
-}
-
-// TestSDK_SendAndPull_E2E verifies a basic send + pull flow works end-to-end.
-func TestSDK_SendAndPull_E2E(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	// Create two users
 	token1, _ := registerAndLogin(t, "sdk-e2e-user1", "123456")
 	token2, _ := registerAndLogin(t, "sdk-e2e-user2", "123456")
 
-	// User1 connects
 	client1 := sdk.NewClient(sdk.Options{
 		GatewayURL:        testWSURL,
 		Token:             token1,
@@ -462,7 +433,6 @@ func TestSDK_SendAndPull_E2E(t *testing.T) {
 		t.Fatalf("client1 connect failed: %v", err)
 	}
 
-	// User2 connects
 	client2 := sdk.NewClient(sdk.Options{
 		GatewayURL:        testWSURL,
 		Token:             token2,
@@ -476,7 +446,6 @@ func TestSDK_SendAndPull_E2E(t *testing.T) {
 		t.Fatalf("client2 connect failed: %v", err)
 	}
 
-	// User1 sends a message
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
@@ -489,7 +458,6 @@ func TestSDK_SendAndPull_E2E(t *testing.T) {
 	}
 }
 
-// TestSDK_SendMessage_WithMentions verifies send with mentions works.
 func TestSDK_SendMessage_WithMentions(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -524,7 +492,6 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 	}
 }
 
-// TestSDK_ConcurrentSend verifies concurrent message sending is safe.
 func TestSDK_ConcurrentSend(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -547,7 +514,6 @@ func TestSDK_ConcurrentSend(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
-	// Send messages concurrently
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
 

@@ -30,7 +30,7 @@ type GatewayNodeInfo struct {
 // It is implemented by GatewayRouter and can be mocked in tests.
 type Router interface {
 	ResolveUserNodes(ctx context.Context, userIDs []int64) (map[string][]int64, error)
-	ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) map[string][]int64
+	ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) (map[string][]int64, error)
 	GetAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, error)
 	GetAliveNodesMap(ctx context.Context) (map[string]*GatewayNodeInfo, error)
 }
@@ -74,15 +74,17 @@ func (r *GatewayRouter) ResolveUserNodes(ctx context.Context, userIDs []int64) (
 		r.log.Warnf("resolve user nodes failed: get alive nodes err=%v", err)
 		return nil, err
 	}
-	return r.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes), nil
+	return r.ResolveUserNodesWithNodes(ctx, userIDs, aliveNodes)
 }
 
 // ResolveUserNodesWithNodes is like ResolveUserNodes but uses the provided
 // alive node list instead of fetching it from Redis. This avoids repeated
 // Redis round-trips when the caller already has the node list.
-func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) map[string][]int64 {
+// It returns an error if the Redis pipeline fails so callers can distinguish
+// "all users offline" from "routing lookup failed".
+func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs []int64, aliveNodes []*GatewayNodeInfo) (map[string][]int64, error) {
 	if r.redis == nil || len(userIDs) == 0 {
-		return map[string][]int64{}
+		return map[string][]int64{}, nil
 	}
 
 	aliveSet := make(map[string]struct{}, len(aliveNodes))
@@ -99,7 +101,7 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		r.log.Warnf("resolve user nodes pipeline failed: err=%v", err)
-		return map[string][]int64{}
+		return nil, fmt.Errorf("resolve user nodes pipeline: %w", err)
 	}
 
 	result := make(map[string][]int64)
@@ -127,7 +129,7 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.
