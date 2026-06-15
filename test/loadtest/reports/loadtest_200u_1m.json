@@ -1,0 +1,40 @@
+{
+  "users": 68,
+  "duration_sec": 30,
+  "msg_rate_per_user": 1,
+  "msg_size": 128,
+  "total_sent": 2231,
+  "total_acked": 2039,
+  "total_pushed": 2231,
+  "total_receipts": 2039,
+  "send_failures": 0,
+  "auth_failures": 132,
+  "connect_failures": 0,
+  "ack_latency_ms": {
+    "count": 2039,
+    "min_ms": 100.042,
+    "max_ms": 114.858,
+    "mean_ms": 104.952,
+    "p50_ms": 104.041,
+    "p95_ms": 111.464,
+    "p99_ms": 113.575
+  },
+  "push_latency_ms": {
+    "count": 0,
+    "min_ms": 0,
+    "max_ms": 0,
+    "mean_ms": 0,
+    "p50_ms": 0,
+    "p95_ms": 0,
+    "p99_ms": 0
+  },
+  "receipt_latency_ms": {
+    "count": 2039,
+    "min_ms": 107.364,
+    "max_ms": 747.497,
+    "mean_ms": 367.511,
+    "p50_ms": 366.307,
+    "p95_ms": 622.153,
+    "p99_ms": 688.781
+  }
+}

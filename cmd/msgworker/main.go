@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +13,7 @@ import (
 
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 
 	"github.com/go-kratos/kratos/v2/config"
@@ -122,16 +125,17 @@ func main() {
 	}
 
 	// Build dependencies
+	m := metrics.NewMetrics()
 	seqGen := msgworker.NewSeqGenerator(redisClient, logger)
 	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(mongoDB, logger)
+	storage := msgworker.NewMessageStorage(mongoDB, logger, m)
 	storage.SetRedis(redisClient)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ensure indexes: %v", err))
 		os.Exit(1)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher([]string{gatewayAddr}, logger)
+	pusher, err := msgworker.NewGatewayPusher([]string{gatewayAddr}, logger, m)
 	if err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
 		os.Exit(1)
@@ -157,7 +161,27 @@ func main() {
 		storage,
 		pusher,
 		logger,
+		m,
 	)
+
+	// Start a small HTTP server for Prometheus metrics and pprof.
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = "0.0.0.0:18001"
+	}
+	metricsSrv := &http.Server{Addr: metricsAddr, Handler: nil}
+	http.Handle("/metrics", m.Handler())
+	go func() {
+		logger.Log(log.LevelInfo, "msg", fmt.Sprintf("msgworker metrics server listening on %s", metricsAddr))
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("metrics server error: %v", err))
+		}
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = metricsSrv.Shutdown(shutdownCtx)
+	}()
 
 	// Wire push retry queue so failed online pushes are retried asynchronously.
 	if pusher != nil {

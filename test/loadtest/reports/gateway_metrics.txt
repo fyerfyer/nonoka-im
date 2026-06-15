@@ -1,0 +1,96 @@
+# HELP nonoka_gateway_active_connections Number of active WebSocket connections.
+# TYPE nonoka_gateway_active_connections gauge
+nonoka_gateway_active_connections 0
+# HELP nonoka_gateway_connections_total Total number of WebSocket connections accepted.
+# TYPE nonoka_gateway_connections_total counter
+nonoka_gateway_connections_total 696
+# HELP nonoka_gateway_messages_published_total Total number of messages published by clients.
+# TYPE nonoka_gateway_messages_published_total counter
+nonoka_gateway_messages_published_total 22477
+# HELP nonoka_gateway_messages_pushed_total Total number of messages pushed to online users.
+# TYPE nonoka_gateway_messages_pushed_total counter
+nonoka_gateway_messages_pushed_total 53442
+# HELP nonoka_gateway_publish_latency_seconds Latency of client publish to Kafka ACK.
+# TYPE nonoka_gateway_publish_latency_seconds histogram
+nonoka_gateway_publish_latency_seconds_bucket{le="0.001"} 0
+nonoka_gateway_publish_latency_seconds_bucket{le="0.002"} 104
+nonoka_gateway_publish_latency_seconds_bucket{le="0.004"} 1249
+nonoka_gateway_publish_latency_seconds_bucket{le="0.008"} 6208
+nonoka_gateway_publish_latency_seconds_bucket{le="0.016"} 10523
+nonoka_gateway_publish_latency_seconds_bucket{le="0.032"} 12335
+nonoka_gateway_publish_latency_seconds_bucket{le="0.064"} 12800
+nonoka_gateway_publish_latency_seconds_bucket{le="0.128"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="0.256"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="0.512"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="1.024"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="2.048"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="4.096"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="8.192"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="16.384"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="32.768"} 22477
+nonoka_gateway_publish_latency_seconds_bucket{le="+Inf"} 22477
+nonoka_gateway_publish_latency_seconds_sum 1148.8480468430012
+nonoka_gateway_publish_latency_seconds_count 22477
+# HELP nonoka_gateway_push_latency_seconds Latency of pushing a message to online users.
+# TYPE nonoka_gateway_push_latency_seconds histogram
+nonoka_gateway_push_latency_seconds_bucket{le="0.0001"} 53392
+nonoka_gateway_push_latency_seconds_bucket{le="0.0002"} 53420
+nonoka_gateway_push_latency_seconds_bucket{le="0.0004"} 53436
+nonoka_gateway_push_latency_seconds_bucket{le="0.0008"} 53439
+nonoka_gateway_push_latency_seconds_bucket{le="0.0016"} 53441
+nonoka_gateway_push_latency_seconds_bucket{le="0.0032"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.0064"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.0128"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.0256"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.0512"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.1024"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.2048"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.4096"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="0.8192"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="1.6384"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="3.2768"} 53442
+nonoka_gateway_push_latency_seconds_bucket{le="+Inf"} 53442
+nonoka_gateway_push_latency_seconds_sum 0.49989427400000147
+nonoka_gateway_push_latency_seconds_count 53442
+# HELP nonoka_msgworker_messages_consumed_total Total number of messages consumed from Kafka.
+# TYPE nonoka_msgworker_messages_consumed_total counter
+nonoka_msgworker_messages_consumed_total 0
+# HELP nonoka_msgworker_messages_duplicate_total Total number of duplicate messages ignored.
+# TYPE nonoka_msgworker_messages_duplicate_total counter
+nonoka_msgworker_messages_duplicate_total 0
+# HELP nonoka_msgworker_messages_processed_total Total number of messages successfully processed.
+# TYPE nonoka_msgworker_messages_processed_total counter
+nonoka_msgworker_messages_processed_total 0
+# HELP nonoka_msgworker_mongo_ops_total Total number of MongoDB operations by collection and operation.
+# TYPE nonoka_msgworker_mongo_ops_total counter
+nonoka_msgworker_mongo_ops_total{collection="delivery_status",op="update"} 17816
+# HELP nonoka_msgworker_processing_latency_seconds Latency of processing a Kafka message end-to-end.
+# TYPE nonoka_msgworker_processing_latency_seconds histogram
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.001"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.002"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.004"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.008"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.016"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.032"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.064"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.128"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.256"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="0.512"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="1.024"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="2.048"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="4.096"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="8.192"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="16.384"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="32.768"} 0
+nonoka_msgworker_processing_latency_seconds_bucket{le="+Inf"} 0
+nonoka_msgworker_processing_latency_seconds_sum 0
+nonoka_msgworker_processing_latency_seconds_count 0
+# HELP nonoka_msgworker_push_attempts_total Total number of push attempts to online users.
+# TYPE nonoka_msgworker_push_attempts_total counter
+nonoka_msgworker_push_attempts_total 0
+# HELP nonoka_msgworker_push_failed_total Total number of failed push attempts.
+# TYPE nonoka_msgworker_push_failed_total counter
+nonoka_msgworker_push_failed_total 0
+# HELP nonoka_msgworker_push_retry_total Total number of push retries scheduled.
+# TYPE nonoka_msgworker_push_retry_total counter
+nonoka_msgworker_push_retry_total 0

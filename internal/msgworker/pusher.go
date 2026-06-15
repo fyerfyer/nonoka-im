@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
@@ -45,13 +46,14 @@ type GatewayPusher struct {
 	dynamicConns map[string]*gatewayConn // addr -> conn
 	dynamicMu    sync.RWMutex
 
-	log    *log.Helper
-	connMu sync.RWMutex
+	metrics *metrics.Metrics
+	log     *log.Helper
+	connMu  sync.RWMutex
 }
 
 // NewGatewayPusher creates a new GatewayPusher with support for multiple gateway addresses.
 // The provided addresses are used as static fallback when no GatewayRouter is configured.
-func NewGatewayPusher(gatewayAddrs []string, logger log.Logger) (*GatewayPusher, error) {
+func NewGatewayPusher(gatewayAddrs []string, logger log.Logger, m ...*metrics.Metrics) (*GatewayPusher, error) {
 	if len(gatewayAddrs) == 0 {
 		return nil, fmt.Errorf("at least one gateway address is required")
 	}
@@ -59,6 +61,9 @@ func NewGatewayPusher(gatewayAddrs []string, logger log.Logger) (*GatewayPusher,
 	p := &GatewayPusher{
 		log:          log.NewHelper(logger),
 		dynamicConns: make(map[string]*gatewayConn),
+	}
+	if len(m) > 0 {
+		p.metrics = m[0]
 	}
 
 	for _, addr := range gatewayAddrs {
@@ -91,6 +96,10 @@ func (p *GatewayPusher) SetRouter(router Router) {
 // When a router is configured, it pushes only to the node hosting the user's session.
 // If the router fails (e.g., Redis unavailable), it falls back to the static gateway list.
 func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
+	start := time.Now()
+	defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
+	p.metrics.IncPushAttempts()
+
 	if p.router != nil {
 		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
 		if err != nil {
@@ -369,6 +378,10 @@ func (p *GatewayPusher) isDynamicConnUsable(gc *gatewayConn) bool {
 // PushReceiptToUser delivers a send receipt to a single user.
 // If the router is unavailable, it falls back to the static gateway list.
 func (p *GatewayPusher) PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
+	start := time.Now()
+	defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
+	p.metrics.IncPushAttempts()
+
 	if p.router != nil {
 		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
 		if err != nil {

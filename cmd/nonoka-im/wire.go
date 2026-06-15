@@ -15,6 +15,7 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
@@ -204,14 +205,19 @@ func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 }
 
 // provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
-func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.MessageStorage, error) {
-	storage := msgworker.NewMessageStorage(db, logger)
+func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*msgworker.MessageStorage, error) {
+	storage := msgworker.NewMessageStorage(db, logger, m)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		return nil, fmt.Errorf("ensure mongodb indexes: %w", err)
 	}
 	return storage, nil
+}
+
+// provideMetrics creates a Prometheus metrics collector.
+func provideMetrics() *metrics.Metrics {
+	return metrics.NewMetrics()
 }
 
 // provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.
@@ -249,6 +255,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideKafkaConfig,
 		provideMongoDB,
 		provideMessageStorage,
+		provideMetrics,
 		newApp,
 	))
 }

@@ -18,6 +18,7 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
@@ -42,7 +43,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	authService := service.NewAuthService(authUsecase)
 	universalClient := provideRedisClient(dataData)
 	dispatchService := service.NewDispatchService(universalClient, dispatch, logger)
-	manager := gateway.NewManager(logger)
+	metricsCollector := provideMetrics()
+	manager := gateway.NewManager(logger, metricsCollector)
 	pushService := service.NewPushService(manager, logger)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, pushService, auth, logger)
 	database, cleanup2, err := provideMongoDB(confData)
@@ -50,7 +52,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
-	messageStorage, err := provideMessageStorage(database, logger)
+	messageStorage, err := provideMessageStorage(database, logger, metricsCollector)
 	if err != nil {
 		cleanup2()
 		cleanup()
@@ -63,9 +65,9 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	v := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger)
+	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger, metricsCollector)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger, metricsCollector)
 	nodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, nodeID)
 	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, nodeID)
@@ -256,14 +258,19 @@ func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 }
 
 // provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
-func provideMessageStorage(db *mongo.Database, logger log.Logger) (*msgworker.MessageStorage, error) {
-	storage := msgworker.NewMessageStorage(db, logger)
+func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*msgworker.MessageStorage, error) {
+	storage := msgworker.NewMessageStorage(db, logger, m)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		return nil, fmt.Errorf("ensure mongodb indexes: %w", err)
 	}
 	return storage, nil
+}
+
+// provideMetrics creates a Prometheus metrics collector.
+func provideMetrics() *metrics.Metrics {
+	return metrics.NewMetrics()
 }
 
 // provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.

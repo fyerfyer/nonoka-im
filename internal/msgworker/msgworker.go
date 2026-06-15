@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -30,6 +31,7 @@ type MsgWorker struct {
 	pusher          Pusher
 	groupMemberSvc  GroupMemberService
 	retryQueue      *PushRetryQueue
+	metrics         *metrics.Metrics
 	log             *log.Helper
 }
 
@@ -52,8 +54,9 @@ func NewMsgWorker(
 	storage *MessageStorage,
 	pusher Pusher,
 	logger log.Logger,
+	m ...*metrics.Metrics,
 ) *MsgWorker {
-	return &MsgWorker{
+	w := &MsgWorker{
 		consumer:  consumer,
 		seqGen:    seqGen,
 		snowflake: snowflake,
@@ -61,6 +64,10 @@ func NewMsgWorker(
 		pusher:    pusher,
 		log:       log.NewHelper(logger),
 	}
+	if len(m) > 0 {
+		w.metrics = m[0]
+	}
+	return w
 }
 
 // SetGroupMemberService configures the group member service for group message
@@ -111,12 +118,15 @@ func (w *MsgWorker) SetRetryQueue(q *PushRetryQueue) {
 
 // HandleMessage is the Kafka message handler entry point.
 func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) (err error) {
+	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
 			w.log.Errorf("HandleMessage panic recovered: %v", r)
 			err = fmt.Errorf("panic recovered: %v", r)
 		}
 	}()
+
+	w.metrics.IncMessagesConsumed()
 
 	var upstream pb.UpstreamMessage
 	if err = proto.Unmarshal(value, &upstream); err != nil {
@@ -226,6 +236,8 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 	// seq was not used by a real message; backing it up would create a gap
 	// between the max seq and the actual latest message.
 	if isDuplicate {
+		w.metrics.IncMessagesDuplicate()
+		w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
 		w.log.Debugf("duplicate message handled idempotently: client_msg_id=%s", upstream.GetClientMsgId())
 		return nil
 	}
@@ -272,6 +284,8 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		}
 	}
 
+	w.metrics.IncMessagesProcessed()
+	w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
 	w.log.Debugf("message processed: msg_id=%d topic=%s seq=%d", msgID, upstream.GetTopic(), topicSeq)
 	return nil
 }

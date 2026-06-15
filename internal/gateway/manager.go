@@ -5,6 +5,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/protobuf/proto"
@@ -30,19 +31,23 @@ func newConnShard() *connShard {
 // Manager manages all active WebSocket connections using sharded maps.
 // It supports multi-device login: one user can have multiple connections.
 type Manager struct {
-	shards [shardCount]*connShard
-	log    *log.Helper
+	shards  [shardCount]*connShard
+	metrics *metrics.Metrics
+	log     *log.Helper
 }
 
 // NewManager creates a new connection manager.
-func NewManager(logger log.Logger) *Manager {
-	m := &Manager{
+func NewManager(logger log.Logger, m ...*metrics.Metrics) *Manager {
+	mgr := &Manager{
 		log: log.NewHelper(logger),
 	}
-	for i := range shardCount {
-		m.shards[i] = newConnShard()
+	if len(m) > 0 {
+		mgr.metrics = m[0]
 	}
-	return m
+	for i := range shardCount {
+		mgr.shards[i] = newConnShard()
+	}
+	return mgr
 }
 
 func (m *Manager) getShard(userID int64) *connShard {
@@ -87,6 +92,8 @@ func (m *Manager) Add(c *Connection) {
 	}
 	shard.users[c.UserID()][c.ConnID()] = struct{}{}
 
+	m.metrics.IncConnectionsTotal()
+	m.metrics.AddActiveConnections(1)
 	m.log.Infof("connection added: user_id=%d conn_id=%s device_id=%s", c.UserID(), c.ConnID(), c.DeviceID())
 }
 
@@ -107,6 +114,7 @@ func (m *Manager) Remove(c *Connection) {
 		}
 	}
 
+	m.metrics.AddActiveConnections(-1)
 	m.log.Infof("connection removed: user_id=%d conn_id=%s", c.UserID(), c.ConnID())
 }
 
@@ -177,6 +185,7 @@ func (m *Manager) BroadcastToUser(userID int64, packet *v1.Packet) int {
 // BroadcastToUserRaw sends pre-marshaled data to all devices of a user.
 // The caller must ensure data is not modified after this call.
 func (m *Manager) BroadcastToUserRaw(userID int64, data []byte) int {
+	start := time.Now()
 	conns := m.GetAll(userID)
 	if len(conns) == 0 {
 		return 0
@@ -191,6 +200,9 @@ func (m *Manager) BroadcastToUserRaw(userID int64, data []byte) int {
 		}
 		sent++
 	}
+
+	m.metrics.ObservePushLatency(time.Since(start).Seconds())
+	m.metrics.AddMessagesPushed(float64(sent))
 	return sent
 }
 

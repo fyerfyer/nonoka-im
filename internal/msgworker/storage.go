@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -96,22 +97,39 @@ type DeliveryStatus struct {
 
 // MessageStorage handles MongoDB persistence for messages.
 type MessageStorage struct {
-	db    *mongo.Database
-	redis redis.UniversalClient
-	log   *log.Helper
+	db      *mongo.Database
+	redis   redis.UniversalClient
+	metrics *metrics.Metrics
+	log     *log.Helper
 }
 
 // NewMessageStorage creates a new MessageStorage.
-func NewMessageStorage(db *mongo.Database, logger log.Logger) *MessageStorage {
-	return &MessageStorage{
+func NewMessageStorage(db *mongo.Database, logger log.Logger, m ...*metrics.Metrics) *MessageStorage {
+	s := &MessageStorage{
 		db:  db,
 		log: log.NewHelper(logger),
 	}
+	if len(m) > 0 {
+		s.metrics = m[0]
+	}
+	return s
+}
+
+// SetMetrics configures the metrics collector for storage operations.
+func (s *MessageStorage) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
 }
 
 // SetRedis configures an optional Redis client for caches (e.g., sender lookup).
 func (s *MessageStorage) SetRedis(redis redis.UniversalClient) {
 	s.redis = redis
+}
+
+// incMongoOp increments the MongoDB operation counter if metrics is configured.
+func (s *MessageStorage) incMongoOp(collection, op string) {
+	if s.metrics != nil {
+		s.metrics.IncMongoOps(collection, op)
+	}
 }
 
 // senderCacheKey returns the Redis key for caching a message's sender.
@@ -358,6 +376,7 @@ func IsDuplicateError(err error) bool {
 // Writes the message to the receiver's inbox.
 // Returns isDuplicate=true if the message already exists (idempotent).
 func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, bool, error) {
+	s.incMongoOp(CollectionInboxes, "insert")
 	uid1, uid2, err := ExtractUserIDsFromP2PTopic(msg.GetTopic())
 	if err != nil {
 		return nil, false, err
@@ -429,6 +448,7 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 // Only stores one copy in the group messages collection.
 // Returns isDuplicate=true if the message already exists (idempotent).
 func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) (bool, error) {
+	s.incMongoOp(CollectionMessages, "insert")
 	now := time.Now()
 	stored := &StoredMessage{
 		MsgID:       msgID,
@@ -460,6 +480,7 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 // SaveSystemMessage saves a system notification using write扩散.
 // Returns isDuplicate=true if the message already exists (idempotent).
 func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) ([]int64, bool, error) {
+	s.incMongoOp(CollectionInboxes, "insert")
 	parts := strings.Split(msg.GetTopic(), "_")
 	if len(parts) != 2 {
 		return nil, false, fmt.Errorf("invalid system topic format: %s", msg.GetTopic())
@@ -501,6 +522,7 @@ func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.Upstream
 // BackupTopicSeq saves the current max seq for a topic to MongoDB as a fallback.
 // Uses $max for atomic concurrency-safe updates.
 func (s *MessageStorage) BackupTopicSeq(ctx context.Context, topic string, seq uint64) error {
+	s.incMongoOp(CollectionTopicSeqs, "update")
 	filter := bson.M{"topic": topic}
 	update := bson.M{
 		"$max": bson.M{
@@ -528,6 +550,7 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 		return nil
 	}
 
+	s.incMongoOp(CollectionMentionInboxes, "insert")
 	now := time.Now()
 	var docs []interface{}
 	for _, uid := range mentionedUserIDs {
@@ -575,6 +598,7 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 // For P2P/system topics, queries the inbox collection.
 // For group topics, also queries the messages collection (read扩散) and merges results.
 func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*InboxMessage, error) {
+	s.incMongoOp(CollectionInboxes, "find")
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -654,6 +678,7 @@ func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, t
 
 // GetGroupMessages retrieves group messages with seq > lastSeq.
 func (s *MessageStorage) GetGroupMessages(ctx context.Context, topic string, lastSeq uint64, limit int) ([]*StoredMessage, error) {
+	s.incMongoOp(CollectionMessages, "find")
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -681,6 +706,7 @@ func (s *MessageStorage) GetGroupMessages(ctx context.Context, topic string, las
 
 // GetMentionMessages retrieves unread @mention messages for a user.
 func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*MentionMessage, error) {
+	s.incMongoOp(CollectionMentionInboxes, "find")
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -726,6 +752,7 @@ func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint
 // collection contains the message, it falls back to delivery_status for read扩散
 // group messages. This keeps the common case to a single parallel round-trip.
 func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64, topic string, topicSeq uint64) error {
+	s.incMongoOp(CollectionDeliveryStatus, "update")
 	now := time.Now()
 	filter := bson.M{"user_id": userID, "topic": topic, "topic_seq": topicSeq}
 	update := bson.M{"$set": bson.M{"delivered_at": now}}
@@ -794,6 +821,7 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 // UpdateReadStatus marks messages as read up to a certain seq for a user.
 // It updates both inbox and mention_inbox collections.
 func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, topic string, upToSeq uint64) error {
+	s.incMongoOp(CollectionInboxes, "update")
 	now := time.Now()
 	filter := bson.M{
 		"user_id":   userID,
