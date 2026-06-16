@@ -52,14 +52,33 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 		return nil, nil, err
 	}
 
-	// Configure connection pool
+	// Configure connection pool with sensible defaults tuned for IM workloads.
+	// These can be overridden via config.data.database.* to handle higher
+	// concurrency during login/register bursts.
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, nil, err
 	}
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+
+	maxOpenConns := 200
+	maxIdleConns := 50
+	connMaxLifetime := 30 * time.Minute
+
+	if c.Database != nil {
+		if c.Database.MaxOpenConns > 0 {
+			maxOpenConns = int(c.Database.MaxOpenConns)
+		}
+		if c.Database.MaxIdleConns > 0 {
+			maxIdleConns = int(c.Database.MaxIdleConns)
+		}
+		if c.Database.ConnMaxLifetime != nil {
+			connMaxLifetime = c.Database.ConnMaxLifetime.AsDuration()
+		}
+	}
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
 
 	// Auto-migrate schema
 	if err := db.AutoMigrate(&User{}, &GroupMember{}); err != nil {

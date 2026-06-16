@@ -43,13 +43,20 @@ type client struct {
 	seq    uint64
 	writeMu sync.Mutex
 
-	publishStarted   map[string]time.Time
-	publishStartedMu sync.Mutex
+	// publishStarted tracks when each message was sent.
+	// Using sync.Map removes lock contention between sendLoop and processLoop.
+	publishStarted *sync.Map
 
-	ackLatencies         []float64
-	pushLatencies        []float64
-	receiptLatencies     []float64
-	mu                   sync.Mutex
+	// packetCh decouples raw WebSocket reads from protobuf parsing/statistics.
+	packetCh chan []byte
+
+	// Latency slices are only touched by processLoop and main after shutdown.
+	ackLatencies     []float64
+	pushLatencies    []float64
+	receiptLatencies []float64
+
+	// processLoop completion signal.
+	doneCh chan struct{}
 }
 
 type summary struct {
@@ -70,13 +77,13 @@ type summary struct {
 }
 
 type latencies struct {
-	Count int       `json:"count"`
-	Min   float64   `json:"min_ms"`
-	Max   float64   `json:"max_ms"`
-	Mean  float64   `json:"mean_ms"`
-	P50   float64   `json:"p50_ms"`
-	P95   float64   `json:"p95_ms"`
-	P99   float64   `json:"p99_ms"`
+	Count int     `json:"count"`
+	Min   float64 `json:"min_ms"`
+	Max   float64 `json:"max_ms"`
+	Mean  float64 `json:"mean_ms"`
+	P50   float64 `json:"p50_ms"`
+	P95   float64 `json:"p95_ms"`
+	P99   float64 `json:"p99_ms"`
 }
 
 func main() {
@@ -105,7 +112,7 @@ func main() {
 
 	fmt.Println("Registering and logging in users...")
 	// Limit concurrent register/login to avoid overwhelming the auth DB pool.
-	setupSem := make(chan struct{}, 20)
+	setupSem := make(chan struct{}, 50)
 	var setupWg sync.WaitGroup
 	for i := 0; i < *users; i++ {
 		setupWg.Add(1)
@@ -122,7 +129,9 @@ func main() {
 				atomic.AddInt64(&authFailures, 1)
 				return
 			}
-			c.publishStarted = make(map[string]time.Time)
+			c.publishStarted = new(sync.Map)
+			c.packetCh = make(chan []byte, 4096)
+			c.doneCh = make(chan struct{})
 			if err := c.connectAndAuth(*wsURL); err != nil {
 				fmt.Printf("user %d connect/auth failed: %v\n", idx, err)
 				atomic.AddInt64(&connectFailures, 1)
@@ -145,12 +154,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start readers for all clients.
+	// Start readers and processors for all clients.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var processWg sync.WaitGroup
 	for _, c := range clients {
 		if c != nil {
-			go c.readLoop(ctx, &totalAcked, &totalPushed, &totalReceipts)
+			go c.readLoop(ctx)
+			processWg.Add(1)
+			go c.processLoop(ctx, &processWg, &totalAcked, &totalPushed, &totalReceipts)
 		}
 	}
 
@@ -196,7 +209,17 @@ func main() {
 
 	// Allow in-flight packets to arrive.
 	time.Sleep(5 * time.Second)
+
+	// Close connections to unblock readLoop so processLoop can drain quickly.
+	for _, c := range clients {
+		if c != nil {
+			c.conn.Close()
+		}
+	}
 	cancel()
+
+	// Wait for process loops to drain pending packets before collecting stats.
+	processWg.Wait()
 
 	// Collect latencies.
 	var ack, push, receipt []float64
@@ -207,7 +230,6 @@ func main() {
 		ack = append(ack, c.ackLatencies...)
 		push = append(push, c.pushLatencies...)
 		receipt = append(receipt, c.receiptLatencies...)
-		c.conn.Close()
 	}
 
 	report := summary{
@@ -265,7 +287,11 @@ func (c *client) registerAndLogin(hc *http.Client, username, password string) er
 }
 
 func (c *client) connectAndAuth(wsURL string) error {
-	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		ReadBufferSize:   8192,
+		WriteBufferSize:  8192,
+	}
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		return err
@@ -351,25 +377,24 @@ func (c *client) sendLoop(ctx context.Context, idx int, clients []*client, warmu
 		}
 
 		if !warmup {
-			c.publishStartedMu.Lock()
-			c.publishStarted[clientMsgID] = time.Now()
-			c.publishStartedMu.Unlock()
+			c.publishStarted.Store(clientMsgID, time.Now())
 		}
 		if err := c.writePacket(pkt); err != nil {
 			atomic.AddInt64(sendFailures, 1)
-			c.publishStartedMu.Lock()
-			delete(c.publishStarted, clientMsgID)
-			c.publishStartedMu.Unlock()
+			c.publishStarted.Delete(clientMsgID)
 			continue
 		}
 		atomic.AddInt64(totalSent, 1)
 	}
 }
 
-func (c *client) readLoop(ctx context.Context, totalAcked, totalPushed, totalReceipts *int64) {
+// readLoop only reads raw WebSocket frames and forwards them to packetCh.
+// This keeps the hot read path as light as possible.
+func (c *client) readLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			close(c.packetCh)
 			return
 		default:
 		}
@@ -378,43 +403,65 @@ func (c *client) readLoop(ctx context.Context, totalAcked, totalPushed, totalRec
 		_, data, err := c.conn.ReadMessage()
 		_ = c.conn.SetReadDeadline(time.Time{})
 		if err != nil {
+			close(c.packetCh)
 			return
 		}
 
-		var pkt v1.Packet
-		if err := proto.Unmarshal(data, &pkt); err != nil {
-			continue
+		buf := make([]byte, len(data))
+		copy(buf, data)
+		select {
+		case c.packetCh <- buf:
+		case <-ctx.Done():
+			close(c.packetCh)
+			return
 		}
+	}
+}
 
-		switch pkt.Cmd {
-		case v1.Command_CMD_PUBLISH:
-			reply := pkt.GetSendReply()
-			if reply != nil {
-				c.publishStartedMu.Lock()
-				start, ok := c.publishStarted[reply.ClientMsgId]
-				c.publishStartedMu.Unlock()
-				if ok {
-					c.recordAck(time.Since(start).Seconds())
-					atomic.AddInt64(totalAcked, 1)
-				}
+// processLoop parses packets and records statistics. It runs independently of
+// readLoop to avoid blocking the WebSocket read path.
+func (c *client) processLoop(ctx context.Context, wg *sync.WaitGroup, totalAcked, totalPushed, totalReceipts *int64) {
+	defer wg.Done()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case data, ok := <-c.packetCh:
+			if !ok {
+				return
 			}
-		case v1.Command_CMD_NOTIFY:
-			if pkt.GetNotify() != nil {
-				atomic.AddInt64(totalPushed, 1)
+			c.handlePacket(data, totalAcked, totalPushed, totalReceipts)
+		}
+	}
+}
+
+func (c *client) handlePacket(data []byte, totalAcked, totalPushed, totalReceipts *int64) {
+	var pkt v1.Packet
+	if err := proto.Unmarshal(data, &pkt); err != nil {
+		return
+	}
+
+	switch pkt.Cmd {
+	case v1.Command_CMD_PUBLISH:
+		reply := pkt.GetSendReply()
+		if reply != nil {
+			if start, ok := c.publishStarted.Load(reply.ClientMsgId); ok {
+				c.recordAck(time.Since(start.(time.Time)).Seconds())
+				atomic.AddInt64(totalAcked, 1)
 			}
-		case v1.Command_CMD_SEND_RECEIPT:
-			receipt := pkt.GetSendReceipt()
-			if receipt != nil {
-				c.publishStartedMu.Lock()
-				start, ok := c.publishStarted[receipt.ClientMsgId]
-				if ok {
-					delete(c.publishStarted, receipt.ClientMsgId)
-				}
-				c.publishStartedMu.Unlock()
-				if ok {
-					c.recordReceipt(time.Since(start).Seconds())
-					atomic.AddInt64(totalReceipts, 1)
-				}
+		}
+	case v1.Command_CMD_NOTIFY:
+		if pkt.GetNotify() != nil {
+			atomic.AddInt64(totalPushed, 1)
+		}
+	case v1.Command_CMD_SEND_RECEIPT:
+		receipt := pkt.GetSendReceipt()
+		if receipt != nil {
+			if start, ok := c.publishStarted.Load(receipt.ClientMsgId); ok {
+				c.publishStarted.Delete(receipt.ClientMsgId)
+				c.recordReceipt(time.Since(start.(time.Time)).Seconds())
+				atomic.AddInt64(totalReceipts, 1)
 			}
 		}
 	}
@@ -448,8 +495,6 @@ func (c *client) pickReceiver(idx int, clients []*client) *client {
 }
 
 func (c *client) recordAck(sec float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.ackLatencies = append(c.ackLatencies, sec*1000)
 }
 
@@ -457,20 +502,14 @@ func (c *client) recordPush(sec float64) {
 	if sec <= 0 {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.pushLatencies = append(c.pushLatencies, sec*1000)
 }
 
 func (c *client) recordReceipt(sec float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.receiptLatencies = append(c.receiptLatencies, sec*1000)
 }
 
 func (c *client) resetLatencies() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.ackLatencies = c.ackLatencies[:0]
 	c.pushLatencies = c.pushLatencies[:0]
 	c.receiptLatencies = c.receiptLatencies[:0]

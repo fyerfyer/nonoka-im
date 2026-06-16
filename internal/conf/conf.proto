@@ -32,6 +32,9 @@ message Data {
   message Database {
     string driver = 1;
     string source = 2;
+    int32 max_open_conns = 3;
+    int32 max_idle_conns = 4;
+    google.protobuf.Duration conn_max_lifetime = 5;
   }
   message Redis {
     string network = 1;

@@ -17,6 +17,7 @@ import (
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -217,7 +218,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Http: &conf.Server_HTTP{Addr: testHTTPAddr},
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, wsServer, authConf, testLogger)
+	testMetrics := metrics.NewMetrics()
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, wsServer, authConf, testLogger, testMetrics)
 
 	// 8. Start HTTP server in background
 	go func() {

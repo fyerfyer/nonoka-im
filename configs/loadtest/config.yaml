@@ -9,6 +9,9 @@ data:
   database:
     driver: postgres
     source: host=127.0.0.1 user=postgres password=root dbname=nonoka_im_test port=5433 sslmode=disable TimeZone=Asia/Shanghai
+    max_open_conns: 200
+    max_idle_conns: 50
+    conn_max_lifetime: 1800s
   redis:
     addr: 127.0.0.1:6380
     read_timeout: 0.2s
@@ -21,11 +24,11 @@ data:
       - 127.0.0.1:9092
     topic: im-messages
     consumer_group: msgworker-group
-    batch_size: 100
-    batch_timeout: 0.1s
+    batch_size: 1000
+    batch_timeout: 0.01s
     compression: lz4
-    required_acks: all
-    async: false
+    required_acks: one
+    async: true
     max_attempts: 3
     write_timeout: 10s
     read_timeout: 10s

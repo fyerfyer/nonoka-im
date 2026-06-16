@@ -43,8 +43,8 @@ func NewWebSocketServer(handler *Handler, logger log.Logger, readTimeout time.Du
 
 	s.upgrader = websocket.Upgrader{
 		CheckOrigin:     s.buildCheckOrigin(allowedOrigins),
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  8192,
+		WriteBufferSize: 8192,
 	}
 
 	if len(allowedOrigins) == 0 {

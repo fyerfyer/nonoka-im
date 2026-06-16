@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -43,6 +44,12 @@ type GatewayRouter struct {
 	redis   redis.UniversalClient
 	nodeTTL time.Duration
 	log     *log.Helper
+
+	// aliveNodeCache holds a local snapshot of gateway registry entries to
+	// avoid hitting Redis on every push. It is refreshed when stale.
+	aliveNodeCache   []*GatewayNodeInfo
+	aliveNodeCachedAt time.Time
+	cacheMu          sync.RWMutex
 }
 
 var _ Router = (*GatewayRouter)(nil)
@@ -57,6 +64,16 @@ func NewGatewayRouter(redis redis.UniversalClient, nodeTTL time.Duration, logger
 		nodeTTL: nodeTTL,
 		log:     log.NewHelper(logger),
 	}
+}
+
+// cacheTTL returns how long the local alive-node cache remains valid.
+// Using nodeTTL/2 keeps the cache fresh while reducing Redis round-trips.
+func (r *GatewayRouter) cacheTTL() time.Duration {
+	ttl := r.nodeTTL / 2
+	if ttl < 1*time.Second {
+		return 1 * time.Second
+	}
+	return ttl
 }
 
 // ResolveUserNodes returns a mapping from gateway node ID to the list of user
@@ -133,7 +150,43 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.
+// It caches the result locally for a short duration to reduce Redis load.
 func (r *GatewayRouter) GetAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, error) {
+	if r.redis == nil {
+		return nil, nil
+	}
+
+	// Fast path: return cached snapshot if still fresh.
+	r.cacheMu.RLock()
+	cached := r.aliveNodeCache
+	cachedAt := r.aliveNodeCachedAt
+	r.cacheMu.RUnlock()
+	if cached != nil && time.Since(cachedAt) < r.cacheTTL() {
+		return cached, nil
+	}
+
+	// Slow path: refresh from Redis.
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if r.aliveNodeCache != nil && time.Since(r.aliveNodeCachedAt) < r.cacheTTL() {
+		return r.aliveNodeCache, nil
+	}
+
+	nodes, err := r.fetchAliveNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	r.aliveNodeCache = nodes
+	r.aliveNodeCachedAt = time.Now()
+	return nodes, nil
+}
+
+// fetchAliveNodes loads alive gateway nodes from Redis using a single SMembers
+// followed by a pipeline of HGetAll for all node metadata hashes.
+func (r *GatewayRouter) fetchAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, error) {
 	nodeIDs, err := r.redis.SMembers(ctx, gatewayNodesKey).Result()
 	if err != nil {
 		return nil, fmt.Errorf("smembers failed: %w", err)
@@ -145,10 +198,20 @@ func (r *GatewayRouter) GetAliveNodes(ctx context.Context) ([]*GatewayNodeInfo, 
 	now := time.Now()
 	cutoff := now.Add(-r.nodeTTL).Unix()
 
-	nodes := make([]*GatewayNodeInfo, 0, len(nodeIDs))
-	for _, id := range nodeIDs {
+	// Fetch all node metadata in one pipeline to avoid N round-trips.
+	pipe := r.redis.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(nodeIDs))
+	for i, id := range nodeIDs {
 		nodeKey := fmt.Sprintf(gatewayNodeKey, id)
-		vals, err := r.redis.HGetAll(ctx, nodeKey).Result()
+		cmds[i] = pipe.HGetAll(ctx, nodeKey)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("pipeline hgetall failed: %w", err)
+	}
+
+	nodes := make([]*GatewayNodeInfo, 0, len(nodeIDs))
+	for i, id := range nodeIDs {
+		vals, err := cmds[i].Result()
 		if err != nil || len(vals) == 0 {
 			continue
 		}
