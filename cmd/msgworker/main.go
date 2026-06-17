@@ -253,5 +253,11 @@ func msgworkerConfigFromProto(kc *conf.Data_Kafka) msgworker.KafkaConsumerConfig
 	if so := kc.GetStartOffset(); so != 0 {
 		cfg.StartOffset = so
 	}
+	if kc.GetCommitBatchSize() != 0 {
+		cfg.CommitBatchSize = int(kc.GetCommitBatchSize())
+	}
+	if kc.GetCommitFlushInterval() != nil {
+		cfg.CommitFlushInterval = kc.GetCommitFlushInterval().AsDuration()
+	}
 	return cfg
 }

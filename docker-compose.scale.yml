@@ -1,0 +1,136 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - nonoka
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6
+    networks:
+      - nonoka
+
+  postgres:
+    image: postgres:15-alpine
+    hostname: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: nonoka_im
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nonoka
+
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    networks:
+      - nonoka
+
+  mongodb:
+    image: mongo:6-jammy
+    hostname: mongodb
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - nonoka
+
+  gateway-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: gateway-1
+    environment:
+      GATEWAY_NODE_ID: gateway-1
+      GATEWAY_WS_ADDR: ws://gateway-1:8000/ws
+      GATEWAY_GRPC_ADDR: gateway-1:9000
+      METRICS_ADDR: 0.0.0.0:9001
+    command: >
+      sh -c "exec /app/nonoka-im -conf /data/conf/config.docker.yaml -node-id gateway-1"
+    volumes:
+      - ./configs:/data/conf:ro
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - kafka
+    networks:
+      - nonoka
+
+  gateway-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: gateway-2
+    environment:
+      GATEWAY_NODE_ID: gateway-2
+      GATEWAY_WS_ADDR: ws://gateway-2:8000/ws
+      GATEWAY_GRPC_ADDR: gateway-2:9000
+      METRICS_ADDR: 0.0.0.0:9001
+    command: >
+      sh -c "exec /app/nonoka-im -conf /data/conf/config.docker.yaml -node-id gateway-2"
+    volumes:
+      - ./configs:/data/conf:ro
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - kafka
+    networks:
+      - nonoka
+
+  msgworker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      METRICS_ADDR: 0.0.0.0:9001
+    command: >
+      sh -c "exec /app/msgworker -conf /data/conf/config.docker.yaml"
+    volumes:
+      - ./configs:/data/conf:ro
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - kafka
+      - gateway-1
+      - gateway-2
+    deploy:
+      replicas: 2
+    networks:
+      - nonoka
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "18000:80"
+    volumes:
+      - ./configs/nginx-scale.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway-1
+      - gateway-2
+    networks:
+      - nonoka
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  nonoka:
+    driver: bridge

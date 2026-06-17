@@ -114,7 +114,13 @@ func provideKafkaConfig(confData *conf.Data) gateway.KafkaConfig {
 // provideNodeIDString returns the unique node ID as a plain string.
 // This is used by gateway.SessionManager which expects a string.
 func provideNodeIDString() string {
-	nodeID, _ := os.Hostname()
+	nodeID := os.Getenv("GATEWAY_NODE_ID")
+	if nodeID == "" {
+		nodeID = id
+	}
+	if nodeID == "" {
+		nodeID, _ = os.Hostname()
+	}
 	if nodeID == "" {
 		nodeID = "gateway-0"
 	}

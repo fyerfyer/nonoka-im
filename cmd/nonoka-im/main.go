@@ -28,12 +28,15 @@ var (
 	Version = "dev"
 	// flagconf is the config flag.
 	flagconf string
+	// nodeID is the unique gateway node ID. Defaults to hostname.
+	nodeID string
 
 	id, _ = os.Hostname()
 )
 
 func init() {
 	flag.StringVar(&flagconf, "conf", "../../configs", "config path, eg: -conf config.yaml")
+	flag.StringVar(&nodeID, "node-id", "", "gateway node id, defaults to hostname")
 }
 
 func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig) *kratos.App {
@@ -75,6 +78,9 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gatew
 
 func main() {
 	flag.Parse()
+	if nodeID != "" {
+		id = nodeID
+	}
 	logger := log.With(log.NewStdLogger(os.Stdout),
 		"ts", log.DefaultTimestamp,
 		"caller", log.DefaultCaller,

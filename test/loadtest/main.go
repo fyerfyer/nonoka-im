@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,7 @@ import (
 var (
 	baseURL   = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
 	wsURL     = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
+	gateways  = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
 	users     = flag.Int("users", 100, "Number of concurrent users")
 	duration  = flag.Duration("duration", 30*time.Second, "Load test duration")
 	msgRate   = flag.Float64("msg-rate", 1.0, "Messages per second per user")
@@ -107,9 +109,16 @@ func main() {
 		connectFailures int64
 	)
 
+	wsURLs := parseGatewayURLs(*wsURL, *gateways)
+	if len(wsURLs) == 0 {
+		fmt.Println("no WebSocket gateway URLs provided")
+		os.Exit(1)
+	}
+
 	clients := make([]*client, *users)
 	httpClient := &http.Client{Timeout: *timeout}
 
+	fmt.Printf("WebSocket gateways: %v\n", wsURLs)
 	fmt.Println("Registering and logging in users...")
 	// Limit concurrent register/login to avoid overwhelming the auth DB pool.
 	setupSem := make(chan struct{}, 50)
@@ -132,7 +141,7 @@ func main() {
 			c.publishStarted = new(sync.Map)
 			c.packetCh = make(chan []byte, 4096)
 			c.doneCh = make(chan struct{})
-			if err := c.connectAndAuth(*wsURL); err != nil {
+			if err := c.connectAndAuth(wsURLs[idx%len(wsURLs)]); err != nil {
 				fmt.Printf("user %d connect/auth failed: %v\n", idx, err)
 				atomic.AddInt64(&connectFailures, 1)
 				return
@@ -256,6 +265,24 @@ func main() {
 		_ = os.WriteFile(*outFile, data, 0644)
 		fmt.Printf("Report written to %s\n", *outFile)
 	}
+}
+
+func parseGatewayURLs(defaultURL, gatewaysFlag string) []string {
+	if gatewaysFlag == "" {
+		return []string{defaultURL}
+	}
+	parts := strings.Split(gatewaysFlag, ",")
+	urls := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			urls = append(urls, p)
+		}
+	}
+	if len(urls) == 0 {
+		return []string{defaultURL}
+	}
+	return urls
 }
 
 func (c *client) registerAndLogin(hc *http.Client, username, password string) error {

@@ -212,37 +212,60 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 		}
 	}
 
-	var totalDelivered int32
-	var failedUserIDs []int64
+	type nodePush struct {
+		nodeID string
+		ids    []int64
+	}
 
+	nodePushes := make([]nodePush, 0, len(nodeMap))
 	for nodeID, ids := range nodeMap {
 		node, ok := aliveMap[nodeID]
 		if !ok || node.GrpcAddr == "" {
 			p.log.Warnf("no grpc address for gateway node %s, marking %d users failed", nodeID, len(ids))
-			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
-
-		gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
-		if err != nil {
-			p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
-			failedUserIDs = append(failedUserIDs, ids...)
-			continue
-		}
-
-		resp, err := gc.client.BatchPushToUsers(ctx, &pb.BatchPushToUsersRequest{
-			UserIds: ids,
-			Message: msg,
-		})
-		if err != nil {
-			p.log.Warnf("batch push via gateway %s failed: %v", node.GrpcAddr, err)
-			failedUserIDs = append(failedUserIDs, ids...)
-			continue
-		}
-
-		totalDelivered += resp.GetTotalDelivered()
-		failedUserIDs = append(failedUserIDs, resp.GetFailedUserIds()...)
+		nodePushes = append(nodePushes, nodePush{nodeID: nodeID, ids: ids})
 	}
+
+	var totalDelivered int32
+	var failedUserIDs []int64
+	var mu sync.Mutex
+
+	var wg sync.WaitGroup
+	for _, np := range nodePushes {
+		wg.Add(1)
+		go func(np nodePush) {
+			defer wg.Done()
+			node, _ := aliveMap[np.nodeID]
+
+			gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
+			if err != nil {
+				p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
+				mu.Lock()
+				failedUserIDs = append(failedUserIDs, np.ids...)
+				mu.Unlock()
+				return
+			}
+
+			resp, err := gc.client.BatchPushToUsers(ctx, &pb.BatchPushToUsersRequest{
+				UserIds: np.ids,
+				Message: msg,
+			})
+			if err != nil {
+				p.log.Warnf("batch push via gateway %s failed: %v", node.GrpcAddr, err)
+				mu.Lock()
+				failedUserIDs = append(failedUserIDs, np.ids...)
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			totalDelivered += resp.GetTotalDelivered()
+			failedUserIDs = append(failedUserIDs, resp.GetFailedUserIds()...)
+			mu.Unlock()
+		}(np)
+	}
+	wg.Wait()
 
 	// Any input user not present in an online session is offline -> failed.
 	for _, uid := range userIDs {
@@ -489,34 +512,58 @@ func (p *GatewayPusher) batchPushReceiptsWithRouting(ctx context.Context, userID
 
 	var totalDelivered int32
 	var failedUserIDs []int64
+	var mu sync.Mutex
 
+	type nodePush struct {
+		nodeID string
+		ids    []int64
+	}
+
+	nodePushes := make([]nodePush, 0, len(nodeMap))
 	for nodeID, ids := range nodeMap {
 		node, ok := aliveMap[nodeID]
 		if !ok || node.GrpcAddr == "" {
 			failedUserIDs = append(failedUserIDs, ids...)
 			continue
 		}
-
-		gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
-		if err != nil {
-			p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
-			failedUserIDs = append(failedUserIDs, ids...)
-			continue
-		}
-
-		resp, err := gc.client.BatchPushReceiptToUsers(ctx, &pb.BatchPushReceiptToUsersRequest{
-			UserIds: ids,
-			Receipt: receipt,
-		})
-		if err != nil {
-			p.log.Warnf("batch push receipts via gateway %s failed: %v", node.GrpcAddr, err)
-			failedUserIDs = append(failedUserIDs, ids...)
-			continue
-		}
-
-		totalDelivered += resp.GetTotalDelivered()
-		failedUserIDs = append(failedUserIDs, resp.GetFailedUserIds()...)
+		nodePushes = append(nodePushes, nodePush{nodeID: nodeID, ids: ids})
 	}
+
+	var wg sync.WaitGroup
+	for _, np := range nodePushes {
+		wg.Add(1)
+		go func(np nodePush) {
+			defer wg.Done()
+			node, _ := aliveMap[np.nodeID]
+
+			gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
+			if err != nil {
+				p.log.Warnf("connect to gateway %s failed: %v", node.GrpcAddr, err)
+				mu.Lock()
+				failedUserIDs = append(failedUserIDs, np.ids...)
+				mu.Unlock()
+				return
+			}
+
+			resp, err := gc.client.BatchPushReceiptToUsers(ctx, &pb.BatchPushReceiptToUsersRequest{
+				UserIds: np.ids,
+				Receipt: receipt,
+			})
+			if err != nil {
+				p.log.Warnf("batch push receipts via gateway %s failed: %v", node.GrpcAddr, err)
+				mu.Lock()
+				failedUserIDs = append(failedUserIDs, np.ids...)
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			totalDelivered += resp.GetTotalDelivered()
+			failedUserIDs = append(failedUserIDs, resp.GetFailedUserIds()...)
+			mu.Unlock()
+		}(np)
+	}
+	wg.Wait()
 
 	for _, uid := range userIDs {
 		if _, ok := onlineUserSet[uid]; !ok {

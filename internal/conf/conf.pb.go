@@ -867,15 +867,17 @@ type Data_Kafka struct {
 	WriteTimeout *durationpb.Duration `protobuf:"bytes,10,opt,name=write_timeout,json=writeTimeout,proto3" json:"write_timeout,omitempty"`
 	ReadTimeout  *durationpb.Duration `protobuf:"bytes,11,opt,name=read_timeout,json=readTimeout,proto3" json:"read_timeout,omitempty"`
 	// Consumer settings
-	WorkerCount    int32                `protobuf:"varint,12,opt,name=worker_count,json=workerCount,proto3" json:"worker_count,omitempty"`
-	MinBytes       int32                `protobuf:"varint,13,opt,name=min_bytes,json=minBytes,proto3" json:"min_bytes,omitempty"`
-	MaxBytes       int32                `protobuf:"varint,14,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
-	MaxWait        *durationpb.Duration `protobuf:"bytes,15,opt,name=max_wait,json=maxWait,proto3" json:"max_wait,omitempty"`
-	CommitInterval *durationpb.Duration `protobuf:"bytes,16,opt,name=commit_interval,json=commitInterval,proto3" json:"commit_interval,omitempty"` // 0 = manual commit (stronger consistency)
-	MaxRetries     int32                `protobuf:"varint,17,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`            // local retry count before DLQ; 0 = DLQ immediately
-	StartOffset    int64                `protobuf:"varint,18,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`         // -1 = first offset, -2 = last offset (kafka-go constants)
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	WorkerCount         int32                `protobuf:"varint,12,opt,name=worker_count,json=workerCount,proto3" json:"worker_count,omitempty"`
+	MinBytes            int32                `protobuf:"varint,13,opt,name=min_bytes,json=minBytes,proto3" json:"min_bytes,omitempty"`
+	MaxBytes            int32                `protobuf:"varint,14,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	MaxWait             *durationpb.Duration `protobuf:"bytes,15,opt,name=max_wait,json=maxWait,proto3" json:"max_wait,omitempty"`
+	CommitInterval      *durationpb.Duration `protobuf:"bytes,16,opt,name=commit_interval,json=commitInterval,proto3" json:"commit_interval,omitempty"`                  // 0 = manual commit (stronger consistency)
+	MaxRetries          int32                `protobuf:"varint,17,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`                             // local retry count before DLQ; 0 = DLQ immediately
+	StartOffset         int64                `protobuf:"varint,18,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`                          // -1 = first offset, -2 = last offset (kafka-go constants)
+	CommitBatchSize     int32                `protobuf:"varint,19,opt,name=commit_batch_size,json=commitBatchSize,proto3" json:"commit_batch_size,omitempty"`            // number of messages to batch before committing offsets
+	CommitFlushInterval *durationpb.Duration `protobuf:"bytes,20,opt,name=commit_flush_interval,json=commitFlushInterval,proto3" json:"commit_flush_interval,omitempty"` // max interval between offset commits
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Data_Kafka) Reset() {
@@ -1034,6 +1036,20 @@ func (x *Data_Kafka) GetStartOffset() int64 {
 	return 0
 }
 
+func (x *Data_Kafka) GetCommitBatchSize() int32 {
+	if x != nil {
+		return x.CommitBatchSize
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetCommitFlushInterval() *durationpb.Duration {
+	if x != nil {
+		return x.CommitFlushInterval
+	}
+	return nil
+}
+
 var File_conf_conf_proto protoreflect.FileDescriptor
 
 const file_conf_conf_proto_rawDesc = "" +
@@ -1056,8 +1072,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x04GRPC\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\x123\n" +
-	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xe5\n" +
-	"\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xe0\v\n" +
 	"\x04Data\x125\n" +
 	"\bdatabase\x18\x01 \x01(\v2\x19.kratos.api.Data.DatabaseR\bdatabase\x12,\n" +
 	"\x05redis\x18\x02 \x01(\v2\x16.kratos.api.Data.RedisR\x05redis\x122\n" +
@@ -1076,7 +1091,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x1a7\n" +
 	"\aMongoDB\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x1a\n" +
-	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x1a\xd6\x05\n" +
+	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x1a\xd1\x06\n" +
 	"\x05Kafka\x12\x18\n" +
 	"\abrokers\x18\x01 \x03(\tR\abrokers\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12%\n" +
@@ -1098,7 +1113,9 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x0fcommit_interval\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\x0ecommitInterval\x12\x1f\n" +
 	"\vmax_retries\x18\x11 \x01(\x05R\n" +
 	"maxRetries\x12!\n" +
-	"\fstart_offset\x18\x12 \x01(\x03R\vstartOffset\"]\n" +
+	"\fstart_offset\x18\x12 \x01(\x03R\vstartOffset\x12*\n" +
+	"\x11commit_batch_size\x18\x13 \x01(\x05R\x0fcommitBatchSize\x12M\n" +
+	"\x15commit_flush_interval\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x13commitFlushInterval\"]\n" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
@@ -1184,11 +1201,12 @@ var file_conf_conf_proto_depIdxs = []int32{
 	14, // 26: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
 	14, // 27: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
 	14, // 28: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	14, // 29: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }

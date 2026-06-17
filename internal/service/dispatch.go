@@ -124,7 +124,10 @@ func (s *DispatchService) selectNode(nodes []*gateway.GatewayNode, userID int64)
 // buildLocalNode constructs the local gateway node info.
 // Priority: 1) config static gateways matching this node_id  2) HTTP addr from env  3) localhost default
 func buildLocalNode(dispatchConf *conf.Dispatch) *gateway.GatewayNode {
-	nodeID, _ := os.Hostname()
+	nodeID := os.Getenv("GATEWAY_NODE_ID")
+	if nodeID == "" {
+		nodeID, _ = os.Hostname()
+	}
 	if nodeID == "" {
 		nodeID = "gateway-0"
 	}

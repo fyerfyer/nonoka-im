@@ -35,14 +35,19 @@ data:
     worker_count: 0
     min_bytes: 1
     max_bytes: 10485760
-    max_wait: 0.5s
+    max_wait: 0.05s
     commit_interval: 0s
     max_retries: 3
+    commit_batch_size: 20
+    commit_flush_interval: 1s
 dispatch:
   gateways:
-    - node_id: "default"
+    - node_id: "gateway-1"
       gateway_url: "ws://127.0.0.1:18000/ws"
       gateway_grpc_addr: "127.0.0.1:19000"
+    - node_id: "gateway-2"
+      gateway_url: "ws://127.0.0.1:18002/ws"
+      gateway_grpc_addr: "127.0.0.1:19002"
   strategy: "consistent_hash"
   heartbeat_interval: 10s
   node_ttl: 30s

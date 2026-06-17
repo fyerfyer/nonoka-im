@@ -420,26 +420,34 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 		},
 	}
 
-	allDuplicate := true
-	for _, inbox := range inboxes {
-		_, err = s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
-		if err != nil {
-			if IsDuplicateError(err) {
-				s.log.Debugf("duplicate p2p inbox ignored: user_id=%d, client_msg_id=%s",
-					inbox.UserID, msg.GetClientMsgId())
-				continue
+	docs := make([]interface{}, len(inboxes))
+	for i, inbox := range inboxes {
+		docs[i] = inbox
+	}
+
+	_, err = s.db.Collection(CollectionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	if err != nil {
+		// With unordered inserts, duplicate errors are returned as BulkWriteException.
+		// If every write error is a duplicate key, the operation is idempotent.
+		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+			allDuplicate := len(bulkErr.WriteErrors) > 0
+			for _, we := range bulkErr.WriteErrors {
+				if !IsDuplicateError(we) {
+					allDuplicate = false
+					break
+				}
 			}
-			return nil, false, fmt.Errorf("insert inbox message: %w", err)
+			if allDuplicate {
+				s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
+					msg.GetClientMsgId(), msg.GetSenderId())
+				s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
+				return []int64{receiverID, msg.GetSenderId()}, true, nil
+			}
 		}
-		allDuplicate = false
+		return nil, false, fmt.Errorf("insert p2p inbox messages: %w", err)
 	}
 
 	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
-	if allDuplicate {
-		s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
-			msg.GetClientMsgId(), msg.GetSenderId())
-		return []int64{receiverID, msg.GetSenderId()}, true, nil
-	}
 	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d, sender=%d", msgID, msg.GetTopic(), receiverID, msg.GetSenderId())
 	return []int64{receiverID, msg.GetSenderId()}, false, nil
 }

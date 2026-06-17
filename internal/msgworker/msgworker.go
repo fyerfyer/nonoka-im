@@ -3,6 +3,8 @@ package msgworker
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -21,6 +23,17 @@ type Pusher interface {
 	Close() error
 }
 
+// deliveryTask holds everything needed to push a persisted message.
+// It is submitted to the async push pool after the message has been
+// durably persisted, so the Kafka handler can return and commit offsets.
+type deliveryTask struct {
+	upstream     *pb.UpstreamMessage
+	msgID        int64
+	topicSeq     uint64
+	recipientIDs []int64
+	isGroup      bool
+}
+
 // MsgWorker consumes Kafka upstream messages, persists them to MongoDB,
 // generates sequence numbers, and pushes messages to online users via Gateway.
 type MsgWorker struct {
@@ -33,6 +46,13 @@ type MsgWorker struct {
 	retryQueue      *PushRetryQueue
 	metrics         *metrics.Metrics
 	log             *log.Helper
+
+	// Async delivery pipeline
+	pushPool     chan deliveryTask
+	pushWorkers  int
+	pushWg       sync.WaitGroup
+	pushStopCh   chan struct{}
+	pushStopOnce sync.Once
 }
 
 // Storage returns the underlying MessageStorage for testing purposes.
@@ -46,6 +66,18 @@ type MsgWorkerConfig struct {
 	Logger      log.Logger
 }
 
+// defaultPushWorkers returns a reasonable push worker count.
+func defaultPushWorkers() int {
+	n := runtime.NumCPU() * 2
+	if n < 4 {
+		return 4
+	}
+	if n > 64 {
+		return 64
+	}
+	return n
+}
+
 // NewMsgWorker creates a new MsgWorker.
 func NewMsgWorker(
 	consumer *KafkaConsumer,
@@ -57,12 +89,15 @@ func NewMsgWorker(
 	m ...*metrics.Metrics,
 ) *MsgWorker {
 	w := &MsgWorker{
-		consumer:  consumer,
-		seqGen:    seqGen,
-		snowflake: snowflake,
-		storage:   storage,
-		pusher:    pusher,
-		log:       log.NewHelper(logger),
+		consumer:    consumer,
+		seqGen:      seqGen,
+		snowflake:   snowflake,
+		storage:     storage,
+		pusher:      pusher,
+		pushPool:    make(chan deliveryTask, 1024),
+		pushWorkers: defaultPushWorkers(),
+		pushStopCh:  make(chan struct{}),
+		log:         log.NewHelper(logger),
 	}
 	if len(m) > 0 {
 		w.metrics = m[0]
@@ -82,6 +117,14 @@ func (w *MsgWorker) SetPusher(pusher Pusher) {
 	w.pusher = pusher
 }
 
+// SetPushWorkers configures the number of async push workers. Must be called
+// before Start.
+func (w *MsgWorker) SetPushWorkers(n int) {
+	if n > 0 {
+		w.pushWorkers = n
+	}
+}
+
 // Start begins consuming and processing messages.
 func (w *MsgWorker) Start(ctx context.Context) error {
 	w.log.Info("msgworker started")
@@ -89,6 +132,12 @@ func (w *MsgWorker) Start(ctx context.Context) error {
 	// Start push retry loop if retry queue is configured.
 	if w.retryQueue != nil {
 		go w.retryQueue.Start(ctx)
+	}
+
+	// Start async delivery workers.
+	for i := 0; i < w.pushWorkers; i++ {
+		w.pushWg.Add(1)
+		go w.pushWorkerLoop()
 	}
 
 	return w.consumer.Start(ctx)
@@ -100,9 +149,20 @@ func (w *MsgWorker) Stop() error {
 	if err := w.consumer.Stop(); err != nil {
 		w.log.Warnf("stop consumer: %v", err)
 	}
+
+	w.pushStopOnce.Do(func() {
+		close(w.pushStopCh)
+		// Close the pool after the consumer has stopped so no new tasks arrive.
+		// Workers drain remaining tasks before exiting.
+		close(w.pushPool)
+	})
+
 	if w.retryQueue != nil {
 		w.retryQueue.Stop()
 	}
+
+	w.pushWg.Wait()
+
 	if w.pusher != nil {
 		if err := w.pusher.Close(); err != nil {
 			w.log.Warnf("close pusher: %v", err)
@@ -117,6 +177,10 @@ func (w *MsgWorker) SetRetryQueue(q *PushRetryQueue) {
 }
 
 // HandleMessage is the Kafka message handler entry point.
+// It persists the message synchronously and then submits the delivery
+// (push + receipt) to an async worker pool. This keeps the Kafka consumer
+// path hot and allows offsets to be committed as soon as durability is
+// guaranteed. Failed deliveries are handled by the retry queue.
 func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) (err error) {
 	start := time.Now()
 	defer func() {
@@ -143,10 +207,9 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		return fmt.Errorf("generate topic seq: %w", err)
 	}
 
-	// Persist and dispatch based on topic type
+	// Persist based on topic type
 	topicType := ParseTopicType(upstream.GetTopic())
 	var recipientIDs []int64
-	var pushMsg *pb.MessagePush
 	var isDuplicate bool
 
 	switch topicType {
@@ -161,62 +224,12 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		if err != nil {
 			return fmt.Errorf("save group message: %w", err)
 		}
-
 		// Handle @mentions for large groups: write扩散 to mention_inbox.
 		// SaveMentionInbox is idempotent thanks to MongoDB unique indexes, so it
 		// is safe to call even when the group message itself is a duplicate.
 		if len(upstream.GetMentionedUserIds()) > 0 {
 			if err := w.storage.SaveMentionInbox(ctx, &upstream, msgID, topicSeq, upstream.GetMentionedUserIds()); err != nil {
 				w.log.Warnf("save mention inbox failed: %v", err)
-			}
-			// Push @mention notifications to online users only for fresh messages
-			// to avoid duplicate notifications on retries.
-			if !isDuplicate && w.pusher != nil {
-				pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
-				_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, upstream.GetMentionedUserIds(), pushMsg)
-				if err != nil {
-					w.log.Warnf("push mentions to online users failed: %v", err)
-				} else {
-					w.handleFailedPushes(ctx, failedIDs, pushMsg)
-				}
-			}
-		}
-
-		// Push group message to all online group members (excluding sender).
-		if w.groupMemberSvc != nil && w.pusher != nil && !isDuplicate {
-			groupID, err := ExtractGroupID(upstream.GetTopic())
-			if err == nil {
-				memberIDs, err := w.groupMemberSvc.GetGroupMembers(ctx, groupID)
-				if err != nil {
-					w.log.Warnf("get group members failed: %v", err)
-				} else if len(memberIDs) > 0 {
-					pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
-					// Build a set of users already notified via @mention push so they
-					// don't receive the same message twice.
-					mentionedSet := make(map[int64]struct{}, len(upstream.GetMentionedUserIds()))
-					for _, id := range upstream.GetMentionedUserIds() {
-						mentionedSet[id] = struct{}{}
-					}
-					// Exclude sender and already-mentioned users from group broadcast.
-					recipients := make([]int64, 0, len(memberIDs))
-					for _, id := range memberIDs {
-						if id == upstream.GetSenderId() {
-							continue
-						}
-						if _, ok := mentionedSet[id]; ok {
-							continue
-						}
-						recipients = append(recipients, id)
-					}
-					if len(recipients) > 0 {
-						_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
-						if err != nil {
-							w.log.Warnf("push group message to online users failed: %v", err)
-						} else {
-							w.handleFailedPushes(ctx, failedIDs, pushMsg)
-						}
-					}
-				}
 			}
 		}
 		w.log.Debugf("group message persisted: topic=%s", upstream.GetTopic())
@@ -232,9 +245,6 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 	}
 
 	// If duplicate, skip seq backup and push to avoid duplicate notifications.
-	// We do NOT update topic_seqs.max_seq for duplicates because the allocated
-	// seq was not used by a real message; backing it up would create a gap
-	// between the max seq and the actual latest message.
 	if isDuplicate {
 		w.metrics.IncMessagesDuplicate()
 		w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
@@ -247,11 +257,70 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		w.log.Warnf("backup topic seq failed: %v", err)
 	}
 
-	// Push to online recipients (only for P2P and system messages in this version).
-	// Exclude sender from push — sender already has the message locally and will
-	// receive a send receipt confirming server persistence.
+	w.metrics.IncMessagesProcessed()
+	w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
+
+	// Submit delivery (push + receipt) to async workers so the Kafka consumer
+	// can keep polling. A background context with timeout is used because the
+	// original handler context may be cancelled after we return.
+	select {
+	case w.pushPool <- deliveryTask{
+		upstream:     &upstream,
+		msgID:        msgID,
+		topicSeq:     topicSeq,
+		recipientIDs: recipientIDs,
+		isGroup:      topicType == TopicTypeGroup,
+	}:
+	case <-w.pushStopCh:
+		w.log.Warnf("push pool closed, delivery dropped: msg_id=%d", msgID)
+	}
+
+	w.log.Debugf("message persisted and delivery queued: msg_id=%d topic=%s seq=%d", msgID, upstream.GetTopic(), topicSeq)
+	return nil
+}
+
+// pushWorkerLoop processes delivery tasks asynchronously.
+func (w *MsgWorker) pushWorkerLoop() {
+	defer w.pushWg.Done()
+	for {
+		select {
+		case <-w.pushStopCh:
+			return
+		case task, ok := <-w.pushPool:
+			if !ok {
+				return
+			}
+			w.deliverMessage(task)
+		}
+	}
+}
+
+// deliverMessage pushes the message to online recipients and sends the
+// sender receipt. It runs in the async push worker pool.
+func (w *MsgWorker) deliverMessage(task deliveryTask) {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	upstream := task.upstream
+	msgID := task.msgID
+	topicSeq := task.topicSeq
+
+	if task.isGroup {
+		w.deliverGroupMessage(ctx, upstream, msgID, topicSeq)
+	} else {
+		w.deliverP2POrSystemMessage(ctx, upstream, msgID, topicSeq, task.recipientIDs)
+	}
+
+	w.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds())
+}
+
+// deliverP2POrSystemMessage pushes messages to recipients and sends a receipt.
+func (w *MsgWorker) deliverP2POrSystemMessage(ctx context.Context, upstream *pb.UpstreamMessage, msgID int64, topicSeq uint64, recipientIDs []int64) {
+	pushMsg := w.buildMessagePush(msgID, topicSeq, upstream)
+
+	// Push to online recipients (exclude sender).
 	if len(recipientIDs) > 0 && w.pusher != nil {
-		pushMsg = w.buildMessagePush(msgID, topicSeq, &upstream)
 		recipients := make([]int64, 0, len(recipientIDs))
 		for _, id := range recipientIDs {
 			if id != upstream.GetSenderId() {
@@ -268,8 +337,7 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		}
 	}
 
-	// Push send receipt to the sender so they know the message was persisted
-	// and learn the assigned msg_id and topic_seq.
+	// Push send receipt to the sender.
 	if w.pusher != nil {
 		receipt := &pb.SendReceipt{
 			ClientMsgId: upstream.GetClientMsgId(),
@@ -283,11 +351,78 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 			w.log.Warnf("push send receipt to sender %d failed: %v", upstream.GetSenderId(), err)
 		}
 	}
+}
 
-	w.metrics.IncMessagesProcessed()
-	w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
-	w.log.Debugf("message processed: msg_id=%d topic=%s seq=%d", msgID, upstream.GetTopic(), topicSeq)
-	return nil
+// deliverGroupMessage handles group message delivery including @mentions
+// and broadcast to group members.
+func (w *MsgWorker) deliverGroupMessage(ctx context.Context, upstream *pb.UpstreamMessage, msgID int64, topicSeq uint64) {
+	pushMsg := w.buildMessagePush(msgID, topicSeq, upstream)
+
+	// Push @mention notifications to online users.
+	if len(upstream.GetMentionedUserIds()) > 0 && w.pusher != nil {
+		_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, upstream.GetMentionedUserIds(), pushMsg)
+		if err != nil {
+			w.log.Warnf("push mentions to online users failed: %v", err)
+		} else {
+			w.handleFailedPushes(ctx, failedIDs, pushMsg)
+		}
+	}
+
+	// Push group message to all online group members (excluding sender and already-mentioned users).
+	if w.groupMemberSvc != nil && w.pusher != nil {
+		groupID, err := ExtractGroupID(upstream.GetTopic())
+		if err != nil {
+			w.log.Warnf("extract group id failed: %v", err)
+			return
+		}
+		memberIDs, err := w.groupMemberSvc.GetGroupMembers(ctx, groupID)
+		if err != nil {
+			w.log.Warnf("get group members failed: %v", err)
+			return
+		}
+		if len(memberIDs) == 0 {
+			return
+		}
+
+		mentionedSet := make(map[int64]struct{}, len(upstream.GetMentionedUserIds()))
+		for _, id := range upstream.GetMentionedUserIds() {
+			mentionedSet[id] = struct{}{}
+		}
+
+		recipients := make([]int64, 0, len(memberIDs))
+		for _, id := range memberIDs {
+			if id == upstream.GetSenderId() {
+				continue
+			}
+			if _, ok := mentionedSet[id]; ok {
+				continue
+			}
+			recipients = append(recipients, id)
+		}
+		if len(recipients) > 0 {
+			_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
+			if err != nil {
+				w.log.Warnf("push group message to online users failed: %v", err)
+			} else {
+				w.handleFailedPushes(ctx, failedIDs, pushMsg)
+			}
+		}
+	}
+
+	// Push send receipt to the sender.
+	if w.pusher != nil {
+		receipt := &pb.SendReceipt{
+			ClientMsgId: upstream.GetClientMsgId(),
+			MsgId:       msgID,
+			Topic:       upstream.GetTopic(),
+			TopicSeq:    topicSeq,
+			Timestamp:   time.Now().Unix(),
+		}
+		_, err := w.pusher.PushReceiptToUser(ctx, upstream.GetSenderId(), receipt)
+		if err != nil {
+			w.log.Warnf("push send receipt to sender %d failed: %v", upstream.GetSenderId(), err)
+		}
+	}
 }
 
 // buildMessagePush constructs a MessagePush from upstream message data.

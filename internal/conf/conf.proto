@@ -69,6 +69,8 @@ message Data {
     google.protobuf.Duration commit_interval = 16;  // 0 = manual commit (stronger consistency)
     int32 max_retries = 17;            // local retry count before DLQ; 0 = DLQ immediately
     int64 start_offset = 18;           // -1 = first offset, -2 = last offset (kafka-go constants)
+    int32 commit_batch_size = 19;      // number of messages to batch before committing offsets
+    google.protobuf.Duration commit_flush_interval = 20; // max interval between offset commits
   }
   Database database = 1;
   Redis redis = 2;
