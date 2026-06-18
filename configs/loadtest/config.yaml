@@ -8,7 +8,8 @@ server:
 data:
   database:
     driver: postgres
-    source: host=127.0.0.1 user=postgres password=root dbname=nonoka_im_test port=5433 sslmode=disable TimeZone=Asia/Shanghai
+    source: host=127.0.0.1 user=postgres password=root dbname=nonoka_im_test port=5433
+      sslmode=disable TimeZone=Asia/Shanghai
     max_open_conns: 200
     max_idle_conns: 50
     conn_max_lifetime: 1800s
@@ -19,9 +20,10 @@ data:
   mongodb:
     uri: mongodb://127.0.0.1:27018
     database: nonoka_im_test
+    write_concern: w1
   kafka:
     brokers:
-      - 127.0.0.1:9092
+    - 127.0.0.1:9092
     topic: im-messages
     consumer_group: msgworker-group
     batch_size: 1000
@@ -42,13 +44,13 @@ data:
     commit_flush_interval: 1s
 dispatch:
   gateways:
-    - node_id: "gateway-1"
-      gateway_url: "ws://127.0.0.1:18000/ws"
-      gateway_grpc_addr: "127.0.0.1:19000"
-    - node_id: "gateway-2"
-      gateway_url: "ws://127.0.0.1:18002/ws"
-      gateway_grpc_addr: "127.0.0.1:19002"
-  strategy: "consistent_hash"
+  - node_id: gateway-1
+    gateway_url: ws://127.0.0.1:18000/ws
+    gateway_grpc_addr: 127.0.0.1:19000
+  - node_id: gateway-2
+    gateway_url: ws://127.0.0.1:18002/ws
+    gateway_grpc_addr: 127.0.0.1:19002
+  strategy: consistent_hash
   heartbeat_interval: 10s
   node_ttl: 30s
 gateway:
@@ -58,5 +60,11 @@ gateway:
   write_timeout: 10s
   allowed_origins: []
 auth:
-  jwt_secret: "test-jwt-secret-do-not-use-in-production"
+  jwt_secret: test-jwt-secret-do-not-use-in-production
   token_ttl: 3600s
+msgworker:
+  session_cache_ttl: 5s
+  receipt_batch_size: 32
+  receipt_batch_timeout: 0.01s
+  group_batch_size: 16
+  group_batch_timeout: 0.005s

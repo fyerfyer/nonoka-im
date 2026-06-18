@@ -2,11 +2,49 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+const (
+	// SessionChangeChannel is the Redis Pub/Sub channel used to broadcast
+	// session registration/unregistration events. Consumers (e.g. MsgWorker
+	// routers) can subscribe to this channel to invalidate local caches.
+	SessionChangeChannel = "im:session:changes"
+)
+
+// SessionChangeEvent describes a change in the distributed session index.
+type SessionChangeEvent struct {
+	UserID   int64  `json:"user_id"`
+	DeviceID string `json:"device_id"`
+	Action   string `json:"action"`   // "set", "del", "expire"
+	NodeID   string `json:"node_id"`
+	At       int64  `json:"at"`
+}
+
+// publishSessionChange publishes a session change event to Redis Pub/Sub.
+// Errors are logged but not returned: this is a best-effort cache invalidation
+// mechanism and should not block the hot path.
+func (s *SessionManager) publishSessionChange(ctx context.Context, userID int64, deviceID, action string) {
+	if s.redis == nil {
+		return
+	}
+	event := SessionChangeEvent{
+		UserID:   userID,
+		DeviceID: deviceID,
+		Action:   action,
+		NodeID:   s.nodeID,
+		At:       time.Now().Unix(),
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_ = s.redis.Publish(ctx, SessionChangeChannel, data)
+}
 
 // SessionManager manages distributed session index using Redis.
 // It tracks which gateway node each user is connected to.
@@ -45,6 +83,9 @@ func (s *SessionManager) SetSession(ctx context.Context, userID int64, deviceID 
 	pipe.HSet(ctx, deviceKey, deviceID, s.nodeID)
 	pipe.Expire(ctx, deviceKey, ttl)
 	_, err := pipe.Exec(ctx)
+	if err == nil {
+		s.publishSessionChange(ctx, userID, deviceID, "set")
+	}
 	return err
 }
 
@@ -62,6 +103,7 @@ func (s *SessionManager) GetDevices(ctx context.Context, userID int64) (map[stri
 
 // DelSession removes a user's session if it belongs to this node.
 func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID string) error {
+	defer s.publishSessionChange(ctx, userID, deviceID, "del")
 	userKey := s.userSessionKey(userID)
 	deviceKey := s.deviceSessionKey(userID)
 
@@ -102,6 +144,8 @@ func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID 
 }
 
 // ExpireSession refreshes the TTL of a user's session.
+// Expiration does not change the routing mapping, so it does not publish a
+// session change event; subscribers rely on TTL for cache entries anyway.
 func (s *SessionManager) ExpireSession(ctx context.Context, userID int64, ttl time.Duration) error {
 	userKey := s.userSessionKey(userID)
 	deviceKey := s.deviceSessionKey(userID)

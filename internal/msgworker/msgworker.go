@@ -20,7 +20,315 @@ type Pusher interface {
 	BatchPushToUsers(ctx context.Context, userIDs []int64, msg *pb.MessagePush) (int32, []int64, error)
 	PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error)
 	BatchPushReceiptToUsers(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error)
+	BatchPushReceiptsToUsers(ctx context.Context, items []*pb.ReceiptBatchItem) (int32, []*pb.ReceiptBatchItem, error)
 	Close() error
+}
+
+// receiptBatcher aggregates send receipts per user and flushes them in batches
+// to reduce gRPC round-trips between MsgWorker and Gateway.
+type receiptBatcher struct {
+	pusher       Pusher
+	batchSize    int
+	batchTimeout time.Duration
+	log          *log.Helper
+
+	mu      sync.Mutex
+	pending map[int64][]*pb.SendReceipt
+	stopCh  chan struct{}
+	stopOnce sync.Once
+	wg      sync.WaitGroup
+}
+
+// newReceiptBatcher creates a new receipt batcher.
+func newReceiptBatcher(pusher Pusher, batchSize int, batchTimeout time.Duration, logger log.Logger) *receiptBatcher {
+	if batchSize <= 0 {
+		batchSize = 32
+	}
+	if batchTimeout <= 0 {
+		batchTimeout = 10 * time.Millisecond
+	}
+	return &receiptBatcher{
+		pusher:       pusher,
+		batchSize:    batchSize,
+		batchTimeout: batchTimeout,
+		pending:      make(map[int64][]*pb.SendReceipt),
+		stopCh:       make(chan struct{}),
+		log:          log.NewHelper(logger),
+	}
+}
+
+// Start begins the background flush loop. The receipt batcher can also operate
+// without Start: Add() will trigger immediate flushes when batchSize is reached.
+func (b *receiptBatcher) Start(ctx context.Context) {
+	b.wg.Add(1)
+	go b.loop(ctx)
+}
+
+// Stop gracefully stops the receipt batcher and flushes remaining receipts.
+func (b *receiptBatcher) Stop() {
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
+	b.wg.Wait()
+	b.flush()
+}
+
+// loop periodically flushes pending receipts on a ticker.
+func (b *receiptBatcher) loop(ctx context.Context) {
+	defer b.wg.Done()
+	ticker := time.NewTicker(b.batchTimeout)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.flush()
+		}
+	}
+}
+
+// Add submits a receipt for a user. If the batch threshold is reached, it flushes immediately.
+func (b *receiptBatcher) Add(userID int64, receipt *pb.SendReceipt) {
+	if receipt == nil {
+		return
+	}
+
+	b.mu.Lock()
+	b.pending[userID] = append(b.pending[userID], receipt)
+	count := 0
+	for _, receipts := range b.pending {
+		count += len(receipts)
+	}
+	b.mu.Unlock()
+
+	if count >= b.batchSize {
+		b.flush()
+	}
+}
+
+// flush sends all pending receipts via BatchPushReceiptsToUsers.
+func (b *receiptBatcher) flush() {
+	b.mu.Lock()
+	if len(b.pending) == 0 {
+		b.mu.Unlock()
+		return
+	}
+
+	pending := b.pending
+	b.pending = make(map[int64][]*pb.SendReceipt)
+	b.mu.Unlock()
+
+	items := make([]*pb.ReceiptBatchItem, 0, len(pending))
+	for uid, receipts := range pending {
+		for _, receipt := range receipts {
+			items = append(items, &pb.ReceiptBatchItem{
+				UserId:  uid,
+				Receipt: receipt,
+			})
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, failed, err := b.pusher.BatchPushReceiptsToUsers(ctx, items); err != nil {
+		b.log.Warnf("batch push receipts failed: count=%d err=%v", len(items), err)
+	} else if len(failed) > 0 {
+		b.log.Debugf("batch push receipts partial failure: count=%d failed=%d", len(items), len(failed))
+		// Fallback: route failed receipts individually. PushReceiptToUser will
+		// broadcast to all gateways if dynamic routing cannot locate the session,
+		// ensuring receipts are not lost due to stale cache entries.
+		for _, fi := range failed {
+			if _, err := b.pusher.PushReceiptToUser(ctx, fi.GetUserId(), fi.GetReceipt()); err != nil {
+				b.log.Warnf("fallback push receipt to user %d failed: %v", fi.GetUserId(), err)
+			}
+		}
+	} else {
+		b.log.Debugf("batch push receipts success: count=%d", len(items))
+	}
+}
+
+// groupBatchItem holds a single group message waiting to be flushed in batch.
+type groupBatchItem struct {
+	ctx      context.Context
+	msg      *pb.UpstreamMessage
+	msgID    int64
+	topicSeq uint64
+	result   chan groupBatchResult
+}
+
+type groupBatchResult struct {
+	isDuplicate bool
+	err         error
+}
+
+// groupMessageBatcher aggregates group messages and inserts them into MongoDB
+// in batches. Unlike the receipt batcher, it is synchronous: Add blocks until
+// the message has been persisted (or batch-flushed), because the Kafka handler
+// must guarantee durability before committing offsets.
+type groupMessageBatcher struct {
+	storage      *MessageStorage
+	batchSize    int
+	batchTimeout time.Duration
+	log          *log.Helper
+
+	mu      sync.Mutex
+	pending []*groupBatchItem
+	stopCh  chan struct{}
+	stopOnce sync.Once
+	wg      sync.WaitGroup
+}
+
+// newGroupMessageBatcher creates a new group message batcher.
+func newGroupMessageBatcher(storage *MessageStorage, batchSize int, batchTimeout time.Duration, logger log.Logger) *groupMessageBatcher {
+	if batchSize <= 0 {
+		batchSize = 16
+	}
+	if batchTimeout <= 0 {
+		batchTimeout = 5 * time.Millisecond
+	}
+	return &groupMessageBatcher{
+		storage:      storage,
+		batchSize:    batchSize,
+		batchTimeout: batchTimeout,
+		pending:      make([]*groupBatchItem, 0, batchSize),
+		stopCh:       make(chan struct{}),
+		log:          log.NewHelper(logger),
+	}
+}
+
+// Start begins the background flush loop.
+func (b *groupMessageBatcher) Start(ctx context.Context) {
+	b.wg.Add(1)
+	go b.loop(ctx)
+}
+
+// Stop gracefully stops the batcher and flushes remaining messages.
+func (b *groupMessageBatcher) Stop() {
+	b.stopOnce.Do(func() {
+		close(b.stopCh)
+	})
+	b.wg.Wait()
+	b.flush()
+}
+
+// loop periodically flushes pending group messages on a ticker.
+func (b *groupMessageBatcher) loop(ctx context.Context) {
+	defer b.wg.Done()
+	ticker := time.NewTicker(b.batchTimeout)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.flush()
+		}
+	}
+}
+
+// Add submits a group message to the batcher and blocks until it is persisted.
+func (b *groupMessageBatcher) Add(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64) (bool, error) {
+	if b.storage == nil {
+		return false, fmt.Errorf("group message batcher: no storage configured")
+	}
+
+	resCh := make(chan groupBatchResult, 1)
+	item := &groupBatchItem{
+		ctx:      ctx,
+		msg:      msg,
+		msgID:    msgID,
+		topicSeq: topicSeq,
+		result:   resCh,
+	}
+
+	b.mu.Lock()
+	b.pending = append(b.pending, item)
+	count := len(b.pending)
+	b.mu.Unlock()
+
+	if count >= b.batchSize {
+		b.flush()
+	}
+
+	select {
+	case res := <-resCh:
+		return res.isDuplicate, res.err
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+// flush persists all pending group messages. If the batch contains any
+// duplicate key errors, it falls back to per-message SaveGroupMessage so that
+// callers receive accurate isDuplicate results.
+func (b *groupMessageBatcher) flush() {
+	b.mu.Lock()
+	if len(b.pending) == 0 {
+		b.mu.Unlock()
+		return
+	}
+
+	items := b.pending
+	b.pending = make([]*groupBatchItem, 0, b.batchSize)
+	b.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	msgs := make([]*pb.UpstreamMessage, len(items))
+	msgIDs := make([]int64, len(items))
+	topicSeqs := make([]uint64, len(items))
+	for i, item := range items {
+		msgs[i] = item.msg
+		msgIDs[i] = item.msgID
+		topicSeqs[i] = item.topicSeq
+	}
+
+	inserted, allDuplicate, err := b.storage.SaveGroupMessagesBatch(ctx, msgs, msgIDs, topicSeqs)
+	if err != nil {
+		b.log.Warnf("save group message batch failed: count=%d err=%v", len(items), err)
+		// Fallback: save each message individually so callers know the exact outcome.
+		for _, item := range items {
+			itemCtx, itemCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			dup, saveErr := b.storage.SaveGroupMessage(itemCtx, item.msg, item.msgID, item.topicSeq)
+			itemCancel()
+			item.result <- groupBatchResult{isDuplicate: dup, err: saveErr}
+		}
+		return
+	}
+
+	if allDuplicate {
+		for _, item := range items {
+			item.result <- groupBatchResult{isDuplicate: true}
+		}
+		return
+	}
+
+	// Partial success: some were inserted, some were duplicates. We cannot map
+	// MongoDB inserted IDs back to original messages without an explicit _id,
+	// so we conservatively save each remaining message individually.
+	if inserted < len(items) {
+		for _, item := range items {
+			itemCtx, itemCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			dup, saveErr := b.storage.SaveGroupMessage(itemCtx, item.msg, item.msgID, item.topicSeq)
+			itemCancel()
+			item.result <- groupBatchResult{isDuplicate: dup, err: saveErr}
+		}
+		return
+	}
+
+	for _, item := range items {
+		item.result <- groupBatchResult{}
+	}
 }
 
 // deliveryTask holds everything needed to push a persisted message.
@@ -43,9 +351,11 @@ type MsgWorker struct {
 	storage         *MessageStorage
 	pusher          Pusher
 	groupMemberSvc  GroupMemberService
-	retryQueue      *PushRetryQueue
-	metrics         *metrics.Metrics
-	log             *log.Helper
+	retryQueue       *PushRetryQueue
+	receiptBatcher   *receiptBatcher
+	groupBatcher     *groupMessageBatcher
+	metrics          *metrics.Metrics
+	log              *log.Helper
 
 	// Async delivery pipeline
 	pushPool     chan deliveryTask
@@ -53,6 +363,14 @@ type MsgWorker struct {
 	pushWg       sync.WaitGroup
 	pushStopCh   chan struct{}
 	pushStopOnce sync.Once
+
+	// Receipt batching configuration
+	receiptBatchSize    int
+	receiptBatchTimeout time.Duration
+
+	// Group message batching configuration
+	groupBatchSize    int
+	groupBatchTimeout time.Duration
 }
 
 // Storage returns the underlying MessageStorage for testing purposes.
@@ -89,20 +407,44 @@ func NewMsgWorker(
 	m ...*metrics.Metrics,
 ) *MsgWorker {
 	w := &MsgWorker{
-		consumer:    consumer,
-		seqGen:      seqGen,
-		snowflake:   snowflake,
-		storage:     storage,
-		pusher:      pusher,
-		pushPool:    make(chan deliveryTask, 1024),
-		pushWorkers: defaultPushWorkers(),
-		pushStopCh:  make(chan struct{}),
-		log:         log.NewHelper(logger),
+		consumer:            consumer,
+		seqGen:              seqGen,
+		snowflake:           snowflake,
+		storage:             storage,
+		pusher:              pusher,
+		pushPool:            make(chan deliveryTask, 1024),
+		pushWorkers:         defaultPushWorkers(),
+		pushStopCh:          make(chan struct{}),
+		receiptBatchSize:    32,
+		receiptBatchTimeout: 10 * time.Millisecond,
+		groupBatchSize:      16,
+		groupBatchTimeout:   5 * time.Millisecond,
+		log:                 log.NewHelper(logger),
 	}
 	if len(m) > 0 {
 		w.metrics = m[0]
 	}
 	return w
+}
+
+// SetReceiptBatcherConfig configures receipt batching. Must be called before Start.
+func (w *MsgWorker) SetReceiptBatcherConfig(batchSize int, batchTimeout time.Duration) {
+	if batchSize > 0 {
+		w.receiptBatchSize = batchSize
+	}
+	if batchTimeout > 0 {
+		w.receiptBatchTimeout = batchTimeout
+	}
+}
+
+// SetGroupBatcherConfig configures group message batching. Must be called before Start.
+func (w *MsgWorker) SetGroupBatcherConfig(batchSize int, batchTimeout time.Duration) {
+	if batchSize > 0 {
+		w.groupBatchSize = batchSize
+	}
+	if batchTimeout > 0 {
+		w.groupBatchTimeout = batchTimeout
+	}
 }
 
 // SetGroupMemberService configures the group member service for group message
@@ -128,6 +470,18 @@ func (w *MsgWorker) SetPushWorkers(n int) {
 // Start begins consuming and processing messages.
 func (w *MsgWorker) Start(ctx context.Context) error {
 	w.log.Info("msgworker started")
+
+	// Initialize receipt batcher if pusher supports batch receipts.
+	if w.pusher != nil && w.receiptBatcher == nil {
+		w.receiptBatcher = newReceiptBatcher(w.pusher, w.receiptBatchSize, w.receiptBatchTimeout, w.log.Logger())
+		w.receiptBatcher.Start(ctx)
+	}
+
+	// Initialize group message batcher if storage is configured.
+	if w.storage != nil && w.groupBatcher == nil {
+		w.groupBatcher = newGroupMessageBatcher(w.storage, w.groupBatchSize, w.groupBatchTimeout, w.log.Logger())
+		w.groupBatcher.Start(ctx)
+	}
 
 	// Start push retry loop if retry queue is configured.
 	if w.retryQueue != nil {
@@ -162,6 +516,14 @@ func (w *MsgWorker) Stop() error {
 	}
 
 	w.pushWg.Wait()
+
+	if w.receiptBatcher != nil {
+		w.receiptBatcher.Stop()
+	}
+
+	if w.groupBatcher != nil {
+		w.groupBatcher.Stop()
+	}
 
 	if w.pusher != nil {
 		if err := w.pusher.Close(); err != nil {
@@ -220,7 +582,11 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		}
 
 	case TopicTypeGroup:
-		isDuplicate, err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)
+		if w.groupBatcher != nil {
+			isDuplicate, err = w.groupBatcher.Add(ctx, &upstream, msgID, topicSeq)
+		} else {
+			isDuplicate, err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)
+		}
 		if err != nil {
 			return fmt.Errorf("save group message: %w", err)
 		}
@@ -337,20 +703,8 @@ func (w *MsgWorker) deliverP2POrSystemMessage(ctx context.Context, upstream *pb.
 		}
 	}
 
-	// Push send receipt to the sender.
-	if w.pusher != nil {
-		receipt := &pb.SendReceipt{
-			ClientMsgId: upstream.GetClientMsgId(),
-			MsgId:       msgID,
-			Topic:       upstream.GetTopic(),
-			TopicSeq:    topicSeq,
-			Timestamp:   time.Now().Unix(),
-		}
-		_, err := w.pusher.PushReceiptToUser(ctx, upstream.GetSenderId(), receipt)
-		if err != nil {
-			w.log.Warnf("push send receipt to sender %d failed: %v", upstream.GetSenderId(), err)
-		}
-	}
+	// Push send receipt to the sender (batched).
+	w.pushSendReceipt(upstream.GetSenderId(), msgID, upstream.GetTopic(), topicSeq, upstream.GetClientMsgId())
 }
 
 // deliverGroupMessage handles group message delivery including @mentions
@@ -409,18 +763,31 @@ func (w *MsgWorker) deliverGroupMessage(ctx context.Context, upstream *pb.Upstre
 		}
 	}
 
-	// Push send receipt to the sender.
+	// Push send receipt to the sender (batched).
+	w.pushSendReceipt(upstream.GetSenderId(), msgID, upstream.GetTopic(), topicSeq, upstream.GetClientMsgId())
+}
+
+// pushSendReceipt submits a send receipt to the batcher if available, otherwise
+// sends it immediately via the pusher.
+func (w *MsgWorker) pushSendReceipt(userID int64, msgID int64, topic string, topicSeq uint64, clientMsgID string) {
+	receipt := &pb.SendReceipt{
+		ClientMsgId: clientMsgID,
+		MsgId:       msgID,
+		Topic:       topic,
+		TopicSeq:    topicSeq,
+		Timestamp:   time.Now().Unix(),
+	}
+
+	if w.receiptBatcher != nil {
+		w.receiptBatcher.Add(userID, receipt)
+		return
+	}
+
 	if w.pusher != nil {
-		receipt := &pb.SendReceipt{
-			ClientMsgId: upstream.GetClientMsgId(),
-			MsgId:       msgID,
-			Topic:       upstream.GetTopic(),
-			TopicSeq:    topicSeq,
-			Timestamp:   time.Now().Unix(),
-		}
-		_, err := w.pusher.PushReceiptToUser(ctx, upstream.GetSenderId(), receipt)
-		if err != nil {
-			w.log.Warnf("push send receipt to sender %d failed: %v", upstream.GetSenderId(), err)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := w.pusher.PushReceiptToUser(ctx, userID, receipt); err != nil {
+			w.log.Warnf("push send receipt to sender %d failed: %v", userID, err)
 		}
 	}
 }

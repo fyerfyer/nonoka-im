@@ -29,3 +29,22 @@ func (s *DispatchService) GetGateway(ctx context.Context, userID int64) (string,
 	}
 	return reply.GatewayUrl, nil
 }
+
+// GetGatewayURLs returns the discovered gateway URL list for the given user.
+// The first element is the recommended gateway. If the server returns no list,
+// a single-element list containing GatewayUrl is returned.
+func (s *DispatchService) GetGatewayURLs(ctx context.Context, userID int64) ([]string, error) {
+	reply, err := s.client.Gateway(ctx, &v1.GetGatewayRequest{
+		UserId: userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get gateway failed: %w", err)
+	}
+	if len(reply.GatewayUrls) > 0 {
+		return reply.GatewayUrls, nil
+	}
+	if reply.GatewayUrl != "" {
+		return []string{reply.GatewayUrl}, nil
+	}
+	return nil, fmt.Errorf("get gateway returned empty url")
+}

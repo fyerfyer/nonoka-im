@@ -67,8 +67,11 @@ func (x *GetGatewayRequest) GetUserId() int64 {
 }
 
 type GetGatewayReply struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	GatewayUrl    string                 `protobuf:"bytes,1,opt,name=gateway_url,json=gatewayUrl,proto3" json:"gateway_url,omitempty"` // e.g. "ws://192.168.1.10:8080/ws"
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	GatewayUrl string                 `protobuf:"bytes,1,opt,name=gateway_url,json=gatewayUrl,proto3" json:"gateway_url,omitempty"` // e.g. "ws://192.168.1.10:8080/ws"
+	// Optional list of currently alive gateway URLs. Clients may cache this list
+	// and select an entry according to their own routing policy.
+	GatewayUrls   []string `protobuf:"bytes,2,rep,name=gateway_urls,json=gatewayUrls,proto3" json:"gateway_urls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -110,16 +113,24 @@ func (x *GetGatewayReply) GetGatewayUrl() string {
 	return ""
 }
 
+func (x *GetGatewayReply) GetGatewayUrls() []string {
+	if x != nil {
+		return x.GatewayUrls
+	}
+	return nil
+}
+
 var File_im_v1_dispatch_proto protoreflect.FileDescriptor
 
 const file_im_v1_dispatch_proto_rawDesc = "" +
 	"\n" +
 	"\x14im/v1/dispatch.proto\x12\tapi.im.v1\x1a\x1cgoogle/api/annotations.proto\",\n" +
 	"\x11GetGatewayRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\"2\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"U\n" +
 	"\x0fGetGatewayReply\x12\x1f\n" +
 	"\vgateway_url\x18\x01 \x01(\tR\n" +
-	"gatewayUrl2t\n" +
+	"gatewayUrl\x12!\n" +
+	"\fgateway_urls\x18\x02 \x03(\tR\vgatewayUrls2t\n" +
 	"\x0fDispatchService\x12a\n" +
 	"\aGateway\x12\x1c.api.im.v1.GetGatewayRequest\x1a\x1a.api.im.v1.GetGatewayReply\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/v1/dispatch/gatewayB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 

@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 const (
@@ -97,22 +98,49 @@ type DeliveryStatus struct {
 
 // MessageStorage handles MongoDB persistence for messages.
 type MessageStorage struct {
-	db      *mongo.Database
-	redis   redis.UniversalClient
-	metrics *metrics.Metrics
-	log     *log.Helper
+	db           *mongo.Database
+	redis        redis.UniversalClient
+	metrics      *metrics.Metrics
+	log          *log.Helper
+	writeConcern *writeconcern.WriteConcern
 }
 
 // NewMessageStorage creates a new MessageStorage.
 func NewMessageStorage(db *mongo.Database, logger log.Logger, m ...*metrics.Metrics) *MessageStorage {
 	s := &MessageStorage{
-		db:  db,
-		log: log.NewHelper(logger),
+		db:           db,
+		log:          log.NewHelper(logger),
+		writeConcern: writeconcern.W1(),
 	}
 	if len(m) > 0 {
 		s.metrics = m[0]
 	}
 	return s
+}
+
+// SetWriteConcern configures the MongoDB write concern from a string label.
+// Supported labels:
+//   - "w1"            : w=1, j=false  (fast, default)
+//   - "majority"      : w="majority", j=true
+//   - "majority_jfalse": w="majority", j=false
+func (s *MessageStorage) SetWriteConcern(label string) {
+	switch strings.ToLower(label) {
+	case "majority":
+		s.writeConcern = writeconcern.Majority()
+	case "majority_jfalse":
+		// MongoDB driver does not expose a direct "majority without journal"
+		// constructor, so we build it via a custom tag.
+		s.writeConcern = writeconcern.Custom("majority")
+	case "w1", "", "default":
+		fallthrough
+	default:
+		s.writeConcern = writeconcern.W1()
+	}
+}
+
+// collection returns a collection handle configured with the current write concern.
+func (s *MessageStorage) collection(name string) *mongo.Collection {
+	return s.db.Collection(name, options.Collection().SetWriteConcern(s.writeConcern))
 }
 
 // SetMetrics configures the metrics collector for storage operations.
@@ -255,7 +283,7 @@ func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName 
 	}
 	model.Options.SetName(indexName)
 
-	_, err := s.db.Collection(collection).Indexes().CreateOne(ctx, model)
+	_, err := s.collection(collection).Indexes().CreateOne(ctx, model)
 	if err == nil {
 		return nil
 	}
@@ -268,11 +296,11 @@ func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName 
 	// the conflicting index (never drop all) and recreate.
 	if isIndexKeySpecsConflictError(err) {
 		s.log.Warnf("index %s on %s has key spec conflict, dropping and recreating", indexName, collection)
-		dropErr := s.db.Collection(collection).Indexes().DropOne(ctx, indexName)
+		dropErr := s.collection(collection).Indexes().DropOne(ctx, indexName)
 		if dropErr != nil {
 			return fmt.Errorf("drop conflicting index %s on %s: %w", indexName, collection, dropErr)
 		}
-		_, err = s.db.Collection(collection).Indexes().CreateOne(ctx, model)
+		_, err = s.collection(collection).Indexes().CreateOne(ctx, model)
 		if err != nil {
 			return fmt.Errorf("recreate index %s on %s after drop: %w", indexName, collection, err)
 		}
@@ -425,7 +453,7 @@ func (s *MessageStorage) SaveP2PMessage(ctx context.Context, msg *pb.UpstreamMes
 		docs[i] = inbox
 	}
 
-	_, err = s.db.Collection(CollectionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	_, err = s.collection(CollectionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
 	if err != nil {
 		// With unordered inserts, duplicate errors are returned as BulkWriteException.
 		// If every write error is a duplicate key, the operation is idempotent.
@@ -470,7 +498,7 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 		CreatedAt:   now,
 	}
 
-	_, err := s.db.Collection(CollectionMessages).InsertOne(ctx, stored)
+	_, err := s.collection(CollectionMessages).InsertOne(ctx, stored, options.InsertOne())
 	if err != nil {
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate group message ignored: client_msg_id=%s, sender=%d",
@@ -483,6 +511,65 @@ func (s *MessageStorage) SaveGroupMessage(ctx context.Context, msg *pb.UpstreamM
 	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
 	s.log.Debugf("group message saved: msg_id=%d, topic=%s", msgID, msg.GetTopic())
 	return false, nil
+}
+
+// SaveGroupMessagesBatch inserts multiple group messages in one unordered
+// InsertMany call. Duplicate key errors are ignored. This is used by the
+// group message batcher to amortize MongoDB round-trip cost.
+func (s *MessageStorage) SaveGroupMessagesBatch(ctx context.Context, msgs []*pb.UpstreamMessage, msgIDs []int64, topicSeqs []uint64) (int, bool, error) {
+	if len(msgs) == 0 {
+		return 0, false, nil
+	}
+	if len(msgs) != len(msgIDs) || len(msgs) != len(topicSeqs) {
+		return 0, false, fmt.Errorf("batch length mismatch: msgs=%d ids=%d seqs=%d", len(msgs), len(msgIDs), len(topicSeqs))
+	}
+
+	s.incMongoOp(CollectionMessages, "insertMany")
+	now := time.Now()
+	docs := make([]interface{}, len(msgs))
+	for i, msg := range msgs {
+		docs[i] = &StoredMessage{
+			MsgID:       msgIDs[i],
+			Topic:       msg.GetTopic(),
+			SenderID:    msg.GetSenderId(),
+			MsgType:     msg.GetMsgType(),
+			Content:     msg.GetContent(),
+			Timestamp:   msg.GetTimestamp(),
+			TopicSeq:    topicSeqs[i],
+			ClientMsgID: msg.GetClientMsgId(),
+			CreatedAt:   now,
+		}
+	}
+
+	res, err := s.collection(CollectionMessages).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	if err != nil {
+		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+			allDuplicate := len(bulkErr.WriteErrors) > 0
+			for _, we := range bulkErr.WriteErrors {
+				if !IsDuplicateError(we) {
+					allDuplicate = false
+					break
+				}
+			}
+			if allDuplicate {
+				s.log.Debugf("duplicate group message batch ignored: count=%d", len(msgs))
+				return 0, true, nil
+			}
+			// Partial success: some documents were inserted. Return inserted count
+			// and mark the operation as not fully duplicate so the caller can
+			// continue with per-message fallback if needed.
+			inserted := len(res.InsertedIDs)
+			s.log.Debugf("partial duplicate group message batch: count=%d inserted=%d", len(msgs), inserted)
+			return inserted, false, nil
+		}
+		return 0, false, fmt.Errorf("insert group message batch: %w", err)
+	}
+
+	for i, msg := range msgs {
+		s.cacheMessageSender(ctx, msg.GetTopic(), topicSeqs[i], msg.GetSenderId())
+	}
+	s.log.Debugf("group message batch saved: count=%d", len(msgs))
+	return len(msgs), false, nil
 }
 
 // SaveSystemMessage saves a system notification using write扩散.
@@ -513,7 +600,7 @@ func (s *MessageStorage) SaveSystemMessage(ctx context.Context, msg *pb.Upstream
 		CreatedAt:   now,
 	}
 
-	_, err := s.db.Collection(CollectionInboxes).InsertOne(ctx, inbox)
+	_, err := s.collection(CollectionInboxes).InsertOne(ctx, inbox, options.InsertOne())
 	if err != nil {
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
@@ -543,7 +630,7 @@ func (s *MessageStorage) BackupTopicSeq(ctx context.Context, topic string, seq u
 	}
 	opts := options.UpdateOne().SetUpsert(true)
 
-	_, err := s.db.Collection(CollectionTopicSeqs).UpdateOne(ctx, filter, update, opts)
+	_, err := s.collection(CollectionTopicSeqs).UpdateOne(ctx, filter, update, opts)
 	if err != nil {
 		return fmt.Errorf("backup topic seq: %w", err)
 	}
@@ -577,7 +664,7 @@ func (s *MessageStorage) SaveMentionInbox(ctx context.Context, msg *pb.UpstreamM
 		})
 	}
 
-	_, err := s.db.Collection(CollectionMentionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	_, err := s.collection(CollectionMentionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
 	if err != nil {
 		// With unordered inserts, duplicate errors are returned as BulkWriteException.
 		// If every write error is a duplicate key, the operation is idempotent.
@@ -620,7 +707,7 @@ func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, t
 		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
 		SetLimit(int64(limit))
 
-	cursor, err := s.db.Collection(CollectionInboxes).Find(ctx, filter, opts)
+	cursor, err := s.collection(CollectionInboxes).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("find offline messages: %w", err)
 	}
@@ -699,7 +786,7 @@ func (s *MessageStorage) GetGroupMessages(ctx context.Context, topic string, las
 		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
 		SetLimit(int64(limit))
 
-	cursor, err := s.db.Collection(CollectionMessages).Find(ctx, filter, opts)
+	cursor, err := s.collection(CollectionMessages).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("find group messages: %w", err)
 	}
@@ -728,7 +815,7 @@ func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, t
 		SetSort(bson.D{{Key: "topic_seq", Value: 1}}).
 		SetLimit(int64(limit))
 
-	cursor, err := s.db.Collection(CollectionMentionInboxes).Find(ctx, filter, opts)
+	cursor, err := s.collection(CollectionMentionInboxes).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, fmt.Errorf("find mention messages: %w", err)
 	}
@@ -744,7 +831,7 @@ func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, t
 // GetTopicMaxSeq returns the current max seq for a topic from MongoDB backup.
 func (s *MessageStorage) GetTopicMaxSeq(ctx context.Context, topic string) (uint64, error) {
 	var result TopicSeqBackup
-	err := s.db.Collection(CollectionTopicSeqs).FindOne(ctx, bson.M{"topic": topic}).Decode(&result)
+	err := s.collection(CollectionTopicSeqs).FindOne(ctx, bson.M{"topic": topic}).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return 0, nil
@@ -775,7 +862,7 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		res, err := s.db.Collection(CollectionInboxes).UpdateOne(ctx, filter, update)
+		res, err := s.collection(CollectionInboxes).UpdateOne(ctx, filter, update, options.UpdateOne())
 		matched := int64(0)
 		if err == nil && res != nil {
 			matched = res.MatchedCount
@@ -784,7 +871,7 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 	}()
 	go func() {
 		defer wg.Done()
-		res, err := s.db.Collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update)
+		res, err := s.collection(CollectionMentionInboxes).UpdateOne(ctx, filter, update, options.UpdateOne())
 		matched := int64(0)
 		if err == nil && res != nil {
 			matched = res.MatchedCount
@@ -815,7 +902,7 @@ func (s *MessageStorage) UpdateDeliveryStatus(ctx context.Context, userID int64,
 		TopicSeq:    topicSeq,
 		DeliveredAt: now,
 	}
-	_, err := s.db.Collection(CollectionDeliveryStatus).InsertOne(ctx, ds)
+	_, err := s.collection(CollectionDeliveryStatus).InsertOne(ctx, ds, options.InsertOne())
 	if err != nil {
 		if IsDuplicateError(err) {
 			return nil // already recorded, ignore
@@ -840,13 +927,13 @@ func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, top
 	update := bson.M{"$set": bson.M{"read": true, "read_at": now}}
 
 	// Update inbox
-	inboxRes, err := s.db.Collection(CollectionInboxes).UpdateMany(ctx, filter, update)
+	inboxRes, err := s.collection(CollectionInboxes).UpdateMany(ctx, filter, update, options.UpdateMany())
 	if err != nil {
 		return fmt.Errorf("update inbox read status: %w", err)
 	}
 
 	// Update mention inbox
-	mentionRes, err := s.db.Collection(CollectionMentionInboxes).UpdateMany(ctx, filter, update)
+	mentionRes, err := s.collection(CollectionMentionInboxes).UpdateMany(ctx, filter, update, options.UpdateMany())
 	if err != nil {
 		return fmt.Errorf("update mention inbox read status: %w", err)
 	}
@@ -876,7 +963,7 @@ func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, top
 		var doc struct {
 			SenderID int64 `bson:"sender_id"`
 		}
-		err := s.db.Collection(CollectionInboxes).FindOne(ctx, bson.M{
+		err := s.collection(CollectionInboxes).FindOne(ctx, bson.M{
 			"topic":     topic,
 			"topic_seq": topicSeq,
 		}).Decode(&doc)
@@ -891,7 +978,7 @@ func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, top
 		var doc struct {
 			SenderID int64 `bson:"sender_id"`
 		}
-		err := s.db.Collection(CollectionMentionInboxes).FindOne(ctx, bson.M{
+		err := s.collection(CollectionMentionInboxes).FindOne(ctx, bson.M{
 			"topic":     topic,
 			"topic_seq": topicSeq,
 		}).Decode(&doc)
@@ -906,7 +993,7 @@ func (s *MessageStorage) GetMessageSender(ctx context.Context, topic string, top
 		var doc struct {
 			SenderID int64 `bson:"sender_id"`
 		}
-		err := s.db.Collection(CollectionMessages).FindOne(ctx, bson.M{
+		err := s.collection(CollectionMessages).FindOne(ctx, bson.M{
 			"topic":     topic,
 			"topic_seq": topicSeq,
 		}).Decode(&doc)

@@ -75,3 +75,45 @@ func TestBatchPushReceiptsConcurrent_ContextCanceled(t *testing.T) {
 		t.Fatalf("expected %d failed user IDs, got %d", len(userIDs), len(resp.FailedUserIds))
 	}
 }
+
+// TestBatchPushReceiptsToUsers_Empty verifies that an empty batch request is a
+// no-op and returns zero delivered count.
+func TestBatchPushReceiptsToUsers_Empty(t *testing.T) {
+	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
+
+	resp, err := svc.BatchPushReceiptsToUsers(context.Background(), &v1.BatchPushReceiptsToUsersRequest{
+		Items: nil,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.TotalDelivered != 0 {
+		t.Fatalf("expected total_delivered=0, got %d", resp.TotalDelivered)
+	}
+	if len(resp.FailedItems) != 0 {
+		t.Fatalf("expected no failed items, got %d", len(resp.FailedItems))
+	}
+}
+
+// TestBatchPushReceiptsToUsers_OfflineUser reports the offline user as failed.
+func TestBatchPushReceiptsToUsers_OfflineUser(t *testing.T) {
+	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
+
+	resp, err := svc.BatchPushReceiptsToUsers(context.Background(), &v1.BatchPushReceiptsToUsersRequest{
+		Items: []*v1.ReceiptBatchItem{
+			{UserId: 42, Receipt: &v1.SendReceipt{ClientMsgId: "cmid-1", MsgId: 1}},
+			{UserId: 43, Receipt: &v1.SendReceipt{ClientMsgId: "cmid-2", MsgId: 2}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.TotalDelivered != 0 {
+		t.Fatalf("expected total_delivered=0 for offline users, got %d", resp.TotalDelivered)
+	}
+	if len(resp.FailedItems) != 2 {
+		t.Fatalf("expected 2 failed items, got %d", len(resp.FailedItems))
+	}
+}

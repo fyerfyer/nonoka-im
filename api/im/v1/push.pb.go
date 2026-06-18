@@ -336,7 +336,7 @@ func (x *PushReceiptToUserReply) GetDeliveredCount() int32 {
 	return 0
 }
 
-// BatchPushReceiptToUsersRequest pushes a send receipt to multiple users.
+// BatchPushReceiptToUsersRequest pushes the SAME send receipt to multiple users.
 type BatchPushReceiptToUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserIds       []int64                `protobuf:"varint,1,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
@@ -441,6 +441,157 @@ func (x *BatchPushReceiptToUsersReply) GetFailedUserIds() []int64 {
 	return nil
 }
 
+// ReceiptBatchItem pairs a target user with a specific send receipt.
+type ReceiptBatchItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Receipt       *SendReceipt           `protobuf:"bytes,2,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReceiptBatchItem) Reset() {
+	*x = ReceiptBatchItem{}
+	mi := &file_im_v1_push_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReceiptBatchItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReceiptBatchItem) ProtoMessage() {}
+
+func (x *ReceiptBatchItem) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReceiptBatchItem.ProtoReflect.Descriptor instead.
+func (*ReceiptBatchItem) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ReceiptBatchItem) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ReceiptBatchItem) GetReceipt() *SendReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+// BatchPushReceiptsToUsersRequest pushes MULTIPLE distinct send receipts to users in one call.
+type BatchPushReceiptsToUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*ReceiptBatchItem    `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchPushReceiptsToUsersRequest) Reset() {
+	*x = BatchPushReceiptsToUsersRequest{}
+	mi := &file_im_v1_push_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchPushReceiptsToUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchPushReceiptsToUsersRequest) ProtoMessage() {}
+
+func (x *BatchPushReceiptsToUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchPushReceiptsToUsersRequest.ProtoReflect.Descriptor instead.
+func (*BatchPushReceiptsToUsersRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BatchPushReceiptsToUsersRequest) GetItems() []*ReceiptBatchItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type BatchPushReceiptsToUsersReply struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TotalDelivered int32                  `protobuf:"varint,1,opt,name=total_delivered,json=totalDelivered,proto3" json:"total_delivered,omitempty"`
+	// failed_items reports which user+receipt pairs could not be delivered.
+	FailedItems   []*ReceiptBatchItem `protobuf:"bytes,2,rep,name=failed_items,json=failedItems,proto3" json:"failed_items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchPushReceiptsToUsersReply) Reset() {
+	*x = BatchPushReceiptsToUsersReply{}
+	mi := &file_im_v1_push_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchPushReceiptsToUsersReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchPushReceiptsToUsersReply) ProtoMessage() {}
+
+func (x *BatchPushReceiptsToUsersReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchPushReceiptsToUsersReply.ProtoReflect.Descriptor instead.
+func (*BatchPushReceiptsToUsersReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BatchPushReceiptsToUsersReply) GetTotalDelivered() int32 {
+	if x != nil {
+		return x.TotalDelivered
+	}
+	return 0
+}
+
+func (x *BatchPushReceiptsToUsersReply) GetFailedItems() []*ReceiptBatchItem {
+	if x != nil {
+		return x.FailedItems
+	}
+	return nil
+}
+
 var File_im_v1_push_proto protoreflect.FileDescriptor
 
 const file_im_v1_push_proto_rawDesc = "" +
@@ -469,13 +620,22 @@ const file_im_v1_push_proto_rawDesc = "" +
 	"\areceipt\x18\x02 \x01(\v2\x16.api.im.v1.SendReceiptR\areceipt\"o\n" +
 	"\x1cBatchPushReceiptToUsersReply\x12'\n" +
 	"\x0ftotal_delivered\x18\x01 \x01(\x05R\x0etotalDelivered\x12&\n" +
-	"\x0ffailed_user_ids\x18\x02 \x03(\x03R\rfailedUserIds2\xfb\x02\n" +
+	"\x0ffailed_user_ids\x18\x02 \x03(\x03R\rfailedUserIds\"]\n" +
+	"\x10ReceiptBatchItem\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x120\n" +
+	"\areceipt\x18\x02 \x01(\v2\x16.api.im.v1.SendReceiptR\areceipt\"T\n" +
+	"\x1fBatchPushReceiptsToUsersRequest\x121\n" +
+	"\x05items\x18\x01 \x03(\v2\x1b.api.im.v1.ReceiptBatchItemR\x05items\"\x88\x01\n" +
+	"\x1dBatchPushReceiptsToUsersReply\x12'\n" +
+	"\x0ftotal_delivered\x18\x01 \x01(\x05R\x0etotalDelivered\x12>\n" +
+	"\ffailed_items\x18\x02 \x03(\v2\x1b.api.im.v1.ReceiptBatchItemR\vfailedItems2\xed\x03\n" +
 	"\vPushService\x12F\n" +
 	"\n" +
 	"PushToUser\x12\x1c.api.im.v1.PushToUserRequest\x1a\x1a.api.im.v1.PushToUserReply\x12X\n" +
 	"\x10BatchPushToUsers\x12\".api.im.v1.BatchPushToUsersRequest\x1a .api.im.v1.BatchPushToUsersReply\x12[\n" +
 	"\x11PushReceiptToUser\x12#.api.im.v1.PushReceiptToUserRequest\x1a!.api.im.v1.PushReceiptToUserReply\x12m\n" +
-	"\x17BatchPushReceiptToUsers\x12).api.im.v1.BatchPushReceiptToUsersRequest\x1a'.api.im.v1.BatchPushReceiptToUsersReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\x17BatchPushReceiptToUsers\x12).api.im.v1.BatchPushReceiptToUsersRequest\x1a'.api.im.v1.BatchPushReceiptToUsersReply\x12p\n" +
+	"\x18BatchPushReceiptsToUsers\x12*.api.im.v1.BatchPushReceiptsToUsersRequest\x1a(.api.im.v1.BatchPushReceiptsToUsersReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_push_proto_rawDescOnce sync.Once
@@ -489,37 +649,45 @@ func file_im_v1_push_proto_rawDescGZIP() []byte {
 	return file_im_v1_push_proto_rawDescData
 }
 
-var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_im_v1_push_proto_goTypes = []any{
-	(*PushToUserRequest)(nil),              // 0: api.im.v1.PushToUserRequest
-	(*PushToUserReply)(nil),                // 1: api.im.v1.PushToUserReply
-	(*BatchPushToUsersRequest)(nil),        // 2: api.im.v1.BatchPushToUsersRequest
-	(*BatchPushToUsersReply)(nil),          // 3: api.im.v1.BatchPushToUsersReply
-	(*PushReceiptToUserRequest)(nil),       // 4: api.im.v1.PushReceiptToUserRequest
-	(*PushReceiptToUserReply)(nil),         // 5: api.im.v1.PushReceiptToUserReply
-	(*BatchPushReceiptToUsersRequest)(nil), // 6: api.im.v1.BatchPushReceiptToUsersRequest
-	(*BatchPushReceiptToUsersReply)(nil),   // 7: api.im.v1.BatchPushReceiptToUsersReply
-	(*MessagePush)(nil),                    // 8: api.im.v1.MessagePush
-	(*SendReceipt)(nil),                    // 9: api.im.v1.SendReceipt
+	(*PushToUserRequest)(nil),               // 0: api.im.v1.PushToUserRequest
+	(*PushToUserReply)(nil),                 // 1: api.im.v1.PushToUserReply
+	(*BatchPushToUsersRequest)(nil),         // 2: api.im.v1.BatchPushToUsersRequest
+	(*BatchPushToUsersReply)(nil),           // 3: api.im.v1.BatchPushToUsersReply
+	(*PushReceiptToUserRequest)(nil),        // 4: api.im.v1.PushReceiptToUserRequest
+	(*PushReceiptToUserReply)(nil),          // 5: api.im.v1.PushReceiptToUserReply
+	(*BatchPushReceiptToUsersRequest)(nil),  // 6: api.im.v1.BatchPushReceiptToUsersRequest
+	(*BatchPushReceiptToUsersReply)(nil),    // 7: api.im.v1.BatchPushReceiptToUsersReply
+	(*ReceiptBatchItem)(nil),                // 8: api.im.v1.ReceiptBatchItem
+	(*BatchPushReceiptsToUsersRequest)(nil), // 9: api.im.v1.BatchPushReceiptsToUsersRequest
+	(*BatchPushReceiptsToUsersReply)(nil),   // 10: api.im.v1.BatchPushReceiptsToUsersReply
+	(*MessagePush)(nil),                     // 11: api.im.v1.MessagePush
+	(*SendReceipt)(nil),                     // 12: api.im.v1.SendReceipt
 }
 var file_im_v1_push_proto_depIdxs = []int32{
-	8, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
-	8, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
-	9, // 2: api.im.v1.PushReceiptToUserRequest.receipt:type_name -> api.im.v1.SendReceipt
-	9, // 3: api.im.v1.BatchPushReceiptToUsersRequest.receipt:type_name -> api.im.v1.SendReceipt
-	0, // 4: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
-	2, // 5: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
-	4, // 6: api.im.v1.PushService.PushReceiptToUser:input_type -> api.im.v1.PushReceiptToUserRequest
-	6, // 7: api.im.v1.PushService.BatchPushReceiptToUsers:input_type -> api.im.v1.BatchPushReceiptToUsersRequest
-	1, // 8: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
-	3, // 9: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
-	5, // 10: api.im.v1.PushService.PushReceiptToUser:output_type -> api.im.v1.PushReceiptToUserReply
-	7, // 11: api.im.v1.PushService.BatchPushReceiptToUsers:output_type -> api.im.v1.BatchPushReceiptToUsersReply
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	11, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
+	11, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
+	12, // 2: api.im.v1.PushReceiptToUserRequest.receipt:type_name -> api.im.v1.SendReceipt
+	12, // 3: api.im.v1.BatchPushReceiptToUsersRequest.receipt:type_name -> api.im.v1.SendReceipt
+	12, // 4: api.im.v1.ReceiptBatchItem.receipt:type_name -> api.im.v1.SendReceipt
+	8,  // 5: api.im.v1.BatchPushReceiptsToUsersRequest.items:type_name -> api.im.v1.ReceiptBatchItem
+	8,  // 6: api.im.v1.BatchPushReceiptsToUsersReply.failed_items:type_name -> api.im.v1.ReceiptBatchItem
+	0,  // 7: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
+	2,  // 8: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
+	4,  // 9: api.im.v1.PushService.PushReceiptToUser:input_type -> api.im.v1.PushReceiptToUserRequest
+	6,  // 10: api.im.v1.PushService.BatchPushReceiptToUsers:input_type -> api.im.v1.BatchPushReceiptToUsersRequest
+	9,  // 11: api.im.v1.PushService.BatchPushReceiptsToUsers:input_type -> api.im.v1.BatchPushReceiptsToUsersRequest
+	1,  // 12: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
+	3,  // 13: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
+	5,  // 14: api.im.v1.PushService.PushReceiptToUser:output_type -> api.im.v1.PushReceiptToUserReply
+	7,  // 15: api.im.v1.PushService.BatchPushReceiptToUsers:output_type -> api.im.v1.BatchPushReceiptToUsersReply
+	10, // 16: api.im.v1.PushService.BatchPushReceiptsToUsers:output_type -> api.im.v1.BatchPushReceiptsToUsersReply
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_push_proto_init() }
@@ -535,7 +703,7 @@ func file_im_v1_push_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_push_proto_rawDesc), len(file_im_v1_push_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

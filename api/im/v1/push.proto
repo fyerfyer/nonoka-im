@@ -15,8 +15,11 @@ service PushService {
   rpc BatchPushToUsers (BatchPushToUsersRequest) returns (BatchPushToUsersReply);
   // PushReceiptToUser delivers a send receipt to all online devices of a user.
   rpc PushReceiptToUser (PushReceiptToUserRequest) returns (PushReceiptToUserReply);
-  // BatchPushReceiptToUsers delivers send receipts to multiple users in one call.
+  // BatchPushReceiptToUsers delivers the SAME send receipt to multiple users in one call.
   rpc BatchPushReceiptToUsers (BatchPushReceiptToUsersRequest) returns (BatchPushReceiptToUsersReply);
+  // BatchPushReceiptsToUsers delivers MULTIPLE distinct send receipts to multiple users in one call.
+  // This is used by MsgWorker to aggregate short-term receipts for the same user.
+  rpc BatchPushReceiptsToUsers (BatchPushReceiptsToUsersRequest) returns (BatchPushReceiptsToUsersReply);
 }
 
 // PushToUserRequest is sent by MsgWorker to Gateway.
@@ -52,7 +55,7 @@ message PushReceiptToUserReply {
   int32 delivered_count = 2; // number of devices the receipt was sent to
 }
 
-// BatchPushReceiptToUsersRequest pushes a send receipt to multiple users.
+// BatchPushReceiptToUsersRequest pushes the SAME send receipt to multiple users.
 message BatchPushReceiptToUsersRequest {
   repeated int64 user_ids = 1;
   SendReceipt receipt = 2;
@@ -61,4 +64,21 @@ message BatchPushReceiptToUsersRequest {
 message BatchPushReceiptToUsersReply {
   int32 total_delivered = 1;
   repeated int64 failed_user_ids = 2;
+}
+
+// ReceiptBatchItem pairs a target user with a specific send receipt.
+message ReceiptBatchItem {
+  int64 user_id = 1;
+  SendReceipt receipt = 2;
+}
+
+// BatchPushReceiptsToUsersRequest pushes MULTIPLE distinct send receipts to users in one call.
+message BatchPushReceiptsToUsersRequest {
+  repeated ReceiptBatchItem items = 1;
+}
+
+message BatchPushReceiptsToUsersReply {
+  int32 total_delivered = 1;
+  // failed_items reports which user+receipt pairs could not be delivered.
+  repeated ReceiptBatchItem failed_items = 2;
 }

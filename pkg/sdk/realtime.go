@@ -22,6 +22,9 @@ type DeliveryReceiptHandler func(topic string, topicSeq uint64, msgID int64)
 // RealtimeOptions configures the realtime (WebSocket) client.
 type RealtimeOptions struct {
 	GatewayURL           string
+	GatewayURLs          []string
+	GatewaySelector      GatewaySelector
+	UserID               int64
 	Token                string
 	DeviceID             string
 	HeartbeatInterval    time.Duration
@@ -49,6 +52,12 @@ type RealtimeClient struct {
 	connID string
 	state  atomic.Int32 // 0=disconnected, 1=connecting, 2=connected, 3=authed
 	userID atomic.Int64
+
+	// Gateway URL management for multi-gateway deployments
+	gatewayURLs   []string
+	gatewayIndex  int
+	connectAttempt int
+	urlMu         sync.Mutex
 
 	// Write protection for wsConn
 	writeMu sync.Mutex
@@ -121,8 +130,11 @@ func (rt *RealtimeClient) IsReconnecting() bool {
 
 // NewRealtimeClient creates a new RealtimeClient with the given options.
 func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
-	if opts.GatewayURL == "" {
+	if opts.GatewayURL == "" && len(opts.GatewayURLs) == 0 {
 		opts.GatewayURL = "ws://localhost:8000/ws"
+	}
+	if opts.GatewaySelector == "" {
+		opts.GatewaySelector = GatewaySelectorRoundRobin
 	}
 	if opts.DeviceID == "" {
 		opts.DeviceID = "sdk-default"
@@ -140,12 +152,50 @@ func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
 		opts.ReconnectInterval = 5 * time.Second
 	}
 
+	urls := gatewayList(opts.GatewayURL, opts.GatewayURLs, nil)
 	return &RealtimeClient{
 		opts:        opts,
+		gatewayURLs: urls,
 		pending:     make(map[uint64]chan *v1.Packet),
 		seenSeqs:    make(map[string]uint64),
 		sendingMsgs: make(map[string]chan *SendResult),
 		stopCh:      make(chan struct{}),
+	}
+}
+
+// SetGatewayURLs updates the list of gateway URLs at runtime. This is typically
+// called after the SDK discovers available gateways from the DispatchService.
+// The next connection/reconnection will pick from this list according to the
+// configured selector.
+func (rt *RealtimeClient) SetGatewayURLs(urls []string) {
+	rt.urlMu.Lock()
+	defer rt.urlMu.Unlock()
+	rt.gatewayURLs = gatewayList(rt.opts.GatewayURL, rt.opts.GatewayURLs, urls)
+	rt.gatewayIndex = 0
+	rt.connectAttempt = 0
+}
+
+// nextGatewayURL returns the URL to use for the current connection attempt.
+func (rt *RealtimeClient) nextGatewayURL() string {
+	rt.urlMu.Lock()
+	defer rt.urlMu.Unlock()
+
+	if len(rt.gatewayURLs) == 0 {
+		return rt.opts.GatewayURL
+	}
+
+	url, idx := selectGatewayURL(rt.gatewayURLs, rt.opts.GatewaySelector, rt.opts.UserID, rt.connectAttempt)
+	rt.gatewayIndex = idx
+	return url
+}
+
+// rotateGateway moves to the next gateway in the list. It is called after a
+// connection failure so the next attempt tries a different entry.
+func (rt *RealtimeClient) rotateGateway() {
+	rt.urlMu.Lock()
+	defer rt.urlMu.Unlock()
+	if len(rt.gatewayURLs) > 0 {
+		rt.connectAttempt++
 	}
 }
 
@@ -204,30 +254,52 @@ func (rt *RealtimeClient) connectAndAuth(ctx context.Context) error {
 		}
 	}
 
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+	// Try the selected gateway, falling back to others on dial/auth failure.
+	var lastErr error
+	attempts := len(rt.gatewayURLs)
+	if attempts == 0 {
+		attempts = 1
 	}
 
-	wsConn, _, err := dialer.DialContext(ctx, rt.opts.GatewayURL, nil)
-	if err != nil {
-		rt.state.Store(rtStateDisconnected)
-		return fmt.Errorf("dial gateway failed: %w", err)
-	}
-
-	rt.wsConn = wsConn
-	rt.connID = uuid.New().String()
-	rt.state.Store(rtStateConnected)
-
-	// Authenticate if token is provided
-	if rt.opts.Token != "" {
-		if err := rt.authenticate(ctx); err != nil {
-			rt.wsConn.Close()
-			rt.state.Store(rtStateDisconnected)
-			return err
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			rt.rotateGateway()
 		}
+		gatewayURL := rt.nextGatewayURL()
+
+		dialer := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+		}
+
+		wsConn, _, err := dialer.DialContext(ctx, gatewayURL, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		rt.wsConn = wsConn
+		rt.connID = uuid.New().String()
+		rt.state.Store(rtStateConnected)
+
+		// Authenticate if token is provided
+		if rt.opts.Token != "" {
+			if err := rt.authenticate(ctx); err != nil {
+				rt.wsConn.Close()
+				rt.wsConn = nil
+				rt.state.Store(rtStateDisconnected)
+				lastErr = err
+				continue
+			}
+		}
+
+		return nil
 	}
 
-	return nil
+	rt.state.Store(rtStateDisconnected)
+	if lastErr != nil {
+		return fmt.Errorf("dial gateway failed: %w", lastErr)
+	}
+	return fmt.Errorf("dial gateway failed: no gateway available")
 }
 
 // authenticate sends an auth request and reads the response directly from WebSocket.

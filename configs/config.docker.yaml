@@ -8,7 +8,8 @@ server:
 data:
   database:
     driver: postgres
-    source: host=postgres user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable TimeZone=Asia/Shanghai
+    source: host=postgres user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable
+      TimeZone=Asia/Shanghai
     max_open_conns: 200
     max_idle_conns: 50
     conn_max_lifetime: 1800s
@@ -19,9 +20,10 @@ data:
   mongodb:
     uri: mongodb://mongodb:27017
     database: nonoka_im
+    write_concern: w1
   kafka:
     brokers:
-      - kafka:9092
+    - kafka:9092
     topic: im-messages
     consumer_group: msgworker-group
     batch_size: 1000
@@ -42,13 +44,13 @@ data:
     commit_flush_interval: 1s
 dispatch:
   gateways:
-    - node_id: "gateway-1"
-      gateway_url: "ws://gateway-1:8000/ws"
-      gateway_grpc_addr: "gateway-1:9000"
-    - node_id: "gateway-2"
-      gateway_url: "ws://gateway-2:8000/ws"
-      gateway_grpc_addr: "gateway-2:9000"
-  strategy: "consistent_hash"
+  - node_id: gateway-1
+    gateway_url: ws://gateway-1:8000/ws
+    gateway_grpc_addr: gateway-1:9000
+  - node_id: gateway-2
+    gateway_url: ws://gateway-2:8000/ws
+    gateway_grpc_addr: gateway-2:9000
+  strategy: consistent_hash
   heartbeat_interval: 10s
   node_ttl: 30s
 gateway:
@@ -58,5 +60,11 @@ gateway:
   write_timeout: 10s
   allowed_origins: []
 auth:
-  jwt_secret: "docker-jwt-secret-do-not-use-in-production"
+  jwt_secret: docker-jwt-secret-do-not-use-in-production
   token_ttl: 3600s
+msgworker:
+  session_cache_ttl: 5s
+  receipt_batch_size: 32
+  receipt_batch_timeout: 0.01s
+  group_batch_size: 16
+  group_batch_timeout: 0.005s

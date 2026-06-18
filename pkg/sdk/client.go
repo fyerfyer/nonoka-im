@@ -104,11 +104,15 @@ func (c *Client) Connect(ctx context.Context) error {
 		return ErrAlreadyConnected
 	}
 
-	// Derive BaseURL from GatewayURL if not explicitly provided.
+	// Derive BaseURL from GatewayURL or GatewayURLs if not explicitly provided.
 	// e.g. ws://host:port/ws -> http://host:port
 	baseURL := c.opts.BaseURL
-	if baseURL == "" && c.opts.GatewayURL != "" {
-		baseURL = deriveBaseURLFromGateway(c.opts.GatewayURL)
+	if baseURL == "" {
+		if c.opts.GatewayURL != "" {
+			baseURL = deriveBaseURLFromGateway(c.opts.GatewayURL)
+		} else if len(c.opts.GatewayURLs) > 0 {
+			baseURL = deriveBaseURLFromGateway(c.opts.GatewayURLs[0])
+		}
 	}
 
 	// Initialize HTTP service layer if not already initialized in NewClient.
@@ -123,20 +127,19 @@ func (c *Client) Connect(ctx context.Context) error {
 		c.Dispatch = newDispatchService(svc)
 	}
 
-	// Resolve gateway URL automatically if not provided
-	gatewayURL := c.opts.GatewayURL
-	if gatewayURL == "" && c.opts.Token != "" {
+	// Resolve gateway URLs automatically if not explicitly provided.
+	var gatewayURLs []string
+	if c.opts.GatewayURL == "" && len(c.opts.GatewayURLs) == 0 && c.opts.Token != "" {
 		userID, err := extractUserIDFromToken(c.opts.Token)
 		if err == nil && userID > 0 {
-			url, dispatchErr := c.Dispatch.GetGateway(ctx, userID)
-			if dispatchErr == nil && url != "" {
-				gatewayURL = url
+			urls, dispatchErr := c.Dispatch.GetGatewayURLs(ctx, userID)
+			if dispatchErr == nil && len(urls) > 0 {
+				gatewayURLs = urls
 			}
 		}
 	}
-	if gatewayURL == "" {
-		gatewayURL = c.opts.GatewayURL
-	}
+
+	userID, _ := extractUserIDFromToken(c.opts.Token)
 
 	// Wire up user-level message handler from options.
 	if c.opts.OnMessage != nil {
@@ -145,7 +148,10 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	// Initialize realtime layer
 	rtOpts := RealtimeOptions{
-		GatewayURL:           gatewayURL,
+		GatewayURL:           c.opts.GatewayURL,
+		GatewayURLs:          c.opts.GatewayURLs,
+		GatewaySelector:      c.opts.GatewaySelector,
+		UserID:               userID,
 		Token:                c.opts.Token,
 		DeviceID:             c.opts.DeviceID,
 		HeartbeatInterval:    c.opts.HeartbeatInterval,
@@ -163,6 +169,9 @@ func (c *Client) Connect(ctx context.Context) error {
 		OnSendReceipt:        c.handleSendReceipt,
 	}
 	c.Realtime = NewRealtimeClient(rtOpts)
+	if len(gatewayURLs) > 0 {
+		c.Realtime.SetGatewayURLs(gatewayURLs)
+	}
 	c.Realtime.setOnReconnect(func() {
 		c.pullOfflineForConversations()
 	})

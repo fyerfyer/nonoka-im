@@ -11,6 +11,7 @@ message Bootstrap {
   Auth auth = 3;
   Dispatch dispatch = 4;
   GatewayConfig gateway = 5;
+  MsgworkerConfig msgworker = 6;
 }
 
 message Server {
@@ -45,6 +46,11 @@ message Data {
   message MongoDB {
     string uri = 1;
     string database = 2;
+    // write_concern controls MongoDB durability/latency trade-off.
+    // "w1" = w=1, j=false (fast, default for IM messages).
+    // "majority" = w=majority, j=true (durable, slower).
+    // "majority_jfalse" = w=majority, j=false (balanced).
+    string write_concern = 3;
   }
   message Kafka {
     repeated string brokers = 1;
@@ -117,4 +123,17 @@ message Dispatch {
 message Gateway {
   string node_id = 1;
   string gateway_url = 2;
+}
+
+message MsgworkerConfig {
+  // Local session route cache TTL. 0 means use default (5s).
+  google.protobuf.Duration session_cache_ttl = 1;
+  // Max number of pending receipts per user before flush.
+  int32 receipt_batch_size = 2;
+  // Max time to wait before flushing receipt batch.
+  google.protobuf.Duration receipt_batch_timeout = 3;
+  // Max number of group messages to batch before MongoDB insert.
+  int32 group_batch_size = 4;
+  // Max time to wait before flushing group message batch.
+  google.protobuf.Duration group_batch_timeout = 5;
 }

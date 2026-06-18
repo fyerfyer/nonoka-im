@@ -2,6 +2,7 @@ package msgworker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
@@ -14,9 +15,20 @@ import (
 // Redis keys used by the gateway registry. They are duplicated here to avoid an
 // import cycle between internal/msgworker and internal/gateway.
 const (
-	gatewayNodesKey = "im:gateway:nodes"
-	gatewayNodeKey  = "im:gateway:%s"
+	gatewayNodesKey      = "im:gateway:nodes"
+	gatewayNodeKey       = "im:gateway:%s"
+	sessionChangeChannel = "im:session:changes"
 )
+
+// sessionChangeEvent mirrors gateway.SessionChangeEvent without importing the
+// gateway package (keeps the package DAG simple).
+type sessionChangeEvent struct {
+	UserID   int64  `json:"user_id"`
+	DeviceID string `json:"device_id"`
+	Action   string `json:"action"`
+	NodeID   string `json:"node_id"`
+	At       int64  `json:"at"`
+}
 
 // GatewayNodeInfo holds the discovery data for a single gateway node.
 // It mirrors gateway.GatewayNode without importing the gateway package.
@@ -25,6 +37,12 @@ type GatewayNodeInfo struct {
 	URL       string
 	GrpcAddr  string
 	ConnCount int
+}
+
+// sessionCacheEntry holds the locally cached node IDs for a single user.
+type sessionCacheEntry struct {
+	nodeIDs []string
+	expires time.Time
 }
 
 // Router resolves online users to gateway nodes for targeted push delivery.
@@ -47,9 +65,21 @@ type GatewayRouter struct {
 
 	// aliveNodeCache holds a local snapshot of gateway registry entries to
 	// avoid hitting Redis on every push. It is refreshed when stale.
-	aliveNodeCache   []*GatewayNodeInfo
+	aliveNodeCache    []*GatewayNodeInfo
 	aliveNodeCachedAt time.Time
-	cacheMu          sync.RWMutex
+	cacheMu           sync.RWMutex
+
+	// sessionCache holds a local L1 cache from userID -> node IDs.
+	// It is invalidated via Redis Pub/Sub session change events and TTL.
+	sessionCache   map[int64]*sessionCacheEntry
+	sessionCacheMu sync.RWMutex
+	sessionCacheTTL time.Duration
+
+	// pubsub lifecycle
+	pubsub     *redis.PubSub
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
 }
 
 var _ Router = (*GatewayRouter)(nil)
@@ -60,10 +90,110 @@ func NewGatewayRouter(redis redis.UniversalClient, nodeTTL time.Duration, logger
 		nodeTTL = 30 * time.Second
 	}
 	return &GatewayRouter{
-		redis:   redis,
-		nodeTTL: nodeTTL,
-		log:     log.NewHelper(logger),
+		redis:           redis,
+		nodeTTL:         nodeTTL,
+		log:             log.NewHelper(logger),
+		sessionCache:    make(map[int64]*sessionCacheEntry),
+		sessionCacheTTL: 5 * time.Second,
+		stopCh:          make(chan struct{}),
 	}
+}
+
+// SetSessionCacheTTL configures the L1 session route cache TTL. Must be called
+// before Start.
+func (r *GatewayRouter) SetSessionCacheTTL(d time.Duration) {
+	if d > 0 {
+		r.sessionCacheTTL = d
+	}
+}
+
+// Start begins the Redis Pub/Sub listener for session change events.
+// It is safe to call multiple times; only the first call has effect.
+func (r *GatewayRouter) Start(ctx context.Context) error {
+	if r.redis == nil {
+		return nil
+	}
+	r.sessionCacheMu.Lock()
+	if r.pubsub != nil {
+		r.sessionCacheMu.Unlock()
+		return nil
+	}
+	r.pubsub = r.redis.Subscribe(ctx, sessionChangeChannel)
+	r.sessionCacheMu.Unlock()
+
+	r.wg.Add(1)
+	go r.pubsubLoop(ctx)
+	return nil
+}
+
+// Stop shuts down the Pub/Sub listener and waits for the background goroutine.
+func (r *GatewayRouter) Stop() error {
+	r.stopOnce.Do(func() {
+		close(r.stopCh)
+	})
+	if r.pubsub != nil {
+		_ = r.pubsub.Close()
+	}
+	r.wg.Wait()
+	return nil
+}
+
+// pubsubLoop receives session change events and invalidates the local cache.
+func (r *GatewayRouter) pubsubLoop(ctx context.Context) {
+	defer r.wg.Done()
+	if r.pubsub == nil {
+		return
+	}
+	ch := r.pubsub.Channel()
+	for {
+		select {
+		case <-r.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			var ev sessionChangeEvent
+			if err := json.Unmarshal([]byte(msg.Payload), &ev); err != nil {
+				continue
+			}
+			r.invalidateSessionCache(ev.UserID)
+		}
+	}
+}
+
+// invalidateSessionCache removes a user's entry from the local session cache.
+func (r *GatewayRouter) invalidateSessionCache(userID int64) {
+	r.sessionCacheMu.Lock()
+	delete(r.sessionCache, userID)
+	r.sessionCacheMu.Unlock()
+}
+
+// getCachedSession returns the cached node IDs for a user if still valid.
+func (r *GatewayRouter) getCachedSession(userID int64) ([]string, bool) {
+	r.sessionCacheMu.RLock()
+	entry, ok := r.sessionCache[userID]
+	r.sessionCacheMu.RUnlock()
+	if !ok || entry == nil {
+		return nil, false
+	}
+	if time.Now().After(entry.expires) {
+		r.invalidateSessionCache(userID)
+		return nil, false
+	}
+	return entry.nodeIDs, true
+}
+
+// setCachedSession stores the node IDs for a user in the local cache.
+func (r *GatewayRouter) setCachedSession(userID int64, nodeIDs []string) {
+	r.sessionCacheMu.Lock()
+	r.sessionCache[userID] = &sessionCacheEntry{
+		nodeIDs: nodeIDs,
+		expires: time.Now().Add(r.sessionCacheTTL),
+	}
+	r.sessionCacheMu.Unlock()
 }
 
 // cacheTTL returns how long the local alive-node cache remains valid.
@@ -109,10 +239,34 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 		aliveSet[n.NodeID] = struct{}{}
 	}
 
-	// Pipeline HGetAll for all users to reduce Redis round-trips.
+	// Split users into cache hits and misses.
+	result := make(map[string][]int64)
+	missing := make([]int64, 0, len(userIDs))
+	for _, uid := range userIDs {
+		if nodeIDs, ok := r.getCachedSession(uid); ok {
+			added := false
+			for _, nodeID := range nodeIDs {
+				if _, ok := aliveSet[nodeID]; ok {
+					result[nodeID] = append(result[nodeID], uid)
+					added = true
+				}
+			}
+			// If all cached nodes are dead, fall through to refresh from Redis.
+			if added {
+				continue
+			}
+		}
+		missing = append(missing, uid)
+	}
+
+	if len(missing) == 0 {
+		return result, nil
+	}
+
+	// Pipeline HGetAll for missing users to reduce Redis round-trips.
 	pipe := r.redis.Pipeline()
-	cmds := make([]*redis.MapStringStringCmd, len(userIDs))
-	for i, uid := range userIDs {
+	cmds := make([]*redis.MapStringStringCmd, len(missing))
+	for i, uid := range missing {
 		deviceKey := fmt.Sprintf("im:session:%d:devices", uid)
 		cmds[i] = pipe.HGetAll(ctx, deviceKey)
 	}
@@ -121,18 +275,20 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 		return nil, fmt.Errorf("resolve user nodes pipeline: %w", err)
 	}
 
-	result := make(map[string][]int64)
-	for i, uid := range userIDs {
+	for i, uid := range missing {
 		devices, err := cmds[i].Result()
 		if err != nil {
 			r.log.Warnf("resolve user nodes failed: user_id=%d, err=%v", uid, err)
 			continue
 		}
 		if len(devices) == 0 {
+			// Cache negative result briefly to avoid hammering Redis for offline users.
+			r.setCachedSession(uid, nil)
 			continue
 		}
 
 		seen := make(map[string]struct{})
+		var cached []string
 		for _, nodeID := range devices {
 			if _, ok := seen[nodeID]; ok {
 				continue
@@ -142,8 +298,10 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 				continue
 			}
 			seen[nodeID] = struct{}{}
+			cached = append(cached, nodeID)
 			result[nodeID] = append(result[nodeID], uid)
 		}
+		r.setCachedSession(uid, cached)
 	}
 
 	return result, nil

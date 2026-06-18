@@ -43,8 +43,9 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	authService := service.NewAuthService(authUsecase)
 	universalClient := provideRedisClient(dataData)
 	dispatchService := service.NewDispatchService(universalClient, dispatch, logger)
-	metricsCollector := provideMetrics()
-	manager := gateway.NewManager(logger, metricsCollector)
+	metrics := provideMetrics()
+	v := provideMetricsSlice(metrics)
+	manager := gateway.NewManager(logger, v...)
 	pushService := service.NewPushService(manager, logger)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, pushService, auth, logger)
 	database, cleanup2, err := provideMongoDB(confData)
@@ -52,7 +53,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
-	messageStorage, err := provideMessageStorage(database, logger, metricsCollector)
+	messageStorage, err := provideMessageStorage(database, logger, metrics)
 	if err != nil {
 		cleanup2()
 		cleanup()
@@ -63,16 +64,16 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	messageService := service.NewMessageService(messageStorage, kafkaProducer, logger)
 	string2 := provideNodeIDString()
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
-	v := provideJWTSecret(auth)
+	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v, heartbeatConfig, logger, metricsCollector)
+	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, logger, v...)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger, metricsCollector)
-	nodeID := provideNodeID()
-	gatewayURL := provideGatewayURL(dispatch, nodeID)
-	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, nodeID)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, webSocketServer, auth, logger, metrics)
+	mainNodeID := provideNodeID()
+	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
+	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
-	gatewayRegistry := provideGatewayRegistry(universalClient, nodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
+	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
 	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig)
 	return app, func() {
 		cleanup2()
@@ -114,17 +115,17 @@ func provideKafkaConfig(confData *conf.Data) gateway.KafkaConfig {
 // provideNodeIDString returns the unique node ID as a plain string.
 // This is used by gateway.SessionManager which expects a string.
 func provideNodeIDString() string {
-	nodeID := os.Getenv("GATEWAY_NODE_ID")
-	if nodeID == "" {
-		nodeID = id
+	nodeID2 := os.Getenv("GATEWAY_NODE_ID")
+	if nodeID2 == "" {
+		nodeID2 = id
 	}
-	if nodeID == "" {
-		nodeID, _ = os.Hostname()
+	if nodeID2 == "" {
+		nodeID2, _ = os.Hostname()
 	}
-	if nodeID == "" {
-		nodeID = "gateway-0"
+	if nodeID2 == "" {
+		nodeID2 = "gateway-0"
 	}
-	return nodeID
+	return nodeID2
 }
 
 // NodeID is a unique identifier for a gateway node, used to disambiguate
@@ -140,8 +141,8 @@ func provideNodeID() NodeID {
 type GatewayURL string
 
 // provideGatewayURL derives the WebSocket URL from environment or config.
-func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID NodeID) GatewayURL {
-	id2 := string(nodeID)
+func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID2 NodeID) GatewayURL {
+	id2 := string(nodeID2)
 
 	if dispatchConf != nil {
 		for _, gw := range dispatchConf.Gateways {
@@ -165,8 +166,8 @@ func provideGatewayURL(dispatchConf *conf.Dispatch, nodeID NodeID) GatewayURL {
 type GatewayGrpcAddr string
 
 // provideGatewayGrpcAddr derives the gRPC address from environment or config.
-func provideGatewayGrpcAddr(dispatchConf *conf.Dispatch, serverConf *conf.Server, nodeID NodeID) GatewayGrpcAddr {
-	id2 := string(nodeID)
+func provideGatewayGrpcAddr(dispatchConf *conf.Dispatch, serverConf *conf.Server, nodeID2 NodeID) GatewayGrpcAddr {
+	id2 := string(nodeID2)
 
 	if dispatchConf != nil {
 		for _, gw := range dispatchConf.Gateways {
@@ -279,6 +280,12 @@ func provideMetrics() *metrics.Metrics {
 	return metrics.NewMetrics()
 }
 
+// provideMetricsSlice wraps a single metrics collector into a slice so that
+// Wire can satisfy constructors that accept variadic metrics arguments.
+func provideMetricsSlice(m *metrics.Metrics) []*metrics.Metrics {
+	return []*metrics.Metrics{m}
+}
+
 // provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.
 func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig) *gateway.WebSocketServer {
 	allowedOrigins := []string(nil)
@@ -289,6 +296,6 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
-func provideGatewayRegistry(redis2 redis.UniversalClient, nodeID NodeID, url GatewayURL, grpcAddr GatewayGrpcAddr, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
-	return gateway.NewGatewayRegistry(redis2, string(nodeID), string(url), string(grpcAddr), cfg.Interval, cfg.TTL, manager, logger)
+func provideGatewayRegistry(redis2 redis.UniversalClient, nodeID2 NodeID, url GatewayURL, grpcAddr GatewayGrpcAddr, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
+	return gateway.NewGatewayRegistry(redis2, string(nodeID2), string(url), string(grpcAddr), cfg.Interval, cfg.TTL, manager, logger)
 }

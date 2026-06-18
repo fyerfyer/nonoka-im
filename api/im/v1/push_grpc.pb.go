@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PushService_PushToUser_FullMethodName              = "/api.im.v1.PushService/PushToUser"
-	PushService_BatchPushToUsers_FullMethodName        = "/api.im.v1.PushService/BatchPushToUsers"
-	PushService_PushReceiptToUser_FullMethodName       = "/api.im.v1.PushService/PushReceiptToUser"
-	PushService_BatchPushReceiptToUsers_FullMethodName = "/api.im.v1.PushService/BatchPushReceiptToUsers"
+	PushService_PushToUser_FullMethodName               = "/api.im.v1.PushService/PushToUser"
+	PushService_BatchPushToUsers_FullMethodName         = "/api.im.v1.PushService/BatchPushToUsers"
+	PushService_PushReceiptToUser_FullMethodName        = "/api.im.v1.PushService/PushReceiptToUser"
+	PushService_BatchPushReceiptToUsers_FullMethodName  = "/api.im.v1.PushService/BatchPushReceiptToUsers"
+	PushService_BatchPushReceiptsToUsers_FullMethodName = "/api.im.v1.PushService/BatchPushReceiptsToUsers"
 )
 
 // PushServiceClient is the client API for PushService service.
@@ -37,8 +38,11 @@ type PushServiceClient interface {
 	BatchPushToUsers(ctx context.Context, in *BatchPushToUsersRequest, opts ...grpc.CallOption) (*BatchPushToUsersReply, error)
 	// PushReceiptToUser delivers a send receipt to all online devices of a user.
 	PushReceiptToUser(ctx context.Context, in *PushReceiptToUserRequest, opts ...grpc.CallOption) (*PushReceiptToUserReply, error)
-	// BatchPushReceiptToUsers delivers send receipts to multiple users in one call.
+	// BatchPushReceiptToUsers delivers the SAME send receipt to multiple users in one call.
 	BatchPushReceiptToUsers(ctx context.Context, in *BatchPushReceiptToUsersRequest, opts ...grpc.CallOption) (*BatchPushReceiptToUsersReply, error)
+	// BatchPushReceiptsToUsers delivers MULTIPLE distinct send receipts to multiple users in one call.
+	// This is used by MsgWorker to aggregate short-term receipts for the same user.
+	BatchPushReceiptsToUsers(ctx context.Context, in *BatchPushReceiptsToUsersRequest, opts ...grpc.CallOption) (*BatchPushReceiptsToUsersReply, error)
 }
 
 type pushServiceClient struct {
@@ -89,6 +93,16 @@ func (c *pushServiceClient) BatchPushReceiptToUsers(ctx context.Context, in *Bat
 	return out, nil
 }
 
+func (c *pushServiceClient) BatchPushReceiptsToUsers(ctx context.Context, in *BatchPushReceiptsToUsersRequest, opts ...grpc.CallOption) (*BatchPushReceiptsToUsersReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchPushReceiptsToUsersReply)
+	err := c.cc.Invoke(ctx, PushService_BatchPushReceiptsToUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PushServiceServer is the server API for PushService service.
 // All implementations must embed UnimplementedPushServiceServer
 // for forward compatibility.
@@ -101,8 +115,11 @@ type PushServiceServer interface {
 	BatchPushToUsers(context.Context, *BatchPushToUsersRequest) (*BatchPushToUsersReply, error)
 	// PushReceiptToUser delivers a send receipt to all online devices of a user.
 	PushReceiptToUser(context.Context, *PushReceiptToUserRequest) (*PushReceiptToUserReply, error)
-	// BatchPushReceiptToUsers delivers send receipts to multiple users in one call.
+	// BatchPushReceiptToUsers delivers the SAME send receipt to multiple users in one call.
 	BatchPushReceiptToUsers(context.Context, *BatchPushReceiptToUsersRequest) (*BatchPushReceiptToUsersReply, error)
+	// BatchPushReceiptsToUsers delivers MULTIPLE distinct send receipts to multiple users in one call.
+	// This is used by MsgWorker to aggregate short-term receipts for the same user.
+	BatchPushReceiptsToUsers(context.Context, *BatchPushReceiptsToUsersRequest) (*BatchPushReceiptsToUsersReply, error)
 	mustEmbedUnimplementedPushServiceServer()
 }
 
@@ -124,6 +141,9 @@ func (UnimplementedPushServiceServer) PushReceiptToUser(context.Context, *PushRe
 }
 func (UnimplementedPushServiceServer) BatchPushReceiptToUsers(context.Context, *BatchPushReceiptToUsersRequest) (*BatchPushReceiptToUsersReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchPushReceiptToUsers not implemented")
+}
+func (UnimplementedPushServiceServer) BatchPushReceiptsToUsers(context.Context, *BatchPushReceiptsToUsersRequest) (*BatchPushReceiptsToUsersReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method BatchPushReceiptsToUsers not implemented")
 }
 func (UnimplementedPushServiceServer) mustEmbedUnimplementedPushServiceServer() {}
 func (UnimplementedPushServiceServer) testEmbeddedByValue()                     {}
@@ -218,6 +238,24 @@ func _PushService_BatchPushReceiptToUsers_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PushService_BatchPushReceiptsToUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchPushReceiptsToUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PushServiceServer).BatchPushReceiptsToUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PushService_BatchPushReceiptsToUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PushServiceServer).BatchPushReceiptsToUsers(ctx, req.(*BatchPushReceiptsToUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PushService_ServiceDesc is the grpc.ServiceDesc for PushService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -240,6 +278,10 @@ var PushService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchPushReceiptToUsers",
 			Handler:    _PushService_BatchPushReceiptToUsers_Handler,
+		},
+		{
+			MethodName: "BatchPushReceiptsToUsers",
+			Handler:    _PushService_BatchPushReceiptsToUsers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	v1 "nonoka-im/api/im/v1"
+
 	"github.com/go-kratos/kratos/v2/log"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -81,5 +83,61 @@ func TestUpdateDeliveryStatus(t *testing.T) {
 	}
 	if mention.DeliveredAt.IsZero() {
 		t.Fatal("expected mention delivered_at to be set")
+	}
+}
+
+// TestSaveGroupMessagesBatch verifies that a batch of group messages can be
+// inserted and that duplicate batches are idempotent.
+func TestSaveGroupMessagesBatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() {
+		_ = client.Disconnect(ctx)
+	}()
+
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+
+	db := client.Database(testMongoDB)
+	// Clean up the messages collection so this test is idempotent.
+	_, _ = db.Collection(CollectionMessages).DeleteMany(ctx, bson.M{"topic": "grp_1"})
+
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+
+	msgs := []*v1.UpstreamMessage{
+		{Topic: "grp_1", SenderId: 1, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT), Content: []byte("m1"), ClientMsgId: "cmid-1"},
+		{Topic: "grp_1", SenderId: 2, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT), Content: []byte("m2"), ClientMsgId: "cmid-2"},
+	}
+	msgIDs := []int64{1, 2}
+	topicSeqs := []uint64{1, 2}
+
+	inserted, isDup, err := storage.SaveGroupMessagesBatch(ctx, msgs, msgIDs, topicSeqs)
+	if err != nil {
+		t.Fatalf("batch insert failed: %v", err)
+	}
+	if isDup {
+		t.Fatal("expected fresh batch, got duplicate")
+	}
+	if inserted != 2 {
+		t.Fatalf("expected inserted=2, got %d", inserted)
+	}
+
+	// Re-inserting the same batch should be reported as duplicate.
+	inserted, isDup, err = storage.SaveGroupMessagesBatch(ctx, msgs, msgIDs, topicSeqs)
+	if err != nil {
+		t.Fatalf("duplicate batch insert failed: %v", err)
+	}
+	if !isDup {
+		t.Fatal("expected duplicate batch")
 	}
 }

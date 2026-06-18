@@ -110,6 +110,13 @@ components:
             properties:
                 gatewayUrl:
                     type: string
+                gatewayUrls:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Optional list of currently alive gateway URLs. Clients may cache this list
+                         and select an entry according to their own routing policy.
         api.im.v1.LoginReply:
             type: object
             properties:

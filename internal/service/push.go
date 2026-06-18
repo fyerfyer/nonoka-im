@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/protobuf/proto"
@@ -166,6 +167,108 @@ func (s *PushService) BatchPushReceiptToUsers(ctx context.Context, req *pb.Batch
 		TotalDelivered: int32(totalDelivered),
 		FailedUserIds:  failedUserIDs,
 	}, nil
+}
+
+// BatchPushReceiptsToUsers delivers multiple distinct send receipts to multiple
+// users in one call. Receipts are grouped by user and pushed together to reduce
+// gRPC round-trips.
+func (s *PushService) BatchPushReceiptsToUsers(ctx context.Context, req *pb.BatchPushReceiptsToUsersRequest) (*pb.BatchPushReceiptsToUsersReply, error) {
+	items := req.GetItems()
+	if len(items) == 0 {
+		return &pb.BatchPushReceiptsToUsersReply{TotalDelivered: 0}, nil
+	}
+
+	// Group receipts by user so each user gets one broadcast with all receipts.
+	userReceipts := make(map[int64][]*pb.SendReceipt)
+	for _, item := range items {
+		if item.GetReceipt() == nil {
+			continue
+		}
+		userReceipts[item.GetUserId()] = append(userReceipts[item.GetUserId()], item.GetReceipt())
+	}
+
+	type result struct {
+		userID    int64
+		delivered int
+	}
+
+	var wg sync.WaitGroup
+	resultCh := make(chan result, len(userReceipts))
+
+	for uid, receipts := range userReceipts {
+		wg.Add(1)
+		go func(userID int64, receipts []*pb.SendReceipt) {
+			defer wg.Done()
+			delivered := s.broadcastReceiptsToUser(userID, receipts)
+			resultCh <- result{userID: userID, delivered: delivered}
+		}(uid, receipts)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	totalDelivered := 0
+	failedItems := make([]*pb.ReceiptBatchItem, 0)
+	for r := range resultCh {
+		totalDelivered += r.delivered
+		if r.delivered == 0 {
+			for _, item := range items {
+				if item.GetUserId() == r.userID {
+					failedItems = append(failedItems, item)
+				}
+			}
+		}
+	}
+
+	s.log.Debugf("batch push receipts (plural): items=%d users=%d total_delivered=%d failed=%d",
+		len(items), len(userReceipts), totalDelivered, len(failedItems))
+
+	return &pb.BatchPushReceiptsToUsersReply{
+		TotalDelivered: int32(totalDelivered),
+		FailedItems:    failedItems,
+	}, nil
+}
+
+// broadcastReceiptsToUser pushes one or more send receipts to all devices of a
+// user. It pre-serializes each receipt once and reuses the bytes across devices.
+func (s *PushService) broadcastReceiptsToUser(userID int64, receipts []*pb.SendReceipt) int {
+	conns := s.manager.GetAll(userID)
+	if len(conns) == 0 {
+		return 0
+	}
+
+	var data [][]byte
+	for _, receipt := range receipts {
+		packet := &pb.Packet{
+			Cmd: pb.Command_CMD_SEND_RECEIPT,
+			Payload: &pb.Packet_SendReceipt{
+				SendReceipt: receipt,
+			},
+		}
+		b, err := proto.Marshal(packet)
+		if err != nil {
+			s.log.Warnf("marshal receipt for user %d failed: %v", userID, err)
+			continue
+		}
+		data = append(data, b)
+	}
+	if len(data) == 0 {
+		return 0
+	}
+
+	sent := 0
+	for _, c := range conns {
+		for _, b := range data {
+			if err := c.SendRawBytesWithTimeoutUnsafe(b, 100*time.Millisecond); err != nil {
+				s.log.Warnf("broadcast receipt to conn %s failed: %v", c.ConnID(), err)
+				continue
+			}
+			sent++
+		}
+	}
+	return sent
 }
 
 // batchPushConcurrent distributes users across a fixed worker pool.

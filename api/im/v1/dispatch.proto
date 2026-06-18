@@ -20,4 +20,7 @@ message GetGatewayRequest {
 
 message GetGatewayReply {
   string gateway_url = 1;  // e.g. "ws://192.168.1.10:8080/ws"
+  // Optional list of currently alive gateway URLs. Clients may cache this list
+  // and select an entry according to their own routing policy.
+  repeated string gateway_urls = 2;
 }

@@ -130,6 +130,9 @@ func main() {
 	snowflake := msgworker.NewSnowflake(1)
 	storage := msgworker.NewMessageStorage(mongoDB, logger, m)
 	storage.SetRedis(redisClient)
+	if bc.Data != nil && bc.Data.Mongodb != nil && bc.Data.Mongodb.WriteConcern != "" {
+		storage.SetWriteConcern(bc.Data.Mongodb.WriteConcern)
+	}
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ensure indexes: %v", err))
 		os.Exit(1)
@@ -149,6 +152,13 @@ func main() {
 	}
 	if pusher != nil {
 		router := msgworker.NewGatewayRouter(redisClient, nodeTTL, logger)
+		if bc.Msgworker != nil && bc.Msgworker.SessionCacheTtl != nil {
+			router.SetSessionCacheTTL(bc.Msgworker.SessionCacheTtl.AsDuration())
+		}
+		if err := router.Start(ctx); err != nil {
+			logger.Log(log.LevelFatal, "msg", fmt.Sprintf("router start: %v", err))
+			os.Exit(1)
+		}
 		pusher.SetRouter(router)
 	}
 
@@ -163,6 +173,21 @@ func main() {
 		logger,
 		m,
 	)
+
+	if bc.Msgworker != nil {
+		if bc.Msgworker.ReceiptBatchSize > 0 || bc.Msgworker.ReceiptBatchTimeout != nil {
+			worker.SetReceiptBatcherConfig(
+				int(bc.Msgworker.ReceiptBatchSize),
+				bc.Msgworker.ReceiptBatchTimeout.AsDuration(),
+			)
+		}
+		if bc.Msgworker.GroupBatchSize > 0 || bc.Msgworker.GroupBatchTimeout != nil {
+			worker.SetGroupBatcherConfig(
+				int(bc.Msgworker.GroupBatchSize),
+				bc.Msgworker.GroupBatchTimeout.AsDuration(),
+			)
+		}
+	}
 
 	// Start a small HTTP server for Prometheus metrics and pprof.
 	metricsAddr := os.Getenv("METRICS_ADDR")

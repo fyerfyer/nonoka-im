@@ -98,10 +98,22 @@ func (s *DispatchService) Gateway(ctx context.Context, req *pb.GetGatewayRequest
 		return &pb.GetGatewayReply{GatewayUrl: s.localNode.URL}, nil
 	}
 
-	s.log.Debugf("gateway dispatched: user_id=%d strategy=%s selected=%s url=%s",
-		req.GetUserId(), s.strategy, selected.NodeID, selected.URL)
+	// Build the full URL list so multi-gateway-aware clients can cache it.
+	urls := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		if n.URL != "" {
+			urls = append(urls, n.URL)
+		}
+	}
+	// Ensure the selected node is first.
+	if len(urls) == 0 || urls[0] != selected.URL {
+		urls = append([]string{selected.URL}, urls...)
+	}
 
-	return &pb.GetGatewayReply{GatewayUrl: selected.URL}, nil
+	s.log.Debugf("gateway dispatched: user_id=%d strategy=%s selected=%s urls=%v",
+		req.GetUserId(), s.strategy, selected.NodeID, urls)
+
+	return &pb.GetGatewayReply{GatewayUrl: selected.URL, GatewayUrls: urls}, nil
 }
 
 // selectNode picks a gateway node according to the configured strategy.

@@ -226,6 +226,12 @@ func provideMetrics() *metrics.Metrics {
 	return metrics.NewMetrics()
 }
 
+// provideMetricsSlice wraps a single metrics collector into a slice so that
+// Wire can satisfy constructors that accept variadic metrics arguments.
+func provideMetricsSlice(m *metrics.Metrics) []*metrics.Metrics {
+	return []*metrics.Metrics{m}
+}
+
 // provideWebSocketServer creates a WebSocket server with configurable timeouts and origin policy.
 func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig) *gateway.WebSocketServer {
 	allowedOrigins := []string(nil)
@@ -262,6 +268,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideMongoDB,
 		provideMessageStorage,
 		provideMetrics,
+		provideMetricsSlice,
 		newApp,
 	))
 }

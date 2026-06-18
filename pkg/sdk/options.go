@@ -1,6 +1,23 @@
 package sdk
 
-import "time"
+import (
+	"hash/fnv"
+	"time"
+)
+
+// GatewaySelector determines how the SDK picks a gateway URL from a list.
+type GatewaySelector string
+
+const (
+	// GatewaySelectorRoundRobin cycles through gateway URLs in order.
+	GatewaySelectorRoundRobin GatewaySelector = "round_robin"
+	// GatewaySelectorRandom picks a random gateway URL.
+	GatewaySelectorRandom GatewaySelector = "random"
+	// GatewaySelectorHashUserID deterministically selects a gateway URL based
+	// on the user ID. This keeps a given user on the same gateway across
+	// reconnections, which improves routing cache hit rates on the server.
+	GatewaySelectorHashUserID GatewaySelector = "hash_user_id"
+)
 
 // Options configures the IM SDK client.
 type Options struct {
@@ -9,7 +26,18 @@ type Options struct {
 
 	// GatewayURL is the WebSocket URL of the gateway server (e.g., "ws://localhost:8000/ws").
 	// If empty, the SDK will try to auto-resolve via DispatchService.
+	// If GatewayURLs is also provided, GatewayURL takes precedence for backward
+	// compatibility.
 	GatewayURL string
+
+	// GatewayURLs is a list of WebSocket URLs for multi-gateway deployments.
+	// The SDK selects one entry according to GatewaySelector. If the selected
+	// gateway fails, it falls back to the next entries.
+	GatewayURLs []string
+
+	// GatewaySelector decides which URL from GatewayURLs (or from the server
+	// discovered list) to use. Defaults to GatewaySelectorRoundRobin.
+	GatewaySelector GatewaySelector
 
 	// Token is the JWT token for authentication.
 	Token string
@@ -103,5 +131,56 @@ func DefaultOptions() Options {
 		AutoReconnect:        true,
 		MaxReconnectAttempts: 0,
 		AutoAck:              true,
+		GatewaySelector:      GatewaySelectorRoundRobin,
 	}
+}
+
+// selectGatewayURL picks a gateway URL from the provided list using the
+// configured selector and user ID. It returns the selected index.
+func selectGatewayURL(urls []string, selector GatewaySelector, userID int64, attempt int) (string, int) {
+	if len(urls) == 0 {
+		return "", 0
+	}
+
+	if selector == "" {
+		selector = GatewaySelectorRoundRobin
+	}
+
+	var idx int
+	switch selector {
+	case GatewaySelectorHashUserID:
+		h := fnv.New32a()
+		_, _ = h.Write([]byte("im-sdk"))
+		idx = int(h.Sum32()+uint32(userID)) % len(urls)
+	case GatewaySelectorRandom:
+		// For deterministic tests, fall back to round-robin when userID is 0.
+		if userID == 0 {
+			idx = attempt % len(urls)
+		} else {
+			h := fnv.New32a()
+			_, _ = h.Write([]byte("im-sdk-random"))
+			idx = int(h.Sum32()+uint32(userID)+uint32(attempt)) % len(urls)
+		}
+	case GatewaySelectorRoundRobin:
+		fallthrough
+	default:
+		idx = attempt % len(urls)
+	}
+
+	return urls[idx], idx
+}
+
+// gatewayList returns the effective list of gateway URLs. The explicit
+// GatewayURL takes precedence over GatewayURLs for backward compatibility.
+func gatewayList(gatewayURL string, gatewayURLs []string, serverDiscovered []string) []string {
+	if gatewayURL != "" {
+		return []string{gatewayURL}
+	}
+	if len(gatewayURLs) > 0 {
+		return gatewayURLs
+	}
+	if len(serverDiscovered) > 0 {
+		return serverDiscovered
+	}
+	return nil
 }
