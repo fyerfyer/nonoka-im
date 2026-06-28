@@ -1,0 +1,45 @@
+{
+  "name": "app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "proto:gen": "pbjs -t static-module -w es6 -o lib/proto/im.js --path ../../api --path ../../third_party ../../api/im/v1/*.proto && pbts -o lib/proto/im.d.ts lib/proto/im.js",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "@radix-ui/react-label": "^2.1.10",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "long": "^5.3.2",
+    "lucide-react": "^1.21.0",
+    "next": "16.2.9",
+    "next-themes": "^0.4.6",
+    "protobufjs": "^8.6.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.11.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/long": "^5.0.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "prettier": "^3.8.4",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "protobufjs-cli": "^2.5.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
