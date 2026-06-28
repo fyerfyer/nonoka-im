@@ -57,6 +57,8 @@ gateway:
   heartbeat_interval: 30s
   heartbeat_timeout: 90s
   read_timeout: 60s
+  cors_origins:
+    - http://localhost:3000
 auth:
   jwt_secret: test-jwt-secret-do-not-use-in-production
   token_ttl: 3600s

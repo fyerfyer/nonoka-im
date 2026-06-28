@@ -1,6 +1,6 @@
 # Nonoka IM
 
-Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服务框架构建的即时通讯（IM）后端框架。它采用 Gateway + MsgWorker 分离架构：Gateway 专注维护 WebSocket 长连接，MsgWorker 负责消息的持久化、排序与推送，两者通过 Kafka 解耦。
+Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服务框架构建的即时通讯（IM）系统。它采用 Gateway + MsgWorker 分离架构：Gateway 专注维护 WebSocket 长连接，MsgWorker 负责消息的持久化、排序与推送，两者通过 Kafka 解耦。项目同时提供官方 Web 客户端（Next.js），实现开箱即用的聊天体验。
 
 ## 核心特性
 
@@ -16,6 +16,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
   - 推送失败时进入 Redis 延迟重试队列，按指数退避重试。
   - 自动向发送方发送 Send Receipt，向在线接收方发送 Delivery Receipt。
 - **灵活分派策略**：DispatchService 支持一致性哈希（默认）与最小连接数策略，Gateway 节点通过 Redis 心跳自动发现。
+- **官方 Web 客户端**：基于 Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui 构建，支持单聊、群聊、用户搜索、会话列表与实时消息推送（[web/app](web/app)）。
 - **Go SDK 与示例应用**：提供开箱即用的 Go SDK（[pkg/sdk](pkg/sdk)）以及完整聊天示例（[examples/chatapp](examples/chatapp)）。
 - **多存储选型**：
   - PostgreSQL：用户、认证数据。
@@ -34,6 +35,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 | 消息存储 | MongoDB |
 | 依赖注入 | Wire |
 | 部署 | Docker / Docker Compose |
+| 官方 Web 客户端 | Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui |
 
 ## 架构概览
 
@@ -89,40 +91,49 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 │   ├── nonoka-im              # 主服务入口：HTTP/gRPC API + WebSocket Gateway
 │   └── msgworker              # 消息工作者入口：消费 Kafka、落库、推送
 ├── internal
-│   ├── biz                    # 业务用例层（auth 等）
+│   ├── biz                    # 业务用例层（auth / group / conversation 等）
 │   ├── conf                   # 配置 Protobuf 与解析
-│   ├── data                   # 数据访问层（PostgreSQL / Redis）
+│   ├── data                   # 数据访问层（PostgreSQL / Redis / MongoDB）
 │   ├── gateway                # WebSocket Gateway 实现
 │   ├── msgworker              # Kafka 消费、序列号、存储、推送、重试
 │   ├── server                 # HTTP / gRPC 服务器注册
-│   └── service                # Kratos Service 实现（auth / message / dispatch / push）
+│   └── service                # Kratos Service 实现（auth / message / dispatch / push / group / conversation）
 ├── pkg/sdk                    # Go SDK
 ├── examples/chatapp           # 完整聊天示例
+├── web/app                    # 官方 Web 客户端（Next.js App Router）
+│   ├── app                    # 页面路由（登录、注册、聊天）
+│   ├── components             # React 组件（聊天、认证、UI）
+│   ├── hooks                  # 业务 Hooks（实时连接、会话、列表）
+│   ├── lib                    # API 封装、WebSocket 客户端、Protobuf 生成代码
+│   ├── stores                 # Zustand 全局状态（auth、chat）
+│   └── types                  # TypeScript 类型
 ├── configs                    # 配置文件
 ├── test/integration           # 集成测试
-├── docker-compose.yml         # 本地开发依赖（PostgreSQL + Redis）
+├── docker-compose.yml         # 完整产品部署（含 Web 前端代理）
 └── docker-compose.test.yml    # 测试依赖（PostgreSQL + Redis + Kafka + MongoDB）
 ```
 
 ## 快速开始
 
-### 1. 启动依赖
+### 1. 启动基础设施
 
 ```bash
-docker compose -f docker-compose.yml up -d
+# 启动 PostgreSQL、Redis、MongoDB、ZooKeeper、Kafka
+docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka
 ```
 
-这将启动 PostgreSQL 与 Redis。Kafka 与 MongoDB 用于 MsgWorker，本地开发时可通过 [docker-compose.test.yml](docker-compose.test.yml) 启动：
+> 若需要完整一键部署（含后端服务与 Web 前端代理），可使用 `docker compose -f docker-compose.yml up -d`，但首次构建需要可访问 Go 模块代理。
+
+### 2. 初始化 Kafka Topic
 
 ```bash
-docker compose -f docker-compose.test.yml up -d
+docker exec nonoka_kafka kafka-topics \
+  --bootstrap-server 127.0.0.1:9092 \
+  --create --topic im-messages \
+  --partitions 1 --replication-factor 1
 ```
 
-### 2. 初始化数据库
-
-确保 PostgreSQL 中存在 `nonoka_im` 数据库（docker-compose 已自动创建）。
-
-### 3. 构建
+### 3. 构建后端
 
 ```bash
 make build
@@ -131,7 +142,7 @@ make build
 ### 4. 启动主服务
 
 ```bash
-./bin/nonoka-im -conf ./configs
+./bin/nonoka-im -conf ./configs/config.yaml
 ```
 
 - HTTP API: [http://localhost:8000](http://localhost:8000)
@@ -141,12 +152,24 @@ make build
 ### 5. 启动 MsgWorker
 
 ```bash
-./bin/msgworker -conf ./configs
+./bin/msgworker -conf ./configs/config.yaml
 ```
 
 > MsgWorker 依赖 `GATEWAY_GRPC_ADDR` 环境变量或配置中的 `server.grpc.addr` 来连接 Gateway 进行推送。
 
-### 6. 运行示例
+### 6. 启动 Web 前端
+
+```bash
+cd web/app
+pnpm install
+pnpm dev
+```
+
+前端默认运行在 [http://localhost:3000](http://localhost:3000)。如果 3000 端口被占用，Next.js 会自动提示切换到其他端口。
+
+打开浏览器注册/登录后即可开始单聊或群聊。前端开发详情请参考 [web/app/README.md](web/app/README.md)。
+
+### 7. 运行 SDK 示例
 
 ```bash
 cd examples/chatapp
@@ -195,6 +218,20 @@ message Packet {
 | GET  | `/v1/message/pull` | 拉取离线/历史消息 |
 
 完整 OpenAPI 定义见 [openapi.yaml](openapi.yaml)。
+
+## Web 客户端
+
+项目提供官方 Web 客户端，基于 Next.js 16 App Router 构建：
+
+| 功能 | 说明 |
+|------|------|
+| 认证 | 注册、登录、JWT Token 持久化 |
+| 单聊 | 实时收发文本消息、历史消息拉取、消息状态（sending/sent/delivered/read） |
+| 群聊 | 创建群聊、搜索用户、群成员消息广播 |
+| 会话列表 | 显示最近会话、最后消息预览、未读数、群名称 |
+| 实时通信 | WebSocket 二进制 Protobuf 帧，支持心跳、断线重连、ACK、已读回执 |
+
+前端目录：[web/app](web/app)。
 
 ## Go SDK 快速示例
 

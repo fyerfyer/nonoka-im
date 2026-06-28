@@ -3,7 +3,7 @@ server:
     addr: 0.0.0.0:8000
     timeout: 1s
   grpc:
-    addr: 0.0.0.0:9000
+    addr: 0.0.0.0:9002
     timeout: 1s
 data:
   database:
@@ -46,7 +46,7 @@ dispatch:
   gateways:
   - node_id: default
     gateway_url: ws://127.0.0.1:8000/ws
-    gateway_grpc_addr: 127.0.0.1:9000
+    gateway_grpc_addr: 127.0.0.1:9002
   strategy: consistent_hash
   heartbeat_interval: 10s
   node_ttl: 30s
@@ -56,9 +56,11 @@ gateway:
   read_timeout: 60s
   write_timeout: 10s
   allowed_origins: []
+  cors_origins:
+    - "*"
 auth:
   jwt_secret: change-me-in-production-use-random-string
-  token_ttl: 168h
+  token_ttl: 604800s
 msgworker:
   session_cache_ttl: 5s
   receipt_batch_size: 32

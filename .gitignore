@@ -49,3 +49,10 @@ self-files/
 docs/
 .claude/
 DESIGN.md
+.codegraph/
+
+# Frontend
+web/app/node_modules/
+web/app/.next/
+web/app/out/
+web/app/.env*.local

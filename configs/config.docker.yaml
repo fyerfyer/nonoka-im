@@ -3,13 +3,12 @@ server:
     addr: 0.0.0.0:8000
     timeout: 1s
   grpc:
-    addr: 0.0.0.0:9000
+    addr: 0.0.0.0:9002
     timeout: 1s
 data:
   database:
     driver: postgres
-    source: host=postgres user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable
-      TimeZone=Asia/Shanghai
+    source: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
     max_open_conns: 200
     max_idle_conns: 50
     conn_max_lifetime: 1800s
@@ -45,11 +44,8 @@ data:
 dispatch:
   gateways:
   - node_id: gateway-1
-    gateway_url: ws://gateway-1:8000/ws
-    gateway_grpc_addr: gateway-1:9000
-  - node_id: gateway-2
-    gateway_url: ws://gateway-2:8000/ws
-    gateway_grpc_addr: gateway-2:9000
+    gateway_url: ws://nonoka-im:8000/ws
+    gateway_grpc_addr: nonoka-im:9002
   strategy: consistent_hash
   heartbeat_interval: 10s
   node_ttl: 30s
@@ -59,6 +55,8 @@ gateway:
   read_timeout: 60s
   write_timeout: 10s
   allowed_origins: []
+  cors_origins:
+    - "*"
 auth:
   jwt_secret: docker-jwt-secret-do-not-use-in-production
   token_ttl: 3600s

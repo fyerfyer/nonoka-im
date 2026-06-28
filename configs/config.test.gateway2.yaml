@@ -59,6 +59,8 @@ gateway:
   read_timeout: 60s
   write_timeout: 10s
   allowed_origins: []
+  cors_origins:
+    - http://localhost:3000
 auth:
   jwt_secret: test-jwt-secret-do-not-use-in-production
   token_ttl: 3600s
