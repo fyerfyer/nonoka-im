@@ -219,6 +219,10 @@ func main() {
 	groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, redisClient, logger)
 	worker.SetGroupMemberService(groupMemberSvc)
 
+	// Wire conversation summary repository so MsgWorker upserts conversation rows.
+	conversationRepo := data.NewConversationRepo(dataLayer, logger)
+	worker.SetConversationRepo(conversationRepo)
+
 	// Wire handler after worker is created
 	consumer.SetHandler(worker.HandleMessage)
 

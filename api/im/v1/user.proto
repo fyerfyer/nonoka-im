@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+service UserService {
+  rpc SearchUsers (SearchUsersRequest) returns (SearchUsersReply) {
+    option (google.api.http) = {
+      get: "/v1/users/search"
+    };
+  }
+}
+
+message SearchUsersRequest {
+  string username = 1; // supports prefix matching
+  int32  limit    = 2;
+}
+
+message SearchUsersReply {
+  repeated User users = 1;
+}
+
+message User {
+  int64  user_id = 1;
+  string username = 2;
+}

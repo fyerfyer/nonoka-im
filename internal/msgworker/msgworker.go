@@ -13,6 +13,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ConversationRepo mirrors the subset of conversation operations required by
+// MsgWorker. The actual implementation lives in the data package.
+type ConversationRepo interface {
+	UpsertConversation(ctx context.Context, userID int64, msg *pb.UpstreamMessage, topicSeq uint64) error
+}
+
 // Pusher pushes messages and receipts to online users via Gateway.
 // It is implemented by GatewayPusher and can be mocked in tests.
 type Pusher interface {
@@ -350,12 +356,13 @@ type MsgWorker struct {
 	snowflake       *IDGenerator
 	storage         *MessageStorage
 	pusher          Pusher
-	groupMemberSvc  GroupMemberService
-	retryQueue       *PushRetryQueue
-	receiptBatcher   *receiptBatcher
-	groupBatcher     *groupMessageBatcher
-	metrics          *metrics.Metrics
-	log              *log.Helper
+	groupMemberSvc     GroupMemberService
+	conversationRepo   ConversationRepo
+	retryQueue         *PushRetryQueue
+	receiptBatcher     *receiptBatcher
+	groupBatcher       *groupMessageBatcher
+	metrics            *metrics.Metrics
+	log                *log.Helper
 
 	// Async delivery pipeline
 	pushPool     chan deliveryTask
@@ -451,6 +458,12 @@ func (w *MsgWorker) SetGroupBatcherConfig(batchSize int, batchTimeout time.Durat
 // push and membership queries.
 func (w *MsgWorker) SetGroupMemberService(svc GroupMemberService) {
 	w.groupMemberSvc = svc
+}
+
+// SetConversationRepo configures the conversation summary repository. When set,
+// MsgWorker upserts per-user conversation rows after a message is persisted.
+func (w *MsgWorker) SetConversationRepo(repo ConversationRepo) {
+	w.conversationRepo = repo
 }
 
 // SetPusher configures the gateway pusher. Useful for tests and for late
@@ -623,6 +636,9 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		w.log.Warnf("backup topic seq failed: %v", err)
 	}
 
+	// Upsert per-user conversation summaries in PostgreSQL.
+	w.upsertConversations(ctx, &upstream, topicSeq, recipientIDs, topicType == TopicTypeGroup)
+
 	w.metrics.IncMessagesProcessed()
 	w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
 
@@ -788,6 +804,45 @@ func (w *MsgWorker) pushSendReceipt(userID int64, msgID int64, topic string, top
 		defer cancel()
 		if _, err := w.pusher.PushReceiptToUser(ctx, userID, receipt); err != nil {
 			w.log.Warnf("push send receipt to sender %d failed: %v", userID, err)
+		}
+	}
+}
+
+// upsertConversations updates conversation summaries for all affected users.
+// For P2P and system messages the recipientIDs already contain the affected users.
+// For group messages we query group membership.
+func (w *MsgWorker) upsertConversations(ctx context.Context, upstream *pb.UpstreamMessage, topicSeq uint64, recipientIDs []int64, isGroup bool) {
+	if w.conversationRepo == nil {
+		return
+	}
+
+	var userIDs []int64
+	if isGroup {
+		groupID, err := ExtractGroupID(upstream.GetTopic())
+		if err != nil {
+			w.log.Warnf("extract group id for conversation upsert failed: %v", err)
+			return
+		}
+		if w.groupMemberSvc != nil {
+			members, err := w.groupMemberSvc.GetGroupMembers(ctx, groupID)
+			if err != nil {
+				w.log.Warnf("get group members for conversation upsert failed: %v", err)
+				return
+			}
+			userIDs = append(userIDs, members...)
+		}
+	} else {
+		userIDs = append(userIDs, upstream.GetSenderId())
+		for _, id := range recipientIDs {
+			if id != upstream.GetSenderId() {
+				userIDs = append(userIDs, id)
+			}
+		}
+	}
+
+	for _, uid := range userIDs {
+		if err := w.conversationRepo.UpsertConversation(ctx, uid, upstream, topicSeq); err != nil {
+			w.log.Warnf("upsert conversation failed: user_id=%d topic=%s err=%v", uid, upstream.GetTopic(), err)
 		}
 	}
 }

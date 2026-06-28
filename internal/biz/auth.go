@@ -22,12 +22,18 @@ type User struct {
 type AuthRepo interface {
 	CreateUser(ctx context.Context, u *User) (*User, error)
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	SearchUsersByPrefix(ctx context.Context, prefix string, limit int32) ([]*User, error)
 }
 
 type AuthUsecase struct {
 	repo      AuthRepo
 	jwtSecret []byte
 	tokenTTL  time.Duration
+}
+
+// Repo returns the underlying AuthRepo for user queries.
+func (uc *AuthUsecase) Repo() AuthRepo {
+	return uc.repo
 }
 
 func NewAuthUsecase(repo AuthRepo, authConf *conf.Auth) *AuthUsecase {

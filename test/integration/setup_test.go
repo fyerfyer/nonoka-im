@@ -168,6 +168,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 
 	// 7. Message service (with producer for HTTP fallback)
 	msgSvc := service.NewMessageService(storage, msgProducer, testLogger)
+	userSvc := service.NewUserService(authUC)
+	conversationSvc := service.NewConversationService(data.NewConversationRepo(d, testLogger))
 
 	// 7.5 Start msgworker and gRPC push server when using Kafka
 	var worker *msgworker.MsgWorker
@@ -201,6 +203,9 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, d.Redis, testLogger)
 		worker.SetGroupMemberService(groupMemberSvc)
 
+		// Wire conversation summary repository for tests.
+		worker.SetConversationRepo(data.NewConversationRepo(d, testLogger))
+
 		consumer.SetHandler(worker.HandleMessage)
 
 		go func() {
@@ -219,7 +224,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
 	testMetrics := metrics.NewMetrics()
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, wsServer, authConf, testLogger, testMetrics)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, wsServer, authConf, nil, testLogger, testMetrics)
 
 	// 8. Start HTTP server in background
 	go func() {

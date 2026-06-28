@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+// GroupService manages group conversations and memberships.
+service GroupService {
+  // CreateGroup creates a new group and adds the creator plus optional members.
+  rpc CreateGroup (CreateGroupRequest) returns (CreateGroupReply) {
+    option (google.api.http) = {
+      post: "/v1/groups"
+      body: "*"
+    };
+  }
+
+  // ListMyGroups returns all groups the authenticated user is a member of.
+  rpc ListMyGroups (google.protobuf.Empty) returns (ListGroupsReply) {
+    option (google.api.http) = {
+      get: "/v1/groups"
+    };
+  }
+
+  // GetGroup returns details of a specific group.
+  rpc GetGroup (GetGroupRequest) returns (Group) {
+    option (google.api.http) = {
+      get: "/v1/groups/{group_id}"
+    };
+  }
+
+  // AddGroupMember adds a user to a group.
+  rpc AddGroupMember (AddGroupMemberRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/v1/groups/{group_id}/members"
+      body: "*"
+    };
+  }
+
+  // RemoveGroupMember removes a user from a group.
+  rpc RemoveGroupMember (RemoveGroupMemberRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/groups/{group_id}/members/{user_id}"
+    };
+  }
+
+  // ListGroupMembers returns the members of a group.
+  rpc ListGroupMembers (ListGroupMembersRequest) returns (ListGroupMembersReply) {
+    option (google.api.http) = {
+      get: "/v1/groups/{group_id}/members"
+    };
+  }
+}
+
+message CreateGroupRequest {
+  string name = 1;
+  repeated int64 member_ids = 2;
+}
+
+message CreateGroupReply {
+  string group_id = 1;
+  string topic = 2;
+}
+
+message Group {
+  string group_id = 1;
+  string topic = 2;
+  string name = 3;
+  int64 owner_id = 4;
+  int64 created_at = 5;
+}
+
+message ListGroupsReply {
+  repeated Group groups = 1;
+}
+
+message GetGroupRequest {
+  string group_id = 1;
+}
+
+message AddGroupMemberRequest {
+  string group_id = 1;
+  int64 user_id = 2;
+}
+
+message RemoveGroupMemberRequest {
+  string group_id = 1;
+  int64 user_id = 2;
+}
+
+message ListGroupMembersRequest {
+  string group_id = 1;
+}
+
+message GroupMember {
+  int64 user_id = 1;
+  string username = 2;
+}
+
+message ListGroupMembersReply {
+  repeated GroupMember members = 1;
+}

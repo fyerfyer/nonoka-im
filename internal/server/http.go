@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"net/http/pprof"
+	"strings"
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
@@ -16,10 +18,11 @@ import (
 	"github.com/go-kratos/kratos/v2/middleware/selector"
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	jwt5 "github.com/golang-jwt/jwt/v5"
+	"github.com/rs/cors"
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, ws *gateway.WebSocketServer, authConf *conf.Auth, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	var opts = []khttp.ServerOption{
 		khttp.Middleware(
 			recovery.Recovery(),
@@ -48,11 +51,45 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	if c.Http.Timeout != nil {
 		opts = append(opts, khttp.Timeout(c.Http.Timeout.AsDuration()))
 	}
+
+	// Configure CORS for local frontend development if origins are provided.
+	if gatewayConf != nil && len(gatewayConf.CorsOrigins) > 0 {
+		corsOpts := cors.Options{
+			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept"},
+			AllowCredentials: true,
+			MaxAge:           86400,
+		}
+		// If "*" is present, allow any localhost origin and configured origins.
+		if hasWildcardOrigin(gatewayConf.CorsOrigins) {
+			corsOpts.AllowOriginFunc = func(origin string) bool {
+				return strings.HasPrefix(origin, "http://localhost:") ||
+					strings.HasPrefix(origin, "https://localhost:") ||
+					isConfiguredOrigin(origin, gatewayConf.CorsOrigins)
+			}
+		} else {
+			corsOpts.AllowedOrigins = gatewayConf.CorsOrigins
+		}
+		corsHandler := cors.New(corsOpts)
+		opts = append(opts, khttp.Filter(func(h http.Handler) http.Handler {
+			return corsHandler.Handler(h)
+		}))
+	}
+
 	srv := khttp.NewServer(opts...)
 	v1.RegisterAuthServiceHTTPServer(srv, auth)
 	v1.RegisterDispatchServiceHTTPServer(srv, dispatch)
 	if message != nil {
 		v1.RegisterMessageServiceHTTPServer(srv, message)
+	}
+	if user != nil {
+		v1.RegisterUserServiceHTTPServer(srv, user)
+	}
+	if conversation != nil {
+		v1.RegisterConversationServiceHTTPServer(srv, conversation)
+	}
+	if group != nil {
+		v1.RegisterGroupServiceHTTPServer(srv, group)
 	}
 
 	// Register WebSocket handler
@@ -71,4 +108,22 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	srv.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	return srv
+}
+
+func hasWildcardOrigin(origins []string) bool {
+	for _, o := range origins {
+		if o == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+func isConfiguredOrigin(origin string, origins []string) bool {
+	for _, o := range origins {
+		if o == origin {
+			return true
+		}
+	}
+	return false
 }

@@ -355,8 +355,10 @@ type GatewayConfig struct {
 	// Allowed WebSocket origins. If empty, all origins are allowed (development
 	// default). In production, set this to the exact origins that may connect.
 	AllowedOrigins []string `protobuf:"bytes,5,rep,name=allowed_origins,json=allowedOrigins,proto3" json:"allowed_origins,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
+	CorsOrigins   []string `protobuf:"bytes,6,rep,name=cors_origins,json=corsOrigins,proto3" json:"cors_origins,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GatewayConfig) Reset() {
@@ -420,6 +422,13 @@ func (x *GatewayConfig) GetWriteTimeout() *durationpb.Duration {
 func (x *GatewayConfig) GetAllowedOrigins() []string {
 	if x != nil {
 		return x.AllowedOrigins
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetCorsOrigins() []string {
+	if x != nil {
+		return x.CorsOrigins
 	}
 	return nil
 }
@@ -1227,13 +1236,14 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +
 	"gatewayUrl\x12*\n" +
-	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xc8\x02\n" +
+	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xeb\x02\n" +
 	"\rGatewayConfig\x12H\n" +
 	"\x12heartbeat_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x12F\n" +
 	"\x11heartbeat_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10heartbeatTimeout\x12<\n" +
 	"\fread_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\x12>\n" +
 	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x12'\n" +
-	"\x0fallowed_origins\x18\x05 \x03(\tR\x0eallowedOrigins\"\xdb\x01\n" +
+	"\x0fallowed_origins\x18\x05 \x03(\tR\x0eallowedOrigins\x12!\n" +
+	"\fcors_origins\x18\x06 \x03(\tR\vcorsOrigins\"\xdb\x01\n" +
 	"\bDispatch\x123\n" +
 	"\bgateways\x18\x01 \x03(\v2\x17.kratos.api.GatewayNodeR\bgateways\x12\x1a\n" +
 	"\bstrategy\x18\x02 \x01(\tR\bstrategy\x12H\n" +

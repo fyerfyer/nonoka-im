@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+service ConversationService {
+  rpc ListConversations (ListConversationsRequest) returns (ListConversationsReply) {
+    option (google.api.http) = { get: "/v1/conversations" };
+  }
+
+  rpc MarkConversationRead (MarkConversationReadRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/v1/conversations/{topic}/read"
+      body: "*"
+    };
+  }
+}
+
+message ListConversationsRequest {
+  int32 limit  = 1;
+  int64 offset = 2;
+}
+
+message Conversation {
+  string topic          = 1;
+  string type           = 2; // p2p / group
+  int64  peer_id        = 3; // P2P counterpart user_id
+  string peer_username  = 4;
+  string last_msg_preview = 5;
+  int64  last_msg_at    = 6;
+  uint64 last_seq       = 7;
+  uint64 last_read_seq  = 8;
+  int32  unread_count   = 9;
+}
+
+message ListConversationsReply {
+  repeated Conversation conversations = 1;
+  bool has_more = 2;
+}
+
+message MarkConversationReadRequest {
+  string topic = 1;
+}

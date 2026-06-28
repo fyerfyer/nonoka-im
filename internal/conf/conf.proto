@@ -111,6 +111,8 @@ message GatewayConfig {
   // Allowed WebSocket origins. If empty, all origins are allowed (development
   // default). In production, set this to the exact origins that may connect.
   repeated string allowed_origins = 5;
+  // CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
+  repeated string cors_origins = 6;
 }
 
 message Dispatch {

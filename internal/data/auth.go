@@ -64,3 +64,34 @@ func (r *authRepo) GetUserByUsername(ctx context.Context, username string) (*biz
 		Password: dbUser.Password,
 	}, nil
 }
+
+func (r *authRepo) SearchUsersByPrefix(ctx context.Context, prefix string, limit int32) ([]*biz.User, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return []*biz.User{}, nil
+	}
+
+	var rows []User
+	result := r.data.db.WithContext(ctx).
+		Where("username LIKE ?", prefix+"%").
+		Order("username ASC").
+		Limit(int(limit)).
+		Find(&rows)
+	if result.Error != nil {
+		r.log.Errorf("SearchUsersByPrefix failed: %v", result.Error)
+		return nil, errors.InternalServer("DB_ERROR", "database error")
+	}
+
+	users := make([]*biz.User, len(rows))
+	for i := range rows {
+		users[i] = &biz.User{
+			ID:       rows[i].ID,
+			Username: rows[i].Username,
+			Password: rows[i].Password,
+		}
+	}
+	return users, nil
+}
