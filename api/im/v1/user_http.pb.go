@@ -19,15 +19,18 @@ var _ = binding.EncodeURL
 
 const _ = http.SupportPackageIsVersion1
 
+const OperationUserServiceGetUserPresence = "/api.im.v1.UserService/GetUserPresence"
 const OperationUserServiceSearchUsers = "/api.im.v1.UserService/SearchUsers"
 
 type UserServiceHTTPServer interface {
+	GetUserPresence(context.Context, *GetUserPresenceRequest) (*GetUserPresenceReply, error)
 	SearchUsers(context.Context, *SearchUsersRequest) (*SearchUsersReply, error)
 }
 
 func RegisterUserServiceHTTPServer(s *http.Server, srv UserServiceHTTPServer) {
 	r := s.Route("/")
 	r.GET("/v1/users/search", _UserService_SearchUsers0_HTTP_Handler(srv))
+	r.GET("/v1/users/{user_id}/presence", _UserService_GetUserPresence0_HTTP_Handler(srv))
 }
 
 func _UserService_SearchUsers0_HTTP_Handler(srv UserServiceHTTPServer) func(ctx http.Context) error {
@@ -49,7 +52,30 @@ func _UserService_SearchUsers0_HTTP_Handler(srv UserServiceHTTPServer) func(ctx 
 	}
 }
 
+func _UserService_GetUserPresence0_HTTP_Handler(srv UserServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in GetUserPresenceRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationUserServiceGetUserPresence)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetUserPresence(ctx, req.(*GetUserPresenceRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*GetUserPresenceReply)
+		return ctx.Result(200, reply)
+	}
+}
+
 type UserServiceHTTPClient interface {
+	GetUserPresence(ctx context.Context, req *GetUserPresenceRequest, opts ...http.CallOption) (rsp *GetUserPresenceReply, err error)
 	SearchUsers(ctx context.Context, req *SearchUsersRequest, opts ...http.CallOption) (rsp *SearchUsersReply, err error)
 }
 
@@ -59,6 +85,19 @@ type UserServiceHTTPClientImpl struct {
 
 func NewUserServiceHTTPClient(client *http.Client) UserServiceHTTPClient {
 	return &UserServiceHTTPClientImpl{client}
+}
+
+func (c *UserServiceHTTPClientImpl) GetUserPresence(ctx context.Context, in *GetUserPresenceRequest, opts ...http.CallOption) (*GetUserPresenceReply, error) {
+	var out GetUserPresenceReply
+	pattern := "/v1/users/{user_id}/presence"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationUserServiceGetUserPresence))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *UserServiceHTTPClientImpl) SearchUsers(ctx context.Context, in *SearchUsersRequest, opts ...http.CallOption) (*SearchUsersReply, error) {

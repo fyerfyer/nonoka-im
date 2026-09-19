@@ -170,6 +170,102 @@ func (x *User) GetUsername() string {
 	return ""
 }
 
+type GetUserPresenceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserPresenceRequest) Reset() {
+	*x = GetUserPresenceRequest{}
+	mi := &file_im_v1_user_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserPresenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserPresenceRequest) ProtoMessage() {}
+
+func (x *GetUserPresenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_user_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserPresenceRequest.ProtoReflect.Descriptor instead.
+func (*GetUserPresenceRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_user_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetUserPresenceRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type GetUserPresenceReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Online        bool                   `protobuf:"varint,2,opt,name=online,proto3" json:"online,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserPresenceReply) Reset() {
+	*x = GetUserPresenceReply{}
+	mi := &file_im_v1_user_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserPresenceReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserPresenceReply) ProtoMessage() {}
+
+func (x *GetUserPresenceReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_user_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserPresenceReply.ProtoReflect.Descriptor instead.
+func (*GetUserPresenceReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_user_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetUserPresenceReply) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *GetUserPresenceReply) GetOnline() bool {
+	if x != nil {
+		return x.Online
+	}
+	return false
+}
+
 var File_im_v1_user_proto protoreflect.FileDescriptor
 
 const file_im_v1_user_proto_rawDesc = "" +
@@ -182,9 +278,15 @@ const file_im_v1_user_proto_rawDesc = "" +
 	"\x05users\x18\x01 \x03(\v2\x0f.api.im.v1.UserR\x05users\";\n" +
 	"\x04User\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername2r\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"1\n" +
+	"\x16GetUserPresenceRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"G\n" +
+	"\x14GetUserPresenceReply\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
+	"\x06online\x18\x02 \x01(\bR\x06online2\xef\x01\n" +
 	"\vUserService\x12c\n" +
-	"\vSearchUsers\x12\x1d.api.im.v1.SearchUsersRequest\x1a\x1b.api.im.v1.SearchUsersReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/users/searchB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\vSearchUsers\x12\x1d.api.im.v1.SearchUsersRequest\x1a\x1b.api.im.v1.SearchUsersReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/users/search\x12{\n" +
+	"\x0fGetUserPresence\x12!.api.im.v1.GetUserPresenceRequest\x1a\x1f.api.im.v1.GetUserPresenceReply\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/v1/users/{user_id}/presenceB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_user_proto_rawDescOnce sync.Once
@@ -198,18 +300,22 @@ func file_im_v1_user_proto_rawDescGZIP() []byte {
 	return file_im_v1_user_proto_rawDescData
 }
 
-var file_im_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_im_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_im_v1_user_proto_goTypes = []any{
-	(*SearchUsersRequest)(nil), // 0: api.im.v1.SearchUsersRequest
-	(*SearchUsersReply)(nil),   // 1: api.im.v1.SearchUsersReply
-	(*User)(nil),               // 2: api.im.v1.User
+	(*SearchUsersRequest)(nil),     // 0: api.im.v1.SearchUsersRequest
+	(*SearchUsersReply)(nil),       // 1: api.im.v1.SearchUsersReply
+	(*User)(nil),                   // 2: api.im.v1.User
+	(*GetUserPresenceRequest)(nil), // 3: api.im.v1.GetUserPresenceRequest
+	(*GetUserPresenceReply)(nil),   // 4: api.im.v1.GetUserPresenceReply
 }
 var file_im_v1_user_proto_depIdxs = []int32{
 	2, // 0: api.im.v1.SearchUsersReply.users:type_name -> api.im.v1.User
 	0, // 1: api.im.v1.UserService.SearchUsers:input_type -> api.im.v1.SearchUsersRequest
-	1, // 2: api.im.v1.UserService.SearchUsers:output_type -> api.im.v1.SearchUsersReply
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	3, // 2: api.im.v1.UserService.GetUserPresence:input_type -> api.im.v1.GetUserPresenceRequest
+	1, // 3: api.im.v1.UserService.SearchUsers:output_type -> api.im.v1.SearchUsersReply
+	4, // 4: api.im.v1.UserService.GetUserPresence:output_type -> api.im.v1.GetUserPresenceReply
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -226,7 +332,7 @@ func file_im_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_user_proto_rawDesc), len(file_im_v1_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

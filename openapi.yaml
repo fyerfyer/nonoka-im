@@ -279,6 +279,24 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.SearchUsersReply'
+    /v1/users/{userId}/presence:
+        get:
+            tags:
+                - UserService
+            operationId: UserService_GetUserPresence
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.GetUserPresenceReply'
 components:
     schemas:
         api.im.v1.AddGroupMemberRequest:
@@ -338,6 +356,13 @@ components:
                     description: |-
                         Optional list of currently alive gateway URLs. Clients may cache this list
                          and select an entry according to their own routing policy.
+        api.im.v1.GetUserPresenceReply:
+            type: object
+            properties:
+                userId:
+                    type: string
+                online:
+                    type: boolean
         api.im.v1.Group:
             type: object
             properties:

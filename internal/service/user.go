@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 
+	"github.com/go-kratos/kratos/v2/errors"
+
 	pb "nonoka-im/api/im/v1"
 	"nonoka-im/internal/biz"
 )
@@ -11,12 +13,38 @@ import (
 type UserService struct {
 	pb.UnimplementedUserServiceServer
 
-	uc *biz.AuthUsecase
+	uc       *biz.AuthUsecase
+	presence PresenceChecker
+}
+
+// PresenceChecker hides the Redis/gateway implementation from the API layer.
+type PresenceChecker interface {
+	IsUserOnline(context.Context, int64) (bool, error)
 }
 
 // NewUserService creates a new UserService.
 func NewUserService(uc *biz.AuthUsecase) *UserService {
 	return &UserService{uc: uc}
+}
+
+// SetPresenceChecker wires optional distributed presence into the service.
+func (s *UserService) SetPresenceChecker(checker PresenceChecker) {
+	s.presence = checker
+}
+
+func (s *UserService) GetUserPresence(ctx context.Context, req *pb.GetUserPresenceRequest) (*pb.GetUserPresenceReply, error) {
+	if req.GetUserId() <= 0 {
+		return nil, errors.BadRequest("INVALID_USER_ID", "user id is required")
+	}
+	online := false
+	var err error
+	if s.presence != nil {
+		online, err = s.presence.IsUserOnline(ctx, req.GetUserId())
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &pb.GetUserPresenceReply{UserId: req.GetUserId(), Online: online}, nil
 }
 
 // SearchUsers searches users by username prefix. Authentication is required.

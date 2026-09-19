@@ -75,16 +75,28 @@ func (m *Manager) getShardByConnID(connID string) *connShard {
 	return m.shards[h%shardCount]
 }
 
-// Add registers a connection to the manager.
-// Should be called after authentication.
-func (m *Manager) Add(c *Connection) {
+// Add registers a connection to the manager and returns older connections for
+// the same user and device. The caller should close the returned connections
+// after publishing the new distributed session, so an old connection cannot
+// remove its replacement from Redis during cleanup.
+func (m *Manager) Add(c *Connection) []*Connection {
 	if c.UserID() == 0 {
-		return
+		return nil
 	}
 
 	shard := m.getShard(c.UserID())
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
+
+	var replaced []*Connection
+	if userConns := shard.users[c.UserID()]; userConns != nil {
+		for connID := range userConns {
+			old := shard.conns[connID]
+			if old != nil && old.DeviceID() == c.DeviceID() && old.ConnID() != c.ConnID() {
+				replaced = append(replaced, old)
+			}
+		}
+	}
 
 	shard.conns[c.ConnID()] = c
 	if shard.users[c.UserID()] == nil {
@@ -95,6 +107,7 @@ func (m *Manager) Add(c *Connection) {
 	m.metrics.IncConnectionsTotal()
 	m.metrics.AddActiveConnections(1)
 	m.log.Infof("connection added: user_id=%d conn_id=%s device_id=%s", c.UserID(), c.ConnID(), c.DeviceID())
+	return replaced
 }
 
 // Remove removes a connection from the manager.

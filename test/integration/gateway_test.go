@@ -8,6 +8,8 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+
+	"github.com/gorilla/websocket"
 )
 
 // ============================================
@@ -401,6 +403,45 @@ func TestGateway_MultiDevice_SameUser(t *testing.T) {
 	}
 	if _, ok := devices["device-2"]; !ok {
 		t.Fatalf("device-2 not found in redis")
+	}
+}
+
+// TestGateway_ReplacedDeviceConnectionCleanup verifies that a late close event
+// from an older socket cannot delete the Redis route installed by its replacement.
+func TestGateway_ReplacedDeviceConnectionCleanup(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	token, userID := registerAndLogin(t, "replaced-device-user", "123456")
+	connect := func() *websocket.Conn {
+		conn := wsConnect(t)
+		wsSendPacket(t, conn, &v1.Packet{
+			Cmd: v1.Command_CMD_AUTH,
+			Seq: 1,
+			Payload: &v1.Packet_AuthReq{AuthReq: &v1.AuthRequest{
+				Token: token, DeviceId: "same-device",
+			}},
+		})
+		wsReadPacket(t, conn, 2*time.Second)
+		return conn
+	}
+
+	oldConn := connect()
+	newConn := connect()
+	defer newConn.Close()
+
+	before, err := ts.gwSessionMgr.GetDevices(context.Background(), userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldConn.Close()
+	time.Sleep(200 * time.Millisecond)
+	after, err := ts.gwSessionMgr.GetDevices(context.Background(), userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after["same-device"] == "" || after["same-device"] != before["same-device"] {
+		t.Fatalf("replacement route was removed by stale close: before=%q after=%q", before["same-device"], after["same-device"])
 	}
 }
 

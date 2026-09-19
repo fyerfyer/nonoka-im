@@ -154,7 +154,7 @@ func (h *Handler) handleHeartbeat(c *Connection, packet *v1.Packet) {
 	if c.UserID() != 0 && h.sessionManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if err := h.sessionManager.ExpireSession(ctx, c.UserID(), h.heartbeatTimeout*2); err != nil {
+		if err := h.sessionManager.ExpireSession(ctx, c.UserID(), c.DeviceID(), c.ConnID(), h.heartbeatTimeout*2); err != nil {
 			h.log.Warnf("expire session failed: user_id=%d, err=%v", c.UserID(), err)
 		}
 	}
@@ -218,15 +218,24 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 	c.SetAuthed(int64(userID), deviceID)
 
 	// Register to connection manager
-	h.manager.Add(c)
+	replaced := h.manager.Add(c)
 
 	// Register to distributed session index
 	if h.sessionManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if err := h.sessionManager.SetSession(ctx, c.UserID(), deviceID, h.heartbeatTimeout*2); err != nil {
+		if err := h.sessionManager.SetSession(ctx, c.UserID(), deviceID, c.ConnID(), h.heartbeatTimeout*2); err != nil {
 			h.log.Warnf("set session failed: user_id=%d, err=%v", c.UserID(), err)
 		}
+	}
+
+	// A device has one authoritative socket. Close older local sockets only
+	// after Redis points at this connection; their guarded cleanup then becomes
+	// a no-op instead of deleting the replacement route.
+	for _, old := range replaced {
+		h.log.Infof("replacing connection: user_id=%d device_id=%s old_conn_id=%s new_conn_id=%s",
+			c.UserID(), deviceID, old.ConnID(), c.ConnID())
+		old.Close()
 	}
 
 	// Send auth success response (critical: client is waiting).
@@ -649,7 +658,7 @@ func (h *Handler) OnConnectionClose(c *Connection) {
 		if h.sessionManager != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if err := h.sessionManager.DelSession(ctx, c.UserID(), c.DeviceID()); err != nil {
+			if err := h.sessionManager.DelSession(ctx, c.UserID(), c.DeviceID(), c.ConnID()); err != nil {
 				h.log.Warnf("del session failed: user_id=%d, err=%v", c.UserID(), err)
 			}
 		}

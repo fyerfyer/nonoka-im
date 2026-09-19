@@ -18089,6 +18089,47 @@ export const api = $root.api = (() => {
                     responseStream: { value: $undefined }
                 });
 
+                /**
+                 * Callback as used by {@link api.im.v1.UserService#getUserPresence}.
+                 * @memberof api.im.v1.UserService
+                 * @typedef GetUserPresenceCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.GetUserPresenceReply} [response] GetUserPresenceReply
+                 */
+
+                /**
+                 * Calls GetUserPresence.
+                 * @memberof api.im.v1.UserService
+                 * @typedef GetUserPresence
+                 * @type {{
+                 *   (request: api.im.v1.IGetUserPresenceRequest, callback: api.im.v1.UserService.GetUserPresenceCallback): void;
+                 *   (request: api.im.v1.IGetUserPresenceRequest): Promise<api.im.v1.GetUserPresenceReply>;
+                 *   readonly name: "GetUserPresence";
+                 *   readonly path: "/api.im.v1.UserService/GetUserPresence";
+                 *   readonly requestType: "GetUserPresenceRequest";
+                 *   readonly responseType: "GetUserPresenceReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls GetUserPresence.
+                 * @name api.im.v1.UserService#getUserPresence
+                 * @type {api.im.v1.UserService.GetUserPresence}
+                 */
+                $Object.defineProperties(UserService.prototype.getUserPresence = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, UserService.prototype.getUserPresence, $root.api.im.v1.GetUserPresenceRequest, $root.api.im.v1.GetUserPresenceReply, request, callback);
+                }, {
+                    name: { value: "GetUserPresence" },
+                    path: { value: "/api.im.v1.UserService/GetUserPresence" },
+                    requestType: { value: "GetUserPresenceRequest" },
+                    responseType: { value: "GetUserPresenceReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
                 return UserService;
             })();
 
@@ -18963,6 +19004,588 @@ export const api = $root.api = (() => {
                 };
 
                 return User;
+            })();
+
+            v1.GetUserPresenceRequest = (function() {
+
+                /**
+                 * Properties of a GetUserPresenceRequest.
+                 * @typedef {Object} api.im.v1.GetUserPresenceRequest.$Properties
+                 * @property {number|Long|null} [userId] GetUserPresenceRequest userId
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a GetUserPresenceRequest.
+                 * @memberof api.im.v1
+                 * @interface IGetUserPresenceRequest
+                 * @augments api.im.v1.GetUserPresenceRequest.$Properties
+                 * @deprecated Use api.im.v1.GetUserPresenceRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a GetUserPresenceRequest.
+                 * @typedef {api.im.v1.GetUserPresenceRequest.$Properties} api.im.v1.GetUserPresenceRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new GetUserPresenceRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a GetUserPresenceRequest.
+                 * @constructor
+                 * @param {api.im.v1.GetUserPresenceRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const GetUserPresenceRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * GetUserPresenceRequest userId.
+                 * @member {number|Long} userId
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @instance
+                 */
+                GetUserPresenceRequest.prototype.userId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * Creates a new GetUserPresenceRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.GetUserPresenceRequest} GetUserPresenceRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.GetUserPresenceRequest.$Shape): api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape;
+                 *   (properties?: api.im.v1.GetUserPresenceRequest.$Properties): api.im.v1.GetUserPresenceRequest;
+                 * }}
+                 */
+                GetUserPresenceRequest.create = function(properties) {
+                    return new GetUserPresenceRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified GetUserPresenceRequest message. Does not implicitly {@link api.im.v1.GetUserPresenceRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceRequest.$Properties} message GetUserPresenceRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                GetUserPresenceRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified GetUserPresenceRequest message, length delimited. Does not implicitly {@link api.im.v1.GetUserPresenceRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceRequest.$Properties} message GetUserPresenceRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                GetUserPresenceRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a GetUserPresenceRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape} GetUserPresenceRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                GetUserPresenceRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.GetUserPresenceRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.userId = value;
+                                else
+                                    delete message.userId;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a GetUserPresenceRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape} GetUserPresenceRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                GetUserPresenceRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a GetUserPresenceRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                GetUserPresenceRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (!$util.isInteger(message.userId) && !(message.userId && $util.isInteger(message.userId.low) && $util.isInteger(message.userId.high)))
+                            return "userId: integer|Long expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a GetUserPresenceRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.GetUserPresenceRequest} GetUserPresenceRequest
+                 */
+                GetUserPresenceRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.GetUserPresenceRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.GetUserPresenceRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.GetUserPresenceRequest();
+                    if (object.userId != null)
+                        if (typeof object.userId === "object" ? object.userId.low || object.userId.high : $Number(object.userId) !== 0)
+                            if ($util.Long)
+                                message.userId = $util.Long.fromValue(object.userId, false);
+                            else if (typeof object.userId === "string")
+                                message.userId = $parseInt(object.userId, 10);
+                            else if (typeof object.userId === "number")
+                                message.userId = object.userId;
+                            else if (typeof object.userId === "object")
+                                message.userId = new $util.LongBits(object.userId.low >>> 0, object.userId.high >>> 0).toNumber();
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a GetUserPresenceRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceRequest} message GetUserPresenceRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                GetUserPresenceRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults)
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.userId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.userId = typeof message.userId === "number" ? $BigInt(message.userId) : $util.Long.fromBits(message.userId.low >>> 0, message.userId.high >>> 0, false).toBigInt();
+                        else if (typeof message.userId === "number")
+                            object.userId = options.longs === $String ? $String(message.userId) : message.userId;
+                        else
+                            object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
+                    return object;
+                };
+
+                /**
+                 * Converts this GetUserPresenceRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                GetUserPresenceRequest.prototype.toJSON = function() {
+                    return GetUserPresenceRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for GetUserPresenceRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.GetUserPresenceRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                GetUserPresenceRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.GetUserPresenceRequest";
+                };
+
+                return GetUserPresenceRequest;
+            })();
+
+            v1.GetUserPresenceReply = (function() {
+
+                /**
+                 * Properties of a GetUserPresenceReply.
+                 * @typedef {Object} api.im.v1.GetUserPresenceReply.$Properties
+                 * @property {number|Long|null} [userId] GetUserPresenceReply userId
+                 * @property {boolean|null} [online] GetUserPresenceReply online
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a GetUserPresenceReply.
+                 * @memberof api.im.v1
+                 * @interface IGetUserPresenceReply
+                 * @augments api.im.v1.GetUserPresenceReply.$Properties
+                 * @deprecated Use api.im.v1.GetUserPresenceReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a GetUserPresenceReply.
+                 * @typedef {api.im.v1.GetUserPresenceReply.$Properties} api.im.v1.GetUserPresenceReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new GetUserPresenceReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a GetUserPresenceReply.
+                 * @constructor
+                 * @param {api.im.v1.GetUserPresenceReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const GetUserPresenceReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * GetUserPresenceReply userId.
+                 * @member {number|Long} userId
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @instance
+                 */
+                GetUserPresenceReply.prototype.userId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * GetUserPresenceReply online.
+                 * @member {boolean} online
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @instance
+                 */
+                GetUserPresenceReply.prototype.online = false;
+
+                /**
+                 * Creates a new GetUserPresenceReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.GetUserPresenceReply} GetUserPresenceReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.GetUserPresenceReply.$Shape): api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape;
+                 *   (properties?: api.im.v1.GetUserPresenceReply.$Properties): api.im.v1.GetUserPresenceReply;
+                 * }}
+                 */
+                GetUserPresenceReply.create = function(properties) {
+                    return new GetUserPresenceReply(properties);
+                };
+
+                /**
+                 * Encodes the specified GetUserPresenceReply message. Does not implicitly {@link api.im.v1.GetUserPresenceReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceReply.$Properties} message GetUserPresenceReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                GetUserPresenceReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
+                    if (message.online != null && $Object.hasOwnProperty.call(message, "online"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).bool(message.online);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified GetUserPresenceReply message, length delimited. Does not implicitly {@link api.im.v1.GetUserPresenceReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceReply.$Properties} message GetUserPresenceReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                GetUserPresenceReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a GetUserPresenceReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape} GetUserPresenceReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                GetUserPresenceReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.GetUserPresenceReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.userId = value;
+                                else
+                                    delete message.userId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.online = value;
+                                else
+                                    delete message.online;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a GetUserPresenceReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape} GetUserPresenceReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                GetUserPresenceReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a GetUserPresenceReply message.
+                 * @function verify
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                GetUserPresenceReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (!$util.isInteger(message.userId) && !(message.userId && $util.isInteger(message.userId.low) && $util.isInteger(message.userId.high)))
+                            return "userId: integer|Long expected";
+                    if (message.online != null && $Object.hasOwnProperty.call(message, "online"))
+                        if (typeof message.online !== "boolean")
+                            return "online: boolean expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a GetUserPresenceReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.GetUserPresenceReply} GetUserPresenceReply
+                 */
+                GetUserPresenceReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.GetUserPresenceReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.GetUserPresenceReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.GetUserPresenceReply();
+                    if (object.userId != null)
+                        if (typeof object.userId === "object" ? object.userId.low || object.userId.high : $Number(object.userId) !== 0)
+                            if ($util.Long)
+                                message.userId = $util.Long.fromValue(object.userId, false);
+                            else if (typeof object.userId === "string")
+                                message.userId = $parseInt(object.userId, 10);
+                            else if (typeof object.userId === "number")
+                                message.userId = object.userId;
+                            else if (typeof object.userId === "object")
+                                message.userId = new $util.LongBits(object.userId.low >>> 0, object.userId.high >>> 0).toNumber();
+                    if (object.online != null)
+                        if (object.online)
+                            message.online = $Boolean(object.online);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a GetUserPresenceReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {api.im.v1.GetUserPresenceReply} message GetUserPresenceReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                GetUserPresenceReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.userId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.online = false;
+                    }
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.userId = typeof message.userId === "number" ? $BigInt(message.userId) : $util.Long.fromBits(message.userId.low >>> 0, message.userId.high >>> 0, false).toBigInt();
+                        else if (typeof message.userId === "number")
+                            object.userId = options.longs === $String ? $String(message.userId) : message.userId;
+                        else
+                            object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
+                    if (message.online != null && $Object.hasOwnProperty.call(message, "online"))
+                        object.online = message.online;
+                    return object;
+                };
+
+                /**
+                 * Converts this GetUserPresenceReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                GetUserPresenceReply.prototype.toJSON = function() {
+                    return GetUserPresenceReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for GetUserPresenceReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.GetUserPresenceReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                GetUserPresenceReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.GetUserPresenceReply";
+                };
+
+                return GetUserPresenceReply;
             })();
 
             return v1;

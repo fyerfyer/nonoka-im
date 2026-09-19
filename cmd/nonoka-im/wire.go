@@ -249,12 +249,31 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	}
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
 		members, err := groups.ListMembers(ctx, groupID)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		ids := make([]int64, 0, len(members))
-		for _, member := range members { ids = append(ids, member.UserId) }
+		for _, member := range members {
+			ids = append(ids, member.UserId)
+		}
 		return ids, nil
 	})
 	return h
+}
+
+type sessionPresenceChecker struct {
+	sessions *gateway.SessionManager
+	nodeTTL  time.Duration
+}
+
+func (p *sessionPresenceChecker) IsUserOnline(ctx context.Context, userID int64) (bool, error) {
+	return p.sessions.IsUserOnline(ctx, userID, p.nodeTTL)
+}
+
+func provideUserService(uc *biz.AuthUsecase, sessions *gateway.SessionManager, cfg GatewayRegistryConfig) *service.UserService {
+	svc := service.NewUserService(uc)
+	svc.SetPresenceChecker(&sessionPresenceChecker{sessions: sessions, nodeTTL: cfg.TTL})
+	return svc
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
@@ -280,6 +299,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideHeartbeatConfig,
 		provideWebSocketServer,
 		provideHandler,
+		provideUserService,
 		provideRedisClient,
 		provideKafkaConfig,
 		provideMongoDB,

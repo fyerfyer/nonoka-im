@@ -6894,6 +6894,9 @@ export namespace api {
 
                 /** Calls SearchUsers. */
                 searchUsers: api.im.v1.UserService.SearchUsers;
+
+                /** Calls GetUserPresence. */
+                getUserPresence: api.im.v1.UserService.GetUserPresence;
             }
 
             namespace UserService {
@@ -6913,6 +6916,25 @@ export namespace api {
                   readonly path: "/api.im.v1.UserService/SearchUsers";
                   readonly requestType: "SearchUsersRequest";
                   readonly responseType: "SearchUsersReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.UserService#getUserPresence}.
+                 * @param error Error, if any
+                 * @param [response] GetUserPresenceReply
+                 */
+                type GetUserPresenceCallback = (error: (Error|null), response?: api.im.v1.GetUserPresenceReply) => void;
+
+                /** Calls GetUserPresence. */
+                type GetUserPresence = {
+                  (request: api.im.v1.IGetUserPresenceRequest, callback: api.im.v1.UserService.GetUserPresenceCallback): void;
+                  (request: api.im.v1.IGetUserPresenceRequest): Promise<api.im.v1.GetUserPresenceReply>;
+                  readonly name: "GetUserPresence";
+                  readonly path: "/api.im.v1.UserService/GetUserPresence";
+                  readonly requestType: "GetUserPresenceRequest";
+                  readonly responseType: "GetUserPresenceReply";
                   readonly requestStream: undefined;
                   readonly responseStream: undefined;
                 };
@@ -7279,6 +7301,246 @@ export namespace api {
 
                 /** Shape of a User. */
                 type $Shape = api.im.v1.User.$Properties;
+            }
+
+            /**
+             * Properties of a GetUserPresenceRequest.
+             * @deprecated Use api.im.v1.GetUserPresenceRequest.$Properties instead.
+             */
+            interface IGetUserPresenceRequest extends api.im.v1.GetUserPresenceRequest.$Properties {
+            }
+
+            /** Represents a GetUserPresenceRequest. */
+            class GetUserPresenceRequest {
+
+                /**
+                 * Constructs a new GetUserPresenceRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.GetUserPresenceRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** GetUserPresenceRequest userId. */
+                userId: (number|Long);
+
+                /**
+                 * Creates a new GetUserPresenceRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns GetUserPresenceRequest instance
+                 */
+                static create(properties: api.im.v1.GetUserPresenceRequest.$Shape): api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape;
+                static create(properties?: api.im.v1.GetUserPresenceRequest.$Properties): api.im.v1.GetUserPresenceRequest;
+
+                /**
+                 * Encodes the specified GetUserPresenceRequest message. Does not implicitly {@link api.im.v1.GetUserPresenceRequest.verify|verify} messages.
+                 * @param message GetUserPresenceRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.GetUserPresenceRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified GetUserPresenceRequest message, length delimited. Does not implicitly {@link api.im.v1.GetUserPresenceRequest.verify|verify} messages.
+                 * @param message GetUserPresenceRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.GetUserPresenceRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a GetUserPresenceRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape} GetUserPresenceRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape;
+
+                /**
+                 * Decodes a GetUserPresenceRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape} GetUserPresenceRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.GetUserPresenceRequest & api.im.v1.GetUserPresenceRequest.$Shape;
+
+                /**
+                 * Verifies a GetUserPresenceRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a GetUserPresenceRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns GetUserPresenceRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.GetUserPresenceRequest;
+
+                /**
+                 * Creates a plain object from a GetUserPresenceRequest message. Also converts values to other types if specified.
+                 * @param message GetUserPresenceRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.GetUserPresenceRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this GetUserPresenceRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for GetUserPresenceRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace GetUserPresenceRequest {
+
+                /** Properties of a GetUserPresenceRequest. */
+                interface $Properties {
+
+                    /** GetUserPresenceRequest userId */
+                    userId?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a GetUserPresenceRequest. */
+                type $Shape = api.im.v1.GetUserPresenceRequest.$Properties;
+            }
+
+            /**
+             * Properties of a GetUserPresenceReply.
+             * @deprecated Use api.im.v1.GetUserPresenceReply.$Properties instead.
+             */
+            interface IGetUserPresenceReply extends api.im.v1.GetUserPresenceReply.$Properties {
+            }
+
+            /** Represents a GetUserPresenceReply. */
+            class GetUserPresenceReply {
+
+                /**
+                 * Constructs a new GetUserPresenceReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.GetUserPresenceReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** GetUserPresenceReply userId. */
+                userId: (number|Long);
+
+                /** GetUserPresenceReply online. */
+                online: boolean;
+
+                /**
+                 * Creates a new GetUserPresenceReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns GetUserPresenceReply instance
+                 */
+                static create(properties: api.im.v1.GetUserPresenceReply.$Shape): api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape;
+                static create(properties?: api.im.v1.GetUserPresenceReply.$Properties): api.im.v1.GetUserPresenceReply;
+
+                /**
+                 * Encodes the specified GetUserPresenceReply message. Does not implicitly {@link api.im.v1.GetUserPresenceReply.verify|verify} messages.
+                 * @param message GetUserPresenceReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.GetUserPresenceReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified GetUserPresenceReply message, length delimited. Does not implicitly {@link api.im.v1.GetUserPresenceReply.verify|verify} messages.
+                 * @param message GetUserPresenceReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.GetUserPresenceReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a GetUserPresenceReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape} GetUserPresenceReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape;
+
+                /**
+                 * Decodes a GetUserPresenceReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape} GetUserPresenceReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.GetUserPresenceReply & api.im.v1.GetUserPresenceReply.$Shape;
+
+                /**
+                 * Verifies a GetUserPresenceReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a GetUserPresenceReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns GetUserPresenceReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.GetUserPresenceReply;
+
+                /**
+                 * Creates a plain object from a GetUserPresenceReply message. Also converts values to other types if specified.
+                 * @param message GetUserPresenceReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.GetUserPresenceReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this GetUserPresenceReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for GetUserPresenceReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace GetUserPresenceReply {
+
+                /** Properties of a GetUserPresenceReply. */
+                interface $Properties {
+
+                    /** GetUserPresenceReply userId */
+                    userId?: (number|Long|null);
+
+                    /** GetUserPresenceReply online */
+                    online?: (boolean|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a GetUserPresenceReply. */
+                type $Shape = api.im.v1.GetUserPresenceReply.$Properties;
             }
         }
     }

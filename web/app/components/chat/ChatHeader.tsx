@@ -1,6 +1,6 @@
 "use client";
 
-import { Conversation, User, ConnectionState } from "@/types";
+import { Conversation, ConnectionState } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ArrowLeft, MoreVertical, Users } from "lucide-react";
@@ -9,14 +9,14 @@ import { cn } from "@/lib/utils";
 
 interface ChatHeaderProps {
   conversation?: Conversation;
-  currentUser: User | null;
   connectionState: ConnectionState;
+  peerOnline?: boolean;
 }
 
 export function ChatHeader({
   conversation,
-  currentUser,
   connectionState,
+  peerOnline,
 }: ChatHeaderProps) {
   const router = useRouter();
 
@@ -27,7 +27,11 @@ export function ChatHeader({
         : "Group")
     : "Chat";
 
-  const subtitle = getConnectionLabel(connectionState);
+  const subtitle = getSubtitle(conversation, connectionState, peerOnline);
+  const isPeerOnline =
+    conversation?.type === "p2p" &&
+    connectionState === "authed" &&
+    peerOnline === true;
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -63,7 +67,7 @@ export function ChatHeader({
           <span
             className={cn(
               "text-xs",
-              connectionState === "authed"
+              isPeerOnline
                 ? "text-emerald-600"
                 : "text-muted-foreground"
             )}
@@ -79,6 +83,17 @@ export function ChatHeader({
   );
 }
 
+function getSubtitle(
+  conversation: Conversation | undefined,
+  state: ConnectionState,
+  peerOnline: boolean | undefined
+): string {
+  if (state !== "authed") return getConnectionLabel(state);
+  if (conversation?.type === "group") return "Group conversation";
+  if (peerOnline === undefined) return "Checking status...";
+  return peerOnline ? "Online" : "Offline";
+}
+
 function getConnectionLabel(state: ConnectionState): string {
   switch (state) {
     case "connecting":
@@ -86,7 +101,7 @@ function getConnectionLabel(state: ConnectionState): string {
     case "connected":
       return "Authenticating...";
     case "authed":
-      return "Online";
+      return "Connected";
     case "reconnecting":
       return "Reconnecting...";
     case "disconnected":

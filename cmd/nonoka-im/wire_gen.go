@@ -58,7 +58,10 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	kafkaConfig := provideKafkaConfig(confData)
 	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
 	messageService := service.NewMessageService(messageStorage, kafkaProducer, logger)
-	userService := service.NewUserService(authUsecase)
+	string2 := provideNodeIDString()
+	sessionManager := gateway.NewSessionManager(universalClient, string2)
+	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
+	userService := provideUserService(authUsecase, sessionManager, gatewayRegistryConfig)
 	conversationRepo := data.NewConversationRepo(dataData, logger)
 	conversationService := service.NewConversationService(conversationRepo)
 	v := provideMetricsSlice(metrics)
@@ -67,8 +70,6 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, messageService, userService, conversationService, pushService, auth, logger)
 	groupRepo := data.NewGroupRepo(dataData, logger)
 	groupService := service.NewGroupService(groupRepo)
-	string2 := provideNodeIDString()
-	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
@@ -77,7 +78,6 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	mainNodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
-	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
 	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
 	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig)
 	return app, func() {
@@ -318,6 +318,21 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 		return ids, nil
 	})
 	return h
+}
+
+type sessionPresenceChecker struct {
+	sessions *gateway.SessionManager
+	nodeTTL  time.Duration
+}
+
+func (p *sessionPresenceChecker) IsUserOnline(ctx context.Context, userID int64) (bool, error) {
+	return p.sessions.IsUserOnline(ctx, userID, p.nodeTTL)
+}
+
+func provideUserService(uc *biz.AuthUsecase, sessions *gateway.SessionManager, cfg GatewayRegistryConfig) *service.UserService {
+	svc := service.NewUserService(uc)
+	svc.SetPresenceChecker(&sessionPresenceChecker{sessions: sessions, nodeTTL: cfg.TTL})
+	return svc
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.

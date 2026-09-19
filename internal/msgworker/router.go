@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,15 +72,15 @@ type GatewayRouter struct {
 
 	// sessionCache holds a local L1 cache from userID -> node IDs.
 	// It is invalidated via Redis Pub/Sub session change events and TTL.
-	sessionCache   map[int64]*sessionCacheEntry
-	sessionCacheMu sync.RWMutex
+	sessionCache    map[int64]*sessionCacheEntry
+	sessionCacheMu  sync.RWMutex
 	sessionCacheTTL time.Duration
 
 	// pubsub lifecycle
-	pubsub     *redis.PubSub
-	stopCh     chan struct{}
-	stopOnce   sync.Once
-	wg         sync.WaitGroup
+	pubsub   *redis.PubSub
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 var _ Router = (*GatewayRouter)(nil)
@@ -289,7 +290,8 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 
 		seen := make(map[string]struct{})
 		var cached []string
-		for _, nodeID := range devices {
+		for _, session := range devices {
+			nodeID := sessionNodeID(session)
 			if _, ok := seen[nodeID]; ok {
 				continue
 			}
@@ -305,6 +307,13 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 	}
 
 	return result, nil
+}
+
+// sessionNodeID supports both legacy node IDs and the node|connection values
+// written by current gateways.
+func sessionNodeID(value string) string {
+	nodeID, _, _ := strings.Cut(value, "|")
+	return nodeID
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.

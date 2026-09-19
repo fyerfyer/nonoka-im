@@ -83,3 +83,22 @@ func TestManager_BroadcastToUser_PreMarshal(t *testing.T) {
 		t.Fatalf("expected 2 deliveries, got %d", sent)
 	}
 }
+
+func TestManager_Add_ReturnsOnlySameDeviceConnections(t *testing.T) {
+	m := NewManager(log.NewStdLogger(io.Discard))
+
+	old := newTestConnection(42, "old")
+	old.deviceID = "web-a"
+	otherDevice := newTestConnection(42, "other")
+	otherDevice.deviceID = "web-b"
+	replacement := newTestConnection(42, "new")
+	replacement.deviceID = "web-a"
+
+	m.Add(old)
+	m.Add(otherDevice)
+	replaced := m.Add(replacement)
+
+	if len(replaced) != 1 || replaced[0] != old {
+		t.Fatalf("expected only old same-device connection, got %#v", replaced)
+	}
+}

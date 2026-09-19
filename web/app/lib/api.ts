@@ -114,6 +114,11 @@ export interface SearchUsersReply {
   users: User[];
 }
 
+export interface UserPresenceReply {
+  userId: number;
+  online: boolean;
+}
+
 export interface ConversationReply {
   topic: string;
   type: string;
@@ -142,6 +147,8 @@ export const userApi = {
     api.get<SearchUsersReply>(
       `/v1/users/search?username=${encodeURIComponent(username)}&limit=${limit}`
     ),
+  getPresence: (userId: number) =>
+    api.get<UserPresenceReply>(`/v1/users/${userId}/presence`),
 };
 
 export const conversationApi = {

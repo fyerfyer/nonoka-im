@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,7 +21,7 @@ const (
 type SessionChangeEvent struct {
 	UserID   int64  `json:"user_id"`
 	DeviceID string `json:"device_id"`
-	Action   string `json:"action"`   // "set", "del", "expire"
+	Action   string `json:"action"` // "set", "del", "expire"
 	NodeID   string `json:"node_id"`
 	At       int64  `json:"at"`
 }
@@ -73,14 +74,14 @@ func (s *SessionManager) deviceSessionKey(userID int64) string {
 }
 
 // SetSession registers a user's session to this node with TTL.
-func (s *SessionManager) SetSession(ctx context.Context, userID int64, deviceID string, ttl time.Duration) error {
+func (s *SessionManager) SetSession(ctx context.Context, userID int64, deviceID, connID string, ttl time.Duration) error {
 	key := s.userSessionKey(userID)
 	// Use a Redis Hash to store device -> node mapping for multi-device support
 	deviceKey := s.deviceSessionKey(userID)
 
 	pipe := s.redis.Pipeline()
 	pipe.Set(ctx, key, s.nodeID, ttl)
-	pipe.HSet(ctx, deviceKey, deviceID, s.nodeID)
+	pipe.HSet(ctx, deviceKey, deviceID, sessionValue(s.nodeID, connID))
 	pipe.Expire(ctx, deviceKey, ttl)
 	_, err := pipe.Exec(ctx)
 	if err == nil {
@@ -102,8 +103,7 @@ func (s *SessionManager) GetDevices(ctx context.Context, userID int64) (map[stri
 }
 
 // DelSession removes a user's session if it belongs to this node.
-func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID string) error {
-	defer s.publishSessionChange(ctx, userID, deviceID, "del")
+func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID, connID string) error {
 	userKey := s.userSessionKey(userID)
 	deviceKey := s.deviceSessionKey(userID)
 
@@ -113,8 +113,12 @@ func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID 
 		local device_key = KEYS[2]
 		local node_id = ARGV[1]
 		local device_id = ARGV[2]
+		local expected = ARGV[3]
 
-		-- Remove device from hash
+		-- An older socket for the same device must never remove its replacement.
+		if redis.call("hget", device_key, device_id) ~= expected then
+			return 0
+		end
 		redis.call("hdel", device_key, device_id)
 
 		-- Check if user session belongs to this node
@@ -124,7 +128,7 @@ func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID 
 			local devices = redis.call("hgetall", device_key)
 			local has_local = false
 			for i = 2, #devices, 2 do
-				if devices[i] == node_id then
+				if devices[i] == node_id or string.sub(devices[i], 1, string.len(node_id) + 1) == node_id .. "|" then
 					has_local = true
 					break
 				end
@@ -136,9 +140,12 @@ func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID 
 		return 1
 	`
 
-	err := s.redis.Eval(ctx, delSessionScript, []string{userKey, deviceKey}, s.nodeID, deviceID).Err()
+	deleted, err := s.redis.Eval(ctx, delSessionScript, []string{userKey, deviceKey}, s.nodeID, deviceID, sessionValue(s.nodeID, connID)).Int()
 	if err == redis.Nil {
 		return nil
+	}
+	if err == nil && deleted == 1 {
+		s.publishSessionChange(ctx, userID, deviceID, "del")
 	}
 	return err
 }
@@ -146,19 +153,64 @@ func (s *SessionManager) DelSession(ctx context.Context, userID int64, deviceID 
 // ExpireSession refreshes the TTL of a user's session.
 // Expiration does not change the routing mapping, so it does not publish a
 // session change event; subscribers rely on TTL for cache entries anyway.
-func (s *SessionManager) ExpireSession(ctx context.Context, userID int64, ttl time.Duration) error {
+func (s *SessionManager) ExpireSession(ctx context.Context, userID int64, deviceID, connID string, ttl time.Duration) error {
 	userKey := s.userSessionKey(userID)
 	deviceKey := s.deviceSessionKey(userID)
-
-	pipe := s.redis.Pipeline()
-	pipe.Expire(ctx, userKey, ttl)
-	pipe.Expire(ctx, deviceKey, ttl)
-	_, err := pipe.Exec(ctx)
-	return err
+	const expireSessionScript = `
+		if redis.call("hget", KEYS[2], ARGV[1]) ~= ARGV[2] then
+			return 0
+		end
+		redis.call("expire", KEYS[1], ARGV[3])
+		redis.call("expire", KEYS[2], ARGV[3])
+		return 1
+	`
+	seconds := int64(ttl / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	return s.redis.Eval(ctx, expireSessionScript, []string{userKey, deviceKey}, deviceID, sessionValue(s.nodeID, connID), seconds).Err()
 }
 
 // IsOnline checks if a user is online.
 func (s *SessionManager) IsOnline(ctx context.Context, userID int64) bool {
 	_, err := s.GetSession(ctx, userID)
 	return err == nil
+}
+
+// IsUserOnline reports whether at least one device is routed to a gateway whose
+// registry heartbeat is still alive. Stale session hashes therefore do not make
+// a user appear online after a gateway crash.
+func (s *SessionManager) IsUserOnline(ctx context.Context, userID int64, nodeTTL time.Duration) (bool, error) {
+	devices, err := s.GetDevices(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if len(devices) == 0 {
+		return false, nil
+	}
+	nodes, err := GetAliveNodes(ctx, s.redis, nodeTTL)
+	if err != nil {
+		return false, err
+	}
+	alive := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		alive[node.NodeID] = struct{}{}
+	}
+	for _, value := range devices {
+		if _, ok := alive[sessionNodeID(value)]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func sessionValue(nodeID, connID string) string {
+	return nodeID + "|" + connID
+}
+
+// sessionNodeID accepts both the current node|connection format and legacy
+// node-only values so rolling upgrades do not interrupt message routing.
+func sessionNodeID(value string) string {
+	nodeID, _, _ := strings.Cut(value, "|")
+	return nodeID
 }

@@ -12,6 +12,11 @@ service UserService {
       get: "/v1/users/search"
     };
   }
+  rpc GetUserPresence (GetUserPresenceRequest) returns (GetUserPresenceReply) {
+    option (google.api.http) = {
+      get: "/v1/users/{user_id}/presence"
+    };
+  }
 }
 
 message SearchUsersRequest {
@@ -26,4 +31,13 @@ message SearchUsersReply {
 message User {
   int64  user_id = 1;
   string username = 2;
+}
+
+message GetUserPresenceRequest {
+  int64 user_id = 1;
+}
+
+message GetUserPresenceReply {
+  int64 user_id = 1;
+  bool online = 2;
 }

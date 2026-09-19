@@ -64,6 +64,17 @@ func TestGatewayRouter_SessionCache_HitAndMiss(t *testing.T) {
 	}
 }
 
+func TestSessionNodeID_BackwardCompatible(t *testing.T) {
+	for value, want := range map[string]string{
+		"node-a":        "node-a",
+		"node-b|conn-1": "node-b",
+	} {
+		if got := sessionNodeID(value); got != want {
+			t.Fatalf("sessionNodeID(%q)=%q, want %q", value, got, want)
+		}
+	}
+}
+
 // TestGatewayRouter_SessionCache_PubSubInvalidation verifies that a Pub/Sub
 // session change event invalidates the local cache.
 func TestGatewayRouter_SessionCache_PubSubInvalidation(t *testing.T) {

@@ -245,7 +245,7 @@ export class RealtimeClient extends EventTarget {
         Packet.create({
           cmd: Command.CMD_AUTH,
           seq,
-          authReq: { token: this.token!, deviceId: "web" },
+          authReq: { token: this.token!, deviceId: getDeviceId() },
         })
       );
     });
@@ -471,6 +471,23 @@ export class RealtimeClient extends EventTarget {
     const base =
       process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
     return base.replace(/^http/, "ws") + "/ws";
+  }
+}
+
+function getDeviceId(): string {
+  const key = "nonoka_device_id";
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing) return existing;
+    const suffix =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const id = `web-${suffix}`;
+    sessionStorage.setItem(key, id);
+    return id;
+  } catch {
+    return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 }
 
