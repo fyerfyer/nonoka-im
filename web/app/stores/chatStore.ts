@@ -15,6 +15,7 @@ interface ChatStore {
     clientMsgId: string,
     patch: Partial<ChatMessage>
   ) => void;
+  recallMessage: (topic: string, topicSeq: number, msgId?: number) => void;
   setMessagesLoading: (topic: string, flag: boolean) => void;
   prependMessages: (topic: string, msgs: ChatMessage[]) => void;
   markTopicRead: (topic: string, upToSeq: number) => void;
@@ -115,6 +116,11 @@ export const useChatStore = create<ChatStore>((set) => ({
       }
       return { conversations: map };
     }),
+  recallMessage: (topic, topicSeq, msgId) => set((state) => {
+    const map = new Map(state.conversations); const conv = map.get(topic); if (!conv) return state;
+    const messages = conv.messages.map((m) => m.topicSeq === topicSeq || (!!msgId && m.msgId === msgId) ? { ...m, content: "This message was recalled", status: "recalled" as const, recalled: true } : m);
+    map.set(topic, { ...conv, messages, lastMsgPreview: "This message was recalled" }); return { conversations: map };
+  }),
   setMessagesLoading: (topic, flag) =>
     set((state) => {
       const map = new Map(state.conversations);

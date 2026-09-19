@@ -65,20 +65,21 @@ type KafkaConsumer struct {
 
 // KafkaConsumerConfig holds consumer configuration.
 type KafkaConsumerConfig struct {
-	Brokers          []string
-	Topic            string
-	GroupID          string
-	MinBytes         int
-	MaxBytes         int
-	MaxWait          time.Duration
-	CommitInterval   time.Duration // 0 means manual commit
-	StartOffset      int64         // kafka.FirstOffset or kafka.LastOffset
-	WorkerCount      int           // number of concurrent workers; <=1 means sequential
-	MaxRetries       int           // local retry attempts before DLQ; 0 means DLQ on first failure
-	HandlerTimeout   time.Duration // per-attempt handler timeout
-	RetryBackoff     time.Duration // base backoff between local retries
-	CommitBatchSize  int           // number of messages to batch before committing offsets
+	Brokers             []string
+	Topic               string
+	GroupID             string
+	MinBytes            int
+	MaxBytes            int
+	MaxWait             time.Duration
+	CommitInterval      time.Duration // 0 means manual commit
+	StartOffset         int64         // kafka.FirstOffset or kafka.LastOffset
+	WorkerCount         int           // number of concurrent workers; <=1 means sequential
+	MaxRetries          int           // local retry attempts before DLQ; 0 means DLQ on first failure
+	HandlerTimeout      time.Duration // per-attempt handler timeout
+	RetryBackoff        time.Duration // base backoff between local retries
+	CommitBatchSize     int           // number of messages to batch before committing offsets
 	CommitFlushInterval time.Duration // maximum time between offset commits
+	DLQTopic            string        // explicit dead-letter topic; defaults to <topic>-dlq
 }
 
 // NewKafkaConsumer creates a new Kafka consumer.
@@ -136,9 +137,13 @@ func NewKafkaConsumer(cfg KafkaConsumerConfig, handler MessageHandler, logger lo
 	reader := kafka.NewReader(readerCfg)
 
 	// DLQ writer for poison messages.
+	dlqTopic := cfg.DLQTopic
+	if dlqTopic == "" {
+		dlqTopic = cfg.Topic + dlqTopicSuffix
+	}
 	dlqWriter := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
-		Topic:        cfg.Topic + dlqTopicSuffix,
+		Topic:        dlqTopic,
 		Async:        false,
 		Compression:  kafka.Lz4,
 		WriteTimeout: 5 * time.Second,

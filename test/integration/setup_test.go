@@ -224,7 +224,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
 	testMetrics := metrics.NewMetrics()
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, wsServer, authConf, nil, testLogger, testMetrics)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, wsServer, authConf, nil, testLogger, testMetrics)
 
 	// 8. Start HTTP server in background
 	go func() {
@@ -724,4 +724,3 @@ func countMongoDocs(t *testing.T, coll *mongo.Collection, filter bson.M) int64 {
 	}
 	return count
 }
-

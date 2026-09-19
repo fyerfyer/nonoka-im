@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
@@ -29,7 +30,9 @@ type Handler struct {
 	heartbeatTimeout  time.Duration
 
 	// Send timeout for critical messages (e.g., ACKs, auth responses).
-	sendTimeout time.Duration
+	sendTimeout  time.Duration
+	recallWindow time.Duration
+	groupMembers func(context.Context, string) ([]int64, error)
 }
 
 // HeartbeatConfig holds heartbeat-related configuration.
@@ -51,12 +54,25 @@ func NewHandler(manager *Manager, sessionManager *SessionManager, producer Messa
 		heartbeatInterval: hb.Interval,
 		heartbeatTimeout:  hb.Timeout,
 		sendTimeout:       100 * time.Millisecond,
+		recallWindow:      2 * time.Minute,
 		log:               log.NewHelper(logger),
 	}
 	if len(m) > 0 {
 		h.metrics = m[0]
 	}
 	return h
+}
+
+// SetRecallWindow configures the server-side recall age limit.
+func (h *Handler) SetRecallWindow(window time.Duration) {
+	if window > 0 {
+		h.recallWindow = window
+	}
+}
+
+// SetGroupMemberResolver enables real-time recall fan-out for group topics.
+func (h *Handler) SetGroupMemberResolver(resolve func(context.Context, string) ([]int64, error)) {
+	h.groupMembers = resolve
 }
 
 // HandlePacket processes an incoming packet from a connection.
@@ -74,9 +90,61 @@ func (h *Handler) HandlePacket(c *Connection, packet *v1.Packet) {
 		h.handleAck(c, packet)
 	case v1.Command_CMD_READ_RECEIPT:
 		h.handleReadReceipt(c, packet)
+	case v1.Command_CMD_RECALL:
+		h.handleRecall(c, packet)
 	default:
 		h.log.Warnf("unknown command from conn %s: %d", c.ConnID(), packet.Cmd)
 	}
+}
+
+func (h *Handler) handleRecall(c *Connection, packet *v1.Packet) {
+	if c.State() != ConnStateAuthed {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4001, "authentication required")
+		return
+	}
+	req := packet.GetRecallReq()
+	if req == nil || req.Topic == "" || req.TopicSeq == 0 {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4006, "topic and topic_seq required")
+		return
+	}
+	topic, err := msgworker.NormalizeTopic(req.Topic)
+	if err != nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4009, "invalid topic")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sender, err := h.storage.GetMessageSender(ctx, topic, req.TopicSeq)
+	if err != nil || sender != c.UserID() {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4030, "only the sender can recall this message")
+		return
+	}
+	if err := h.storage.RecallMessage(ctx, topic, req.TopicSeq, req.MsgId, c.UserID(), h.recallWindow); err != nil {
+		code, message := int32(5003), "failed to recall message"
+		if err == msgworker.ErrRecallNotFound {
+			code, message = 4101, "message is outside the recall window or already recalled"
+		}
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, code, message)
+		return
+	}
+	notice := &v1.Packet{Cmd: v1.Command_CMD_RECALL, Payload: &v1.Packet_RecallNotice{RecallNotice: &v1.RecallNotice{Topic: topic, TopicSeq: req.TopicSeq, MsgId: req.MsgId, SenderId: c.UserID(), RecalledAt: time.Now().Unix()}}}
+	// Broadcast to both participants/devices. For groups, fan-out is intentionally
+	// limited to online users; offline clients observe recalled=true on pull.
+	h.manager.BroadcastToUser(c.UserID(), notice)
+	if uid1, uid2, err := msgworker.ExtractUserIDsFromP2PTopic(topic); err == nil {
+		other := uid1
+		if other == c.UserID() {
+			other = uid2
+		}
+		h.manager.BroadcastToUser(other, notice)
+	} else if h.groupMembers != nil && strings.HasPrefix(topic, "grp_") {
+		if members, err := h.groupMembers(ctx, strings.TrimPrefix(topic, "grp_")); err == nil {
+			for _, memberID := range members {
+				h.manager.BroadcastToUser(memberID, notice)
+			}
+		}
+	}
+	_ = c.SendWithTimeout(&v1.Packet{Cmd: v1.Command_CMD_RECALL, Seq: packet.Seq}, h.sendTimeout)
 }
 
 // handleHeartbeat processes heartbeat packets and updates session TTL.
@@ -375,6 +443,7 @@ func inboxToPullMessages(msgs []*msgworker.InboxMessage) []*v1.PullMessage {
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		}
 	}
 	return result
@@ -396,6 +465,7 @@ func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*m
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		})
 	}
 	for _, m := range mentionMsgs {
@@ -407,6 +477,7 @@ func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*m
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		})
 	}
 

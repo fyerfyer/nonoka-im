@@ -424,6 +424,8 @@ components:
                     type: string
                 clientMsgId:
                     type: string
+                recalled:
+                    type: boolean
             description: PullMessage is a message in the pull response.
         api.im.v1.PullReply:
             type: object

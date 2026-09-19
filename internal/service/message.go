@@ -160,6 +160,7 @@ func inboxToPullMessages(msgs []*msgworker.InboxMessage) []*v1.PullMessage {
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		}
 	}
 	return result
@@ -177,6 +178,7 @@ func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*m
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		})
 	}
 	for _, m := range mentionMsgs {
@@ -188,6 +190,7 @@ func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*m
 			Content:   m.Content,
 			Timestamp: m.Timestamp,
 			TopicSeq:  m.TopicSeq,
+			Recalled:  m.Recalled,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {

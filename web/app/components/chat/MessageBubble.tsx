@@ -9,6 +9,7 @@ interface MessageBubbleProps {
   isMe: boolean;
   showSender?: boolean;
   senderName?: string;
+  onRecall?: () => void;
 }
 
 export function MessageBubble({
@@ -16,6 +17,7 @@ export function MessageBubble({
   isMe,
   showSender,
   senderName,
+  onRecall,
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
 
@@ -38,6 +40,7 @@ export function MessageBubble({
           </span>
         )}
         <div
+          onContextMenu={(e) => { if (isMe && onRecall && message.status !== "recalled") { e.preventDefault(); onRecall(); } }}
           title={new Date(message.timestamp * 1000).toLocaleString()}
           className={cn(
             "relative rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-all",
@@ -46,8 +49,8 @@ export function MessageBubble({
               : "bg-muted rounded-bl-md"
           )}
         >
-          <p className="whitespace-pre-wrap break-words">
-            {message.content}
+          <p className={cn("whitespace-pre-wrap break-words", message.recalled && "italic opacity-70") }>
+            {message.recalled ? "This message was recalled" : message.content}
           </p>
           <div
             className={cn(

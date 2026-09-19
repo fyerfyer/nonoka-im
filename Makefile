@@ -104,6 +104,11 @@ test: test-deps-up
 build:
 	mkdir -p bin/ && go build -ldflags "-X main.Version=$(VERSION)" -o ./bin/ ./...
 
+.PHONY: demo-scale
+# start the scale demo with three independently scalable msgworkers
+demo-scale:
+	docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --build --scale msgworker=3
+
 .PHONY: generate
 # generate
 generate:

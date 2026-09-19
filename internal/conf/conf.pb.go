@@ -356,7 +356,8 @@ type GatewayConfig struct {
 	// default). In production, set this to the exact origins that may connect.
 	AllowedOrigins []string `protobuf:"bytes,5,rep,name=allowed_origins,json=allowedOrigins,proto3" json:"allowed_origins,omitempty"`
 	// CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
-	CorsOrigins   []string `protobuf:"bytes,6,rep,name=cors_origins,json=corsOrigins,proto3" json:"cors_origins,omitempty"`
+	CorsOrigins   []string             `protobuf:"bytes,6,rep,name=cors_origins,json=corsOrigins,proto3" json:"cors_origins,omitempty"`
+	RecallWindow  *durationpb.Duration `protobuf:"bytes,7,opt,name=recall_window,json=recallWindow,proto3" json:"recall_window,omitempty"` // maximum age for message recall
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -429,6 +430,13 @@ func (x *GatewayConfig) GetAllowedOrigins() []string {
 func (x *GatewayConfig) GetCorsOrigins() []string {
 	if x != nil {
 		return x.CorsOrigins
+	}
+	return nil
+}
+
+func (x *GatewayConfig) GetRecallWindow() *durationpb.Duration {
+	if x != nil {
+		return x.RecallWindow
 	}
 	return nil
 }
@@ -986,6 +994,8 @@ type Data_Kafka struct {
 	StartOffset         int64                `protobuf:"varint,18,opt,name=start_offset,json=startOffset,proto3" json:"start_offset,omitempty"`                          // -1 = first offset, -2 = last offset (kafka-go constants)
 	CommitBatchSize     int32                `protobuf:"varint,19,opt,name=commit_batch_size,json=commitBatchSize,proto3" json:"commit_batch_size,omitempty"`            // number of messages to batch before committing offsets
 	CommitFlushInterval *durationpb.Duration `protobuf:"bytes,20,opt,name=commit_flush_interval,json=commitFlushInterval,proto3" json:"commit_flush_interval,omitempty"` // max interval between offset commits
+	Partitions          int32                `protobuf:"varint,21,opt,name=partitions,proto3" json:"partitions,omitempty"`                                               // expected topic partition count
+	DlqTopic            string               `protobuf:"bytes,22,opt,name=dlq_topic,json=dlqTopic,proto3" json:"dlq_topic,omitempty"`                                    // optional explicit dead-letter topic name
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1160,6 +1170,20 @@ func (x *Data_Kafka) GetCommitFlushInterval() *durationpb.Duration {
 	return nil
 }
 
+func (x *Data_Kafka) GetPartitions() int32 {
+	if x != nil {
+		return x.Partitions
+	}
+	return 0
+}
+
+func (x *Data_Kafka) GetDlqTopic() string {
+	if x != nil {
+		return x.DlqTopic
+	}
+	return ""
+}
+
 var File_conf_conf_proto protoreflect.FileDescriptor
 
 const file_conf_conf_proto_rawDesc = "" +
@@ -1183,7 +1207,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\x04GRPC\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x12\n" +
 	"\x04addr\x18\x02 \x01(\tR\x04addr\x123\n" +
-	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x85\f\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xc2\f\n" +
 	"\x04Data\x125\n" +
 	"\bdatabase\x18\x01 \x01(\v2\x19.kratos.api.Data.DatabaseR\bdatabase\x12,\n" +
 	"\x05redis\x18\x02 \x01(\v2\x16.kratos.api.Data.RedisR\x05redis\x122\n" +
@@ -1203,7 +1227,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\aMongoDB\x12\x10\n" +
 	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12#\n" +
-	"\rwrite_concern\x18\x03 \x01(\tR\fwriteConcern\x1a\xd1\x06\n" +
+	"\rwrite_concern\x18\x03 \x01(\tR\fwriteConcern\x1a\x8e\a\n" +
 	"\x05Kafka\x12\x18\n" +
 	"\abrokers\x18\x01 \x03(\tR\abrokers\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12%\n" +
@@ -1227,7 +1251,11 @@ const file_conf_conf_proto_rawDesc = "" +
 	"maxRetries\x12!\n" +
 	"\fstart_offset\x18\x12 \x01(\x03R\vstartOffset\x12*\n" +
 	"\x11commit_batch_size\x18\x13 \x01(\x05R\x0fcommitBatchSize\x12M\n" +
-	"\x15commit_flush_interval\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x13commitFlushInterval\"]\n" +
+	"\x15commit_flush_interval\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x13commitFlushInterval\x12\x1e\n" +
+	"\n" +
+	"partitions\x18\x15 \x01(\x05R\n" +
+	"partitions\x12\x1b\n" +
+	"\tdlq_topic\x18\x16 \x01(\tR\bdlqTopic\"]\n" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
@@ -1236,14 +1264,15 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +
 	"gatewayUrl\x12*\n" +
-	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xeb\x02\n" +
+	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xab\x03\n" +
 	"\rGatewayConfig\x12H\n" +
 	"\x12heartbeat_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x12F\n" +
 	"\x11heartbeat_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10heartbeatTimeout\x12<\n" +
 	"\fread_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vreadTimeout\x12>\n" +
 	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x12'\n" +
 	"\x0fallowed_origins\x18\x05 \x03(\tR\x0eallowedOrigins\x12!\n" +
-	"\fcors_origins\x18\x06 \x03(\tR\vcorsOrigins\"\xdb\x01\n" +
+	"\fcors_origins\x18\x06 \x03(\tR\vcorsOrigins\x12>\n" +
+	"\rrecall_window\x18\a \x01(\v2\x19.google.protobuf.DurationR\frecallWindow\"\xdb\x01\n" +
 	"\bDispatch\x123\n" +
 	"\bgateways\x18\x01 \x03(\v2\x17.kratos.api.GatewayNodeR\bgateways\x12\x1a\n" +
 	"\bstrategy\x18\x02 \x01(\tR\bstrategy\x12H\n" +
@@ -1309,28 +1338,29 @@ var file_conf_conf_proto_depIdxs = []int32{
 	15, // 14: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
 	15, // 15: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
 	15, // 16: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
-	4,  // 17: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
-	15, // 18: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
-	15, // 19: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
-	15, // 20: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
-	15, // 21: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 22: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 23: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	15, // 24: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	15, // 25: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
-	15, // 26: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	15, // 27: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	15, // 28: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
-	15, // 29: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
-	15, // 30: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
-	15, // 31: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
-	15, // 32: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
-	15, // 33: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	15, // 17: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
+	4,  // 18: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
+	15, // 19: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
+	15, // 20: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
+	15, // 21: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
+	15, // 22: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
+	15, // 23: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
+	15, // 24: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	15, // 25: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	15, // 26: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
+	15, // 27: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	15, // 28: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	15, // 29: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
+	15, // 30: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
+	15, // 31: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
+	15, // 32: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
+	15, // 33: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
+	15, // 34: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
+	35, // [35:35] is the sub-list for method output_type
+	35, // [35:35] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }

@@ -17,6 +17,7 @@ enum Command {
   CMD_READ_RECEIPT = 7;     // bi-directional: read receipt
   CMD_DELIVERY_RECEIPT = 8; // server -> client: delivery receipt
   CMD_SEND_RECEIPT = 9;     // server -> client: send receipt (msg_id/topic_seq confirmation)
+  CMD_RECALL = 10;          // bi-directional: recall a message
 }
 
 // Packet is the unified wire format for all WebSocket messages.
@@ -54,6 +55,8 @@ message Packet {
 
     // CMD_SEND_RECEIPT
     SendReceipt send_receipt = 80;
+    RecallRequest recall_req = 90;
+    RecallNotice recall_notice = 100;
 
     // Unified error response (can be returned for any command).
     ErrorResponse error = 99;
@@ -112,4 +115,18 @@ message SendReceipt {
   string topic         = 3; // the topic the message was sent to
   uint64 topic_seq     = 4; // the sequence number within the topic
   int64  timestamp     = 5; // server processing timestamp
+}
+
+message RecallRequest {
+  string topic = 1;
+  uint64 topic_seq = 2;
+  int64 msg_id = 3;
+}
+
+message RecallNotice {
+  string topic = 1;
+  uint64 topic_seq = 2;
+  int64 msg_id = 3;
+  int64 sender_id = 4;
+  int64 recalled_at = 5;
 }

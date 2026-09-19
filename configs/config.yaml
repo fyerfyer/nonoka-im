@@ -25,6 +25,8 @@ data:
     brokers:
     - 127.0.0.1:9092
     topic: im-messages
+    partitions: 3
+    dlq_topic: im-messages-dlq
     consumer_group: msgworker-group
     batch_size: 500
     batch_timeout: 0.02s
@@ -55,6 +57,7 @@ gateway:
   heartbeat_timeout: 90s
   read_timeout: 60s
   write_timeout: 10s
+  recall_window: 120s
   allowed_origins: []
   cors_origins:
     - "*"

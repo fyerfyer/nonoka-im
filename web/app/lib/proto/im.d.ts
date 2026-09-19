@@ -570,6 +570,602 @@ export namespace api {
                 type $Shape = api.im.v1.LoginReply.$Properties;
             }
 
+            /** Represents a ConversationService */
+            class ConversationService extends $protobuf.rpc.Service {
+
+                /**
+                 * Constructs a new ConversationService service.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 */
+                constructor(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean);
+
+                /**
+                 * Creates new ConversationService service using the specified rpc implementation.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 * @returns RPC service. Useful where requests and/or responses are streamed.
+                 */
+                static create(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean): ConversationService;
+
+                /** Calls ListConversations. */
+                listConversations: api.im.v1.ConversationService.ListConversations;
+
+                /** Calls MarkConversationRead. */
+                markConversationRead: api.im.v1.ConversationService.MarkConversationRead;
+            }
+
+            namespace ConversationService {
+
+                /**
+                 * Callback as used by {@link api.im.v1.ConversationService#listConversations}.
+                 * @param error Error, if any
+                 * @param [response] ListConversationsReply
+                 */
+                type ListConversationsCallback = (error: (Error|null), response?: api.im.v1.ListConversationsReply) => void;
+
+                /** Calls ListConversations. */
+                type ListConversations = {
+                  (request: api.im.v1.IListConversationsRequest, callback: api.im.v1.ConversationService.ListConversationsCallback): void;
+                  (request: api.im.v1.IListConversationsRequest): Promise<api.im.v1.ListConversationsReply>;
+                  readonly name: "ListConversations";
+                  readonly path: "/api.im.v1.ConversationService/ListConversations";
+                  readonly requestType: "ListConversationsRequest";
+                  readonly responseType: "ListConversationsReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.ConversationService#markConversationRead}.
+                 * @param error Error, if any
+                 * @param [response] Empty
+                 */
+                type MarkConversationReadCallback = (error: (Error|null), response?: google.protobuf.Empty) => void;
+
+                /** Calls MarkConversationRead. */
+                type MarkConversationRead = {
+                  (request: api.im.v1.IMarkConversationReadRequest, callback: api.im.v1.ConversationService.MarkConversationReadCallback): void;
+                  (request: api.im.v1.IMarkConversationReadRequest): Promise<google.protobuf.Empty>;
+                  readonly name: "MarkConversationRead";
+                  readonly path: "/api.im.v1.ConversationService/MarkConversationRead";
+                  readonly requestType: "MarkConversationReadRequest";
+                  readonly responseType: "google.protobuf.Empty";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+            }
+
+            /**
+             * Properties of a ListConversationsRequest.
+             * @deprecated Use api.im.v1.ListConversationsRequest.$Properties instead.
+             */
+            interface IListConversationsRequest extends api.im.v1.ListConversationsRequest.$Properties {
+            }
+
+            /** Represents a ListConversationsRequest. */
+            class ListConversationsRequest {
+
+                /**
+                 * Constructs a new ListConversationsRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.ListConversationsRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** ListConversationsRequest limit. */
+                limit: number;
+
+                /** ListConversationsRequest offset. */
+                offset: (number|Long);
+
+                /**
+                 * Creates a new ListConversationsRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns ListConversationsRequest instance
+                 */
+                static create(properties: api.im.v1.ListConversationsRequest.$Shape): api.im.v1.ListConversationsRequest & api.im.v1.ListConversationsRequest.$Shape;
+                static create(properties?: api.im.v1.ListConversationsRequest.$Properties): api.im.v1.ListConversationsRequest;
+
+                /**
+                 * Encodes the specified ListConversationsRequest message. Does not implicitly {@link api.im.v1.ListConversationsRequest.verify|verify} messages.
+                 * @param message ListConversationsRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.ListConversationsRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified ListConversationsRequest message, length delimited. Does not implicitly {@link api.im.v1.ListConversationsRequest.verify|verify} messages.
+                 * @param message ListConversationsRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.ListConversationsRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a ListConversationsRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.ListConversationsRequest & api.im.v1.ListConversationsRequest.$Shape} ListConversationsRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.ListConversationsRequest & api.im.v1.ListConversationsRequest.$Shape;
+
+                /**
+                 * Decodes a ListConversationsRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.ListConversationsRequest & api.im.v1.ListConversationsRequest.$Shape} ListConversationsRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.ListConversationsRequest & api.im.v1.ListConversationsRequest.$Shape;
+
+                /**
+                 * Verifies a ListConversationsRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a ListConversationsRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns ListConversationsRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.ListConversationsRequest;
+
+                /**
+                 * Creates a plain object from a ListConversationsRequest message. Also converts values to other types if specified.
+                 * @param message ListConversationsRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.ListConversationsRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this ListConversationsRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for ListConversationsRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace ListConversationsRequest {
+
+                /** Properties of a ListConversationsRequest. */
+                interface $Properties {
+
+                    /** ListConversationsRequest limit */
+                    limit?: (number|null);
+
+                    /** ListConversationsRequest offset */
+                    offset?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a ListConversationsRequest. */
+                type $Shape = api.im.v1.ListConversationsRequest.$Properties;
+            }
+
+            /**
+             * Properties of a Conversation.
+             * @deprecated Use api.im.v1.Conversation.$Properties instead.
+             */
+            interface IConversation extends api.im.v1.Conversation.$Properties {
+            }
+
+            /** Represents a Conversation. */
+            class Conversation {
+
+                /**
+                 * Constructs a new Conversation.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.Conversation.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** Conversation topic. */
+                topic: string;
+
+                /** Conversation type. */
+                type: string;
+
+                /** Conversation peerId. */
+                peerId: (number|Long);
+
+                /** Conversation peerUsername. */
+                peerUsername: string;
+
+                /** Conversation lastMsgPreview. */
+                lastMsgPreview: string;
+
+                /** Conversation lastMsgAt. */
+                lastMsgAt: (number|Long);
+
+                /** Conversation lastSeq. */
+                lastSeq: (number|Long);
+
+                /** Conversation lastReadSeq. */
+                lastReadSeq: (number|Long);
+
+                /** Conversation unreadCount. */
+                unreadCount: number;
+
+                /**
+                 * Creates a new Conversation instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns Conversation instance
+                 */
+                static create(properties: api.im.v1.Conversation.$Shape): api.im.v1.Conversation & api.im.v1.Conversation.$Shape;
+                static create(properties?: api.im.v1.Conversation.$Properties): api.im.v1.Conversation;
+
+                /**
+                 * Encodes the specified Conversation message. Does not implicitly {@link api.im.v1.Conversation.verify|verify} messages.
+                 * @param message Conversation message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.Conversation.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified Conversation message, length delimited. Does not implicitly {@link api.im.v1.Conversation.verify|verify} messages.
+                 * @param message Conversation message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.Conversation.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a Conversation message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.Conversation & api.im.v1.Conversation.$Shape} Conversation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.Conversation & api.im.v1.Conversation.$Shape;
+
+                /**
+                 * Decodes a Conversation message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.Conversation & api.im.v1.Conversation.$Shape} Conversation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.Conversation & api.im.v1.Conversation.$Shape;
+
+                /**
+                 * Verifies a Conversation message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a Conversation message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns Conversation
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.Conversation;
+
+                /**
+                 * Creates a plain object from a Conversation message. Also converts values to other types if specified.
+                 * @param message Conversation
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.Conversation, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this Conversation to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for Conversation
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace Conversation {
+
+                /** Properties of a Conversation. */
+                interface $Properties {
+
+                    /** Conversation topic */
+                    topic?: (string|null);
+
+                    /** Conversation type */
+                    type?: (string|null);
+
+                    /** Conversation peerId */
+                    peerId?: (number|Long|null);
+
+                    /** Conversation peerUsername */
+                    peerUsername?: (string|null);
+
+                    /** Conversation lastMsgPreview */
+                    lastMsgPreview?: (string|null);
+
+                    /** Conversation lastMsgAt */
+                    lastMsgAt?: (number|Long|null);
+
+                    /** Conversation lastSeq */
+                    lastSeq?: (number|Long|null);
+
+                    /** Conversation lastReadSeq */
+                    lastReadSeq?: (number|Long|null);
+
+                    /** Conversation unreadCount */
+                    unreadCount?: (number|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a Conversation. */
+                type $Shape = api.im.v1.Conversation.$Properties;
+            }
+
+            /**
+             * Properties of a ListConversationsReply.
+             * @deprecated Use api.im.v1.ListConversationsReply.$Properties instead.
+             */
+            interface IListConversationsReply extends api.im.v1.ListConversationsReply.$Properties {
+            }
+
+            /** Represents a ListConversationsReply. */
+            class ListConversationsReply {
+
+                /**
+                 * Constructs a new ListConversationsReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.ListConversationsReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** ListConversationsReply conversations. */
+                conversations: api.im.v1.Conversation.$Properties[];
+
+                /** ListConversationsReply hasMore. */
+                hasMore: boolean;
+
+                /**
+                 * Creates a new ListConversationsReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns ListConversationsReply instance
+                 */
+                static create(properties: api.im.v1.ListConversationsReply.$Shape): api.im.v1.ListConversationsReply & api.im.v1.ListConversationsReply.$Shape;
+                static create(properties?: api.im.v1.ListConversationsReply.$Properties): api.im.v1.ListConversationsReply;
+
+                /**
+                 * Encodes the specified ListConversationsReply message. Does not implicitly {@link api.im.v1.ListConversationsReply.verify|verify} messages.
+                 * @param message ListConversationsReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.ListConversationsReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified ListConversationsReply message, length delimited. Does not implicitly {@link api.im.v1.ListConversationsReply.verify|verify} messages.
+                 * @param message ListConversationsReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.ListConversationsReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a ListConversationsReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.ListConversationsReply & api.im.v1.ListConversationsReply.$Shape} ListConversationsReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.ListConversationsReply & api.im.v1.ListConversationsReply.$Shape;
+
+                /**
+                 * Decodes a ListConversationsReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.ListConversationsReply & api.im.v1.ListConversationsReply.$Shape} ListConversationsReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.ListConversationsReply & api.im.v1.ListConversationsReply.$Shape;
+
+                /**
+                 * Verifies a ListConversationsReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a ListConversationsReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns ListConversationsReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.ListConversationsReply;
+
+                /**
+                 * Creates a plain object from a ListConversationsReply message. Also converts values to other types if specified.
+                 * @param message ListConversationsReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.ListConversationsReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this ListConversationsReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for ListConversationsReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace ListConversationsReply {
+
+                /** Properties of a ListConversationsReply. */
+                interface $Properties {
+
+                    /** ListConversationsReply conversations */
+                    conversations?: (api.im.v1.Conversation.$Properties[]|null);
+
+                    /** ListConversationsReply hasMore */
+                    hasMore?: (boolean|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a ListConversationsReply. */
+                type $Shape = api.im.v1.ListConversationsReply.$Properties;
+            }
+
+            /**
+             * Properties of a MarkConversationReadRequest.
+             * @deprecated Use api.im.v1.MarkConversationReadRequest.$Properties instead.
+             */
+            interface IMarkConversationReadRequest extends api.im.v1.MarkConversationReadRequest.$Properties {
+            }
+
+            /** Represents a MarkConversationReadRequest. */
+            class MarkConversationReadRequest {
+
+                /**
+                 * Constructs a new MarkConversationReadRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.MarkConversationReadRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** MarkConversationReadRequest topic. */
+                topic: string;
+
+                /**
+                 * Creates a new MarkConversationReadRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns MarkConversationReadRequest instance
+                 */
+                static create(properties: api.im.v1.MarkConversationReadRequest.$Shape): api.im.v1.MarkConversationReadRequest & api.im.v1.MarkConversationReadRequest.$Shape;
+                static create(properties?: api.im.v1.MarkConversationReadRequest.$Properties): api.im.v1.MarkConversationReadRequest;
+
+                /**
+                 * Encodes the specified MarkConversationReadRequest message. Does not implicitly {@link api.im.v1.MarkConversationReadRequest.verify|verify} messages.
+                 * @param message MarkConversationReadRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.MarkConversationReadRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified MarkConversationReadRequest message, length delimited. Does not implicitly {@link api.im.v1.MarkConversationReadRequest.verify|verify} messages.
+                 * @param message MarkConversationReadRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.MarkConversationReadRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a MarkConversationReadRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.MarkConversationReadRequest & api.im.v1.MarkConversationReadRequest.$Shape} MarkConversationReadRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.MarkConversationReadRequest & api.im.v1.MarkConversationReadRequest.$Shape;
+
+                /**
+                 * Decodes a MarkConversationReadRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.MarkConversationReadRequest & api.im.v1.MarkConversationReadRequest.$Shape} MarkConversationReadRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.MarkConversationReadRequest & api.im.v1.MarkConversationReadRequest.$Shape;
+
+                /**
+                 * Verifies a MarkConversationReadRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a MarkConversationReadRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns MarkConversationReadRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.MarkConversationReadRequest;
+
+                /**
+                 * Creates a plain object from a MarkConversationReadRequest message. Also converts values to other types if specified.
+                 * @param message MarkConversationReadRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.MarkConversationReadRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this MarkConversationReadRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for MarkConversationReadRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace MarkConversationReadRequest {
+
+                /** Properties of a MarkConversationReadRequest. */
+                interface $Properties {
+
+                    /** MarkConversationReadRequest topic */
+                    topic?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a MarkConversationReadRequest. */
+                type $Shape = api.im.v1.MarkConversationReadRequest.$Properties;
+            }
+
             /** Represents a DispatchService */
             class DispatchService extends $protobuf.rpc.Service {
 
@@ -854,6 +1450,1386 @@ export namespace api {
 
                 /** Shape of a GetGatewayReply. */
                 type $Shape = api.im.v1.GetGatewayReply.$Properties;
+            }
+
+            /** Represents a GroupService */
+            class GroupService extends $protobuf.rpc.Service {
+
+                /**
+                 * Constructs a new GroupService service.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 */
+                constructor(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean);
+
+                /**
+                 * Creates new GroupService service using the specified rpc implementation.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 * @returns RPC service. Useful where requests and/or responses are streamed.
+                 */
+                static create(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean): GroupService;
+
+                /** Calls CreateGroup. */
+                createGroup: api.im.v1.GroupService.CreateGroup;
+
+                /** Calls ListMyGroups. */
+                listMyGroups: api.im.v1.GroupService.ListMyGroups;
+
+                /** Calls GetGroup. */
+                getGroup: api.im.v1.GroupService.GetGroup;
+
+                /** Calls AddGroupMember. */
+                addGroupMember: api.im.v1.GroupService.AddGroupMember;
+
+                /** Calls RemoveGroupMember. */
+                removeGroupMember: api.im.v1.GroupService.RemoveGroupMember;
+
+                /** Calls ListGroupMembers. */
+                listGroupMembers: api.im.v1.GroupService.ListGroupMembers;
+            }
+
+            namespace GroupService {
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#createGroup}.
+                 * @param error Error, if any
+                 * @param [response] CreateGroupReply
+                 */
+                type CreateGroupCallback = (error: (Error|null), response?: api.im.v1.CreateGroupReply) => void;
+
+                /** Calls CreateGroup. */
+                type CreateGroup = {
+                  (request: api.im.v1.ICreateGroupRequest, callback: api.im.v1.GroupService.CreateGroupCallback): void;
+                  (request: api.im.v1.ICreateGroupRequest): Promise<api.im.v1.CreateGroupReply>;
+                  readonly name: "CreateGroup";
+                  readonly path: "/api.im.v1.GroupService/CreateGroup";
+                  readonly requestType: "CreateGroupRequest";
+                  readonly responseType: "CreateGroupReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#listMyGroups}.
+                 * @param error Error, if any
+                 * @param [response] ListGroupsReply
+                 */
+                type ListMyGroupsCallback = (error: (Error|null), response?: api.im.v1.ListGroupsReply) => void;
+
+                /** Calls ListMyGroups. */
+                type ListMyGroups = {
+                  (request: google.protobuf.IEmpty, callback: api.im.v1.GroupService.ListMyGroupsCallback): void;
+                  (request: google.protobuf.IEmpty): Promise<api.im.v1.ListGroupsReply>;
+                  readonly name: "ListMyGroups";
+                  readonly path: "/api.im.v1.GroupService/ListMyGroups";
+                  readonly requestType: "google.protobuf.Empty";
+                  readonly responseType: "ListGroupsReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#getGroup}.
+                 * @param error Error, if any
+                 * @param [response] Group
+                 */
+                type GetGroupCallback = (error: (Error|null), response?: api.im.v1.Group) => void;
+
+                /** Calls GetGroup. */
+                type GetGroup = {
+                  (request: api.im.v1.IGetGroupRequest, callback: api.im.v1.GroupService.GetGroupCallback): void;
+                  (request: api.im.v1.IGetGroupRequest): Promise<api.im.v1.Group>;
+                  readonly name: "GetGroup";
+                  readonly path: "/api.im.v1.GroupService/GetGroup";
+                  readonly requestType: "GetGroupRequest";
+                  readonly responseType: "Group";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#addGroupMember}.
+                 * @param error Error, if any
+                 * @param [response] Empty
+                 */
+                type AddGroupMemberCallback = (error: (Error|null), response?: google.protobuf.Empty) => void;
+
+                /** Calls AddGroupMember. */
+                type AddGroupMember = {
+                  (request: api.im.v1.IAddGroupMemberRequest, callback: api.im.v1.GroupService.AddGroupMemberCallback): void;
+                  (request: api.im.v1.IAddGroupMemberRequest): Promise<google.protobuf.Empty>;
+                  readonly name: "AddGroupMember";
+                  readonly path: "/api.im.v1.GroupService/AddGroupMember";
+                  readonly requestType: "AddGroupMemberRequest";
+                  readonly responseType: "google.protobuf.Empty";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#removeGroupMember}.
+                 * @param error Error, if any
+                 * @param [response] Empty
+                 */
+                type RemoveGroupMemberCallback = (error: (Error|null), response?: google.protobuf.Empty) => void;
+
+                /** Calls RemoveGroupMember. */
+                type RemoveGroupMember = {
+                  (request: api.im.v1.IRemoveGroupMemberRequest, callback: api.im.v1.GroupService.RemoveGroupMemberCallback): void;
+                  (request: api.im.v1.IRemoveGroupMemberRequest): Promise<google.protobuf.Empty>;
+                  readonly name: "RemoveGroupMember";
+                  readonly path: "/api.im.v1.GroupService/RemoveGroupMember";
+                  readonly requestType: "RemoveGroupMemberRequest";
+                  readonly responseType: "google.protobuf.Empty";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.GroupService#listGroupMembers}.
+                 * @param error Error, if any
+                 * @param [response] ListGroupMembersReply
+                 */
+                type ListGroupMembersCallback = (error: (Error|null), response?: api.im.v1.ListGroupMembersReply) => void;
+
+                /** Calls ListGroupMembers. */
+                type ListGroupMembers = {
+                  (request: api.im.v1.IListGroupMembersRequest, callback: api.im.v1.GroupService.ListGroupMembersCallback): void;
+                  (request: api.im.v1.IListGroupMembersRequest): Promise<api.im.v1.ListGroupMembersReply>;
+                  readonly name: "ListGroupMembers";
+                  readonly path: "/api.im.v1.GroupService/ListGroupMembers";
+                  readonly requestType: "ListGroupMembersRequest";
+                  readonly responseType: "ListGroupMembersReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+            }
+
+            /**
+             * Properties of a CreateGroupRequest.
+             * @deprecated Use api.im.v1.CreateGroupRequest.$Properties instead.
+             */
+            interface ICreateGroupRequest extends api.im.v1.CreateGroupRequest.$Properties {
+            }
+
+            /** Represents a CreateGroupRequest. */
+            class CreateGroupRequest {
+
+                /**
+                 * Constructs a new CreateGroupRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.CreateGroupRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** CreateGroupRequest name. */
+                name: string;
+
+                /** CreateGroupRequest memberIds. */
+                memberIds: (number|Long)[];
+
+                /**
+                 * Creates a new CreateGroupRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns CreateGroupRequest instance
+                 */
+                static create(properties: api.im.v1.CreateGroupRequest.$Shape): api.im.v1.CreateGroupRequest & api.im.v1.CreateGroupRequest.$Shape;
+                static create(properties?: api.im.v1.CreateGroupRequest.$Properties): api.im.v1.CreateGroupRequest;
+
+                /**
+                 * Encodes the specified CreateGroupRequest message. Does not implicitly {@link api.im.v1.CreateGroupRequest.verify|verify} messages.
+                 * @param message CreateGroupRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.CreateGroupRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified CreateGroupRequest message, length delimited. Does not implicitly {@link api.im.v1.CreateGroupRequest.verify|verify} messages.
+                 * @param message CreateGroupRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.CreateGroupRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a CreateGroupRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.CreateGroupRequest & api.im.v1.CreateGroupRequest.$Shape} CreateGroupRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.CreateGroupRequest & api.im.v1.CreateGroupRequest.$Shape;
+
+                /**
+                 * Decodes a CreateGroupRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.CreateGroupRequest & api.im.v1.CreateGroupRequest.$Shape} CreateGroupRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.CreateGroupRequest & api.im.v1.CreateGroupRequest.$Shape;
+
+                /**
+                 * Verifies a CreateGroupRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a CreateGroupRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns CreateGroupRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.CreateGroupRequest;
+
+                /**
+                 * Creates a plain object from a CreateGroupRequest message. Also converts values to other types if specified.
+                 * @param message CreateGroupRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.CreateGroupRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this CreateGroupRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for CreateGroupRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace CreateGroupRequest {
+
+                /** Properties of a CreateGroupRequest. */
+                interface $Properties {
+
+                    /** CreateGroupRequest name */
+                    name?: (string|null);
+
+                    /** CreateGroupRequest memberIds */
+                    memberIds?: ((number|Long)[]|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a CreateGroupRequest. */
+                type $Shape = api.im.v1.CreateGroupRequest.$Properties;
+            }
+
+            /**
+             * Properties of a CreateGroupReply.
+             * @deprecated Use api.im.v1.CreateGroupReply.$Properties instead.
+             */
+            interface ICreateGroupReply extends api.im.v1.CreateGroupReply.$Properties {
+            }
+
+            /** Represents a CreateGroupReply. */
+            class CreateGroupReply {
+
+                /**
+                 * Constructs a new CreateGroupReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.CreateGroupReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** CreateGroupReply groupId. */
+                groupId: string;
+
+                /** CreateGroupReply topic. */
+                topic: string;
+
+                /**
+                 * Creates a new CreateGroupReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns CreateGroupReply instance
+                 */
+                static create(properties: api.im.v1.CreateGroupReply.$Shape): api.im.v1.CreateGroupReply & api.im.v1.CreateGroupReply.$Shape;
+                static create(properties?: api.im.v1.CreateGroupReply.$Properties): api.im.v1.CreateGroupReply;
+
+                /**
+                 * Encodes the specified CreateGroupReply message. Does not implicitly {@link api.im.v1.CreateGroupReply.verify|verify} messages.
+                 * @param message CreateGroupReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.CreateGroupReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified CreateGroupReply message, length delimited. Does not implicitly {@link api.im.v1.CreateGroupReply.verify|verify} messages.
+                 * @param message CreateGroupReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.CreateGroupReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a CreateGroupReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.CreateGroupReply & api.im.v1.CreateGroupReply.$Shape} CreateGroupReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.CreateGroupReply & api.im.v1.CreateGroupReply.$Shape;
+
+                /**
+                 * Decodes a CreateGroupReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.CreateGroupReply & api.im.v1.CreateGroupReply.$Shape} CreateGroupReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.CreateGroupReply & api.im.v1.CreateGroupReply.$Shape;
+
+                /**
+                 * Verifies a CreateGroupReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a CreateGroupReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns CreateGroupReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.CreateGroupReply;
+
+                /**
+                 * Creates a plain object from a CreateGroupReply message. Also converts values to other types if specified.
+                 * @param message CreateGroupReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.CreateGroupReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this CreateGroupReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for CreateGroupReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace CreateGroupReply {
+
+                /** Properties of a CreateGroupReply. */
+                interface $Properties {
+
+                    /** CreateGroupReply groupId */
+                    groupId?: (string|null);
+
+                    /** CreateGroupReply topic */
+                    topic?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a CreateGroupReply. */
+                type $Shape = api.im.v1.CreateGroupReply.$Properties;
+            }
+
+            /**
+             * Properties of a Group.
+             * @deprecated Use api.im.v1.Group.$Properties instead.
+             */
+            interface IGroup extends api.im.v1.Group.$Properties {
+            }
+
+            /** Represents a Group. */
+            class Group {
+
+                /**
+                 * Constructs a new Group.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.Group.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** Group groupId. */
+                groupId: string;
+
+                /** Group topic. */
+                topic: string;
+
+                /** Group name. */
+                name: string;
+
+                /** Group ownerId. */
+                ownerId: (number|Long);
+
+                /** Group createdAt. */
+                createdAt: (number|Long);
+
+                /**
+                 * Creates a new Group instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns Group instance
+                 */
+                static create(properties: api.im.v1.Group.$Shape): api.im.v1.Group & api.im.v1.Group.$Shape;
+                static create(properties?: api.im.v1.Group.$Properties): api.im.v1.Group;
+
+                /**
+                 * Encodes the specified Group message. Does not implicitly {@link api.im.v1.Group.verify|verify} messages.
+                 * @param message Group message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.Group.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified Group message, length delimited. Does not implicitly {@link api.im.v1.Group.verify|verify} messages.
+                 * @param message Group message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.Group.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a Group message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.Group & api.im.v1.Group.$Shape} Group
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.Group & api.im.v1.Group.$Shape;
+
+                /**
+                 * Decodes a Group message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.Group & api.im.v1.Group.$Shape} Group
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.Group & api.im.v1.Group.$Shape;
+
+                /**
+                 * Verifies a Group message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a Group message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns Group
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.Group;
+
+                /**
+                 * Creates a plain object from a Group message. Also converts values to other types if specified.
+                 * @param message Group
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.Group, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this Group to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for Group
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace Group {
+
+                /** Properties of a Group. */
+                interface $Properties {
+
+                    /** Group groupId */
+                    groupId?: (string|null);
+
+                    /** Group topic */
+                    topic?: (string|null);
+
+                    /** Group name */
+                    name?: (string|null);
+
+                    /** Group ownerId */
+                    ownerId?: (number|Long|null);
+
+                    /** Group createdAt */
+                    createdAt?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a Group. */
+                type $Shape = api.im.v1.Group.$Properties;
+            }
+
+            /**
+             * Properties of a ListGroupsReply.
+             * @deprecated Use api.im.v1.ListGroupsReply.$Properties instead.
+             */
+            interface IListGroupsReply extends api.im.v1.ListGroupsReply.$Properties {
+            }
+
+            /** Represents a ListGroupsReply. */
+            class ListGroupsReply {
+
+                /**
+                 * Constructs a new ListGroupsReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.ListGroupsReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** ListGroupsReply groups. */
+                groups: api.im.v1.Group.$Properties[];
+
+                /**
+                 * Creates a new ListGroupsReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns ListGroupsReply instance
+                 */
+                static create(properties: api.im.v1.ListGroupsReply.$Shape): api.im.v1.ListGroupsReply & api.im.v1.ListGroupsReply.$Shape;
+                static create(properties?: api.im.v1.ListGroupsReply.$Properties): api.im.v1.ListGroupsReply;
+
+                /**
+                 * Encodes the specified ListGroupsReply message. Does not implicitly {@link api.im.v1.ListGroupsReply.verify|verify} messages.
+                 * @param message ListGroupsReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.ListGroupsReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified ListGroupsReply message, length delimited. Does not implicitly {@link api.im.v1.ListGroupsReply.verify|verify} messages.
+                 * @param message ListGroupsReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.ListGroupsReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a ListGroupsReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.ListGroupsReply & api.im.v1.ListGroupsReply.$Shape} ListGroupsReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.ListGroupsReply & api.im.v1.ListGroupsReply.$Shape;
+
+                /**
+                 * Decodes a ListGroupsReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.ListGroupsReply & api.im.v1.ListGroupsReply.$Shape} ListGroupsReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.ListGroupsReply & api.im.v1.ListGroupsReply.$Shape;
+
+                /**
+                 * Verifies a ListGroupsReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a ListGroupsReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns ListGroupsReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.ListGroupsReply;
+
+                /**
+                 * Creates a plain object from a ListGroupsReply message. Also converts values to other types if specified.
+                 * @param message ListGroupsReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.ListGroupsReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this ListGroupsReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for ListGroupsReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace ListGroupsReply {
+
+                /** Properties of a ListGroupsReply. */
+                interface $Properties {
+
+                    /** ListGroupsReply groups */
+                    groups?: (api.im.v1.Group.$Properties[]|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a ListGroupsReply. */
+                type $Shape = api.im.v1.ListGroupsReply.$Properties;
+            }
+
+            /**
+             * Properties of a GetGroupRequest.
+             * @deprecated Use api.im.v1.GetGroupRequest.$Properties instead.
+             */
+            interface IGetGroupRequest extends api.im.v1.GetGroupRequest.$Properties {
+            }
+
+            /** Represents a GetGroupRequest. */
+            class GetGroupRequest {
+
+                /**
+                 * Constructs a new GetGroupRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.GetGroupRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** GetGroupRequest groupId. */
+                groupId: string;
+
+                /**
+                 * Creates a new GetGroupRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns GetGroupRequest instance
+                 */
+                static create(properties: api.im.v1.GetGroupRequest.$Shape): api.im.v1.GetGroupRequest & api.im.v1.GetGroupRequest.$Shape;
+                static create(properties?: api.im.v1.GetGroupRequest.$Properties): api.im.v1.GetGroupRequest;
+
+                /**
+                 * Encodes the specified GetGroupRequest message. Does not implicitly {@link api.im.v1.GetGroupRequest.verify|verify} messages.
+                 * @param message GetGroupRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.GetGroupRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified GetGroupRequest message, length delimited. Does not implicitly {@link api.im.v1.GetGroupRequest.verify|verify} messages.
+                 * @param message GetGroupRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.GetGroupRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a GetGroupRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.GetGroupRequest & api.im.v1.GetGroupRequest.$Shape} GetGroupRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.GetGroupRequest & api.im.v1.GetGroupRequest.$Shape;
+
+                /**
+                 * Decodes a GetGroupRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GetGroupRequest & api.im.v1.GetGroupRequest.$Shape} GetGroupRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.GetGroupRequest & api.im.v1.GetGroupRequest.$Shape;
+
+                /**
+                 * Verifies a GetGroupRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a GetGroupRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns GetGroupRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.GetGroupRequest;
+
+                /**
+                 * Creates a plain object from a GetGroupRequest message. Also converts values to other types if specified.
+                 * @param message GetGroupRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.GetGroupRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this GetGroupRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for GetGroupRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace GetGroupRequest {
+
+                /** Properties of a GetGroupRequest. */
+                interface $Properties {
+
+                    /** GetGroupRequest groupId */
+                    groupId?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a GetGroupRequest. */
+                type $Shape = api.im.v1.GetGroupRequest.$Properties;
+            }
+
+            /**
+             * Properties of an AddGroupMemberRequest.
+             * @deprecated Use api.im.v1.AddGroupMemberRequest.$Properties instead.
+             */
+            interface IAddGroupMemberRequest extends api.im.v1.AddGroupMemberRequest.$Properties {
+            }
+
+            /** Represents an AddGroupMemberRequest. */
+            class AddGroupMemberRequest {
+
+                /**
+                 * Constructs a new AddGroupMemberRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.AddGroupMemberRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** AddGroupMemberRequest groupId. */
+                groupId: string;
+
+                /** AddGroupMemberRequest userId. */
+                userId: (number|Long);
+
+                /**
+                 * Creates a new AddGroupMemberRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns AddGroupMemberRequest instance
+                 */
+                static create(properties: api.im.v1.AddGroupMemberRequest.$Shape): api.im.v1.AddGroupMemberRequest & api.im.v1.AddGroupMemberRequest.$Shape;
+                static create(properties?: api.im.v1.AddGroupMemberRequest.$Properties): api.im.v1.AddGroupMemberRequest;
+
+                /**
+                 * Encodes the specified AddGroupMemberRequest message. Does not implicitly {@link api.im.v1.AddGroupMemberRequest.verify|verify} messages.
+                 * @param message AddGroupMemberRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.AddGroupMemberRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified AddGroupMemberRequest message, length delimited. Does not implicitly {@link api.im.v1.AddGroupMemberRequest.verify|verify} messages.
+                 * @param message AddGroupMemberRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.AddGroupMemberRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes an AddGroupMemberRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.AddGroupMemberRequest & api.im.v1.AddGroupMemberRequest.$Shape} AddGroupMemberRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.AddGroupMemberRequest & api.im.v1.AddGroupMemberRequest.$Shape;
+
+                /**
+                 * Decodes an AddGroupMemberRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.AddGroupMemberRequest & api.im.v1.AddGroupMemberRequest.$Shape} AddGroupMemberRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.AddGroupMemberRequest & api.im.v1.AddGroupMemberRequest.$Shape;
+
+                /**
+                 * Verifies an AddGroupMemberRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates an AddGroupMemberRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns AddGroupMemberRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.AddGroupMemberRequest;
+
+                /**
+                 * Creates a plain object from an AddGroupMemberRequest message. Also converts values to other types if specified.
+                 * @param message AddGroupMemberRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.AddGroupMemberRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this AddGroupMemberRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for AddGroupMemberRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace AddGroupMemberRequest {
+
+                /** Properties of an AddGroupMemberRequest. */
+                interface $Properties {
+
+                    /** AddGroupMemberRequest groupId */
+                    groupId?: (string|null);
+
+                    /** AddGroupMemberRequest userId */
+                    userId?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of an AddGroupMemberRequest. */
+                type $Shape = api.im.v1.AddGroupMemberRequest.$Properties;
+            }
+
+            /**
+             * Properties of a RemoveGroupMemberRequest.
+             * @deprecated Use api.im.v1.RemoveGroupMemberRequest.$Properties instead.
+             */
+            interface IRemoveGroupMemberRequest extends api.im.v1.RemoveGroupMemberRequest.$Properties {
+            }
+
+            /** Represents a RemoveGroupMemberRequest. */
+            class RemoveGroupMemberRequest {
+
+                /**
+                 * Constructs a new RemoveGroupMemberRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.RemoveGroupMemberRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** RemoveGroupMemberRequest groupId. */
+                groupId: string;
+
+                /** RemoveGroupMemberRequest userId. */
+                userId: (number|Long);
+
+                /**
+                 * Creates a new RemoveGroupMemberRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns RemoveGroupMemberRequest instance
+                 */
+                static create(properties: api.im.v1.RemoveGroupMemberRequest.$Shape): api.im.v1.RemoveGroupMemberRequest & api.im.v1.RemoveGroupMemberRequest.$Shape;
+                static create(properties?: api.im.v1.RemoveGroupMemberRequest.$Properties): api.im.v1.RemoveGroupMemberRequest;
+
+                /**
+                 * Encodes the specified RemoveGroupMemberRequest message. Does not implicitly {@link api.im.v1.RemoveGroupMemberRequest.verify|verify} messages.
+                 * @param message RemoveGroupMemberRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.RemoveGroupMemberRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified RemoveGroupMemberRequest message, length delimited. Does not implicitly {@link api.im.v1.RemoveGroupMemberRequest.verify|verify} messages.
+                 * @param message RemoveGroupMemberRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.RemoveGroupMemberRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a RemoveGroupMemberRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.RemoveGroupMemberRequest & api.im.v1.RemoveGroupMemberRequest.$Shape} RemoveGroupMemberRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.RemoveGroupMemberRequest & api.im.v1.RemoveGroupMemberRequest.$Shape;
+
+                /**
+                 * Decodes a RemoveGroupMemberRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.RemoveGroupMemberRequest & api.im.v1.RemoveGroupMemberRequest.$Shape} RemoveGroupMemberRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.RemoveGroupMemberRequest & api.im.v1.RemoveGroupMemberRequest.$Shape;
+
+                /**
+                 * Verifies a RemoveGroupMemberRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a RemoveGroupMemberRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns RemoveGroupMemberRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.RemoveGroupMemberRequest;
+
+                /**
+                 * Creates a plain object from a RemoveGroupMemberRequest message. Also converts values to other types if specified.
+                 * @param message RemoveGroupMemberRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.RemoveGroupMemberRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this RemoveGroupMemberRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for RemoveGroupMemberRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace RemoveGroupMemberRequest {
+
+                /** Properties of a RemoveGroupMemberRequest. */
+                interface $Properties {
+
+                    /** RemoveGroupMemberRequest groupId */
+                    groupId?: (string|null);
+
+                    /** RemoveGroupMemberRequest userId */
+                    userId?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a RemoveGroupMemberRequest. */
+                type $Shape = api.im.v1.RemoveGroupMemberRequest.$Properties;
+            }
+
+            /**
+             * Properties of a ListGroupMembersRequest.
+             * @deprecated Use api.im.v1.ListGroupMembersRequest.$Properties instead.
+             */
+            interface IListGroupMembersRequest extends api.im.v1.ListGroupMembersRequest.$Properties {
+            }
+
+            /** Represents a ListGroupMembersRequest. */
+            class ListGroupMembersRequest {
+
+                /**
+                 * Constructs a new ListGroupMembersRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.ListGroupMembersRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** ListGroupMembersRequest groupId. */
+                groupId: string;
+
+                /**
+                 * Creates a new ListGroupMembersRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns ListGroupMembersRequest instance
+                 */
+                static create(properties: api.im.v1.ListGroupMembersRequest.$Shape): api.im.v1.ListGroupMembersRequest & api.im.v1.ListGroupMembersRequest.$Shape;
+                static create(properties?: api.im.v1.ListGroupMembersRequest.$Properties): api.im.v1.ListGroupMembersRequest;
+
+                /**
+                 * Encodes the specified ListGroupMembersRequest message. Does not implicitly {@link api.im.v1.ListGroupMembersRequest.verify|verify} messages.
+                 * @param message ListGroupMembersRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.ListGroupMembersRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified ListGroupMembersRequest message, length delimited. Does not implicitly {@link api.im.v1.ListGroupMembersRequest.verify|verify} messages.
+                 * @param message ListGroupMembersRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.ListGroupMembersRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a ListGroupMembersRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.ListGroupMembersRequest & api.im.v1.ListGroupMembersRequest.$Shape} ListGroupMembersRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.ListGroupMembersRequest & api.im.v1.ListGroupMembersRequest.$Shape;
+
+                /**
+                 * Decodes a ListGroupMembersRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.ListGroupMembersRequest & api.im.v1.ListGroupMembersRequest.$Shape} ListGroupMembersRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.ListGroupMembersRequest & api.im.v1.ListGroupMembersRequest.$Shape;
+
+                /**
+                 * Verifies a ListGroupMembersRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a ListGroupMembersRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns ListGroupMembersRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.ListGroupMembersRequest;
+
+                /**
+                 * Creates a plain object from a ListGroupMembersRequest message. Also converts values to other types if specified.
+                 * @param message ListGroupMembersRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.ListGroupMembersRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this ListGroupMembersRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for ListGroupMembersRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace ListGroupMembersRequest {
+
+                /** Properties of a ListGroupMembersRequest. */
+                interface $Properties {
+
+                    /** ListGroupMembersRequest groupId */
+                    groupId?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a ListGroupMembersRequest. */
+                type $Shape = api.im.v1.ListGroupMembersRequest.$Properties;
+            }
+
+            /**
+             * Properties of a GroupMember.
+             * @deprecated Use api.im.v1.GroupMember.$Properties instead.
+             */
+            interface IGroupMember extends api.im.v1.GroupMember.$Properties {
+            }
+
+            /** Represents a GroupMember. */
+            class GroupMember {
+
+                /**
+                 * Constructs a new GroupMember.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.GroupMember.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** GroupMember userId. */
+                userId: (number|Long);
+
+                /** GroupMember username. */
+                username: string;
+
+                /**
+                 * Creates a new GroupMember instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns GroupMember instance
+                 */
+                static create(properties: api.im.v1.GroupMember.$Shape): api.im.v1.GroupMember & api.im.v1.GroupMember.$Shape;
+                static create(properties?: api.im.v1.GroupMember.$Properties): api.im.v1.GroupMember;
+
+                /**
+                 * Encodes the specified GroupMember message. Does not implicitly {@link api.im.v1.GroupMember.verify|verify} messages.
+                 * @param message GroupMember message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.GroupMember.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified GroupMember message, length delimited. Does not implicitly {@link api.im.v1.GroupMember.verify|verify} messages.
+                 * @param message GroupMember message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.GroupMember.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a GroupMember message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.GroupMember & api.im.v1.GroupMember.$Shape} GroupMember
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.GroupMember & api.im.v1.GroupMember.$Shape;
+
+                /**
+                 * Decodes a GroupMember message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.GroupMember & api.im.v1.GroupMember.$Shape} GroupMember
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.GroupMember & api.im.v1.GroupMember.$Shape;
+
+                /**
+                 * Verifies a GroupMember message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a GroupMember message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns GroupMember
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.GroupMember;
+
+                /**
+                 * Creates a plain object from a GroupMember message. Also converts values to other types if specified.
+                 * @param message GroupMember
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.GroupMember, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this GroupMember to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for GroupMember
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace GroupMember {
+
+                /** Properties of a GroupMember. */
+                interface $Properties {
+
+                    /** GroupMember userId */
+                    userId?: (number|Long|null);
+
+                    /** GroupMember username */
+                    username?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a GroupMember. */
+                type $Shape = api.im.v1.GroupMember.$Properties;
+            }
+
+            /**
+             * Properties of a ListGroupMembersReply.
+             * @deprecated Use api.im.v1.ListGroupMembersReply.$Properties instead.
+             */
+            interface IListGroupMembersReply extends api.im.v1.ListGroupMembersReply.$Properties {
+            }
+
+            /** Represents a ListGroupMembersReply. */
+            class ListGroupMembersReply {
+
+                /**
+                 * Constructs a new ListGroupMembersReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.ListGroupMembersReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** ListGroupMembersReply members. */
+                members: api.im.v1.GroupMember.$Properties[];
+
+                /**
+                 * Creates a new ListGroupMembersReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns ListGroupMembersReply instance
+                 */
+                static create(properties: api.im.v1.ListGroupMembersReply.$Shape): api.im.v1.ListGroupMembersReply & api.im.v1.ListGroupMembersReply.$Shape;
+                static create(properties?: api.im.v1.ListGroupMembersReply.$Properties): api.im.v1.ListGroupMembersReply;
+
+                /**
+                 * Encodes the specified ListGroupMembersReply message. Does not implicitly {@link api.im.v1.ListGroupMembersReply.verify|verify} messages.
+                 * @param message ListGroupMembersReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.ListGroupMembersReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified ListGroupMembersReply message, length delimited. Does not implicitly {@link api.im.v1.ListGroupMembersReply.verify|verify} messages.
+                 * @param message ListGroupMembersReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.ListGroupMembersReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a ListGroupMembersReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.ListGroupMembersReply & api.im.v1.ListGroupMembersReply.$Shape} ListGroupMembersReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.ListGroupMembersReply & api.im.v1.ListGroupMembersReply.$Shape;
+
+                /**
+                 * Decodes a ListGroupMembersReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.ListGroupMembersReply & api.im.v1.ListGroupMembersReply.$Shape} ListGroupMembersReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.ListGroupMembersReply & api.im.v1.ListGroupMembersReply.$Shape;
+
+                /**
+                 * Verifies a ListGroupMembersReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a ListGroupMembersReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns ListGroupMembersReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.ListGroupMembersReply;
+
+                /**
+                 * Creates a plain object from a ListGroupMembersReply message. Also converts values to other types if specified.
+                 * @param message ListGroupMembersReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.ListGroupMembersReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this ListGroupMembersReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for ListGroupMembersReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace ListGroupMembersReply {
+
+                /** Properties of a ListGroupMembersReply. */
+                interface $Properties {
+
+                    /** ListGroupMembersReply members */
+                    members?: (api.im.v1.GroupMember.$Properties[]|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a ListGroupMembersReply. */
+                type $Shape = api.im.v1.ListGroupMembersReply.$Properties;
             }
 
             /** Represents a MessageService */
@@ -1262,6 +3238,9 @@ export namespace api {
                 /** MessagePush clientMsgId. */
                 clientMsgId: string;
 
+                /** MessagePush recalled. */
+                recalled: boolean;
+
                 /**
                  * Creates a new MessagePush instance using the specified properties.
                  * @param [properties] Properties to set
@@ -1369,6 +3348,9 @@ export namespace api {
 
                     /** MessagePush clientMsgId */
                     clientMsgId?: (string|null);
+
+                    /** MessagePush recalled */
+                    recalled?: (boolean|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];
@@ -1703,6 +3685,9 @@ export namespace api {
                 /** PullMessage clientMsgId. */
                 clientMsgId: string;
 
+                /** PullMessage recalled. */
+                recalled: boolean;
+
                 /**
                  * Creates a new PullMessage instance using the specified properties.
                  * @param [properties] Properties to set
@@ -1810,6 +3795,9 @@ export namespace api {
 
                     /** PullMessage clientMsgId */
                     clientMsgId?: (string|null);
+
+                    /** PullMessage recalled */
+                    recalled?: (boolean|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];
@@ -1979,7 +3967,10 @@ export namespace api {
                 CMD_DELIVERY_RECEIPT = 8,
 
                 /** CMD_SEND_RECEIPT value */
-                CMD_SEND_RECEIPT = 9
+                CMD_SEND_RECEIPT = 9,
+
+                /** CMD_RECALL value */
+                CMD_RECALL = 10
             }
 
             /**
@@ -2040,11 +4031,17 @@ export namespace api {
                 /** Packet sendReceipt. */
                 sendReceipt?: (api.im.v1.SendReceipt.$Properties|null);
 
+                /** Packet recallReq. */
+                recallReq?: (api.im.v1.RecallRequest.$Properties|null);
+
+                /** Packet recallNotice. */
+                recallNotice?: (api.im.v1.RecallNotice.$Properties|null);
+
                 /** Packet error. */
                 error?: (api.im.v1.ErrorResponse.$Properties|null);
 
                 /** Packet payload. */
-                payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"error");
+                payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error");
 
                 /**
                  * Creates a new Packet instance using the specified properties.
@@ -2169,11 +4166,17 @@ export namespace api {
                     /** Packet sendReceipt */
                     sendReceipt?: (api.im.v1.SendReceipt.$Properties|null);
 
+                    /** Packet recallReq */
+                    recallReq?: (api.im.v1.RecallRequest.$Properties|null);
+
+                    /** Packet recallNotice */
+                    recallNotice?: (api.im.v1.RecallNotice.$Properties|null);
+
                     /** Packet error */
                     error?: (api.im.v1.ErrorResponse.$Properties|null);
 
                     /** Packet payload */
-                    payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"error");
+                    payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error");
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];
@@ -2194,10 +4197,12 @@ export namespace api {
                   readReceipt?: api.im.v1.ReadReceipt.$Shape|null;
                   deliveryReceipt?: api.im.v1.DeliveryReceipt.$Shape|null;
                   sendReceipt?: api.im.v1.SendReceipt.$Shape|null;
+                  recallReq?: api.im.v1.RecallRequest.$Shape|null;
+                  recallNotice?: api.im.v1.RecallNotice.$Shape|null;
                   error?: api.im.v1.ErrorResponse.$Shape|null;
                   $unknowns?: Uint8Array[];
                 } & (
-                  ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; error: api.im.v1.ErrorResponse.$Shape })
+                  ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error: api.im.v1.ErrorResponse.$Shape })
                 );
             }
 
@@ -3114,6 +5119,276 @@ export namespace api {
 
                 /** Shape of a SendReceipt. */
                 type $Shape = api.im.v1.SendReceipt.$Properties;
+            }
+
+            /**
+             * Properties of a RecallRequest.
+             * @deprecated Use api.im.v1.RecallRequest.$Properties instead.
+             */
+            interface IRecallRequest extends api.im.v1.RecallRequest.$Properties {
+            }
+
+            /** Represents a RecallRequest. */
+            class RecallRequest {
+
+                /**
+                 * Constructs a new RecallRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.RecallRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** RecallRequest topic. */
+                topic: string;
+
+                /** RecallRequest topicSeq. */
+                topicSeq: (number|Long);
+
+                /** RecallRequest msgId. */
+                msgId: (number|Long);
+
+                /**
+                 * Creates a new RecallRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns RecallRequest instance
+                 */
+                static create(properties: api.im.v1.RecallRequest.$Shape): api.im.v1.RecallRequest & api.im.v1.RecallRequest.$Shape;
+                static create(properties?: api.im.v1.RecallRequest.$Properties): api.im.v1.RecallRequest;
+
+                /**
+                 * Encodes the specified RecallRequest message. Does not implicitly {@link api.im.v1.RecallRequest.verify|verify} messages.
+                 * @param message RecallRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.RecallRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified RecallRequest message, length delimited. Does not implicitly {@link api.im.v1.RecallRequest.verify|verify} messages.
+                 * @param message RecallRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.RecallRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a RecallRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.RecallRequest & api.im.v1.RecallRequest.$Shape} RecallRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.RecallRequest & api.im.v1.RecallRequest.$Shape;
+
+                /**
+                 * Decodes a RecallRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.RecallRequest & api.im.v1.RecallRequest.$Shape} RecallRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.RecallRequest & api.im.v1.RecallRequest.$Shape;
+
+                /**
+                 * Verifies a RecallRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a RecallRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns RecallRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.RecallRequest;
+
+                /**
+                 * Creates a plain object from a RecallRequest message. Also converts values to other types if specified.
+                 * @param message RecallRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.RecallRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this RecallRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for RecallRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace RecallRequest {
+
+                /** Properties of a RecallRequest. */
+                interface $Properties {
+
+                    /** RecallRequest topic */
+                    topic?: (string|null);
+
+                    /** RecallRequest topicSeq */
+                    topicSeq?: (number|Long|null);
+
+                    /** RecallRequest msgId */
+                    msgId?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a RecallRequest. */
+                type $Shape = api.im.v1.RecallRequest.$Properties;
+            }
+
+            /**
+             * Properties of a RecallNotice.
+             * @deprecated Use api.im.v1.RecallNotice.$Properties instead.
+             */
+            interface IRecallNotice extends api.im.v1.RecallNotice.$Properties {
+            }
+
+            /** Represents a RecallNotice. */
+            class RecallNotice {
+
+                /**
+                 * Constructs a new RecallNotice.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.RecallNotice.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** RecallNotice topic. */
+                topic: string;
+
+                /** RecallNotice topicSeq. */
+                topicSeq: (number|Long);
+
+                /** RecallNotice msgId. */
+                msgId: (number|Long);
+
+                /** RecallNotice senderId. */
+                senderId: (number|Long);
+
+                /** RecallNotice recalledAt. */
+                recalledAt: (number|Long);
+
+                /**
+                 * Creates a new RecallNotice instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns RecallNotice instance
+                 */
+                static create(properties: api.im.v1.RecallNotice.$Shape): api.im.v1.RecallNotice & api.im.v1.RecallNotice.$Shape;
+                static create(properties?: api.im.v1.RecallNotice.$Properties): api.im.v1.RecallNotice;
+
+                /**
+                 * Encodes the specified RecallNotice message. Does not implicitly {@link api.im.v1.RecallNotice.verify|verify} messages.
+                 * @param message RecallNotice message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.RecallNotice.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified RecallNotice message, length delimited. Does not implicitly {@link api.im.v1.RecallNotice.verify|verify} messages.
+                 * @param message RecallNotice message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.RecallNotice.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a RecallNotice message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.RecallNotice & api.im.v1.RecallNotice.$Shape} RecallNotice
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.RecallNotice & api.im.v1.RecallNotice.$Shape;
+
+                /**
+                 * Decodes a RecallNotice message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.RecallNotice & api.im.v1.RecallNotice.$Shape} RecallNotice
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.RecallNotice & api.im.v1.RecallNotice.$Shape;
+
+                /**
+                 * Verifies a RecallNotice message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a RecallNotice message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns RecallNotice
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.RecallNotice;
+
+                /**
+                 * Creates a plain object from a RecallNotice message. Also converts values to other types if specified.
+                 * @param message RecallNotice
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.RecallNotice, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this RecallNotice to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for RecallNotice
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace RecallNotice {
+
+                /** Properties of a RecallNotice. */
+                interface $Properties {
+
+                    /** RecallNotice topic */
+                    topic?: (string|null);
+
+                    /** RecallNotice topicSeq */
+                    topicSeq?: (number|Long|null);
+
+                    /** RecallNotice msgId */
+                    msgId?: (number|Long|null);
+
+                    /** RecallNotice senderId */
+                    senderId?: (number|Long|null);
+
+                    /** RecallNotice recalledAt */
+                    recalledAt?: (number|Long|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a RecallNotice. */
+                type $Shape = api.im.v1.RecallNotice.$Properties;
             }
 
             /** Represents a PushService */
@@ -4595,6 +6870,415 @@ export namespace api {
 
                 /** Shape of a BatchPushReceiptsToUsersReply. */
                 type $Shape = api.im.v1.BatchPushReceiptsToUsersReply.$Properties;
+            }
+
+            /** Represents a UserService */
+            class UserService extends $protobuf.rpc.Service {
+
+                /**
+                 * Constructs a new UserService service.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 */
+                constructor(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean);
+
+                /**
+                 * Creates new UserService service using the specified rpc implementation.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 * @returns RPC service. Useful where requests and/or responses are streamed.
+                 */
+                static create(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean): UserService;
+
+                /** Calls SearchUsers. */
+                searchUsers: api.im.v1.UserService.SearchUsers;
+            }
+
+            namespace UserService {
+
+                /**
+                 * Callback as used by {@link api.im.v1.UserService#searchUsers}.
+                 * @param error Error, if any
+                 * @param [response] SearchUsersReply
+                 */
+                type SearchUsersCallback = (error: (Error|null), response?: api.im.v1.SearchUsersReply) => void;
+
+                /** Calls SearchUsers. */
+                type SearchUsers = {
+                  (request: api.im.v1.ISearchUsersRequest, callback: api.im.v1.UserService.SearchUsersCallback): void;
+                  (request: api.im.v1.ISearchUsersRequest): Promise<api.im.v1.SearchUsersReply>;
+                  readonly name: "SearchUsers";
+                  readonly path: "/api.im.v1.UserService/SearchUsers";
+                  readonly requestType: "SearchUsersRequest";
+                  readonly responseType: "SearchUsersReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+            }
+
+            /**
+             * Properties of a SearchUsersRequest.
+             * @deprecated Use api.im.v1.SearchUsersRequest.$Properties instead.
+             */
+            interface ISearchUsersRequest extends api.im.v1.SearchUsersRequest.$Properties {
+            }
+
+            /** Represents a SearchUsersRequest. */
+            class SearchUsersRequest {
+
+                /**
+                 * Constructs a new SearchUsersRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.SearchUsersRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** SearchUsersRequest username. */
+                username: string;
+
+                /** SearchUsersRequest limit. */
+                limit: number;
+
+                /**
+                 * Creates a new SearchUsersRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns SearchUsersRequest instance
+                 */
+                static create(properties: api.im.v1.SearchUsersRequest.$Shape): api.im.v1.SearchUsersRequest & api.im.v1.SearchUsersRequest.$Shape;
+                static create(properties?: api.im.v1.SearchUsersRequest.$Properties): api.im.v1.SearchUsersRequest;
+
+                /**
+                 * Encodes the specified SearchUsersRequest message. Does not implicitly {@link api.im.v1.SearchUsersRequest.verify|verify} messages.
+                 * @param message SearchUsersRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.SearchUsersRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified SearchUsersRequest message, length delimited. Does not implicitly {@link api.im.v1.SearchUsersRequest.verify|verify} messages.
+                 * @param message SearchUsersRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.SearchUsersRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a SearchUsersRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchUsersRequest & api.im.v1.SearchUsersRequest.$Shape} SearchUsersRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.SearchUsersRequest & api.im.v1.SearchUsersRequest.$Shape;
+
+                /**
+                 * Decodes a SearchUsersRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchUsersRequest & api.im.v1.SearchUsersRequest.$Shape} SearchUsersRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.SearchUsersRequest & api.im.v1.SearchUsersRequest.$Shape;
+
+                /**
+                 * Verifies a SearchUsersRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a SearchUsersRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns SearchUsersRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.SearchUsersRequest;
+
+                /**
+                 * Creates a plain object from a SearchUsersRequest message. Also converts values to other types if specified.
+                 * @param message SearchUsersRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.SearchUsersRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this SearchUsersRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for SearchUsersRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace SearchUsersRequest {
+
+                /** Properties of a SearchUsersRequest. */
+                interface $Properties {
+
+                    /** SearchUsersRequest username */
+                    username?: (string|null);
+
+                    /** SearchUsersRequest limit */
+                    limit?: (number|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a SearchUsersRequest. */
+                type $Shape = api.im.v1.SearchUsersRequest.$Properties;
+            }
+
+            /**
+             * Properties of a SearchUsersReply.
+             * @deprecated Use api.im.v1.SearchUsersReply.$Properties instead.
+             */
+            interface ISearchUsersReply extends api.im.v1.SearchUsersReply.$Properties {
+            }
+
+            /** Represents a SearchUsersReply. */
+            class SearchUsersReply {
+
+                /**
+                 * Constructs a new SearchUsersReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.SearchUsersReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** SearchUsersReply users. */
+                users: api.im.v1.User.$Properties[];
+
+                /**
+                 * Creates a new SearchUsersReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns SearchUsersReply instance
+                 */
+                static create(properties: api.im.v1.SearchUsersReply.$Shape): api.im.v1.SearchUsersReply & api.im.v1.SearchUsersReply.$Shape;
+                static create(properties?: api.im.v1.SearchUsersReply.$Properties): api.im.v1.SearchUsersReply;
+
+                /**
+                 * Encodes the specified SearchUsersReply message. Does not implicitly {@link api.im.v1.SearchUsersReply.verify|verify} messages.
+                 * @param message SearchUsersReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.SearchUsersReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified SearchUsersReply message, length delimited. Does not implicitly {@link api.im.v1.SearchUsersReply.verify|verify} messages.
+                 * @param message SearchUsersReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.SearchUsersReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a SearchUsersReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchUsersReply & api.im.v1.SearchUsersReply.$Shape} SearchUsersReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.SearchUsersReply & api.im.v1.SearchUsersReply.$Shape;
+
+                /**
+                 * Decodes a SearchUsersReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchUsersReply & api.im.v1.SearchUsersReply.$Shape} SearchUsersReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.SearchUsersReply & api.im.v1.SearchUsersReply.$Shape;
+
+                /**
+                 * Verifies a SearchUsersReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a SearchUsersReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns SearchUsersReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.SearchUsersReply;
+
+                /**
+                 * Creates a plain object from a SearchUsersReply message. Also converts values to other types if specified.
+                 * @param message SearchUsersReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.SearchUsersReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this SearchUsersReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for SearchUsersReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace SearchUsersReply {
+
+                /** Properties of a SearchUsersReply. */
+                interface $Properties {
+
+                    /** SearchUsersReply users */
+                    users?: (api.im.v1.User.$Properties[]|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a SearchUsersReply. */
+                type $Shape = api.im.v1.SearchUsersReply.$Properties;
+            }
+
+            /**
+             * Properties of a User.
+             * @deprecated Use api.im.v1.User.$Properties instead.
+             */
+            interface IUser extends api.im.v1.User.$Properties {
+            }
+
+            /** Represents a User. */
+            class User {
+
+                /**
+                 * Constructs a new User.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.User.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** User userId. */
+                userId: (number|Long);
+
+                /** User username. */
+                username: string;
+
+                /**
+                 * Creates a new User instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns User instance
+                 */
+                static create(properties: api.im.v1.User.$Shape): api.im.v1.User & api.im.v1.User.$Shape;
+                static create(properties?: api.im.v1.User.$Properties): api.im.v1.User;
+
+                /**
+                 * Encodes the specified User message. Does not implicitly {@link api.im.v1.User.verify|verify} messages.
+                 * @param message User message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.User.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified User message, length delimited. Does not implicitly {@link api.im.v1.User.verify|verify} messages.
+                 * @param message User message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.User.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a User message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.User & api.im.v1.User.$Shape} User
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.User & api.im.v1.User.$Shape;
+
+                /**
+                 * Decodes a User message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.User & api.im.v1.User.$Shape} User
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.User & api.im.v1.User.$Shape;
+
+                /**
+                 * Verifies a User message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a User message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns User
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.User;
+
+                /**
+                 * Creates a plain object from a User message. Also converts values to other types if specified.
+                 * @param message User
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.User, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this User to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for User
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace User {
+
+                /** Properties of a User. */
+                interface $Properties {
+
+                    /** User userId */
+                    userId?: (number|Long|null);
+
+                    /** User username */
+                    username?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a User. */
+                type $Shape = api.im.v1.User.$Properties;
             }
         }
     }
@@ -8967,6 +11651,117 @@ export namespace google {
                 /** Shape of an Annotation. */
                 type $Shape = google.protobuf.GeneratedCodeInfo.Annotation.$Properties;
             }
+        }
+
+        /**
+         * Properties of an Empty.
+         * @deprecated Use google.protobuf.Empty.$Properties instead.
+         */
+        interface IEmpty extends google.protobuf.Empty.$Properties {
+        }
+
+        /** Represents an Empty. */
+        class Empty {
+
+            /**
+             * Constructs a new Empty.
+             * @param [properties] Properties to set
+             */
+            constructor(properties?: google.protobuf.Empty.$Properties);
+
+            /** Unknown fields preserved while decoding when enabled */
+            $unknowns?: Uint8Array[];
+
+            /**
+             * Creates a new Empty instance using the specified properties.
+             * @param [properties] Properties to set
+             * @returns Empty instance
+             */
+            static create(properties: google.protobuf.Empty.$Shape): google.protobuf.Empty & google.protobuf.Empty.$Shape;
+            static create(properties?: google.protobuf.Empty.$Properties): google.protobuf.Empty;
+
+            /**
+             * Encodes the specified Empty message. Does not implicitly {@link google.protobuf.Empty.verify|verify} messages.
+             * @param message Empty message or plain object to encode
+             * @param [writer] Writer to encode to
+             * @returns Writer
+             */
+            static encode(message: google.protobuf.Empty.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+            /**
+             * Encodes the specified Empty message, length delimited. Does not implicitly {@link google.protobuf.Empty.verify|verify} messages.
+             * @param message Empty message or plain object to encode
+             * @param [writer] Writer to encode to
+             * @returns Writer
+             */
+            static encodeDelimited(message: google.protobuf.Empty.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+            /**
+             * Decodes an Empty message from the specified reader or buffer.
+             * @param reader Reader or buffer to decode from
+             * @param [length] Message length if known beforehand
+             * @returns {google.protobuf.Empty & google.protobuf.Empty.$Shape} Empty
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): google.protobuf.Empty & google.protobuf.Empty.$Shape;
+
+            /**
+             * Decodes an Empty message from the specified reader or buffer, length delimited.
+             * @param reader Reader or buffer to decode from
+             * @returns {google.protobuf.Empty & google.protobuf.Empty.$Shape} Empty
+             * @throws {Error} If the payload is not a reader or valid buffer
+             * @throws {$protobuf.util.ProtocolError} If required fields are missing
+             */
+            static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): google.protobuf.Empty & google.protobuf.Empty.$Shape;
+
+            /**
+             * Verifies an Empty message.
+             * @param message Plain object to verify
+             * @returns `null` if valid, otherwise the reason why it is not
+             */
+            static verify(message: { [k: string]: any }): (string|null);
+
+            /**
+             * Creates an Empty message from a plain object. Also converts values to their respective internal types.
+             * @param object Plain object
+             * @returns Empty
+             */
+            static fromObject(object: { [k: string]: any }): google.protobuf.Empty;
+
+            /**
+             * Creates a plain object from an Empty message. Also converts values to other types if specified.
+             * @param message Empty
+             * @param [options] Conversion options
+             * @returns Plain object
+             */
+            static toObject(message: google.protobuf.Empty, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+            /**
+             * Converts this Empty to JSON.
+             * @returns JSON object
+             */
+            toJSON(): { [k: string]: any };
+
+            /**
+             * Gets the type url for Empty
+             * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+             * @returns The type url
+             */
+            static getTypeUrl(prefix?: string): string;
+        }
+
+        namespace Empty {
+
+            /** Properties of an Empty. */
+            interface $Properties {
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+            }
+
+            /** Shape of an Empty. */
+            type $Shape = google.protobuf.Empty.$Properties;
         }
     }
 }

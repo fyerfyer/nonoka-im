@@ -241,6 +241,22 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout, hb.WriteTimeout, allowedOrigins)
 }
 
+// provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups data.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
+	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
+		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
+	}
+	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
+		members, err := groups.ListMembers(ctx, groupID)
+		if err != nil { return nil, err }
+		ids := make([]int64, 0, len(members))
+		for _, member := range members { ids = append(ids, member.UserId) }
+		return ids, nil
+	})
+	return h
+}
+
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.
 func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url GatewayURL, grpcAddr GatewayGrpcAddr, cfg GatewayRegistryConfig, manager *gateway.Manager, logger log.Logger) *gateway.GatewayRegistry {
 	return gateway.NewGatewayRegistry(redis, string(nodeID), string(url), string(grpcAddr), cfg.Interval, cfg.TTL, manager, logger)
@@ -263,6 +279,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideJWTSecret,
 		provideHeartbeatConfig,
 		provideWebSocketServer,
+		provideHandler,
 		provideRedisClient,
 		provideKafkaConfig,
 		provideMongoDB,

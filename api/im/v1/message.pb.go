@@ -234,6 +234,7 @@ type MessagePush struct {
 	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	TopicSeq      uint64                 `protobuf:"varint,7,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
 	ClientMsgId   string                 `protobuf:"bytes,8,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	Recalled      bool                   `protobuf:"varint,9,opt,name=recalled,proto3" json:"recalled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -322,6 +323,13 @@ func (x *MessagePush) GetClientMsgId() string {
 		return x.ClientMsgId
 	}
 	return ""
+}
+
+func (x *MessagePush) GetRecalled() bool {
+	if x != nil {
+		return x.Recalled
+	}
+	return false
 }
 
 // UpstreamMessage is sent from the Gateway to Kafka.
@@ -490,6 +498,7 @@ type PullMessage struct {
 	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	TopicSeq      uint64                 `protobuf:"varint,7,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
 	ClientMsgId   string                 `protobuf:"bytes,8,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	Recalled      bool                   `protobuf:"varint,9,opt,name=recalled,proto3" json:"recalled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -580,6 +589,13 @@ func (x *PullMessage) GetClientMsgId() string {
 	return ""
 }
 
+func (x *PullMessage) GetRecalled() bool {
+	if x != nil {
+		return x.Recalled
+	}
+	return false
+}
+
 // PullReply is sent by server in response to PullRequest.
 type PullReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -656,7 +672,7 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x15\n" +
 	"\x06msg_id\x18\x02 \x01(\x03R\x05msgId\x12\x1c\n" +
 	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\x12\x1b\n" +
-	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\"\xeb\x01\n" +
+	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\"\x87\x02\n" +
 	"\vMessagePush\x12\x15\n" +
 	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
@@ -665,7 +681,8 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\acontent\x18\x05 \x01(\fR\acontent\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
 	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\x12\"\n" +
-	"\rclient_msg_id\x18\b \x01(\tR\vclientMsgId\"\xe9\x01\n" +
+	"\rclient_msg_id\x18\b \x01(\tR\vclientMsgId\x12\x1a\n" +
+	"\brecalled\x18\t \x01(\bR\brecalled\"\xe9\x01\n" +
 	"\x0fUpstreamMessage\x12\x1b\n" +
 	"\tsender_id\x18\x01 \x01(\x03R\bsenderId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x19\n" +
@@ -677,7 +694,7 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\vPullRequest\x12\x14\n" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x19\n" +
 	"\blast_seq\x18\x02 \x01(\x04R\alastSeq\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xeb\x01\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\x87\x02\n" +
 	"\vPullMessage\x12\x15\n" +
 	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
@@ -686,7 +703,8 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\acontent\x18\x05 \x01(\fR\acontent\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
 	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\x12\"\n" +
-	"\rclient_msg_id\x18\b \x01(\tR\vclientMsgId\"u\n" +
+	"\rclient_msg_id\x18\b \x01(\tR\vclientMsgId\x12\x1a\n" +
+	"\brecalled\x18\t \x01(\bR\brecalled\"u\n" +
 	"\tPullReply\x122\n" +
 	"\bmessages\x18\x01 \x03(\v2\x16.api.im.v1.PullMessageR\bmessages\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x19\n" +

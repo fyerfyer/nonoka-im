@@ -115,6 +115,7 @@ export function useConversation(topic: string | null) {
     loadMore,
     sendMessage,
     markRead,
+    recallMessage: (msg: ChatMessage) => { if (topic && msg.topicSeq) realtimeClient.recallMessage(topic, msg.topicSeq, msg.msgId); },
   };
 }
 

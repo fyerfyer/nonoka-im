@@ -16,7 +16,7 @@ export interface GroupMember {
   username: string;
 }
 
-export type MessageStatus = "sending" | "sent" | "delivered" | "read" | "failed";
+export type MessageStatus = "sending" | "sent" | "delivered" | "read" | "failed" | "recalled";
 
 export interface ChatMessage {
   clientMsgId: string;
@@ -27,6 +27,7 @@ export interface ChatMessage {
   timestamp: number;
   topicSeq?: number;
   status: MessageStatus;
+  recalled?: boolean;
 }
 
 export interface Conversation {

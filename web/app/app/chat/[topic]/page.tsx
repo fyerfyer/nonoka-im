@@ -24,7 +24,7 @@ export default function ChatDetailPage() {
   const user = useAuthStore((s) => s.user);
   const connectionState = useChatStore((s) => s.connectionState);
 
-  const { conversation, loadingMore, loadMore, sendMessage } = useConversation(
+  const { conversation, loadingMore, loadMore, sendMessage, recallMessage } = useConversation(
     topic || null
   );
 
@@ -58,6 +58,7 @@ export default function ChatDetailPage() {
             currentUser={user}
             loadingMore={loadingMore}
             onLoadMore={loadMore}
+            onRecall={recallMessage}
           />
           <MessageInput
             onSend={sendMessage}

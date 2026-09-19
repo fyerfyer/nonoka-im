@@ -27,28 +27,30 @@ const (
 	Command_CMD_UNKNOWN          Command = 0
 	Command_CMD_HEARTBEAT        Command = 1
 	Command_CMD_AUTH             Command = 2
-	Command_CMD_PUBLISH          Command = 3 // client -> server: send message
-	Command_CMD_ACK              Command = 4 // bi-directional: message ack
-	Command_CMD_PULL             Command = 5 // client -> server: pull offline messages
-	Command_CMD_NOTIFY           Command = 6 // server -> client: push notification
-	Command_CMD_READ_RECEIPT     Command = 7 // bi-directional: read receipt
-	Command_CMD_DELIVERY_RECEIPT Command = 8 // server -> client: delivery receipt
-	Command_CMD_SEND_RECEIPT     Command = 9 // server -> client: send receipt (msg_id/topic_seq confirmation)
+	Command_CMD_PUBLISH          Command = 3  // client -> server: send message
+	Command_CMD_ACK              Command = 4  // bi-directional: message ack
+	Command_CMD_PULL             Command = 5  // client -> server: pull offline messages
+	Command_CMD_NOTIFY           Command = 6  // server -> client: push notification
+	Command_CMD_READ_RECEIPT     Command = 7  // bi-directional: read receipt
+	Command_CMD_DELIVERY_RECEIPT Command = 8  // server -> client: delivery receipt
+	Command_CMD_SEND_RECEIPT     Command = 9  // server -> client: send receipt (msg_id/topic_seq confirmation)
+	Command_CMD_RECALL           Command = 10 // bi-directional: recall a message
 )
 
 // Enum value maps for Command.
 var (
 	Command_name = map[int32]string{
-		0: "CMD_UNKNOWN",
-		1: "CMD_HEARTBEAT",
-		2: "CMD_AUTH",
-		3: "CMD_PUBLISH",
-		4: "CMD_ACK",
-		5: "CMD_PULL",
-		6: "CMD_NOTIFY",
-		7: "CMD_READ_RECEIPT",
-		8: "CMD_DELIVERY_RECEIPT",
-		9: "CMD_SEND_RECEIPT",
+		0:  "CMD_UNKNOWN",
+		1:  "CMD_HEARTBEAT",
+		2:  "CMD_AUTH",
+		3:  "CMD_PUBLISH",
+		4:  "CMD_ACK",
+		5:  "CMD_PULL",
+		6:  "CMD_NOTIFY",
+		7:  "CMD_READ_RECEIPT",
+		8:  "CMD_DELIVERY_RECEIPT",
+		9:  "CMD_SEND_RECEIPT",
+		10: "CMD_RECALL",
 	}
 	Command_value = map[string]int32{
 		"CMD_UNKNOWN":          0,
@@ -61,6 +63,7 @@ var (
 		"CMD_READ_RECEIPT":     7,
 		"CMD_DELIVERY_RECEIPT": 8,
 		"CMD_SEND_RECEIPT":     9,
+		"CMD_RECALL":           10,
 	}
 )
 
@@ -113,6 +116,8 @@ type Packet struct {
 	//	*Packet_ReadReceipt
 	//	*Packet_DeliveryReceipt
 	//	*Packet_SendReceipt
+	//	*Packet_RecallReq
+	//	*Packet_RecallNotice
 	//	*Packet_Error
 	Payload       isPacket_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -269,6 +274,24 @@ func (x *Packet) GetSendReceipt() *SendReceipt {
 	return nil
 }
 
+func (x *Packet) GetRecallReq() *RecallRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_RecallReq); ok {
+			return x.RecallReq
+		}
+	}
+	return nil
+}
+
+func (x *Packet) GetRecallNotice() *RecallNotice {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_RecallNotice); ok {
+			return x.RecallNotice
+		}
+	}
+	return nil
+}
+
 func (x *Packet) GetError() *ErrorResponse {
 	if x != nil {
 		if x, ok := x.Payload.(*Packet_Error); ok {
@@ -334,6 +357,14 @@ type Packet_SendReceipt struct {
 	SendReceipt *SendReceipt `protobuf:"bytes,80,opt,name=send_receipt,json=sendReceipt,proto3,oneof"`
 }
 
+type Packet_RecallReq struct {
+	RecallReq *RecallRequest `protobuf:"bytes,90,opt,name=recall_req,json=recallReq,proto3,oneof"`
+}
+
+type Packet_RecallNotice struct {
+	RecallNotice *RecallNotice `protobuf:"bytes,100,opt,name=recall_notice,json=recallNotice,proto3,oneof"`
+}
+
 type Packet_Error struct {
 	// Unified error response (can be returned for any command).
 	Error *ErrorResponse `protobuf:"bytes,99,opt,name=error,proto3,oneof"`
@@ -360,6 +391,10 @@ func (*Packet_ReadReceipt) isPacket_Payload() {}
 func (*Packet_DeliveryReceipt) isPacket_Payload() {}
 
 func (*Packet_SendReceipt) isPacket_Payload() {}
+
+func (*Packet_RecallReq) isPacket_Payload() {}
+
+func (*Packet_RecallNotice) isPacket_Payload() {}
 
 func (*Packet_Error) isPacket_Payload() {}
 
@@ -809,11 +844,147 @@ func (x *SendReceipt) GetTimestamp() int64 {
 	return 0
 }
 
+type RecallRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	TopicSeq      uint64                 `protobuf:"varint,2,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
+	MsgId         int64                  `protobuf:"varint,3,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecallRequest) Reset() {
+	*x = RecallRequest{}
+	mi := &file_im_v1_packet_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecallRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecallRequest) ProtoMessage() {}
+
+func (x *RecallRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecallRequest.ProtoReflect.Descriptor instead.
+func (*RecallRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RecallRequest) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *RecallRequest) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+func (x *RecallRequest) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+type RecallNotice struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	TopicSeq      uint64                 `protobuf:"varint,2,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
+	MsgId         int64                  `protobuf:"varint,3,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	SenderId      int64                  `protobuf:"varint,4,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	RecalledAt    int64                  `protobuf:"varint,5,opt,name=recalled_at,json=recalledAt,proto3" json:"recalled_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecallNotice) Reset() {
+	*x = RecallNotice{}
+	mi := &file_im_v1_packet_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecallNotice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecallNotice) ProtoMessage() {}
+
+func (x *RecallNotice) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecallNotice.ProtoReflect.Descriptor instead.
+func (*RecallNotice) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RecallNotice) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *RecallNotice) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+func (x *RecallNotice) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+func (x *RecallNotice) GetSenderId() int64 {
+	if x != nil {
+		return x.SenderId
+	}
+	return 0
+}
+
+func (x *RecallNotice) GetRecalledAt() int64 {
+	if x != nil {
+		return x.RecalledAt
+	}
+	return 0
+}
+
 var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xf7\x05\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xf2\x06\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +
@@ -830,7 +1001,10 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\x06notify\x182 \x01(\v2\x16.api.im.v1.MessagePushH\x00R\x06notify\x12;\n" +
 	"\fread_receipt\x18< \x01(\v2\x16.api.im.v1.ReadReceiptH\x00R\vreadReceipt\x12G\n" +
 	"\x10delivery_receipt\x18F \x01(\v2\x1a.api.im.v1.DeliveryReceiptH\x00R\x0fdeliveryReceipt\x12;\n" +
-	"\fsend_receipt\x18P \x01(\v2\x16.api.im.v1.SendReceiptH\x00R\vsendReceipt\x120\n" +
+	"\fsend_receipt\x18P \x01(\v2\x16.api.im.v1.SendReceiptH\x00R\vsendReceipt\x129\n" +
+	"\n" +
+	"recall_req\x18Z \x01(\v2\x18.api.im.v1.RecallRequestH\x00R\trecallReq\x12>\n" +
+	"\rrecall_notice\x18d \x01(\v2\x17.api.im.v1.RecallNoticeH\x00R\frecallNotice\x120\n" +
 	"\x05error\x18c \x01(\v2\x18.api.im.v1.ErrorResponseH\x00R\x05errorB\t\n" +
 	"\apayload\"@\n" +
 	"\vAuthRequest\x12\x14\n" +
@@ -863,7 +1037,18 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\x06msg_id\x18\x02 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x03 \x01(\tR\x05topic\x12\x1b\n" +
 	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp*\xbd\x01\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"Y\n" +
+	"\rRecallRequest\x12\x14\n" +
+	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x1b\n" +
+	"\ttopic_seq\x18\x02 \x01(\x04R\btopicSeq\x12\x15\n" +
+	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\"\x96\x01\n" +
+	"\fRecallNotice\x12\x14\n" +
+	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x1b\n" +
+	"\ttopic_seq\x18\x02 \x01(\x04R\btopicSeq\x12\x15\n" +
+	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\x12\x1b\n" +
+	"\tsender_id\x18\x04 \x01(\x03R\bsenderId\x12\x1f\n" +
+	"\vrecalled_at\x18\x05 \x01(\x03R\n" +
+	"recalledAt*\xcd\x01\n" +
 	"\aCommand\x12\x0f\n" +
 	"\vCMD_UNKNOWN\x10\x00\x12\x11\n" +
 	"\rCMD_HEARTBEAT\x10\x01\x12\f\n" +
@@ -875,7 +1060,10 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"CMD_NOTIFY\x10\x06\x12\x14\n" +
 	"\x10CMD_READ_RECEIPT\x10\a\x12\x18\n" +
 	"\x14CMD_DELIVERY_RECEIPT\x10\b\x12\x14\n" +
-	"\x10CMD_SEND_RECEIPT\x10\tB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\x10CMD_SEND_RECEIPT\x10\t\x12\x0e\n" +
+	"\n" +
+	"CMD_RECALL\x10\n" +
+	"B\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_packet_proto_rawDescOnce sync.Once
@@ -890,7 +1078,7 @@ func file_im_v1_packet_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_packet_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_im_v1_packet_proto_goTypes = []any{
 	(Command)(0),               // 0: api.im.v1.Command
 	(*Packet)(nil),             // 1: api.im.v1.Packet
@@ -901,31 +1089,35 @@ var file_im_v1_packet_proto_goTypes = []any{
 	(*ReadReceipt)(nil),        // 6: api.im.v1.ReadReceipt
 	(*DeliveryReceipt)(nil),    // 7: api.im.v1.DeliveryReceipt
 	(*SendReceipt)(nil),        // 8: api.im.v1.SendReceipt
-	(*SendMessageRequest)(nil), // 9: api.im.v1.SendMessageRequest
-	(*SendMessageReply)(nil),   // 10: api.im.v1.SendMessageReply
-	(*PullRequest)(nil),        // 11: api.im.v1.PullRequest
-	(*PullReply)(nil),          // 12: api.im.v1.PullReply
-	(*MessagePush)(nil),        // 13: api.im.v1.MessagePush
+	(*RecallRequest)(nil),      // 9: api.im.v1.RecallRequest
+	(*RecallNotice)(nil),       // 10: api.im.v1.RecallNotice
+	(*SendMessageRequest)(nil), // 11: api.im.v1.SendMessageRequest
+	(*SendMessageReply)(nil),   // 12: api.im.v1.SendMessageReply
+	(*PullRequest)(nil),        // 13: api.im.v1.PullRequest
+	(*PullReply)(nil),          // 14: api.im.v1.PullReply
+	(*MessagePush)(nil),        // 15: api.im.v1.MessagePush
 }
 var file_im_v1_packet_proto_depIdxs = []int32{
 	0,  // 0: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
 	2,  // 1: api.im.v1.Packet.auth_req:type_name -> api.im.v1.AuthRequest
 	3,  // 2: api.im.v1.Packet.auth_resp:type_name -> api.im.v1.AuthResponse
-	9,  // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
-	10, // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
-	11, // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
-	12, // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
+	11, // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
+	12, // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
+	13, // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
+	14, // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
 	4,  // 7: api.im.v1.Packet.ack_req:type_name -> api.im.v1.AckRequest
-	13, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
+	15, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
 	6,  // 9: api.im.v1.Packet.read_receipt:type_name -> api.im.v1.ReadReceipt
 	7,  // 10: api.im.v1.Packet.delivery_receipt:type_name -> api.im.v1.DeliveryReceipt
 	8,  // 11: api.im.v1.Packet.send_receipt:type_name -> api.im.v1.SendReceipt
-	5,  // 12: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	9,  // 12: api.im.v1.Packet.recall_req:type_name -> api.im.v1.RecallRequest
+	10, // 13: api.im.v1.Packet.recall_notice:type_name -> api.im.v1.RecallNotice
+	5,  // 14: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_packet_proto_init() }
@@ -946,6 +1138,8 @@ func file_im_v1_packet_proto_init() {
 		(*Packet_ReadReceipt)(nil),
 		(*Packet_DeliveryReceipt)(nil),
 		(*Packet_SendReceipt)(nil),
+		(*Packet_RecallReq)(nil),
+		(*Packet_RecallNotice)(nil),
 		(*Packet_Error)(nil),
 	}
 	type x struct{}
@@ -954,7 +1148,7 @@ func file_im_v1_packet_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_packet_proto_rawDesc), len(file_im_v1_packet_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

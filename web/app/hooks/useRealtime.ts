@@ -70,6 +70,7 @@ export function useRealtime() {
         const detail = (e as CustomEvent).detail;
         useChatStore.getState().markTopicRead(detail.topic, detail.upToSeq);
       },
+      recall: (e) => { const d = (e as CustomEvent).detail; useChatStore.getState().recallMessage(d.topic, d.topicSeq, d.msgId); },
       error: (e) => {
         const detail = (e as CustomEvent).detail;
         console.error("realtime error", detail);

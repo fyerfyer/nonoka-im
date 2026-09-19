@@ -12,6 +12,7 @@ interface MessageListProps {
   currentUser: User | null;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  onRecall?: (message: ChatMessage) => void;
 }
 
 export function MessageList({
@@ -19,6 +20,7 @@ export function MessageList({
   currentUser,
   loadingMore,
   onLoadMore,
+  onRecall,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -96,6 +98,7 @@ export function MessageList({
                       ? getSenderName(msg.senderId, conversation)
                       : undefined
                   }
+                  onRecall={() => onRecall?.(msg)}
                 />
               );
             })}

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "proto:gen": "pbjs -t static-module -w es6 -o lib/proto/im.js --path ../../api --path ../../third_party ../../api/im/v1/*.proto && pbts -o lib/proto/im.d.ts lib/proto/im.js",

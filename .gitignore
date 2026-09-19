@@ -39,6 +39,10 @@ bin/
 
 # Local compiled binary
 cmd/nonoka-im/nonoka-im
+/nonoka-im
+
+# Browser automation artifacts
+.playwright-mcp/
 
 # Environment files
 .env

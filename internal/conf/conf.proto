@@ -77,6 +77,8 @@ message Data {
     int64 start_offset = 18;           // -1 = first offset, -2 = last offset (kafka-go constants)
     int32 commit_batch_size = 19;      // number of messages to batch before committing offsets
     google.protobuf.Duration commit_flush_interval = 20; // max interval between offset commits
+    int32 partitions = 21; // expected topic partition count
+    string dlq_topic = 22; // optional explicit dead-letter topic name
   }
   Database database = 1;
   Redis redis = 2;
@@ -113,6 +115,7 @@ message GatewayConfig {
   repeated string allowed_origins = 5;
   // CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
   repeated string cors_origins = 6;
+  google.protobuf.Duration recall_window = 7; // maximum age for message recall
 }
 
 message Dispatch {

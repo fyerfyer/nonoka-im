@@ -56,6 +56,7 @@ message MessagePush {
   int64 timestamp = 6;
   uint64 topic_seq = 7;
   string client_msg_id = 8;
+  bool recalled = 9;
 }
 
 // UpstreamMessage is sent from the Gateway to Kafka.
@@ -87,6 +88,7 @@ message PullMessage {
   int64 timestamp = 6;
   uint64 topic_seq = 7;
   string client_msg_id = 8;
+  bool recalled = 9;
 }
 
 // PullReply is sent by server in response to PullRequest.

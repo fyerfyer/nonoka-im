@@ -2,6 +2,7 @@ package msgworker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,13 +11,18 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/metrics"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
+	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
+)
+
+var (
+	ErrRecallNotFound = errors.New("message not found or already recalled")
+	ErrRecallExpired  = errors.New("message recall window expired")
 )
 
 const (
@@ -43,6 +49,7 @@ type StoredMessage struct {
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
+	Recalled    bool      `bson:"recalled,omitempty"`
 	CreatedAt   time.Time `bson:"created_at"`
 }
 
@@ -57,6 +64,7 @@ type InboxMessage struct {
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
+	Recalled    bool      `bson:"recalled,omitempty"`
 	Read        bool      `bson:"read"`
 	DeliveredAt time.Time `bson:"delivered_at,omitempty"`
 	CreatedAt   time.Time `bson:"created_at"`
@@ -81,6 +89,7 @@ type MentionMessage struct {
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
+	Recalled    bool      `bson:"recalled,omitempty"`
 	Read        bool      `bson:"read"`
 	DeliveredAt time.Time `bson:"delivered_at,omitempty"`
 	CreatedAt   time.Time `bson:"created_at"`
@@ -699,8 +708,8 @@ func (s *MessageStorage) GetOfflineMessages(ctx context.Context, userID int64, t
 	}
 
 	filter := bson.M{
-		"user_id": userID,
-		"topic":   topic,
+		"user_id":   userID,
+		"topic":     topic,
 		"topic_seq": bson.M{"$gt": lastSeq},
 	}
 	opts := options.Find().
@@ -807,8 +816,8 @@ func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, t
 	}
 
 	filter := bson.M{
-		"user_id": userID,
-		"topic":   topic,
+		"user_id":   userID,
+		"topic":     topic,
 		"topic_seq": bson.M{"$gt": lastSeq},
 	}
 	opts := options.Find().
@@ -940,6 +949,31 @@ func (s *MessageStorage) UpdateReadStatus(ctx context.Context, userID int64, top
 
 	s.log.Debugf("read status updated: user_id=%d, topic=%s, up_to_seq=%d, inbox=%d, mention=%d",
 		userID, topic, upToSeq, inboxRes.ModifiedCount, mentionRes.ModifiedCount)
+	return nil
+}
+
+// RecallMessage marks a message as recalled in every storage representation.
+// The caller must authorize the sender before invoking this method.
+func (s *MessageStorage) RecallMessage(ctx context.Context, topic string, topicSeq uint64, msgID int64, senderID int64, window time.Duration) error {
+	filter := bson.M{"topic": topic, "topic_seq": topicSeq, "sender_id": senderID, "recalled": bson.M{"$ne": true}}
+	if msgID > 0 {
+		filter["msg_id"] = msgID
+	}
+	if window > 0 {
+		filter["created_at"] = bson.M{"$gte": time.Now().Add(-window)}
+	}
+	update := bson.M{"$set": bson.M{"recalled": true, "content": []byte(""), "recalled_at": time.Now()}}
+	matched := int64(0)
+	for _, name := range []string{CollectionMessages, CollectionInboxes, CollectionMentionInboxes} {
+		result, err := s.collection(name).UpdateMany(ctx, filter, update, options.UpdateMany())
+		if err != nil {
+			return fmt.Errorf("recall message in %s: %w", name, err)
+		}
+		matched += result.MatchedCount
+	}
+	if matched == 0 {
+		return ErrRecallNotFound
+	}
 	return nil
 }
 

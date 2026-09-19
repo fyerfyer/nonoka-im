@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/pprof"
-	"strings"
+	"net/url"
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
@@ -63,8 +63,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		// If "*" is present, allow any localhost origin and configured origins.
 		if hasWildcardOrigin(gatewayConf.CorsOrigins) {
 			corsOpts.AllowOriginFunc = func(origin string) bool {
-				return strings.HasPrefix(origin, "http://localhost:") ||
-					strings.HasPrefix(origin, "https://localhost:") ||
+				return isLoopbackOrigin(origin) ||
 					isConfiguredOrigin(origin, gatewayConf.CorsOrigins)
 			}
 		} else {
@@ -108,6 +107,19 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	srv.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	return srv
+}
+
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasWildcardOrigin(origins []string) bool {

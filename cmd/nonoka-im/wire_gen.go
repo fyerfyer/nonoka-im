@@ -71,7 +71,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := gateway.NewHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, logger, v...)
+	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, webSocketServer, auth, gatewayConfig, logger, metrics)
 	mainNodeID := provideNodeID()
@@ -298,6 +298,26 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 		allowedOrigins = gatewayConf.AllowedOrigins
 	}
 	return gateway.NewWebSocketServer(handler, logger, hb.ReadTimeout, hb.WriteTimeout, allowedOrigins)
+}
+
+// provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups data.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
+	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
+		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
+	}
+	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
+		members, err := groups.ListMembers(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]int64, 0, len(members))
+		for _, member := range members {
+			ids = append(ids, member.UserId)
+		}
+		return ids, nil
+	})
+	return h
 }
 
 // provideGatewayRegistry creates a GatewayRegistry for node heartbeat registration.

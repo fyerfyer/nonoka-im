@@ -13,6 +13,7 @@ export type RealtimeEventType =
   | "sendReceipt"
   | "deliveryReceipt"
   | "readReceipt"
+  | "recall"
   | "error";
 
 export interface RealtimeMessage {
@@ -45,6 +46,8 @@ export interface ReadReceiptPayload {
   upToSeq: number;
   readerId: number;
 }
+
+export interface RecallPayload { topic: string; topicSeq: number; msgId: number; senderId: number; recalledAt: number; }
 
 type PacketType = InstanceType<typeof Packet>;
 
@@ -201,6 +204,10 @@ export class RealtimeClient extends EventTarget {
     );
   }
 
+  recallMessage(topic: string, topicSeq: number, msgId = 0) {
+    this.send(Packet.create({ cmd: Command.CMD_RECALL, seq: this.nextSeq(), recallReq: { topic, topicSeq, msgId } }));
+  }
+
   sendAck(msgId: number, topic: string, topicSeq: number) {
     this.send(
       Packet.create({
@@ -343,6 +350,12 @@ export class RealtimeClient extends EventTarget {
           upToSeq: Number(r.upToSeq),
           readerId: Number(r.readerId),
         } as ReadReceiptPayload);
+        return;
+      }
+
+      if (Number(pkt.cmd) === Command.CMD_RECALL && pkt.recallNotice) {
+        const r = pkt.recallNotice;
+        this.dispatch("recall", { topic: r.topic, topicSeq: Number(r.topicSeq), msgId: Number(r.msgId), senderId: Number(r.senderId), recalledAt: Number(r.recalledAt) } as RecallPayload);
         return;
       }
 

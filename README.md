@@ -15,6 +15,9 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
   - 基于 `client_msg_id` + MongoDB 唯一索引实现幂等去重。
   - 推送失败时进入 Redis 延迟重试队列，按指数退避重试。
   - 自动向发送方发送 Send Receipt，向在线接收方发送 Delivery Receipt。
+- 支持消息撤回：发送方按 `topic_seq` 撤回，在线客户端收到 Recall Notice，离线拉取保留撤回状态。
+- 撤回默认限制为 2 分钟；群聊撤回会向在线群成员实时广播，服务端仍会再次校验窗口和发送者权限。
+  - Kafka 默认 3 分区；消费者按分区并行处理，失败消息本地重试后写入 `<topic>-dlq` 死信队列。
 - **灵活分派策略**：DispatchService 支持一致性哈希（默认）与最小连接数策略，Gateway 节点通过 Redis 心跳自动发现。
 - **官方 Web 客户端**：基于 Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui 构建，支持单聊、群聊、用户搜索、会话列表与实时消息推送（[web/app](web/app)）。
 - **Go SDK 与示例应用**：提供开箱即用的 Go SDK（[pkg/sdk](pkg/sdk)）以及完整聊天示例（[examples/chatapp](examples/chatapp)）。
@@ -114,6 +117,24 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 ```
 
 ## 快速开始
+
+## 已知限制
+
+- 撤回目前按发送方 + `topic_seq` 授权；P2P 和群聊在线成员会收到通知，离线客户端在拉取历史消息时看到撤回状态。
+- Kafka Compose 示例使用单 broker、3 分区、单副本，生产环境应提高 broker/副本数并配置监控、认证与保留策略。
+- 集成测试依赖 PostgreSQL、Redis、MongoDB、Kafka；CI 的基础 Go 检查默认不启动外部依赖，完整集成测试请运行 `make test`。
+
+### 示例演示：多 worker 消费组
+
+`msgworker` 是独立进程，多个实例共享 `consumer_group`，Kafka 会按 partition 自动分配负载。项目提供了三实例演示入口：
+
+```bash
+make demo-scale
+docker compose -f docker-compose.yml -f docker-compose.scale.yml ps
+docker compose -f docker-compose.yml -f docker-compose.scale.yml logs -f msgworker
+```
+
+演示环境仍使用单 Kafka broker + 3 分区以降低资源占用；生产环境应扩展 broker 数量并将副本因子提高到 3。停止任一 worker 后，Kafka 会触发再均衡，其分区会被其他 worker 接管。
 
 ### 1. 启动基础设施
 

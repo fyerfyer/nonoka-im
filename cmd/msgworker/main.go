@@ -272,6 +272,7 @@ func msgworkerConfigFromProto(kc *conf.Data_Kafka) msgworker.KafkaConsumerConfig
 		MinBytes:    int(kc.GetMinBytes()),
 		MaxBytes:    int(kc.GetMaxBytes()),
 		MaxRetries:  int(kc.GetMaxRetries()),
+		DLQTopic:    kc.GetDlqTopic(),
 	}
 	if kc.GetMaxWait() != nil {
 		cfg.MaxWait = kc.GetMaxWait().AsDuration()
