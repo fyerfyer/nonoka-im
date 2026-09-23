@@ -12,6 +12,9 @@ import (
 )
 
 func setupGroupMemberTest(t *testing.T) (*data.Data, func()) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires postgres and redis")
+	}
 	confData := &conf.Data{
 		Database: &conf.Data_Database{
 			Driver: "postgres",

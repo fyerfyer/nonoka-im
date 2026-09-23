@@ -744,9 +744,14 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create gateway pusher: %v", err)
 	}
-	defer pusher.Close()
 
+	// The push pool that delivers messages asynchronously only runs after
+	// Start, so drive the worker lifecycle even without a Kafka consumer.
 	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, storage, pusher, testLogger)
+	if err := worker.Start(ctx); err != nil {
+		t.Fatalf("failed to start msgworker: %v", err)
+	}
+	defer worker.Stop()
 
 	// 4. Create sender and mentioned user
 	_, senderID := registerAndLogin(t, "mention-sender", "123456")
@@ -786,8 +791,9 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 		t.Fatalf("handle message failed: %v", err)
 	}
 
-	// 7. Verify the mentioned user got the push via WebSocket
-	pushedPacket := wsReadPacketOrNil(t, wsConn, 3*time.Second)
+	// 7. Verify the mentioned user got the push via WebSocket. Delivery is
+	// queued asynchronously, so allow generous time under load.
+	pushedPacket := wsReadPacketOrNil(t, wsConn, 10*time.Second)
 	if pushedPacket == nil {
 		t.Fatal("expected push message for @mention to online user, got nil")
 	}

@@ -69,6 +69,9 @@ type testServer struct {
 // setupTestServer bootstraps a full HTTP server against the test database.
 // If useKafka is true, it connects to the test Kafka instance; otherwise it uses a no-op producer.
 func setupTestServer(t *testing.T, useKafka bool) *testServer {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires postgres, redis, mongodb and kafka")
+	}
 	ctx := context.Background()
 
 	// 1. Data layer with both PostgreSQL and Redis
@@ -104,13 +107,16 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		t.Fatalf("failed to connect to mongodb: %v", err)
 	}
 	mongoDB := mongoClient.Database(testMongoDB)
+	// Clean collections for test isolation. This must run BEFORE
+	// EnsureIndexes below: dropping a collection also drops its indexes,
+	// including the unique indexes that make message deduplication
+	// race-safe across parallel Kafka partitions.
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes"} {
+		_ = mongoDB.Collection(coll).Drop(ctx)
+	}
 	storage := msgworker.NewMessageStorage(mongoDB, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure mongodb indexes: %v", err)
-	}
-	// Clean collections for test isolation
-	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes"} {
-		_ = mongoDB.Collection(coll).Drop(ctx)
 	}
 
 	// 4. Auth config
@@ -153,7 +159,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 			Brokers:     []string{testKafkaBroker},
 			Topic:       kafkaTopic,
 			BatchSize:   10,
-			MaxAttempts: 10, // extra retries to tolerate test-topic metadata propagation
+			MaxAttempts: 30, // extra retries to tolerate test-topic metadata propagation
 		}
 		msgProducer = gateway.NewKafkaProducer(kafkaCfg, testLogger)
 	} else {
@@ -522,10 +528,12 @@ func cleanupAndCreateTopic(broker, topic string, partitions int) error {
 
 // produceMessageWithRetry attempts to produce a message, retrying transient
 // errors such as "Unknown Topic Or Partition" while Kafka metadata propagates.
-// It is safe for idempotent messages thanks to client_msg_id deduplication.
+// Newly created topics can take seconds to become fully writable, so keep a
+// generous retry budget. It is safe for idempotent messages thanks to
+// client_msg_id deduplication.
 func produceMessageWithRetry(ctx context.Context, t *testing.T, producer *gateway.KafkaProducer, upstream *v1.UpstreamMessage) {
 	t.Helper()
-	const maxAttempts = 10
+	const maxAttempts = 30
 	for i := 0; i < maxAttempts; i++ {
 		err := producer.Produce(ctx, upstream)
 		if err == nil {
@@ -539,7 +547,7 @@ func produceMessageWithRetry(ctx context.Context, t *testing.T, producer *gatewa
 		if !containsAny(errStr, []string{"Unknown Topic Or Partition", "Leader Not Available", "Not Leader For Partition"}) {
 			t.Fatalf("failed to produce message: %v", err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 	}
 }
 
@@ -626,6 +634,9 @@ func waitForMongo(uri string) error {
 
 // setupMongoDB connects to the test MongoDB and returns the database.
 func setupMongoDB(t *testing.T) *mongo.Database {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires mongodb")
+	}
 	if err := waitForMongo(testMongoURI); err != nil {
 		t.Fatalf("mongodb not ready: %v", err)
 	}
@@ -661,6 +672,9 @@ func setupMongoDB(t *testing.T) *mongo.Database {
 
 // setupTestRedis connects to the test Redis and returns the client.
 func setupTestRedis(t *testing.T) redis.UniversalClient {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires redis")
+	}
 	client := redis.NewClient(&redis.Options{
 		Addr: "127.0.0.1:6380",
 	})

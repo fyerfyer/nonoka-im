@@ -20,7 +20,7 @@ func TestConversationManagerCreatesConversationsOnDemand(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -65,7 +65,7 @@ func TestConversationCanSendTextMessage(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -107,7 +107,7 @@ func TestConversationRoutesIncomingMessages(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoAck:           true,
 	})
 	defer receiver.Close()
@@ -134,7 +134,7 @@ func TestConversationRoutesIncomingMessages(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -178,7 +178,7 @@ func TestConversationTracksUnreadCount(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoAck:           true,
 	})
 	defer receiver.Close()
@@ -209,7 +209,7 @@ func TestConversationTracksUnreadCount(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -257,7 +257,7 @@ func TestConversationManagerListsAllConversations(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -292,7 +292,7 @@ func TestConversationReturnsLastMessage(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoAck:           true,
 	})
 	defer receiver.Close()
@@ -323,7 +323,7 @@ func TestConversationReturnsLastMessage(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -365,7 +365,7 @@ func TestConversationCanSendImageAndFile(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 

@@ -507,14 +507,21 @@ func (w *MsgWorker) Start(ctx context.Context) error {
 		go w.pushWorkerLoop()
 	}
 
+	// The consumer is nil when the worker is driven manually (e.g. in tests
+	// that call HandleMessage directly); delivery still works in that case.
+	if w.consumer == nil {
+		return nil
+	}
 	return w.consumer.Start(ctx)
 }
 
 // Stop gracefully stops the worker.
 func (w *MsgWorker) Stop() error {
 	w.log.Info("msgworker stopping")
-	if err := w.consumer.Stop(); err != nil {
-		w.log.Warnf("stop consumer: %v", err)
+	if w.consumer != nil {
+		if err := w.consumer.Stop(); err != nil {
+			w.log.Warnf("stop consumer: %v", err)
+		}
 	}
 
 	w.pushStopOnce.Do(func() {

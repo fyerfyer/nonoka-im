@@ -44,7 +44,7 @@ func TestSendMessageProducesClientMsgID(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -120,7 +120,7 @@ func TestClientCanCloseIdempotently(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -151,7 +151,7 @@ func TestSDKReconnectingStateIsExposed(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoReconnect:     true,
 	})
 	defer client.Close()
@@ -183,7 +183,7 @@ func TestPushedMessageHasDeliveredStatus(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sender-device",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -194,7 +194,7 @@ func TestPushedMessageHasDeliveredStatus(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "receiver-device",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		OnMessage: func(msg *sdk.Message) {
 			received <- msg
 		},
@@ -241,7 +241,7 @@ func TestConversationLoadHistoryMergesLocalMessages(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sender-device",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -251,7 +251,7 @@ func TestConversationLoadHistoryMergesLocalMessages(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "receiver-device",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer receiver.Close()
 

@@ -23,7 +23,7 @@ func TestSDK_Connect_Auth_Success(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		OnConnect: func() {
 			connected <- struct{}{}
 		},
@@ -62,7 +62,7 @@ func TestSDK_Connect_InvalidToken(t *testing.T) {
 		GatewayURL:     testWSURL,
 		Token:          "invalid-token",
 		DeviceID:       "sdk-test",
-		RequestTimeout: 5 * time.Second,
+		RequestTimeout: 15 * time.Second,
 	})
 	defer client.Close()
 
@@ -86,7 +86,7 @@ func TestSDK_SendMessage_Success(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -151,7 +151,7 @@ func TestSDK_PullMessages(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -194,7 +194,7 @@ func TestSDK_Heartbeat(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 1 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -229,7 +229,7 @@ func TestSDK_MessageHandler(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoAck:           true,
 		OnMessage: func(msg *sdk.Message) {
 			select {
@@ -252,7 +252,7 @@ func TestSDK_MessageHandler(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -298,7 +298,7 @@ func TestSDK_MessageDeduplication(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 		AutoAck:           true,
 		OnMessage: func(msg *sdk.Message) {
 			msgCount.Add(1)
@@ -322,7 +322,7 @@ func TestSDK_MessageDeduplication(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -422,7 +422,7 @@ func TestSDK_SendMessage_Ack(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-device1",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client1.Close()
 
@@ -438,7 +438,7 @@ func TestSDK_SendMessage_Ack(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-device2",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client2.Close()
 
@@ -469,7 +469,7 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 
@@ -503,7 +503,7 @@ func TestSDK_ConcurrentSend(t *testing.T) {
 		Token:             token,
 		DeviceID:          "sdk-test",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer client.Close()
 

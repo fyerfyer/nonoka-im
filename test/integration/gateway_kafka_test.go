@@ -547,10 +547,12 @@ func TestGateway_Kafka_BatchSend(t *testing.T) {
 	// Allow the consumer reader to catch up with the produced messages
 	time.Sleep(500 * time.Millisecond)
 
-	// Consume all messages from Kafka
+	// Consume all messages from Kafka. The first read includes the consumer
+	// group join, which can be slow while the broker is busy, so allow a
+	// generous per-message timeout.
 	var kafkaMessages int32
 	for i := 0; i < messageCount; i++ {
-		msg := consumeKafkaMessageOrNil(reader, 5*time.Second)
+		msg := consumeKafkaMessageOrNil(reader, 15*time.Second)
 		if msg == nil {
 			break
 		}

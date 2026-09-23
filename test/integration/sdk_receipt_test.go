@@ -27,7 +27,7 @@ func TestSDK_DeliveryReceipt_StatusUpdate(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		OnDeliveryReceipt: func(topic string, topicSeq uint64, msgID int64) {
 			receiptTopic = topic
 			receiptSeq = topicSeq
@@ -42,7 +42,7 @@ func TestSDK_DeliveryReceipt_StatusUpdate(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		AutoAck:           true,
 	})
 	defer receiver.Close()
@@ -103,7 +103,7 @@ func TestSDK_ReadReceipt_StatusUpdate(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		OnReadReceipt: func(topic string, upToSeq uint64, readerID int64) {
 			receiptTopic = topic
 			receiptSeq = upToSeq
@@ -119,7 +119,7 @@ func TestSDK_ReadReceipt_StatusUpdate(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		AutoAck:           true,
 	})
 	defer receiver.Close()
@@ -199,7 +199,7 @@ func TestSDK_MessageStatusFlow_E2E(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "sdk-device1",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		OnDeliveryReceipt: func(topic string, topicSeq uint64, msgID int64) {
 			delivered.Store(true)
 		},
@@ -215,7 +215,7 @@ func TestSDK_MessageStatusFlow_E2E(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "sdk-device2",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second, // must outlive gateway-side kafka produce retries
 		AutoAck:           true,
 	})
 	defer receiver.Close()

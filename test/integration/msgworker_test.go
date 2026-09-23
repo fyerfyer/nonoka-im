@@ -275,6 +275,9 @@ func TestMsgWorker_ConcurrentMessages(t *testing.T) {
 }
 
 func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires kafka, mongodb and redis")
+	}
 	if err := waitForKafka(testKafkaBroker); err != nil {
 		t.Fatalf("kafka not ready: %v", err)
 	}
@@ -389,6 +392,9 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 }
 
 func TestMsgWorker_KafkaConsumer_GracefulShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode: requires kafka, mongodb and redis")
+	}
 	if err := waitForKafka(testKafkaBroker); err != nil {
 		t.Fatalf("kafka not ready: %v", err)
 	}

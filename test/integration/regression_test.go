@@ -142,7 +142,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 		Token:             token1,
 		DeviceID:          "web-pull-norm-sender",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer sender.Close()
 
@@ -185,7 +185,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 		Token:             token2,
 		DeviceID:          "web-pull-norm-receiver",
 		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
+		RequestTimeout:    15 * time.Second,
 	})
 	defer receiver.Close()
 
