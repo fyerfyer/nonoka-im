@@ -163,15 +163,36 @@ func (p *KafkaProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) er
 		},
 	}
 
-	if err := p.writer.WriteMessages(ctx, kmsg); err != nil {
-		p.log.Errorf("write to kafka failed: topic=%s sender=%d client_msg_id=%s err=%v",
-			msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), err)
-		return fmt.Errorf("write to kafka: %w", err)
+	// Newly created or recreated topics can briefly reject produces while
+	// metadata propagates or partitions initialize. Retry those transient
+	// errors; the write path is idempotent thanks to client_msg_id
+	// deduplication downstream.
+	for attempt := 1; ; attempt++ {
+		err := p.writer.WriteMessages(ctx, kmsg)
+		if err == nil {
+			break
+		}
+		if attempt >= 5 || ctx.Err() != nil || !isTransientProduceError(err) {
+			p.log.Errorf("write to kafka failed: topic=%s sender=%d client_msg_id=%s err=%v",
+				msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), err)
+			return fmt.Errorf("write to kafka: %w", err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	p.log.Debugf("produced message to kafka: topic=%s sender=%d client_msg_id=%s async=%v",
 		msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), p.async)
 	return nil
+}
+
+// isTransientProduceError reports whether err is a transient broker-side
+// produce failure worth retrying: topic metadata propagation and leader
+// election windows surface these briefly after topic creation or recreation.
+func isTransientProduceError(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "Unknown Topic Or Partition") ||
+		strings.Contains(s, "Leader Not Available") ||
+		strings.Contains(s, "Not Leader For Partition")
 }
 
 // Close closes the Kafka writer.
