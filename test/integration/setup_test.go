@@ -413,9 +413,14 @@ func registerAndLogin(t *testing.T, username, password string) (token string, us
 		"password": password,
 	})
 	respReg.Body.Close()
-	if respReg.StatusCode != http.StatusOK && respReg.StatusCode != http.StatusBadRequest {
-		// If not OK and not already exists, fail
-		// We'll check login anyway
+	if respReg.StatusCode >= 500 {
+		// Transient server errors under concurrent load must not fail the
+		// login below; the user may or may not have been persisted.
+		respReg = httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
+			"username": username,
+			"password": password,
+		})
+		respReg.Body.Close()
 	}
 
 	// Login
