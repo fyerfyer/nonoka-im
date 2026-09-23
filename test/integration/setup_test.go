@@ -147,13 +147,11 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 			t.Fatalf("kafka not ready: %v", err)
 		}
 		kafkaTopic = testKafkaTopic
-		// Recreate topic fresh for each test to ensure isolation
-		if err := cleanupAndCreateTopic(testKafkaBroker, kafkaTopic, 3); err != nil {
+		// Recreate topic fresh for each test to ensure isolation, and verify
+		// the recreation survives the broker's asynchronous deletion of the
+		// previous incarnation (see recreateTopicStable).
+		if err := recreateTopicStable(testKafkaBroker, kafkaTopic, 3); err != nil {
 			t.Fatalf("failed to create kafka topic: %v", err)
-		}
-		// Wait for topic to be fully ready (all partitions have leaders)
-		if err := waitForTopicReady(testKafkaBroker, kafkaTopic); err != nil {
-			t.Fatalf("kafka topic not ready: %v", err)
 		}
 		kafkaCfg := gateway.KafkaConfig{
 			Brokers:     []string{testKafkaBroker},
@@ -486,6 +484,41 @@ func waitForKafka(broker string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("kafka broker did not become ready in time")
+}
+
+// recreateTopicStable deletes and recreates a topic like
+// cleanupAndCreateTopic, then guards against the broker's asynchronous
+// deletion: when a topic is deleted and immediately recreated with the same
+// name, the broker can finish deleting the old incarnation after the new one
+// was created, purging the live topic mid-test and breaking every subsequent
+// produce with "Unknown Topic Or Partition". The purge is a one-shot event,
+// so keeping the partitions alive through a short settle period proves the
+// recreation is final.
+func recreateTopicStable(broker, topic string, partitions int) error {
+	const rounds = 3
+	for round := 0; round < rounds; round++ {
+		if err := cleanupAndCreateTopic(broker, topic, partitions); err != nil {
+			return err
+		}
+		survived := true
+		for i := 0; i < 10; i++ {
+			time.Sleep(300 * time.Millisecond)
+			conn, err := kafka.Dial("tcp", broker)
+			if err != nil {
+				return err
+			}
+			parts, err := conn.ReadPartitions(topic)
+			conn.Close()
+			if err != nil || len(parts) == 0 {
+				survived = false
+				break
+			}
+		}
+		if survived {
+			return nil
+		}
+	}
+	return fmt.Errorf("topic %s was purged %d times after recreation", topic, rounds)
 }
 
 // cleanupAndCreateTopic deletes a Kafka topic if it exists and recreates it fresh.
