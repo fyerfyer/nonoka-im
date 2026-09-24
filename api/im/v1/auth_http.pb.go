@@ -20,10 +20,19 @@ var _ = binding.EncodeURL
 const _ = http.SupportPackageIsVersion1
 
 const OperationAuthServiceLogin = "/api.im.v1.AuthService/Login"
+const OperationAuthServiceLogout = "/api.im.v1.AuthService/Logout"
+const OperationAuthServiceRefreshToken = "/api.im.v1.AuthService/RefreshToken"
 const OperationAuthServiceRegister = "/api.im.v1.AuthService/Register"
 
 type AuthServiceHTTPServer interface {
 	Login(context.Context, *LoginRequest) (*LoginReply, error)
+	// Logout Logout revokes the refresh token of the authenticated device.
+	// Requires a valid access token (Authorization header).
+	Logout(context.Context, *LogoutRequest) (*LogoutReply, error)
+	// RefreshToken RefreshToken rotates a refresh token pair. It is a public endpoint:
+	// clients call it after the access token has expired, so no JWT is
+	// required; the caller proves possession of the refresh token instead.
+	RefreshToken(context.Context, *RefreshTokenRequest) (*LoginReply, error)
 	Register(context.Context, *RegisterRequest) (*RegisterReply, error)
 }
 
@@ -31,6 +40,8 @@ func RegisterAuthServiceHTTPServer(s *http.Server, srv AuthServiceHTTPServer) {
 	r := s.Route("/")
 	r.POST("/v1/auth/register", _AuthService_Register0_HTTP_Handler(srv))
 	r.POST("/v1/auth/login", _AuthService_Login0_HTTP_Handler(srv))
+	r.POST("/v1/auth/refresh", _AuthService_RefreshToken0_HTTP_Handler(srv))
+	r.POST("/v1/auth/logout", _AuthService_Logout0_HTTP_Handler(srv))
 }
 
 func _AuthService_Register0_HTTP_Handler(srv AuthServiceHTTPServer) func(ctx http.Context) error {
@@ -77,8 +88,59 @@ func _AuthService_Login0_HTTP_Handler(srv AuthServiceHTTPServer) func(ctx http.C
 	}
 }
 
+func _AuthService_RefreshToken0_HTTP_Handler(srv AuthServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in RefreshTokenRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAuthServiceRefreshToken)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.RefreshToken(ctx, req.(*RefreshTokenRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*LoginReply)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _AuthService_Logout0_HTTP_Handler(srv AuthServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in LogoutRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAuthServiceLogout)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.Logout(ctx, req.(*LogoutRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*LogoutReply)
+		return ctx.Result(200, reply)
+	}
+}
+
 type AuthServiceHTTPClient interface {
 	Login(ctx context.Context, req *LoginRequest, opts ...http.CallOption) (rsp *LoginReply, err error)
+	// Logout Logout revokes the refresh token of the authenticated device.
+	// Requires a valid access token (Authorization header).
+	Logout(ctx context.Context, req *LogoutRequest, opts ...http.CallOption) (rsp *LogoutReply, err error)
+	// RefreshToken RefreshToken rotates a refresh token pair. It is a public endpoint:
+	// clients call it after the access token has expired, so no JWT is
+	// required; the caller proves possession of the refresh token instead.
+	RefreshToken(ctx context.Context, req *RefreshTokenRequest, opts ...http.CallOption) (rsp *LoginReply, err error)
 	Register(ctx context.Context, req *RegisterRequest, opts ...http.CallOption) (rsp *RegisterReply, err error)
 }
 
@@ -95,6 +157,37 @@ func (c *AuthServiceHTTPClientImpl) Login(ctx context.Context, in *LoginRequest,
 	pattern := "/v1/auth/login"
 	path := binding.EncodeURL(pattern, in, false)
 	opts = append(opts, http.Operation(OperationAuthServiceLogin))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Logout Logout revokes the refresh token of the authenticated device.
+// Requires a valid access token (Authorization header).
+func (c *AuthServiceHTTPClientImpl) Logout(ctx context.Context, in *LogoutRequest, opts ...http.CallOption) (*LogoutReply, error) {
+	var out LogoutReply
+	pattern := "/v1/auth/logout"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationAuthServiceLogout))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RefreshToken RefreshToken rotates a refresh token pair. It is a public endpoint:
+// clients call it after the access token has expired, so no JWT is
+// required; the caller proves possession of the refresh token instead.
+func (c *AuthServiceHTTPClientImpl) RefreshToken(ctx context.Context, in *RefreshTokenRequest, opts ...http.CallOption) (*LoginReply, error) {
+	var out LoginReply
+	pattern := "/v1/auth/refresh"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationAuthServiceRefreshToken))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
 	if err != nil {

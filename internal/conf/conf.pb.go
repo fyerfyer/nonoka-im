@@ -227,11 +227,16 @@ func (x *Data) GetKafka() *Data_Kafka {
 }
 
 type Auth struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	JwtSecret     string                 `protobuf:"bytes,1,opt,name=jwt_secret,json=jwtSecret,proto3" json:"jwt_secret,omitempty"`
-	TokenTtl      *durationpb.Duration   `protobuf:"bytes,2,opt,name=token_ttl,json=tokenTtl,proto3" json:"token_ttl,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	JwtSecret string                 `protobuf:"bytes,1,opt,name=jwt_secret,json=jwtSecret,proto3" json:"jwt_secret,omitempty"`
+	// Access token TTL. Keep this short (e.g., 24h) and pair it with
+	// refresh_token_ttl so clients can rotate tokens without re-login.
+	TokenTtl *durationpb.Duration `protobuf:"bytes,2,opt,name=token_ttl,json=tokenTtl,proto3" json:"token_ttl,omitempty"`
+	// Refresh token TTL (e.g., 720h/30d). Refresh tokens are opaque random
+	// strings stored hashed in Redis and rotated on every use.
+	RefreshTokenTtl *durationpb.Duration `protobuf:"bytes,3,opt,name=refresh_token_ttl,json=refreshTokenTtl,proto3" json:"refresh_token_ttl,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Auth) Reset() {
@@ -274,6 +279,13 @@ func (x *Auth) GetJwtSecret() string {
 func (x *Auth) GetTokenTtl() *durationpb.Duration {
 	if x != nil {
 		return x.TokenTtl
+	}
+	return nil
+}
+
+func (x *Auth) GetRefreshTokenTtl() *durationpb.Duration {
+	if x != nil {
+		return x.RefreshTokenTtl
 	}
 	return nil
 }
@@ -1255,11 +1267,12 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\n" +
 	"partitions\x18\x15 \x01(\x05R\n" +
 	"partitions\x12\x1b\n" +
-	"\tdlq_topic\x18\x16 \x01(\tR\bdlqTopic\"]\n" +
+	"\tdlq_topic\x18\x16 \x01(\tR\bdlqTopic\"\xa4\x01\n" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
-	"\ttoken_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\btokenTtl\"s\n" +
+	"\ttoken_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\btokenTtl\x12E\n" +
+	"\x11refresh_token_ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0frefreshTokenTtl\"s\n" +
 	"\vGatewayNode\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +
@@ -1334,33 +1347,34 @@ var file_conf_conf_proto_depIdxs = []int32{
 	13, // 10: kratos.api.Data.mongodb:type_name -> kratos.api.Data.MongoDB
 	14, // 11: kratos.api.Data.kafka:type_name -> kratos.api.Data.Kafka
 	15, // 12: kratos.api.Auth.token_ttl:type_name -> google.protobuf.Duration
-	15, // 13: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
-	15, // 14: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
-	15, // 15: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
-	15, // 16: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
-	15, // 17: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
-	4,  // 18: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
-	15, // 19: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
-	15, // 20: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
-	15, // 21: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
-	15, // 22: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 23: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 24: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	15, // 25: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	15, // 26: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
-	15, // 27: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	15, // 28: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	15, // 29: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
-	15, // 30: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
-	15, // 31: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
-	15, // 32: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
-	15, // 33: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
-	15, // 34: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	15, // 13: kratos.api.Auth.refresh_token_ttl:type_name -> google.protobuf.Duration
+	15, // 14: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
+	15, // 15: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
+	15, // 16: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
+	15, // 17: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
+	15, // 18: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
+	4,  // 19: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
+	15, // 20: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
+	15, // 21: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
+	15, // 22: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
+	15, // 23: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
+	15, // 24: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
+	15, // 25: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	15, // 26: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	15, // 27: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
+	15, // 28: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	15, // 29: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	15, // 30: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
+	15, // 31: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
+	15, // 32: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
+	15, // 33: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
+	15, // 34: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
+	15, // 35: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }

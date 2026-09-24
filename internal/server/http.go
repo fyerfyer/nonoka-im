@@ -35,6 +35,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 				switch operation {
 				case "/api.im.v1.AuthService/Register",
 					"/api.im.v1.AuthService/Login",
+					"/api.im.v1.AuthService/RefreshToken",
 					"/api.im.v1.DispatchService/Gateway":
 					return false
 				}

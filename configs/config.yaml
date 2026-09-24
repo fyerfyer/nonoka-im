@@ -63,7 +63,13 @@ gateway:
     - "*"
 auth:
   jwt_secret: change-me-in-production-use-random-string
-  token_ttl: 604800s
+  # Access token TTL. Kept short on purpose: clients obtain a new pair via
+  # POST /v1/auth/refresh before the access token expires.
+  token_ttl: 24h
+  # Refresh token TTL (30 days). Opaque random tokens stored hashed in Redis
+  # (im:refresh:{user_id}:{device_id}), rotated on every refresh and revoked
+  # on logout.
+  refresh_token_ttl: 720h
 msgworker:
   session_cache_ttl: 5s
   receipt_batch_size: 32

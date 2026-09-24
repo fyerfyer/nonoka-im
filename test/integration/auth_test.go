@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -184,4 +185,142 @@ func TestDispatch_Gateway_PublicAccess(t *testing.T) {
 	if reply.GatewayUrl == "" {
 		t.Fatalf("expected non-empty gateway_url")
 	}
+}
+
+// httpPostWithToken sends an authed POST request with a JSON body.
+func httpPostWithToken(t *testing.T, url, token string, body interface{}) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		t.Fatalf("failed to encode request body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, url, &buf)
+	if err != nil {
+		t.Fatalf("failed to create POST request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to POST %s: %v", url, err)
+	}
+	return resp
+}
+
+// registerAndLogin registers a fresh user and logs in, returning the login reply.
+func registerAndLoginFull(t *testing.T, username string) *v1.LoginReply {
+	t.Helper()
+	respReg := httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
+		"username": username,
+		"password": "123456",
+	})
+	respReg.Body.Close()
+	assertStatusCode(t, respReg, http.StatusOK)
+
+	resp := httpPost(t, testBaseURL+"/v1/auth/login", map[string]string{
+		"username": username,
+		"password": "123456",
+		"deviceId": "web-it",
+	})
+	defer resp.Body.Close()
+	assertStatusCode(t, resp, http.StatusOK)
+
+	var reply v1.LoginReply
+	decodeProtoJSON(t, resp.Body, &reply)
+	if reply.Token == "" || reply.RefreshToken == "" {
+		t.Fatalf("expected non-empty token and refresh_token, got token=%q refresh=%q", reply.Token, reply.RefreshToken)
+	}
+	return &reply
+}
+
+func TestAuth_RefreshToken_Rotation(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	login := registerAndLoginFull(t, "refresh-rotate")
+
+	// Refresh with the issued refresh token returns a brand-new pair.
+	resp := httpPost(t, testBaseURL+"/v1/auth/refresh", map[string]interface{}{
+		"userId":       login.UserId,
+		"deviceId":     "web-it",
+		"refreshToken": login.RefreshToken,
+	})
+	defer resp.Body.Close()
+	assertStatusCode(t, resp, http.StatusOK)
+
+	var rotated v1.LoginReply
+	decodeProtoJSON(t, resp.Body, &rotated)
+	if rotated.Token == "" || rotated.RefreshToken == "" {
+		t.Fatalf("expected rotated token pair, got %s", rotated.String())
+	}
+	if rotated.RefreshToken == login.RefreshToken {
+		t.Fatalf("refresh token was not rotated")
+	}
+
+	// The old refresh token must be rejected after rotation.
+	respOld := httpPost(t, testBaseURL+"/v1/auth/refresh", map[string]interface{}{
+		"userId":       login.UserId,
+		"deviceId":     "web-it",
+		"refreshToken": login.RefreshToken,
+	})
+	defer respOld.Body.Close()
+	assertStatusCode(t, respOld, http.StatusUnauthorized)
+
+	// The new refresh token works.
+	respNew := httpPost(t, testBaseURL+"/v1/auth/refresh", map[string]interface{}{
+		"userId":       rotated.UserId,
+		"deviceId":     "web-it",
+		"refreshToken": rotated.RefreshToken,
+	})
+	defer respNew.Body.Close()
+	assertStatusCode(t, respNew, http.StatusOK)
+}
+
+func TestAuth_RefreshToken_Invalid(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	login := registerAndLoginFull(t, "refresh-invalid")
+
+	resp := httpPost(t, testBaseURL+"/v1/auth/refresh", map[string]interface{}{
+		"userId":       login.UserId,
+		"deviceId":     "web-it",
+		"refreshToken": "not-a-real-token",
+	})
+	defer resp.Body.Close()
+	assertStatusCode(t, resp, http.StatusUnauthorized)
+}
+
+func TestAuth_Logout_RevokesRefreshToken(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	login := registerAndLoginFull(t, "logout-user")
+
+	// Logout requires authentication.
+	respNoAuth := httpPostWithToken(t, testBaseURL+"/v1/auth/logout", "", map[string]string{})
+	defer respNoAuth.Body.Close()
+	assertStatusCode(t, respNoAuth, http.StatusUnauthorized)
+
+	// Authenticated logout revokes the refresh token.
+	resp := httpPostWithToken(t, testBaseURL+"/v1/auth/logout", login.Token, map[string]string{})
+	defer resp.Body.Close()
+	assertStatusCode(t, resp, http.StatusOK)
+
+	var logoutReply v1.LogoutReply
+	decodeProtoJSON(t, resp.Body, &logoutReply)
+	if !logoutReply.Success {
+		t.Fatalf("expected logout success")
+	}
+
+	// Refresh with the revoked token is rejected.
+	respRef := httpPost(t, testBaseURL+"/v1/auth/refresh", map[string]interface{}{
+		"userId":       login.UserId,
+		"deviceId":     "web-it",
+		"refreshToken": login.RefreshToken,
+	})
+	defer respRef.Body.Close()
+	assertStatusCode(t, respRef, http.StatusUnauthorized)
 }

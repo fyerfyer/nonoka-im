@@ -20,6 +20,25 @@ service AuthService {
       body: "*"
     };
   }
+
+  // RefreshToken rotates a refresh token pair. It is a public endpoint:
+  // clients call it after the access token has expired, so no JWT is
+  // required; the caller proves possession of the refresh token instead.
+  rpc RefreshToken (RefreshTokenRequest) returns (LoginReply) {
+    option (google.api.http) = {
+      post: "/v1/auth/refresh"
+      body: "*"
+    };
+  }
+
+  // Logout revokes the refresh token of the authenticated device.
+  // Requires a valid access token (Authorization header).
+  rpc Logout (LogoutRequest) returns (LogoutReply) {
+    option (google.api.http) = {
+      post: "/v1/auth/logout"
+      body: "*"
+    };
+  }
 }
 
 message RegisterRequest {
@@ -41,4 +60,20 @@ message LoginRequest {
 message LoginReply {
   int64 user_id = 1;
   string token = 2;
+  // Opaque refresh token (not a JWT). Store it securely and present it to
+  // RefreshToken to obtain a new access/refresh token pair.
+  string refresh_token = 3;
+}
+
+message RefreshTokenRequest {
+  int64 user_id = 1;
+  string device_id = 2;
+  string refresh_token = 3;
+}
+
+message LogoutRequest {
+}
+
+message LogoutReply {
+  bool success = 1;
 }

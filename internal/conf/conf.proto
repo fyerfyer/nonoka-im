@@ -88,7 +88,12 @@ message Data {
 
 message Auth {
   string jwt_secret = 1;
+  // Access token TTL. Keep this short (e.g., 24h) and pair it with
+  // refresh_token_ttl so clients can rotate tokens without re-login.
   google.protobuf.Duration token_ttl = 2;
+  // Refresh token TTL (e.g., 720h/30d). Refresh tokens are opaque random
+  // strings stored hashed in Redis and rotated on every use.
+  google.protobuf.Duration refresh_token_ttl = 3;
 }
 
 message GatewayNode {

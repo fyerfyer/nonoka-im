@@ -99,6 +99,13 @@ export interface LoginRequest {
 export interface LoginReply {
   userId: number;
   token: string;
+  refreshToken: string;
+}
+
+export interface RefreshRequest {
+  userId: number;
+  deviceId: string;
+  refreshToken: string;
 }
 
 export interface RegisterRequest {
@@ -140,6 +147,8 @@ export const authApi = {
   login: (req: LoginRequest) => api.post<LoginReply>("/v1/auth/login", req),
   register: (req: RegisterRequest) =>
     api.post<RegisterReply>("/v1/auth/register", req),
+  refresh: (req: RefreshRequest) =>
+    api.post<LoginReply>("/v1/auth/refresh", req),
 };
 
 export const userApi = {

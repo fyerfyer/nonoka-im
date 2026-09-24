@@ -24,6 +24,49 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.LoginReply'
+    /v1/auth/logout:
+        post:
+            tags:
+                - AuthService
+            description: |-
+                Logout revokes the refresh token of the authenticated device.
+                 Requires a valid access token (Authorization header).
+            operationId: AuthService_Logout
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.im.v1.LogoutRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.LogoutReply'
+    /v1/auth/refresh:
+        post:
+            tags:
+                - AuthService
+            description: |-
+                RefreshToken rotates a refresh token pair. It is a public endpoint:
+                 clients call it after the access token has expired, so no JWT is
+                 required; the caller proves possession of the refresh token instead.
+            operationId: AuthService_RefreshToken
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.im.v1.RefreshTokenRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.LoginReply'
     /v1/auth/register:
         post:
             tags:
@@ -413,6 +456,11 @@ components:
                     type: string
                 token:
                     type: string
+                refreshToken:
+                    type: string
+                    description: |-
+                        Opaque refresh token (not a JWT). Store it securely and present it to
+                         RefreshToken to obtain a new access/refresh token pair.
         api.im.v1.LoginRequest:
             type: object
             properties:
@@ -423,6 +471,14 @@ components:
                 deviceId:
                     type: string
                     description: Reserved for future use
+        api.im.v1.LogoutReply:
+            type: object
+            properties:
+                success:
+                    type: boolean
+        api.im.v1.LogoutRequest:
+            type: object
+            properties: {}
         api.im.v1.MarkConversationReadRequest:
             type: object
             properties:
@@ -464,6 +520,15 @@ components:
                 nextSeq:
                     type: string
             description: PullReply is sent by server in response to PullRequest.
+        api.im.v1.RefreshTokenRequest:
+            type: object
+            properties:
+                userId:
+                    type: string
+                deviceId:
+                    type: string
+                refreshToken:
+                    type: string
         api.im.v1.RegisterReply:
             type: object
             properties:
