@@ -247,6 +247,9 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
 	}
+	if gatewayConf != nil && gatewayConf.MsgRateLimit != nil {
+		h.SetMessageRateLimit(gatewayConf.MsgRateLimit.MsgPerSec, int(gatewayConf.MsgRateLimit.Burst))
+	}
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
 		members, err := groups.ListMembers(ctx, groupID)
 		if err != nil {
@@ -259,6 +262,13 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 		return ids, nil
 	})
 	return h
+}
+
+// provideAuthRateLimiter builds the auth-endpoint rate limiter on the
+// shared Redis client. A missing Redis client yields a disabled limiter
+// (Allow always true) so auth never hard-fails on infra misconfiguration.
+func provideAuthRateLimiter(r redis.UniversalClient, logger log.Logger) *server.AuthRateLimiter {
+	return server.NewAuthRateLimiter(r, logger)
 }
 
 type sessionPresenceChecker struct {
@@ -299,6 +309,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideHeartbeatConfig,
 		provideWebSocketServer,
 		provideHandler,
+		provideAuthRateLimiter,
 		provideUserService,
 		provideRedisClient,
 		provideKafkaConfig,

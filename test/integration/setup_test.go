@@ -168,6 +168,10 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
+	// Integration tests intentionally exercise rapid/burst traffic, so the
+	// per-connection publish rate limiter is disabled here. It is covered by
+	// unit tests and enabled with real defaults in the wire assembly.
+	gwHandler.SetMessageRateLimit(0, 0)
 	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second, 10*time.Second, nil)
 
 	// 7. Message service (with producer for HTTP fallback)
@@ -228,7 +232,10 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
 	testMetrics := metrics.NewMetrics()
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, wsServer, authConf, nil, testLogger, testMetrics)
+	// Rate limiting is disabled in the integration harness: several existing
+	// tests deliberately hammer login/register and rapid WS publishes. The
+	// limiter logic itself is covered by unit tests.
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, wsServer, authConf, nil, nil, testLogger, testMetrics)
 
 	// 8. Start HTTP server in background
 	go func() {

@@ -3,6 +3,7 @@ module nonoka-im
 go 1.25.0
 
 require (
+	github.com/alicebob/miniredis/v2 v2.34.0
 	github.com/bwmarrin/snowflake v0.3.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/go-kratos/kratos/v2 v2.9.2
@@ -18,6 +19,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.6.0
 	go.uber.org/automaxprocs v1.5.1
 	golang.org/x/crypto v0.51.0
+	golang.org/x/time v0.11.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.36.8
@@ -28,7 +30,6 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/alicebob/gopher-json v0.0.0-20230218143504-906a9b012302 // indirect
-	github.com/alicebob/miniredis/v2 v2.34.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-kratos/aegis v0.2.0 // indirect

@@ -74,7 +74,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, webSocketServer, auth, gatewayConfig, logger, metrics)
+	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	mainNodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
@@ -306,6 +307,9 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
 	}
+	if gatewayConf != nil && gatewayConf.MsgRateLimit != nil {
+		h.SetMessageRateLimit(gatewayConf.MsgRateLimit.MsgPerSec, int(gatewayConf.MsgRateLimit.Burst))
+	}
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
 		members, err := groups.ListMembers(ctx, groupID)
 		if err != nil {
@@ -318,6 +322,13 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 		return ids, nil
 	})
 	return h
+}
+
+// provideAuthRateLimiter builds the auth-endpoint rate limiter on the
+// shared Redis client. A missing Redis client yields a disabled limiter
+// (Allow always true) so auth never hard-fails on infra misconfiguration.
+func provideAuthRateLimiter(r redis.UniversalClient, logger log.Logger) *server.AuthRateLimiter {
+	return server.NewAuthRateLimiter(r, logger)
 }
 
 type sessionPresenceChecker struct {

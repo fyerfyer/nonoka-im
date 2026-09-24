@@ -368,8 +368,13 @@ type GatewayConfig struct {
 	// default). In production, set this to the exact origins that may connect.
 	AllowedOrigins []string `protobuf:"bytes,5,rep,name=allowed_origins,json=allowedOrigins,proto3" json:"allowed_origins,omitempty"`
 	// CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
-	CorsOrigins   []string             `protobuf:"bytes,6,rep,name=cors_origins,json=corsOrigins,proto3" json:"cors_origins,omitempty"`
-	RecallWindow  *durationpb.Duration `protobuf:"bytes,7,opt,name=recall_window,json=recallWindow,proto3" json:"recall_window,omitempty"` // maximum age for message recall
+	CorsOrigins  []string             `protobuf:"bytes,6,rep,name=cors_origins,json=corsOrigins,proto3" json:"cors_origins,omitempty"`
+	RecallWindow *durationpb.Duration `protobuf:"bytes,7,opt,name=recall_window,json=recallWindow,proto3" json:"recall_window,omitempty"` // maximum age for message recall
+	// Per-connection WebSocket message rate limit (token bucket). Limits the
+	// publish rate of a single connection without disconnecting it; excess
+	// publishes are rejected with an error packet. Zero/unset uses the
+	// server-side default (10 msg/s, burst 20).
+	MsgRateLimit  *RateLimit `protobuf:"bytes,8,opt,name=msg_rate_limit,json=msgRateLimit,proto3" json:"msg_rate_limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -453,6 +458,68 @@ func (x *GatewayConfig) GetRecallWindow() *durationpb.Duration {
 	return nil
 }
 
+func (x *GatewayConfig) GetMsgRateLimit() *RateLimit {
+	if x != nil {
+		return x.MsgRateLimit
+	}
+	return nil
+}
+
+// RateLimit is a token-bucket rate limit definition.
+type RateLimit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Sustained messages per second allowed per connection.
+	MsgPerSec float64 `protobuf:"fixed64,1,opt,name=msg_per_sec,json=msgPerSec,proto3" json:"msg_per_sec,omitempty"`
+	// Burst size: maximum number of messages allowed in a short burst.
+	Burst         int32 `protobuf:"varint,2,opt,name=burst,proto3" json:"burst,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RateLimit) Reset() {
+	*x = RateLimit{}
+	mi := &file_conf_conf_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RateLimit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RateLimit) ProtoMessage() {}
+
+func (x *RateLimit) ProtoReflect() protoreflect.Message {
+	mi := &file_conf_conf_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RateLimit.ProtoReflect.Descriptor instead.
+func (*RateLimit) Descriptor() ([]byte, []int) {
+	return file_conf_conf_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RateLimit) GetMsgPerSec() float64 {
+	if x != nil {
+		return x.MsgPerSec
+	}
+	return 0
+}
+
+func (x *RateLimit) GetBurst() int32 {
+	if x != nil {
+		return x.Burst
+	}
+	return 0
+}
+
 type Dispatch struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Gateways          []*GatewayNode         `protobuf:"bytes,1,rep,name=gateways,proto3" json:"gateways,omitempty"`
@@ -465,7 +532,7 @@ type Dispatch struct {
 
 func (x *Dispatch) Reset() {
 	*x = Dispatch{}
-	mi := &file_conf_conf_proto_msgTypes[6]
+	mi := &file_conf_conf_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -477,7 +544,7 @@ func (x *Dispatch) String() string {
 func (*Dispatch) ProtoMessage() {}
 
 func (x *Dispatch) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[6]
+	mi := &file_conf_conf_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -490,7 +557,7 @@ func (x *Dispatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Dispatch.ProtoReflect.Descriptor instead.
 func (*Dispatch) Descriptor() ([]byte, []int) {
-	return file_conf_conf_proto_rawDescGZIP(), []int{6}
+	return file_conf_conf_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Dispatch) GetGateways() []*GatewayNode {
@@ -531,7 +598,7 @@ type Gateway struct {
 
 func (x *Gateway) Reset() {
 	*x = Gateway{}
-	mi := &file_conf_conf_proto_msgTypes[7]
+	mi := &file_conf_conf_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +610,7 @@ func (x *Gateway) String() string {
 func (*Gateway) ProtoMessage() {}
 
 func (x *Gateway) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[7]
+	mi := &file_conf_conf_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -556,7 +623,7 @@ func (x *Gateway) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Gateway.ProtoReflect.Descriptor instead.
 func (*Gateway) Descriptor() ([]byte, []int) {
-	return file_conf_conf_proto_rawDescGZIP(), []int{7}
+	return file_conf_conf_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Gateway) GetNodeId() string {
@@ -591,7 +658,7 @@ type MsgworkerConfig struct {
 
 func (x *MsgworkerConfig) Reset() {
 	*x = MsgworkerConfig{}
-	mi := &file_conf_conf_proto_msgTypes[8]
+	mi := &file_conf_conf_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -603,7 +670,7 @@ func (x *MsgworkerConfig) String() string {
 func (*MsgworkerConfig) ProtoMessage() {}
 
 func (x *MsgworkerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[8]
+	mi := &file_conf_conf_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -616,7 +683,7 @@ func (x *MsgworkerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgworkerConfig.ProtoReflect.Descriptor instead.
 func (*MsgworkerConfig) Descriptor() ([]byte, []int) {
-	return file_conf_conf_proto_rawDescGZIP(), []int{8}
+	return file_conf_conf_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MsgworkerConfig) GetSessionCacheTtl() *durationpb.Duration {
@@ -665,7 +732,7 @@ type Server_HTTP struct {
 
 func (x *Server_HTTP) Reset() {
 	*x = Server_HTTP{}
-	mi := &file_conf_conf_proto_msgTypes[9]
+	mi := &file_conf_conf_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -677,7 +744,7 @@ func (x *Server_HTTP) String() string {
 func (*Server_HTTP) ProtoMessage() {}
 
 func (x *Server_HTTP) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[9]
+	mi := &file_conf_conf_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +792,7 @@ type Server_GRPC struct {
 
 func (x *Server_GRPC) Reset() {
 	*x = Server_GRPC{}
-	mi := &file_conf_conf_proto_msgTypes[10]
+	mi := &file_conf_conf_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -737,7 +804,7 @@ func (x *Server_GRPC) String() string {
 func (*Server_GRPC) ProtoMessage() {}
 
 func (x *Server_GRPC) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[10]
+	mi := &file_conf_conf_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +854,7 @@ type Data_Database struct {
 
 func (x *Data_Database) Reset() {
 	*x = Data_Database{}
-	mi := &file_conf_conf_proto_msgTypes[11]
+	mi := &file_conf_conf_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +866,7 @@ func (x *Data_Database) String() string {
 func (*Data_Database) ProtoMessage() {}
 
 func (x *Data_Database) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[11]
+	mi := &file_conf_conf_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -862,7 +929,7 @@ type Data_Redis struct {
 
 func (x *Data_Redis) Reset() {
 	*x = Data_Redis{}
-	mi := &file_conf_conf_proto_msgTypes[12]
+	mi := &file_conf_conf_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -874,7 +941,7 @@ func (x *Data_Redis) String() string {
 func (*Data_Redis) ProtoMessage() {}
 
 func (x *Data_Redis) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[12]
+	mi := &file_conf_conf_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -933,7 +1000,7 @@ type Data_MongoDB struct {
 
 func (x *Data_MongoDB) Reset() {
 	*x = Data_MongoDB{}
-	mi := &file_conf_conf_proto_msgTypes[13]
+	mi := &file_conf_conf_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +1012,7 @@ func (x *Data_MongoDB) String() string {
 func (*Data_MongoDB) ProtoMessage() {}
 
 func (x *Data_MongoDB) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[13]
+	mi := &file_conf_conf_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1014,7 +1081,7 @@ type Data_Kafka struct {
 
 func (x *Data_Kafka) Reset() {
 	*x = Data_Kafka{}
-	mi := &file_conf_conf_proto_msgTypes[14]
+	mi := &file_conf_conf_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1026,7 +1093,7 @@ func (x *Data_Kafka) String() string {
 func (*Data_Kafka) ProtoMessage() {}
 
 func (x *Data_Kafka) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[14]
+	mi := &file_conf_conf_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1277,7 +1344,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +
 	"gatewayUrl\x12*\n" +
-	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xab\x03\n" +
+	"\x11gateway_grpc_addr\x18\x03 \x01(\tR\x0fgatewayGrpcAddr\"\xe8\x03\n" +
 	"\rGatewayConfig\x12H\n" +
 	"\x12heartbeat_interval\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x11heartbeatInterval\x12F\n" +
 	"\x11heartbeat_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x10heartbeatTimeout\x12<\n" +
@@ -1285,7 +1352,11 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\rwrite_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\fwriteTimeout\x12'\n" +
 	"\x0fallowed_origins\x18\x05 \x03(\tR\x0eallowedOrigins\x12!\n" +
 	"\fcors_origins\x18\x06 \x03(\tR\vcorsOrigins\x12>\n" +
-	"\rrecall_window\x18\a \x01(\v2\x19.google.protobuf.DurationR\frecallWindow\"\xdb\x01\n" +
+	"\rrecall_window\x18\a \x01(\v2\x19.google.protobuf.DurationR\frecallWindow\x12;\n" +
+	"\x0emsg_rate_limit\x18\b \x01(\v2\x15.kratos.api.RateLimitR\fmsgRateLimit\"A\n" +
+	"\tRateLimit\x12\x1e\n" +
+	"\vmsg_per_sec\x18\x01 \x01(\x01R\tmsgPerSec\x12\x14\n" +
+	"\x05burst\x18\x02 \x01(\x05R\x05burst\"\xdb\x01\n" +
 	"\bDispatch\x123\n" +
 	"\bgateways\x18\x01 \x03(\v2\x17.kratos.api.GatewayNodeR\bgateways\x12\x1a\n" +
 	"\bstrategy\x18\x02 \x01(\tR\bstrategy\x12H\n" +
@@ -1314,7 +1385,7 @@ func file_conf_conf_proto_rawDescGZIP() []byte {
 	return file_conf_conf_proto_rawDescData
 }
 
-var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_conf_conf_proto_goTypes = []any{
 	(*Bootstrap)(nil),           // 0: kratos.api.Bootstrap
 	(*Server)(nil),              // 1: kratos.api.Server
@@ -1322,59 +1393,61 @@ var file_conf_conf_proto_goTypes = []any{
 	(*Auth)(nil),                // 3: kratos.api.Auth
 	(*GatewayNode)(nil),         // 4: kratos.api.GatewayNode
 	(*GatewayConfig)(nil),       // 5: kratos.api.GatewayConfig
-	(*Dispatch)(nil),            // 6: kratos.api.Dispatch
-	(*Gateway)(nil),             // 7: kratos.api.Gateway
-	(*MsgworkerConfig)(nil),     // 8: kratos.api.MsgworkerConfig
-	(*Server_HTTP)(nil),         // 9: kratos.api.Server.HTTP
-	(*Server_GRPC)(nil),         // 10: kratos.api.Server.GRPC
-	(*Data_Database)(nil),       // 11: kratos.api.Data.Database
-	(*Data_Redis)(nil),          // 12: kratos.api.Data.Redis
-	(*Data_MongoDB)(nil),        // 13: kratos.api.Data.MongoDB
-	(*Data_Kafka)(nil),          // 14: kratos.api.Data.Kafka
-	(*durationpb.Duration)(nil), // 15: google.protobuf.Duration
+	(*RateLimit)(nil),           // 6: kratos.api.RateLimit
+	(*Dispatch)(nil),            // 7: kratos.api.Dispatch
+	(*Gateway)(nil),             // 8: kratos.api.Gateway
+	(*MsgworkerConfig)(nil),     // 9: kratos.api.MsgworkerConfig
+	(*Server_HTTP)(nil),         // 10: kratos.api.Server.HTTP
+	(*Server_GRPC)(nil),         // 11: kratos.api.Server.GRPC
+	(*Data_Database)(nil),       // 12: kratos.api.Data.Database
+	(*Data_Redis)(nil),          // 13: kratos.api.Data.Redis
+	(*Data_MongoDB)(nil),        // 14: kratos.api.Data.MongoDB
+	(*Data_Kafka)(nil),          // 15: kratos.api.Data.Kafka
+	(*durationpb.Duration)(nil), // 16: google.protobuf.Duration
 }
 var file_conf_conf_proto_depIdxs = []int32{
 	1,  // 0: kratos.api.Bootstrap.server:type_name -> kratos.api.Server
 	2,  // 1: kratos.api.Bootstrap.data:type_name -> kratos.api.Data
 	3,  // 2: kratos.api.Bootstrap.auth:type_name -> kratos.api.Auth
-	6,  // 3: kratos.api.Bootstrap.dispatch:type_name -> kratos.api.Dispatch
+	7,  // 3: kratos.api.Bootstrap.dispatch:type_name -> kratos.api.Dispatch
 	5,  // 4: kratos.api.Bootstrap.gateway:type_name -> kratos.api.GatewayConfig
-	8,  // 5: kratos.api.Bootstrap.msgworker:type_name -> kratos.api.MsgworkerConfig
-	9,  // 6: kratos.api.Server.http:type_name -> kratos.api.Server.HTTP
-	10, // 7: kratos.api.Server.grpc:type_name -> kratos.api.Server.GRPC
-	11, // 8: kratos.api.Data.database:type_name -> kratos.api.Data.Database
-	12, // 9: kratos.api.Data.redis:type_name -> kratos.api.Data.Redis
-	13, // 10: kratos.api.Data.mongodb:type_name -> kratos.api.Data.MongoDB
-	14, // 11: kratos.api.Data.kafka:type_name -> kratos.api.Data.Kafka
-	15, // 12: kratos.api.Auth.token_ttl:type_name -> google.protobuf.Duration
-	15, // 13: kratos.api.Auth.refresh_token_ttl:type_name -> google.protobuf.Duration
-	15, // 14: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
-	15, // 15: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
-	15, // 16: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
-	15, // 17: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
-	15, // 18: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
-	4,  // 19: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
-	15, // 20: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
-	15, // 21: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
-	15, // 22: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
-	15, // 23: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 24: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
-	15, // 25: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	15, // 26: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	15, // 27: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
-	15, // 28: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	15, // 29: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	15, // 30: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
-	15, // 31: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
-	15, // 32: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
-	15, // 33: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
-	15, // 34: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
-	15, // 35: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
-	36, // [36:36] is the sub-list for method output_type
-	36, // [36:36] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	9,  // 5: kratos.api.Bootstrap.msgworker:type_name -> kratos.api.MsgworkerConfig
+	10, // 6: kratos.api.Server.http:type_name -> kratos.api.Server.HTTP
+	11, // 7: kratos.api.Server.grpc:type_name -> kratos.api.Server.GRPC
+	12, // 8: kratos.api.Data.database:type_name -> kratos.api.Data.Database
+	13, // 9: kratos.api.Data.redis:type_name -> kratos.api.Data.Redis
+	14, // 10: kratos.api.Data.mongodb:type_name -> kratos.api.Data.MongoDB
+	15, // 11: kratos.api.Data.kafka:type_name -> kratos.api.Data.Kafka
+	16, // 12: kratos.api.Auth.token_ttl:type_name -> google.protobuf.Duration
+	16, // 13: kratos.api.Auth.refresh_token_ttl:type_name -> google.protobuf.Duration
+	16, // 14: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
+	16, // 15: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
+	16, // 16: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
+	16, // 17: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
+	16, // 18: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
+	6,  // 19: kratos.api.GatewayConfig.msg_rate_limit:type_name -> kratos.api.RateLimit
+	4,  // 20: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
+	16, // 21: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
+	16, // 22: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
+	16, // 23: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
+	16, // 24: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
+	16, // 25: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
+	16, // 26: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	16, // 27: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	16, // 28: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
+	16, // 29: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	16, // 30: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	16, // 31: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
+	16, // 32: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
+	16, // 33: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
+	16, // 34: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
+	16, // 35: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
+	16, // 36: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }
@@ -1388,7 +1461,7 @@ func file_conf_conf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_conf_conf_proto_rawDesc), len(file_conf_conf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

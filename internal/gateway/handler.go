@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
@@ -11,8 +12,19 @@ import (
 	"nonoka-im/internal/msgworker"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"golang.org/x/time/rate"
 
 	jwt5 "github.com/golang-jwt/jwt/v5"
+)
+
+// Default per-connection message rate limit (token bucket) applied to
+// publish packets. Overridable via gateway.msg_rate_limit in config.
+const (
+	defaultMsgRatePerSec = 10.0
+	defaultMsgBurst      = 20
+	// errCodeRateLimited is returned to the sender when a connection
+	// exceeds its publish rate limit. The connection stays open.
+	errCodeRateLimited = 4029
 )
 
 // Handler handles incoming WebSocket packets.
@@ -33,6 +45,12 @@ type Handler struct {
 	sendTimeout  time.Duration
 	recallWindow time.Duration
 	groupMembers func(context.Context, string) ([]int64, error)
+
+	// Per-connection publish rate limit (token bucket). limiters maps
+	// connID to the connection's bucket; entries are removed on close.
+	msgRate  float64
+	msgBurst int
+	limiters sync.Map
 }
 
 // HeartbeatConfig holds heartbeat-related configuration.
@@ -55,12 +73,42 @@ func NewHandler(manager *Manager, sessionManager *SessionManager, producer Messa
 		heartbeatTimeout:  hb.Timeout,
 		sendTimeout:       100 * time.Millisecond,
 		recallWindow:      2 * time.Minute,
+		msgRate:           defaultMsgRatePerSec,
+		msgBurst:          defaultMsgBurst,
 		log:               log.NewHelper(logger),
 	}
 	if len(m) > 0 {
 		h.metrics = m[0]
 	}
 	return h
+}
+
+// SetMessageRateLimit configures the per-connection publish rate limit.
+// msgPerSec <= 0 disables limiting (fail open); burst < 1 resets to 1.
+// Existing per-connection buckets are reset.
+func (h *Handler) SetMessageRateLimit(msgPerSec float64, burst int) {
+	if burst < 1 {
+		burst = 1
+	}
+	if msgPerSec > 0 {
+		h.msgRate = msgPerSec
+		h.msgBurst = burst
+	} else {
+		// Unlimited: a very high rate with the requested burst.
+		h.msgRate = float64(rate.Inf)
+		h.msgBurst = burst
+	}
+	h.limiters = sync.Map{}
+}
+
+// limiterFor returns (creating if needed) the token bucket of a connection.
+func (h *Handler) limiterFor(connID string) *rate.Limiter {
+	if v, ok := h.limiters.Load(connID); ok {
+		return v.(*rate.Limiter)
+	}
+	limiter := rate.NewLimiter(rate.Limit(h.msgRate), h.msgBurst)
+	actual, _ := h.limiters.LoadOrStore(connID, limiter)
+	return actual.(*rate.Limiter)
 }
 
 // SetRecallWindow configures the server-side recall age limit.
@@ -257,6 +305,14 @@ func (h *Handler) handleAuth(c *Connection, packet *v1.Packet) {
 // handlePublish handles client publish messages.
 // It validates the message, produces it to Kafka, and ACKs the client.
 func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
+	// Per-connection token bucket: excess publishes are rejected with an
+	// error packet but the connection stays open.
+	if !h.limiterFor(c.ConnID()).Allow() {
+		h.log.Warnf("publish rate limited: conn %s", c.ConnID())
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, errCodeRateLimited, "rate limit exceeded, slow down")
+		return
+	}
+
 	if c.State() != ConnStateAuthed {
 		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4001, "authentication required")
 		return
@@ -650,6 +706,8 @@ func (h *Handler) sendError(c *Connection, seq uint64, cmd v1.Command, code int3
 
 // OnConnectionClose handles connection cleanup when a connection closes.
 func (h *Handler) OnConnectionClose(c *Connection) {
+	h.limiters.Delete(c.ConnID())
+
 	if c.UserID() != 0 {
 		// Remove from local connection manager
 		h.manager.Remove(c)

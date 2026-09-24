@@ -58,6 +58,11 @@ gateway:
   read_timeout: 60s
   write_timeout: 10s
   recall_window: 120s
+  # Per-connection WebSocket publish rate limit (token bucket). Excess
+  # publishes are rejected with an error packet; the connection stays open.
+  msg_rate_limit:
+    msg_per_sec: 10
+    burst: 20
   allowed_origins: []
   cors_origins:
     - "*"

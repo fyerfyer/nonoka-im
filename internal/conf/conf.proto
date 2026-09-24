@@ -121,6 +121,19 @@ message GatewayConfig {
   // CORS allowed origins for HTTP endpoints. If empty, CORS is disabled.
   repeated string cors_origins = 6;
   google.protobuf.Duration recall_window = 7; // maximum age for message recall
+  // Per-connection WebSocket message rate limit (token bucket). Limits the
+  // publish rate of a single connection without disconnecting it; excess
+  // publishes are rejected with an error packet. Zero/unset uses the
+  // server-side default (10 msg/s, burst 20).
+  RateLimit msg_rate_limit = 8;
+}
+
+// RateLimit is a token-bucket rate limit definition.
+message RateLimit {
+  // Sustained messages per second allowed per connection.
+  double msg_per_sec = 1;
+  // Burst size: maximum number of messages allowed in a short burst.
+  int32 burst = 2;
 }
 
 message Dispatch {

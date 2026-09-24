@@ -13,6 +13,7 @@ import (
 	"nonoka-im/internal/service"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/middleware"
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
 	"github.com/go-kratos/kratos/v2/middleware/selector"
@@ -22,26 +23,40 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, logger log.Logger, m *metrics.Metrics) *khttp.Server {
-	var opts = []khttp.ServerOption{
-		khttp.Middleware(
-			recovery.Recovery(),
-			selector.Server(
-				jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
-					return []byte(authConf.JwtSecret), nil
-				}),
-			).Match(func(ctx context.Context, operation string) bool {
-				// Skip JWT validation for public endpoints
-				switch operation {
-				case "/api.im.v1.AuthService/Register",
-					"/api.im.v1.AuthService/Login",
-					"/api.im.v1.AuthService/RefreshToken",
-					"/api.im.v1.DispatchService/Gateway":
-					return false
-				}
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+	middlewares := []middleware.Middleware{
+		recovery.Recovery(),
+	}
+	if rateLimiter != nil {
+		middlewares = append(middlewares, selector.Server(
+			rateLimiter.Middleware(),
+		).Match(func(ctx context.Context, operation string) bool {
+			switch operation {
+			case "/api.im.v1.AuthService/Login",
+				"/api.im.v1.AuthService/Register":
 				return true
-			}).Build(),
-		),
+			}
+			return false
+		}).Build())
+	}
+	middlewares = append(middlewares, selector.Server(
+		jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
+			return []byte(authConf.JwtSecret), nil
+		}),
+	).Match(func(ctx context.Context, operation string) bool {
+		// Skip JWT validation for public endpoints
+		switch operation {
+		case "/api.im.v1.AuthService/Register",
+			"/api.im.v1.AuthService/Login",
+			"/api.im.v1.AuthService/RefreshToken",
+			"/api.im.v1.DispatchService/Gateway":
+			return false
+		}
+		return true
+	}).Build())
+
+	var opts = []khttp.ServerOption{
+		khttp.Middleware(middlewares...),
 	}
 	if c.Http.Network != "" {
 		opts = append(opts, khttp.Network(c.Http.Network))
