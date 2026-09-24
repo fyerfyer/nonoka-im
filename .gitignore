@@ -50,6 +50,7 @@ cmd/nonoka-im/nonoka-im
 
 # Self files 
 self-files/
+docs/
 .claude/
 /DESIGN.md
 .codegraph/
