@@ -118,24 +118,6 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 
 ## 快速开始
 
-## 已知限制
-
-- 撤回目前按发送方 + `topic_seq` 授权；P2P 和群聊在线成员会收到通知，离线客户端在拉取历史消息时看到撤回状态。
-- Kafka Compose 示例使用单 broker、3 分区、单副本，生产环境应提高 broker/副本数并配置监控、认证与保留策略。
-- 集成测试依赖 PostgreSQL、Redis、MongoDB、Kafka；CI 的基础 Go 检查默认不启动外部依赖，完整集成测试请运行 `make test`。
-
-### 示例演示：多 worker 消费组
-
-`msgworker` 是独立进程，多个实例共享 `consumer_group`，Kafka 会按 partition 自动分配负载。项目提供了三实例演示入口：
-
-```bash
-make demo-scale
-docker compose -f docker-compose.yml -f docker-compose.scale.yml ps
-docker compose -f docker-compose.yml -f docker-compose.scale.yml logs -f msgworker
-```
-
-演示环境仍使用单 Kafka broker + 3 分区以降低资源占用；生产环境应扩展 broker 数量并将副本因子提高到 3。停止任一 worker 后，Kafka 会触发再均衡，其分区会被其他 worker 接管。
-
 ### 1. 启动基础设施
 
 ```bash
@@ -198,6 +180,24 @@ go run ./cmd/client
 ```
 
 更多 SDK 用法请参考 [pkg/sdk/README.md](pkg/sdk/README.md)。
+
+### 示例演示：多 Worker 消费组扩容
+
+`msgworker` 是独立进程，多个实例共享 `consumer_group`，Kafka 会按 partition 自动分配负载。项目提供了三实例演示入口：
+
+```bash
+make demo-scale
+docker compose -f docker-compose.yml -f docker-compose.scale.yml ps
+docker compose -f docker-compose.yml -f docker-compose.scale.yml logs -f msgworker
+```
+
+演示环境仍使用单 Kafka broker + 3 分区以降低资源占用；生产环境应扩展 broker 数量并将副本因子提高到 3。停止任一 worker 后，Kafka 会触发再均衡，其分区会被其他 worker 接管。
+
+## 已知限制
+
+- 撤回目前按发送方 + `topic_seq` 授权；P2P 和群聊在线成员会收到通知，离线客户端在拉取历史消息时看到撤回状态。
+- Kafka Compose 示例使用单 broker、3 分区、单副本，生产环境应提高 broker/副本数并配置监控、认证与保留策略。
+- 集成测试依赖 PostgreSQL、Redis、MongoDB、Kafka；CI 的基础 Go 检查默认不启动外部依赖，完整集成测试请运行 `make test`。
 
 ## WebSocket 协议
 
