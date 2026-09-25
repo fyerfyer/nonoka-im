@@ -235,8 +235,11 @@ type Auth struct {
 	// Refresh token TTL (e.g., 720h/30d). Refresh tokens are opaque random
 	// strings stored hashed in Redis and rotated on every use.
 	RefreshTokenTtl *durationpb.Duration `protobuf:"bytes,3,opt,name=refresh_token_ttl,json=refreshTokenTtl,proto3" json:"refresh_token_ttl,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// bcrypt cost for password hashing; 0 means bcrypt.DefaultCost (10).
+	// Test environments can lower this (e.g., 4) to cut CPU load.
+	BcryptCost    int32 `protobuf:"varint,4,opt,name=bcrypt_cost,json=bcryptCost,proto3" json:"bcrypt_cost,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Auth) Reset() {
@@ -288,6 +291,13 @@ func (x *Auth) GetRefreshTokenTtl() *durationpb.Duration {
 		return x.RefreshTokenTtl
 	}
 	return nil
+}
+
+func (x *Auth) GetBcryptCost() int32 {
+	if x != nil {
+		return x.BcryptCost
+	}
+	return 0
 }
 
 type GatewayNode struct {
@@ -1334,12 +1344,14 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\n" +
 	"partitions\x18\x15 \x01(\x05R\n" +
 	"partitions\x12\x1b\n" +
-	"\tdlq_topic\x18\x16 \x01(\tR\bdlqTopic\"\xa4\x01\n" +
+	"\tdlq_topic\x18\x16 \x01(\tR\bdlqTopic\"\xc5\x01\n" +
 	"\x04Auth\x12\x1d\n" +
 	"\n" +
 	"jwt_secret\x18\x01 \x01(\tR\tjwtSecret\x126\n" +
 	"\ttoken_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\btokenTtl\x12E\n" +
-	"\x11refresh_token_ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0frefreshTokenTtl\"s\n" +
+	"\x11refresh_token_ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x0frefreshTokenTtl\x12\x1f\n" +
+	"\vbcrypt_cost\x18\x04 \x01(\x05R\n" +
+	"bcryptCost\"s\n" +
 	"\vGatewayNode\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vgateway_url\x18\x02 \x01(\tR\n" +

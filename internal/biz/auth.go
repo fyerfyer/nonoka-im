@@ -43,6 +43,9 @@ type AuthUsecase struct {
 	tokenTTL  time.Duration
 	// refreshTTL is how long a refresh token stays valid (rotation window).
 	refreshTTL time.Duration
+	// bcryptCost is the hashing cost for new passwords (bcrypt.DefaultCost
+	// unless overridden; tests lower it to reduce CPU load).
+	bcryptCost int
 }
 
 // Repo returns the underlying AuthRepo for user queries.
@@ -59,11 +62,16 @@ func NewAuthUsecase(repo AuthRepo, authConf *conf.Auth) *AuthUsecase {
 	if authConf.RefreshTokenTtl != nil {
 		refreshTTL = authConf.RefreshTokenTtl.AsDuration()
 	}
+	bcryptCost := bcrypt.DefaultCost
+	if c := int(authConf.BcryptCost); c >= bcrypt.MinCost && c <= bcrypt.MaxCost {
+		bcryptCost = c
+	}
 	return &AuthUsecase{
 		repo:       repo,
 		jwtSecret:  []byte(authConf.JwtSecret),
 		tokenTTL:   ttl,
 		refreshTTL: refreshTTL,
+		bcryptCost: bcryptCost,
 	}
 }
 
@@ -77,7 +85,7 @@ func (uc *AuthUsecase) Register(ctx context.Context, username, password string) 
 		return nil, errors.BadRequest("USERNAME_EXISTS", "username already exists")
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), uc.bcryptCost)
 	if err != nil {
 		return nil, err
 	}

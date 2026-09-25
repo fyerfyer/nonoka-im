@@ -94,6 +94,9 @@ message Auth {
   // Refresh token TTL (e.g., 720h/30d). Refresh tokens are opaque random
   // strings stored hashed in Redis and rotated on every use.
   google.protobuf.Duration refresh_token_ttl = 3;
+  // bcrypt cost for password hashing; 0 means bcrypt.DefaultCost (10).
+  // Test environments can lower this (e.g., 4) to cut CPU load.
+  int32 bcrypt_cost = 4;
 }
 
 message GatewayNode {

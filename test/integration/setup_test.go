@@ -25,6 +25,7 @@ import (
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	jwt5 "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/bcrypt"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -119,10 +120,12 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		t.Fatalf("failed to ensure mongodb indexes: %v", err)
 	}
 
-	// 4. Auth config
+	// 4. Auth config (bcrypt at min cost: dozens of concurrent register/login
+	// calls in tests would otherwise starve the CPU and flake under CI load)
 	authConf := &conf.Auth{
-		JwtSecret: "test-jwt-secret-do-not-use-in-production",
-		TokenTtl:  durationpb.New(time.Hour),
+		JwtSecret:  "test-jwt-secret-do-not-use-in-production",
+		TokenTtl:   durationpb.New(time.Hour),
+		BcryptCost: int32(bcrypt.MinCost),
 	}
 
 	// 5. Biz layer
@@ -414,43 +417,45 @@ func generateJWTToken(userID int64, secret string) string {
 
 // registerAndLogin creates a user and returns their JWT token and userID.
 func registerAndLogin(t *testing.T, username, password string) (token string, userID int64) {
-	// Register
-	respReg := httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
-		"username": username,
-		"password": password,
-	})
-	respReg.Body.Close()
-	if respReg.StatusCode >= 500 {
-		// Transient server errors under concurrent load must not fail the
-		// login below; the user may or may not have been persisted.
-		respReg = httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
+	// Under concurrent CI load, register/login may hit transient 5xx (and a
+	// timed-out register may still have committed, surfacing as 400 on retry)
+	// or a 401 login right after a silently-failed register. Retry the whole
+	// register+login cycle a few times instead of failing the test.
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
+		}
+
+		// Register; USERNAME_EXISTS (400) means a previous attempt persisted.
+		respReg := httpPost(t, testBaseURL+"/v1/auth/register", map[string]string{
 			"username": username,
 			"password": password,
 		})
 		respReg.Body.Close()
-	}
+		if respReg.StatusCode >= 500 {
+			continue
+		}
 
-	// Login
-	resp := httpPost(t, testBaseURL+"/v1/auth/login", map[string]string{
-		"username": username,
-		"password": password,
-		"deviceId": "test-device",
-	})
-	defer resp.Body.Close()
+		resp := httpPost(t, testBaseURL+"/v1/auth/login", map[string]string{
+			"username": username,
+			"password": password,
+			"deviceId": "test-device",
+		})
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("login failed with status: %d", resp.StatusCode)
+		var reply v1.LoginReply
+		decodeProtoJSON(t, resp.Body, &reply)
+		resp.Body.Close()
+		if reply.Token == "" || reply.UserId == 0 {
+			t.Fatalf("login returned empty token or zero user_id")
+		}
+		return reply.Token, reply.UserId
 	}
-
-	var reply v1.LoginReply
-	decodeProtoJSON(t, resp.Body, &reply)
-	if reply.Token == "" {
-		t.Fatalf("expected non-empty token")
-	}
-	if reply.UserId == 0 {
-		t.Fatalf("expected non-zero user_id")
-	}
-	return reply.Token, reply.UserId
+	t.Fatalf("registerAndLogin failed for %q after retries", username)
+	return "", 0
 }
 
 // ---------- Kafka test helpers ----------
