@@ -1,5 +1,5 @@
 import { api } from "@/lib/proto/im";
-import { dispatchApi } from "@/lib/api";
+import { dispatchApi, refreshAuth, forceReLogin } from "@/lib/api";
 import { generateClientMsgId } from "@/lib/uuid";
 
 const { Packet, Command } = api.im.v1;
@@ -73,6 +73,7 @@ export class RealtimeClient extends EventTarget {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private closed = false;
+  private didTokenRefresh = false;
   private authResolver: (() => void) | null = null;
   private authRejecter: ((err: Error) => void) | null = null;
 
@@ -90,6 +91,7 @@ export class RealtimeClient extends EventTarget {
     }
     this.token = token;
     this.closed = false;
+    this.didTokenRefresh = false;
     return this.doConnect();
   }
 
@@ -115,7 +117,33 @@ export class RealtimeClient extends EventTarget {
               this.dispatch("authed");
               resolve();
             })
-            .catch(reject);
+            .catch((err) => {
+              // Expired access token: swap it via the refresh token once,
+              // then reconnect. If the refresh token is also dead, the
+              // session is over — stop reconnecting and force re-login.
+              if (!this.didTokenRefresh && isTokenError(err)) {
+                this.didTokenRefresh = true;
+                cleanup();
+                try {
+                  ws.close();
+                } catch {
+                  // ignore
+                }
+                this.ws = null;
+                refreshAuth()
+                  .then((newToken) => {
+                    this.token = newToken;
+                    resolve(this.doConnect());
+                  })
+                  .catch((refreshErr) => {
+                    this.closed = true;
+                    forceReLogin();
+                    reject(refreshErr);
+                  });
+                return;
+              }
+              reject(err);
+            });
         };
 
         const onMessage = (ev: MessageEvent) => {
@@ -145,7 +173,9 @@ export class RealtimeClient extends EventTarget {
         ws.addEventListener("error", onError);
       });
     } catch (err) {
-      this.scheduleReconnect();
+      if (!this.closed) {
+        this.scheduleReconnect();
+      }
       throw err;
     }
   }
@@ -489,6 +519,11 @@ function getDeviceId(): string {
   } catch {
     return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
+}
+
+function isTokenError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /invalid token|auth failed|unauthorized|401/i.test(msg);
 }
 
 export const realtimeClient = new RealtimeClient();

@@ -30,7 +30,10 @@ export default function LoginPage() {
         username: username.trim(),
         password,
       });
-      login(reply.token, { userId: reply.userId, username: username.trim() });
+      login(reply.token, reply.refreshToken, {
+        userId: reply.userId,
+        username: username.trim(),
+      });
       toast.success("Welcome back!");
       router.push("/chat");
     } catch (err) {

@@ -26,7 +26,7 @@ export function useAuth() {
       try {
         const reply = await authApi.login({ username, password });
         const user: User = { userId: reply.userId, username };
-        store.login(reply.token, user);
+        store.login(reply.token, reply.refreshToken, user);
         toast.success("Login successful");
         router.replace("/chat");
         return true;
@@ -56,6 +56,8 @@ export function useAuth() {
   );
 
   const logout = useCallback(() => {
+    // Best-effort server-side revocation of the refresh token.
+    authApi.logout().catch(() => {});
     store.logout();
     router.replace("/login");
   }, [router, store]);

@@ -25,6 +25,74 @@ function getToken(): string | null {
   return localStorage.getItem("token");
 }
 
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("refreshToken");
+}
+
+// setAuthTokens persists a freshly issued token pair.
+export function setAuthTokens(token: string, refreshToken: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("token", token);
+  if (refreshToken) {
+    localStorage.setItem("refreshToken", refreshToken);
+  }
+}
+
+// DEVICE_ID identifies this client type to the backend; refresh tokens are
+// scoped per (user, device) so it must stay consistent between login and
+// refresh calls.
+export const DEVICE_ID = "web";
+
+function getStoredUser(): { userId: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("user");
+    return raw ? (JSON.parse(raw) as { userId: number }) : null;
+  } catch {
+    return null;
+  }
+}
+
+// forceReLogin drops local credentials and bounces to the login page. Used
+// when the refresh token is missing or rejected (session truly expired).
+export function forceReLogin(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("token");
+  localStorage.removeItem("refreshToken");
+  localStorage.removeItem("user");
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.assign("/login");
+  }
+}
+
+let refreshInflight: Promise<string> | null = null;
+
+// refreshAuth exchanges the stored refresh token for a new token pair.
+// Concurrent callers share one in-flight request.
+export function refreshAuth(): Promise<string> {
+  if (refreshInflight) return refreshInflight;
+  refreshInflight = (async () => {
+    const refreshToken = getRefreshToken();
+    const user = getStoredUser();
+    if (!refreshToken || !user) {
+      throw new AppError("NO_REFRESH_TOKEN", "no refresh token", 401);
+    }
+    const reply = await api.post<LoginReply>("/v1/auth/refresh", {
+      userId: user.userId,
+      deviceId: DEVICE_ID,
+      refreshToken,
+    });
+    setAuthTokens(reply.token, reply.refreshToken);
+    return reply.token;
+  })().finally(() => {
+    refreshInflight = null;
+  });
+  return refreshInflight;
+}
+
+const AUTH_PUBLIC_PATHS = ["/v1/auth/login", "/v1/auth/register", "/v1/auth/refresh"];
+
 function buildURL(path: string): string {
   const base = API_BASE_URL.replace(/\/$/, "");
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -33,7 +101,8 @@ function buildURL(path: string): string {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  allowAuthRetry = true
 ): Promise<T> {
   const url = buildURL(path);
   const headers: Record<string, string> = {
@@ -61,6 +130,22 @@ async function request<T>(
   }
 
   if (!res.ok) {
+    // Access token expired: exchange the refresh token once and retry the
+    // original request with the new token. Public auth paths are excluded
+    // (their 401s are credential errors, not expiry).
+    if (
+      res.status === 401 &&
+      allowAuthRetry &&
+      !AUTH_PUBLIC_PATHS.some((p) => path.startsWith(p))
+    ) {
+      try {
+        await refreshAuth();
+      } catch {
+        forceReLogin();
+        throw new AppError("SESSION_EXPIRED", "session expired", 401);
+      }
+      return request<T>(path, options, false);
+    }
     const err = body as { code?: string; message?: string; reason?: string };
     throw new AppError(
       err.code || `HTTP_${res.status}`,
@@ -144,11 +229,13 @@ export interface ListConversationsReply {
 }
 
 export const authApi = {
-  login: (req: LoginRequest) => api.post<LoginReply>("/v1/auth/login", req),
+  login: (req: LoginRequest) =>
+    api.post<LoginReply>("/v1/auth/login", { ...req, deviceId: DEVICE_ID }),
   register: (req: RegisterRequest) =>
     api.post<RegisterReply>("/v1/auth/register", req),
   refresh: (req: RefreshRequest) =>
     api.post<LoginReply>("/v1/auth/refresh", req),
+  logout: () => api.post<{ success: boolean }>("/v1/auth/logout", {}),
 };
 
 export const userApi = {

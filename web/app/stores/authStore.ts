@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { AuthState, User } from "@/types";
 
 interface AuthStore extends AuthState {
-  login: (token: string, user: User) => void;
+  login: (token: string, refreshToken: string, user: User) => void;
   logout: () => void;
   restoreFromStorage: () => void;
 }
@@ -15,9 +15,10 @@ const initialState: AuthState = {
 
 export const useAuthStore = create<AuthStore>((set) => ({
   ...initialState,
-  login: (token, user) => {
+  login: (token, refreshToken, user) => {
     if (typeof window !== "undefined") {
       localStorage.setItem("token", token);
+      localStorage.setItem("refreshToken", refreshToken);
       localStorage.setItem("user", JSON.stringify(user));
     }
     set({ token, user, isAuthenticated: true });
@@ -25,6 +26,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
   logout: () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem("token");
+      localStorage.removeItem("refreshToken");
       localStorage.removeItem("user");
     }
     set(initialState);
