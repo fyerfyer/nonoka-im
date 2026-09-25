@@ -22,7 +22,7 @@ data:
     write_concern: w1
   kafka:
     brokers:
-    - kafka:9092
+    - kafka:19092
     topic: im-messages
     partitions: 3
     dlq_topic: im-messages-dlq

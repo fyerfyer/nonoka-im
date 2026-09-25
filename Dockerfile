@@ -1,5 +1,10 @@
 FROM golang:1.25-alpine AS builder
 
+# Module proxy is a build arg so regions without access to proxy.golang.org
+# can override it (default suits the maintainer's network).
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,7 +15,7 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=docker" -o /src/bin/msgwork
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /src/bin/nonoka-im /src/bin/msgworker /app/
 

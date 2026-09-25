@@ -1,13 +1,11 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: nonoka_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: root
-      POSTGRES_DB: nonoka_im
+      POSTGRES_USER: nonoka
+      POSTGRES_PASSWORD: nonoka
+      POSTGRES_DB: nonoka
     ports:
       - "5432:5432"
     volumes:
@@ -95,7 +93,7 @@ services:
       - ./configs/config.docker.yaml:/data/conf/config.yaml:ro
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.yaml"]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/nginx-health || true"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/metrics > /dev/null"]
       interval: 5s
       timeout: 5s
       retries: 10
