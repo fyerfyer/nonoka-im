@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { conversationApi, groupApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -6,10 +6,27 @@ import { Conversation, Group } from "@/types";
 import { toast } from "sonner";
 
 export function useConversations() {
-  const user = useAuthStore((s) => s.user);
   const mounted = useRef(false);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      void refreshConversations();
+    }
+  }, []);
+
+  return { refresh: refreshConversations };
+}
+
+let refreshInflight: Promise<void> | null = null;
+
+// refreshConversations reloads the conversation list from the server and is
+// deduplicated while a request is in flight, so realtime handlers can call it
+// freely when a push arrives for a conversation with no local metadata.
+export function refreshConversations(): Promise<void> {
+  if (refreshInflight) return refreshInflight;
+  refreshInflight = (async () => {
+    const user = useAuthStore.getState().user;
     if (!user) return;
     try {
       const [convReply, groupReply] = await Promise.all([
@@ -69,14 +86,8 @@ export function useConversations() {
         }`
       );
     }
-  }, [user]);
-
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      refresh();
-    }
-  }, [refresh]);
-
-  return { refresh };
+  })().finally(() => {
+    refreshInflight = null;
+  });
+  return refreshInflight;
 }

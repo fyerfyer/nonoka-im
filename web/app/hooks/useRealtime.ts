@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { realtimeClient, RealtimeEventType } from "@/lib/realtime";
+import { refreshConversations } from "@/hooks/useConversations";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { ChatMessage, User } from "@/types";
@@ -117,6 +118,13 @@ function handleIncomingMessage(
 
   const isActive = chatStore.activeTopic === detail.topic;
   chatStore.appendMessage(detail.topic, msg);
+
+  // A push for a conversation we only know as a stub would render as
+  // "Unknown"; refresh from the server to fill in peer info.
+  const conv = chatStore.conversations.get(detail.topic);
+  if (!conv?.peerUsername && !conv?.name) {
+    void refreshConversations();
+  }
 
   if (!isActive) {
     const conv = chatStore.conversations.get(detail.topic);
