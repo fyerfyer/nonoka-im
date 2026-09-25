@@ -46,7 +46,8 @@ data:
 dispatch:
   gateways:
   - node_id: gateway-1
-    gateway_url: ws://nonoka-im:8000/ws
+    # Advertised to clients (browsers), so it must be host-reachable.
+    gateway_url: ws://127.0.0.1:8000/ws
     gateway_grpc_addr: nonoka-im:9002
   strategy: consistent_hash
   heartbeat_interval: 10s

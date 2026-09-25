@@ -46,10 +46,11 @@ data:
 dispatch:
   gateways:
   - node_id: gateway-1
-    gateway_url: ws://gateway-1:8000/ws
+    # Advertised to clients; use the host-published gateway ports.
+    gateway_url: ws://127.0.0.1:8001/ws
     gateway_grpc_addr: gateway-1:9002
   - node_id: gateway-2
-    gateway_url: ws://gateway-2:8000/ws
+    gateway_url: ws://127.0.0.1:8002/ws
     gateway_grpc_addr: gateway-2:9002
   strategy: consistent_hash
   heartbeat_interval: 10s

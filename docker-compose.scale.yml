@@ -60,7 +60,7 @@ services:
   gateway-1:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-1
-    environment: {GATEWAY_NODE_ID: gateway-1, GATEWAY_WS_ADDR: ws://gateway-1:8000/ws, GATEWAY_GRPC_ADDR: gateway-1:9002, METRICS_ADDR: 0.0.0.0:9001}
+    environment: {GATEWAY_NODE_ID: gateway-1, GATEWAY_WS_ADDR: ws://127.0.0.1:8001/ws, GATEWAY_GRPC_ADDR: gateway-1:9002, METRICS_ADDR: 0.0.0.0:9001}
     ports: ["8001:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-1"]
     volumes: [./configs:/data/conf:ro]
@@ -73,7 +73,7 @@ services:
   gateway-2:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-2
-    environment: {GATEWAY_NODE_ID: gateway-2, GATEWAY_WS_ADDR: ws://gateway-2:8000/ws, GATEWAY_GRPC_ADDR: gateway-2:9002, METRICS_ADDR: 0.0.0.0:9001}
+    environment: {GATEWAY_NODE_ID: gateway-2, GATEWAY_WS_ADDR: ws://127.0.0.1:8002/ws, GATEWAY_GRPC_ADDR: gateway-2:9002, METRICS_ADDR: 0.0.0.0:9001}
     ports: ["8002:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-2"]
     volumes: [./configs:/data/conf:ro]
