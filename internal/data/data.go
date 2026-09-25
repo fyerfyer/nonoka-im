@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"log"
 	"os"
 	"time"
@@ -80,7 +81,20 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	sqlDB.SetMaxIdleConns(maxIdleConns)
 	sqlDB.SetConnMaxLifetime(connMaxLifetime)
 
-	// Auto-migrate schema
+	// Auto-migrate schema. Instances that start concurrently (multi-gateway
+	// deployments) race on catalog changes, so serialize migrations with a
+	// session-level advisory lock held for the duration of AutoMigrate.
+	const migrateLockKey = 0x6e6f6e6f6b61 // "nonoka"
+	lockConn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer lockConn.Close()
+	if _, err := lockConn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", migrateLockKey); err != nil {
+		return nil, nil, err
+	}
+	defer lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrateLockKey) //nolint:errcheck
+
 	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}); err != nil {
 		return nil, nil, err
 	}
