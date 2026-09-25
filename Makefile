@@ -110,14 +110,15 @@ demo:
 	docker compose -f docker-compose.yml up -d --build
 
 .PHONY: demo-scale
-# start the scale demo with three independently scalable msgworkers
+# start the scale demo: two gateways behind nginx, three scalable msgworkers, web frontend
 demo-scale:
-	docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --build --scale msgworker=3
+	docker compose -f docker-compose.scale.yml up -d --build --scale msgworker=3
 
 .PHONY: demo-down
-# stop and remove demo containers and volumes
+# stop and remove demo containers and volumes (either demo variant)
 demo-down:
-	docker compose -f docker-compose.yml -f docker-compose.scale.yml down -v
+	-docker compose -f docker-compose.scale.yml down -v --remove-orphans
+	docker compose -f docker-compose.yml down -v --remove-orphans
 
 .PHONY: generate
 # generate

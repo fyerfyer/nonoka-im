@@ -125,7 +125,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka
 ```
 
-> 若需要一键启动全部后端服务与中间件依赖，可使用 `make demo`（停止并清理用 `make demo-down`），但首次构建需要可访问 Go 模块代理。Web 前端不包含在内，请按第 6 步单独启动。
+> 若需要一键启动全部后端服务、中间件依赖与 Web 前端，可使用 `make demo`（停止并清理用 `make demo-down`），前端访问 <http://localhost:3000>。首次构建需要可访问 Go 模块代理（Dockerfile 默认使用 goproxy.cn，可用 `--build-arg GOPROXY=...` 覆盖）与 npm registry。
 
 ### 2. 初始化 Kafka Topic
 
@@ -160,7 +160,9 @@ make build
 
 > MsgWorker 依赖 `GATEWAY_GRPC_ADDR` 环境变量或配置中的 `server.grpc.addr` 来连接 Gateway 进行推送。
 
-### 6. 启动 Web 前端
+### 6. 启动 Web 前端（本地开发）
+
+`make demo` / `make demo-scale` 已包含 Web 前端容器；以下步骤仅用于本地开发调试：
 
 ```bash
 cd web/app
@@ -187,9 +189,11 @@ go run ./cmd/client
 
 ```bash
 make demo-scale
-docker compose -f docker-compose.yml -f docker-compose.scale.yml ps
-docker compose -f docker-compose.yml -f docker-compose.scale.yml logs -f msgworker
+docker compose -f docker-compose.scale.yml ps
+docker compose -f docker-compose.scale.yml logs -f msgworker
 ```
+
+该演示同时启动两个 gateway（nginx 负载均衡在 `http://localhost:18000`）与 Web 前端（`http://localhost:3000`），可直接注册两个账号互发消息验证跨网关节点投递。
 
 演示环境仍使用单 Kafka broker + 3 分区以降低资源占用；生产环境应扩展 broker 数量并将副本因子提高到 3。停止任一 worker 后，Kafka 会触发再均衡，其分区会被其他 worker 接管。
 

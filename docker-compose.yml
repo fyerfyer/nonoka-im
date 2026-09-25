@@ -52,6 +52,8 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: nonoka_kafka
+    # ZooKeeper may still be initialising on first boot; restart absorbs the race.
+    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
@@ -109,6 +111,19 @@ services:
     volumes:
       - ./configs/config.docker.yaml:/data/conf/config.yaml:ro
     command: ["/app/msgworker", "-conf", "/data/conf/config.yaml"]
+
+  web:
+    build:
+      context: ./web/app
+      args:
+        # Browser-side calls go to the host-mapped backend port.
+        NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+    container_name: nonoka_web
+    depends_on:
+      nonoka-im:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres_data:

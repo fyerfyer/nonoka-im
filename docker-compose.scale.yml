@@ -9,58 +9,107 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     hostname: kafka
+    restart: unless-stopped
     depends_on: [zookeeper]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 6
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:19092"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
     networks: [nonoka]
   postgres:
     image: postgres:15-alpine
     hostname: postgres
-    environment: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: root, POSTGRES_DB: nonoka_im}
+    environment: {POSTGRES_USER: nonoka, POSTGRES_PASSWORD: nonoka, POSTGRES_DB: nonoka}
     volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nonoka -d nonoka"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks: [nonoka]
   redis:
     image: redis:7-alpine
     hostname: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks: [nonoka]
   mongodb:
     image: mongo:6-jammy
     hostname: mongodb
     volumes: [mongodb_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks: [nonoka]
   gateway-1:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-1
-    environment: {GATEWAY_NODE_ID: gateway-1, GATEWAY_WS_ADDR: ws://gateway-1:8000/ws, GATEWAY_GRPC_ADDR: gateway-1:9000, METRICS_ADDR: 0.0.0.0:9001}
-    command: ["/app/nonoka-im", "-conf", "/data/conf/config.docker.yaml", "-node-id", "gateway-1"]
+    environment: {GATEWAY_NODE_ID: gateway-1, GATEWAY_WS_ADDR: ws://gateway-1:8000/ws, GATEWAY_GRPC_ADDR: gateway-1:9002, METRICS_ADDR: 0.0.0.0:9001}
+    ports: ["8001:8000"]
+    command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-1"]
     volumes: [./configs:/data/conf:ro]
-    depends_on: [postgres, redis, mongodb, kafka]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
+      kafka: {condition: service_healthy}
     networks: [nonoka]
   gateway-2:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-2
-    environment: {GATEWAY_NODE_ID: gateway-2, GATEWAY_WS_ADDR: ws://gateway-2:8000/ws, GATEWAY_GRPC_ADDR: gateway-2:9000, METRICS_ADDR: 0.0.0.0:9001}
-    command: ["/app/nonoka-im", "-conf", "/data/conf/config.docker.yaml", "-node-id", "gateway-2"]
+    environment: {GATEWAY_NODE_ID: gateway-2, GATEWAY_WS_ADDR: ws://gateway-2:8000/ws, GATEWAY_GRPC_ADDR: gateway-2:9002, METRICS_ADDR: 0.0.0.0:9001}
+    ports: ["8002:8000"]
+    command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-2"]
     volumes: [./configs:/data/conf:ro]
-    depends_on: [postgres, redis, mongodb, kafka]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
+      kafka: {condition: service_healthy}
     networks: [nonoka]
   msgworker:
     build: {context: ., dockerfile: Dockerfile}
     environment: {METRICS_ADDR: 0.0.0.0:9001}
-    command: ["/app/msgworker", "-conf", "/data/conf/config.docker.yaml"]
+    command: ["/app/msgworker", "-conf", "/data/conf/config.scale.yaml"]
     volumes: [./configs:/data/conf:ro]
-    depends_on: [postgres, redis, mongodb, kafka, gateway-1, gateway-2]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      gateway-1: {condition: service_started}
+      gateway-2: {condition: service_started}
     networks: [nonoka]
   nginx:
     image: nginx:alpine
     ports: ["18000:80"]
     volumes: [./configs/nginx-scale.conf:/etc/nginx/nginx.conf:ro]
     depends_on: [gateway-1, gateway-2]
+    networks: [nonoka]
+  web:
+    build:
+      context: ./web/app
+      args:
+        # Browser-side calls go through the nginx gateway LB.
+        NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:18000
+    ports: ["3000:3000"]
+    depends_on: [nginx]
     networks: [nonoka]
 volumes:
   postgres_data:
