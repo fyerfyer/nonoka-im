@@ -125,7 +125,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka
 ```
 
-> 若需要完整一键部署（含后端服务与 Web 前端代理），可使用 `docker compose -f docker-compose.yml up -d`，但首次构建需要可访问 Go 模块代理。
+> 若需要完整一键部署（含后端服务与 Web 前端代理），可使用 `make demo`（停止用 `make demo-down`），但首次构建需要可访问 Go 模块代理。
 
 ### 2. 初始化 Kafka Topic
 
