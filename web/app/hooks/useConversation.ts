@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { messageApi, conversationApi } from "@/lib/api";
+import { messageApi, conversationApi, groupApi } from "@/lib/api";
 import { realtimeClient } from "@/lib/realtime";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
-import { ChatMessage, Conversation, User } from "@/types";
+import { ChatMessage, Conversation, GroupMember, User } from "@/types";
 import { toast } from "sonner";
+
+const MSG_TYPE_TEXT = 1;
 
 export function useConversation(topic: string | null) {
   const user = useAuthStore((s) => s.user);
@@ -29,10 +31,16 @@ export function useConversation(topic: string | null) {
           msgId: m.msgId,
           topic: m.topic,
           senderId: m.senderId,
-          content: decodeMessageContent(m.content),
+          content: decodeMessageContent(m.content, m.msgType),
+          msgType: m.msgType,
           timestamp: m.timestamp,
           topicSeq: m.topicSeq,
-          status: m.senderId === user.userId ? "sent" : "delivered",
+          recalled: m.recalled || undefined,
+          status: m.recalled
+            ? "recalled"
+            : m.senderId === user.userId
+            ? "sent"
+            : "delivered",
         }));
 
         if (lastSeq === 0) {
@@ -70,18 +78,39 @@ export function useConversation(topic: string | null) {
   const sendMessage = useCallback(
     (text: string) => {
       if (!topic || !text.trim()) return;
-      const { clientMsgId } = realtimeClient.sendText(topic, text.trim());
+      const { clientMsgId, ok } = realtimeClient.sendText(topic, text.trim());
       const msg: ChatMessage = {
         clientMsgId,
         topic,
         senderId: user?.userId || 0,
         content: text.trim(),
+        msgType: MSG_TYPE_TEXT,
         timestamp: Date.now() / 1000,
-        status: "sending",
+        status: ok ? "sending" : "failed",
       };
       useChatStore.getState().appendMessage(topic, msg);
+      if (!ok) {
+        toast.error("Message failed to send — click the warning icon to retry");
+      }
     },
     [topic, user]
+  );
+
+  const retryMessage = useCallback(
+    (msg: ChatMessage) => {
+      if (!topic || msg.status !== "failed") return;
+      useChatStore
+        .getState()
+        .updateMessageStatus(topic, msg.clientMsgId, { status: "sending" });
+      const { ok } = realtimeClient.sendText(topic, msg.content, msg.clientMsgId);
+      if (!ok) {
+        useChatStore
+          .getState()
+          .updateMessageStatus(topic, msg.clientMsgId, { status: "failed" });
+        toast.error("Still disconnected — message not sent");
+      }
+    },
+    [topic]
   );
 
   const markRead = useCallback(() => {
@@ -97,41 +126,74 @@ export function useConversation(topic: string | null) {
     }
   }, [topic, conversation]);
 
+  // Group conversations need a member table to render sender names; cached
+  // per topic in the chat store (rebuilt from the server on each page load).
+  const loadGroupMembers = useCallback(async () => {
+    if (!topic) return;
+    const group = useChatStore.getState().groups.get(topic);
+    if (!group) return;
+    try {
+      const reply = await groupApi.listMembers(group.groupId);
+      const members: GroupMember[] = reply.members;
+      useChatStore.getState().setMemberNames(topic, members);
+    } catch {
+      // Sender names fall back to "Unknown"; not worth blocking the chat.
+    }
+  }, [topic]);
+
   useEffect(() => {
     if (!topic) return;
     useChatStore.getState().setActiveTopic(topic);
     if (!loadedRef.current.has(topic)) {
       loadMessages();
     }
+    if (conversation?.type === "group") {
+      void loadGroupMembers();
+    }
     markRead();
     return () => {
       useChatStore.getState().setActiveTopic(null);
     };
-  }, [topic, loadMessages, markRead]);
+  }, [topic, loadMessages, markRead, conversation?.type, loadGroupMembers]);
 
   return {
     conversation,
     loadingMore,
     loadMore,
     sendMessage,
+    retryMessage,
     markRead,
     recallMessage: (msg: ChatMessage) => { if (topic && msg.topicSeq) realtimeClient.recallMessage(topic, msg.topicSeq, msg.msgId); },
   };
 }
 
-function decodeMessageContent(content: string | Uint8Array | unknown): string {
+// decodeMessageContent decodes the HTTP pull payload. Protobuf `bytes`
+// fields are JSON-encoded as base64, so TEXT content is always base64 —
+// decode it unconditionally (a UTF-8 heuristic would wrongly leave CJK
+// text like "你好" as raw base64). Non-TEXT payloads are reserved for
+// media rendering (JSON) later; decode them to text for now.
+function decodeMessageContent(
+  content: string | Uint8Array | unknown,
+  msgType: number
+): string {
   if (content instanceof Uint8Array) {
     return new TextDecoder().decode(content);
   }
   if (typeof content !== "string") {
     return String(content ?? "");
   }
-  // Protobuf bytes are JSON-encoded as base64; try to decode.
   try {
-    const decoded = atob(content);
-    // Heuristic: if decoded result is printable text, use it.
-    const isText = /^[\x20-\x7E\s]*$/.test(decoded);
-    return isText ? decoded : content;
+    const binary = atob(content);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const decoded = new TextDecoder().decode(bytes);
+    if (msgType !== MSG_TYPE_TEXT) {
+      try {
+        return JSON.stringify(JSON.parse(decoded));
+      } catch {
+        return decoded;
+      }
+    }
+    return decoded;
   } catch {
     return content;
   }

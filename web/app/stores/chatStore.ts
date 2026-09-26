@@ -1,11 +1,19 @@
 import { create } from "zustand";
-import { Conversation, ChatMessage, ConnectionState, Group } from "@/types";
+import {
+  Conversation,
+  ChatMessage,
+  ConnectionState,
+  Group,
+  GroupMember,
+} from "@/types";
 
 interface ChatStore {
   conversations: Map<string, Conversation>;
   activeTopic: string | null;
   connectionState: ConnectionState;
   groups: Map<string, Group>;
+  // Group member tables keyed by topic, used to resolve sender display names.
+  memberNames: Map<string, Map<number, string>>;
   setConversations: (list: Conversation[]) => void;
   upsertConversation: (conv: Partial<Conversation> & { topic: string }) => void;
   setActiveTopic: (topic: string | null) => void;
@@ -22,6 +30,7 @@ interface ChatStore {
   updateConnectionState: (state: ConnectionState) => void;
   setGroup: (group: Group) => void;
   setGroups: (groups: Group[]) => void;
+  setMemberNames: (topic: string, members: GroupMember[]) => void;
   reset: () => void;
 }
 
@@ -52,6 +61,7 @@ const initialState = {
   activeTopic: null as string | null,
   connectionState: "disconnected" as ConnectionState,
   groups: new Map<string, Group>(),
+  memberNames: new Map<string, Map<number, string>>(),
 };
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -80,7 +90,8 @@ export const useChatStore = create<ChatStore>((set) => ({
     set((state) => {
       const map = new Map(state.conversations);
       const existing = ensureConversation(map, conv.topic);
-      Object.assign(existing, conv);
+      // New object reference so zustand subscribers (Object.is) re-render.
+      map.set(conv.topic, { ...existing, ...conv });
       return { conversations: map };
     }),
   setActiveTopic: (topic) => set({ activeTopic: topic }),
@@ -93,14 +104,19 @@ export const useChatStore = create<ChatStore>((set) => ({
           m.clientMsgId === msg.clientMsgId ||
           (msg.topicSeq !== undefined && m.topicSeq === msg.topicSeq)
       );
-      if (!exists) {
-        conv.messages.push(msg);
-      }
-      conv.lastMsgPreview = msg.content;
-      conv.lastMsgAt = msg.timestamp;
-      if (msg.topicSeq !== undefined && msg.topicSeq > conv.lastSeq) {
-        conv.lastSeq = msg.topicSeq;
-      }
+      const messages = exists ? conv.messages : [...conv.messages, msg];
+      map.set(topic, {
+        ...conv,
+        messages,
+        lastMsgPreview: msg.recalled
+          ? "This message was recalled"
+          : msg.content,
+        lastMsgAt: msg.timestamp,
+        lastSeq:
+          msg.topicSeq !== undefined && msg.topicSeq > conv.lastSeq
+            ? msg.topicSeq
+            : conv.lastSeq,
+      });
       return { conversations: map };
     }),
   updateMessageStatus: (topic, clientMsgId, patch) =>
@@ -125,7 +141,7 @@ export const useChatStore = create<ChatStore>((set) => ({
     set((state) => {
       const map = new Map(state.conversations);
       const conv = ensureConversation(map, topic);
-      conv.isLoading = flag;
+      map.set(topic, { ...conv, isLoading: flag });
       return { conversations: map };
     }),
   prependMessages: (topic, msgs) =>
@@ -149,21 +165,21 @@ export const useChatStore = create<ChatStore>((set) => ({
         }
         return true;
       });
-      conv.messages.unshift(...newMsgs);
-      conv.messages.sort((a, b) => {
+      const merged = [...newMsgs, ...conv.messages].sort((a, b) => {
         const sa = a.topicSeq || 0;
         const sb = b.topicSeq || 0;
         return sa - sb;
       });
-      if (msgs.length < 20) {
-        conv.hasMore = false;
-      }
-      if (newMsgs.length > 0) {
-        const last = newMsgs[newMsgs.length - 1];
-        if (last.topicSeq !== undefined && last.topicSeq > conv.lastSeq) {
-          conv.lastSeq = last.topicSeq;
-        }
-      }
+      const last = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1] : undefined;
+      map.set(topic, {
+        ...conv,
+        messages: merged,
+        hasMore: msgs.length < 20 ? false : conv.hasMore,
+        lastSeq:
+          last?.topicSeq !== undefined && last.topicSeq > conv.lastSeq
+            ? last.topicSeq
+            : conv.lastSeq,
+      });
       return { conversations: map };
     }),
   markTopicRead: (topic, upToSeq) =>
@@ -171,17 +187,22 @@ export const useChatStore = create<ChatStore>((set) => ({
       const map = new Map(state.conversations);
       const conv = map.get(topic);
       if (!conv) return state;
-      conv.unreadCount = 0;
-      conv.lastReadSeq = Math.max(conv.lastReadSeq, upToSeq);
-      for (const m of conv.messages) {
+      const messages = conv.messages.map((m) => {
         if (
           m.senderId !== conv.peerId &&
           m.topicSeq !== undefined &&
           m.topicSeq <= upToSeq
         ) {
-          m.status = "read";
+          return { ...m, status: "read" as const };
         }
-      }
+        return m;
+      });
+      map.set(topic, {
+        ...conv,
+        messages,
+        unreadCount: 0,
+        lastReadSeq: Math.max(conv.lastReadSeq, upToSeq),
+      });
       return { conversations: map };
     }),
   updateConnectionState: (state) => set({ connectionState: state }),
@@ -198,6 +219,16 @@ export const useChatStore = create<ChatStore>((set) => ({
         map.set(g.topic, g);
       }
       return { groups: map };
+    }),
+  setMemberNames: (topic, members) =>
+    set((state) => {
+      const map = new Map(state.memberNames);
+      const names = new Map<number, string>();
+      for (const m of members) {
+        names.set(m.userId, m.username);
+      }
+      map.set(topic, names);
+      return { memberNames: map };
     }),
   reset: () => set(initialState),
 }));

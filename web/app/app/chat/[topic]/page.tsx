@@ -25,7 +25,7 @@ export default function ChatDetailPage() {
   const user = useAuthStore((s) => s.user);
   const connectionState = useChatStore((s) => s.connectionState);
 
-  const { conversation, loadingMore, loadMore, sendMessage, recallMessage } = useConversation(
+  const { conversation, loadingMore, loadMore, sendMessage, retryMessage, recallMessage } = useConversation(
     topic || null
   );
   const peerOnline = usePresence(
@@ -64,6 +64,7 @@ export default function ChatDetailPage() {
             loadingMore={loadingMore}
             onLoadMore={loadMore}
             onRecall={recallMessage}
+            onRetry={retryMessage}
           />
           <MessageInput
             onSend={sendMessage}

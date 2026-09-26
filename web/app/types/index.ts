@@ -24,6 +24,7 @@ export interface ChatMessage {
   topic: string;
   senderId: number;
   content: string;
+  msgType?: number;
   timestamp: number;
   topicSeq?: number;
   status: MessageStatus;

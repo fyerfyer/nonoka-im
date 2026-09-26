@@ -275,6 +275,7 @@ export const messageApi = {
         timestamp: number;
         topicSeq: number;
         clientMsgId?: string;
+        recalled?: boolean;
       }>;
       hasMore: boolean;
       nextSeq: number;

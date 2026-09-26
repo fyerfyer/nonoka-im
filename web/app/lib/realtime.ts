@@ -198,10 +198,13 @@ export class RealtimeClient extends EventTarget {
     }
   }
 
-  sendText(topic: string, text: string): { clientMsgId: string } {
-    const clientMsgId = generateClientMsgId();
+  sendText(
+    topic: string,
+    text: string,
+    clientMsgId = generateClientMsgId()
+  ): { clientMsgId: string; ok: boolean } {
     const encoded = new TextEncoder().encode(text);
-    this.send(Packet.create({
+    const ok = this.send(Packet.create({
       cmd: Command.CMD_PUBLISH,
       seq: this.nextSeq(),
       sendReq: {
@@ -211,7 +214,7 @@ export class RealtimeClient extends EventTarget {
         clientMsgId,
       },
     }));
-    return { clientMsgId };
+    return { clientMsgId, ok };
   }
 
   pullMessages(topic: string, lastSeq: number, limit = 20) {
@@ -281,21 +284,20 @@ export class RealtimeClient extends EventTarget {
     });
   }
 
-  private send(packet: PacketType) {
+  private send(packet: PacketType): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
     const buf = Packet.encode(packet).finish();
     this.ws.send(buf);
+    return true;
   }
 
   private handleMessage(data: ArrayBuffer) {
     try {
       const pkt = Packet.decode(new Uint8Array(data)) as PacketType;
-      console.log("[realtime] recv cmd", pkt.cmd, "seq", Number(pkt.seq));
 
       if (Number(pkt.cmd) === Command.CMD_HEARTBEAT) {
-        console.log("[realtime] heartbeat ack");
         this.handleHeartbeatAck();
         return;
       }

@@ -111,6 +111,7 @@ function handleIncomingMessage(
     topic: detail.topic,
     senderId: detail.senderId,
     content: detail.content,
+    msgType: detail.msgType,
     timestamp: detail.timestamp,
     topicSeq: detail.topicSeq,
     status: detail.senderId === currentUser?.userId ? "sent" : "delivered",
@@ -129,8 +130,10 @@ function handleIncomingMessage(
   if (!isActive) {
     const conv = chatStore.conversations.get(detail.topic);
     if (conv) {
-      conv.unreadCount += 1;
-      chatStore.upsertConversation({ topic: detail.topic });
+      chatStore.upsertConversation({
+        topic: detail.topic,
+        unreadCount: conv.unreadCount + 1,
+      });
     }
   } else {
     // Active conversation: mark as read immediately.

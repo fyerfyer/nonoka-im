@@ -10,6 +10,7 @@ interface MessageBubbleProps {
   showSender?: boolean;
   senderName?: string;
   onRecall?: () => void;
+  onRetry?: () => void;
 }
 
 export function MessageBubble({
@@ -18,6 +19,7 @@ export function MessageBubble({
   showSender,
   senderName,
   onRecall,
+  onRetry,
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
 
@@ -26,25 +28,25 @@ export function MessageBubble({
   return (
     <div
       className={cn(
-        "group flex w-full items-center",
+        "group relative flex w-full items-center",
         isMe ? "justify-end" : "justify-start"
       )}
     >
-      {canRecall && (
-        <button
-          className="mr-1 rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
-          title="Recall message"
-          onClick={onRecall}
-        >
-          <Undo2 className="h-3.5 w-3.5" />
-        </button>
-      )}
       <div
         className={cn(
-          "flex max-w-[75%] flex-col",
+          "relative flex max-w-[75%] flex-col",
           isMe ? "items-end" : "items-start"
         )}
       >
+        {canRecall && (
+          <button
+            className="absolute -left-7 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+            title="Recall message"
+            onClick={onRecall}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+        )}
         {showSender && senderName && (
           <span className="text-muted-foreground mb-1 px-1 text-xs">
             {senderName}
@@ -69,7 +71,9 @@ export function MessageBubble({
             )}
           >
             <span>{time}</span>
-            {isMe && <StatusIcon status={message.status} />}
+            {isMe && (
+              <StatusIcon status={message.status} onRetry={onRetry} />
+            )}
           </div>
         </div>
       </div>
@@ -77,12 +81,30 @@ export function MessageBubble({
   );
 }
 
-function StatusIcon({ status }: { status: ChatMessage["status"] }) {
+function StatusIcon({
+  status,
+  onRetry,
+}: {
+  status: ChatMessage["status"];
+  onRetry?: () => void;
+}) {
   if (status === "sending") {
     return <Loader2 className="h-3 w-3 animate-spin" />;
   }
   if (status === "failed") {
-    return <AlertCircle className="h-3 w-3 text-destructive" />;
+    return (
+      <button
+        type="button"
+        title="Send failed — click to retry"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRetry?.();
+        }}
+        className="cursor-pointer"
+      >
+        <AlertCircle className="h-3 w-3 text-destructive" />
+      </button>
+    );
   }
   if (status === "read") {
     return <CheckCheck className="h-3 w-3" />;
