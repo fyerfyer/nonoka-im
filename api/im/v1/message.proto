@@ -71,11 +71,20 @@ message UpstreamMessage {
   repeated int64 mentioned_user_ids = 7; // for group @mentions
 }
 
-// PullRequest is sent by client to request offline messages.
+// PullRequest is sent by client to pull messages.
+//
+// Two mutually exclusive modes:
+//   - Forward (incremental): last_seq > 0, end_seq == 0. Returns messages
+//     with seq > last_seq in ascending order (offline catch-up).
+//   - Backward (history): end_seq > 0, or both zero. Returns the latest
+//     messages with seq < end_seq (or the latest overall when end_seq == 0)
+//     in ascending order, for paging history backwards. Use the oldest
+//     returned topic_seq as the next end_seq.
 message PullRequest {
   string topic = 1;
   uint64 last_seq = 2; // client last known seq, fetch messages with seq > last_seq
   int32 limit = 3;
+  uint64 end_seq = 4; // exclusive upper bound; 0 = from the latest (backward history page)
 }
 
 // PullMessage is a message in the pull response.
@@ -95,5 +104,7 @@ message PullMessage {
 message PullReply {
   repeated PullMessage messages = 1;
   bool has_more = 2;
-  uint64 next_seq = 3; // next seq to pull from
+  // Forward mode: next seq to pull from (> last returned seq).
+  // Backward mode: oldest returned seq, suitable as the next end_seq.
+  uint64 next_seq = 3;
 }

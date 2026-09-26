@@ -420,7 +420,7 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 	}
 	req.Topic = normalizedTopic
 
-	h.log.Debugf("pull request: user_id=%d, topic=%s, last_seq=%d", c.UserID(), req.Topic, req.LastSeq)
+	h.log.Debugf("pull request: user_id=%d, topic=%s, last_seq=%d, end_seq=%d", c.UserID(), req.Topic, req.LastSeq, req.EndSeq)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -429,55 +429,74 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 	var pullMessages []*v1.PullMessage
 	var hasMore bool
 
-	switch topicType {
-	case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
-		// P2P and system messages are stored in inbox (write扩散).
-		msgs, err := h.storage.GetOfflineMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
+	// Backward history page: end_seq > 0 (page before end_seq), or the
+	// initial load (both zero) which anchors on the latest messages.
+	// Forward incremental pull requires last_seq > 0 with end_seq == 0.
+	if req.EndSeq > 0 || req.LastSeq == 0 {
+		msgs, more, err := h.storage.GetHistoryMessages(ctx, c.UserID(), req.Topic, req.EndSeq, int(req.Limit))
 		if err != nil {
-			h.log.Warnf("get offline messages failed: user_id=%d, err=%v", c.UserID(), err)
+			h.log.Warnf("get history messages failed: user_id=%d, err=%v", c.UserID(), err)
 			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
 			return
 		}
 		pullMessages = inboxToPullMessages(msgs)
-		hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
+		hasMore = more
+	} else {
+		switch topicType {
+		case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
+			// P2P and system messages are stored in inbox (write扩散).
+			msgs, err := h.storage.GetOfflineMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
+			if err != nil {
+				h.log.Warnf("get offline messages failed: user_id=%d, err=%v", c.UserID(), err)
+				h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
+				return
+			}
+			pullMessages = inboxToPullMessages(msgs)
+			hasMore = len(msgs) >= int(req.Limit) && int(req.Limit) > 0
 
-	case msgworker.TopicTypeGroup:
-		// Group messages are stored in messages collection (read扩散).
-		groupMsgs, err := h.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, int(req.Limit))
-		if err != nil {
-			h.log.Warnf("get group messages failed: user_id=%d, err=%v", c.UserID(), err)
-			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
+		case msgworker.TopicTypeGroup:
+			// Group messages are stored in messages collection (read扩散).
+			groupMsgs, err := h.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, int(req.Limit))
+			if err != nil {
+				h.log.Warnf("get group messages failed: user_id=%d, err=%v", c.UserID(), err)
+				h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 5002, "failed to fetch messages")
+				return
+			}
+
+			// Also fetch @mention messages for the user in this group.
+			mentionMsgs, err := h.storage.GetMentionMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
+			if err != nil {
+				h.log.Warnf("get mention messages failed: user_id=%d, err=%v", c.UserID(), err)
+				// Non-fatal: continue without mentions
+			}
+
+			// Merge and sort by topic_seq to ensure correct order.
+			pullMessages = mergeAndSortMessages(groupMsgs, mentionMsgs)
+
+			// Apply limit after merge.
+			if len(pullMessages) > int(req.Limit) && int(req.Limit) > 0 {
+				pullMessages = pullMessages[:req.Limit]
+			}
+			hasMore = len(pullMessages) >= int(req.Limit) && int(req.Limit) > 0
+
+		default:
+			h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4009, "invalid topic")
 			return
 		}
-
-		// Also fetch @mention messages for the user in this group.
-		mentionMsgs, err := h.storage.GetMentionMessages(ctx, c.UserID(), req.Topic, req.LastSeq, int(req.Limit))
-		if err != nil {
-			h.log.Warnf("get mention messages failed: user_id=%d, err=%v", c.UserID(), err)
-			// Non-fatal: continue without mentions
-		}
-
-		// Merge and sort by topic_seq to ensure correct order.
-		pullMessages = mergeAndSortMessages(groupMsgs, mentionMsgs)
-
-		// Apply limit after merge.
-		if len(pullMessages) > int(req.Limit) && int(req.Limit) > 0 {
-			pullMessages = pullMessages[:req.Limit]
-		}
-		hasMore = len(pullMessages) >= int(req.Limit) && int(req.Limit) > 0
-
-	default:
-		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4009, "invalid topic")
-		return
 	}
 
-	// Compute next_seq: if we have messages, next_seq = last_message.topic_seq + 1.
-	// This means "client should start pulling from this seq next time".
-	// The query condition remains $gt: lastSeq, so using lastSeq = nextSeq will
-	// correctly fetch messages after the last one we returned.
+	// Compute next_seq. Forward mode: next_seq = last_message.topic_seq + 1
+	// ("client should start pulling from this seq next time"; the query
+	// condition is $gt: lastSeq, so lastSeq = nextSeq fetches newer messages).
+	// Backward mode: next_seq = oldest returned seq, suitable as the next
+	// end_seq for paging further back.
 	var nextSeq uint64
 	if len(pullMessages) > 0 {
-		nextSeq = pullMessages[len(pullMessages)-1].TopicSeq + 1
+		if req.EndSeq > 0 || req.LastSeq == 0 {
+			nextSeq = pullMessages[0].TopicSeq
+		} else {
+			nextSeq = pullMessages[len(pullMessages)-1].TopicSeq + 1
+		}
 	}
 
 	_ = c.SendWithTimeout(&v1.Packet{

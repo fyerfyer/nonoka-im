@@ -946,3 +946,238 @@ func TestMsgWorker_GroupMention_MultipleUsers(t *testing.T) {
 
 	t.Logf("multi-user mention verified: %d users mentioned, %d records created", len(mentionedUsers), totalCount)
 }
+
+// TestStorage_GetHistoryMessages_P2P verifies backward pagination for P2P
+// topics: an empty end_seq anchors on the latest page, end_seq pages
+// backwards with an exclusive bound, and has_more is computed honestly.
+func TestStorage_GetHistoryMessages_P2P(t *testing.T) {
+	worker, _, cleanup := setupMsgWorker(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	receiverID := int64(200)
+	topic := "p2p_100_200"
+
+	for i := 0; i < 25; i++ {
+		upstream := &v1.UpstreamMessage{
+			SenderId:    100,
+			Topic:       topic,
+			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+			Content:     []byte(fmt.Sprintf("history %d", i+1)),
+			ClientMsgId: fmt.Sprintf("hist-%d", i),
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		data, _ := proto.Marshal(upstream)
+		if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+			t.Fatalf("handle message %d failed: %v", i, err)
+		}
+	}
+
+	// Initial page (endSeq=0): the latest 20, ascending 6..25.
+	msgs, hasMore, err := worker.Storage().GetHistoryMessages(ctx, receiverID, topic, 0, 20)
+	if err != nil {
+		t.Fatalf("get history page 1 failed: %v", err)
+	}
+	if len(msgs) != 20 {
+		t.Fatalf("expected 20 messages on latest page, got %d", len(msgs))
+	}
+	if !hasMore {
+		t.Fatal("expected hasMore=true on latest page")
+	}
+	for i, m := range msgs {
+		if m.TopicSeq != uint64(i+6) {
+			t.Fatalf("expected seq=%d at index %d, got %d", i+6, i, m.TopicSeq)
+		}
+	}
+
+	// Page back with endSeq = oldest returned seq (6): seqs 1..5, no more.
+	older, hasMore, err := worker.Storage().GetHistoryMessages(ctx, receiverID, topic, 6, 20)
+	if err != nil {
+		t.Fatalf("get history page 2 failed: %v", err)
+	}
+	if len(older) != 5 {
+		t.Fatalf("expected 5 older messages, got %d", len(older))
+	}
+	if hasMore {
+		t.Fatal("expected hasMore=false when history is exhausted")
+	}
+	for i, m := range older {
+		if m.TopicSeq != uint64(i+1) {
+			t.Fatalf("expected seq=%d at index %d, got %d", i+1, i, m.TopicSeq)
+		}
+	}
+
+	// endSeq=1: nothing before seq 1.
+	empty, hasMore, err := worker.Storage().GetHistoryMessages(ctx, receiverID, topic, 1, 20)
+	if err != nil {
+		t.Fatalf("get history before seq 1 failed: %v", err)
+	}
+	if len(empty) != 0 || hasMore {
+		t.Fatalf("expected empty page with hasMore=false, got %d msgs, hasMore=%v", len(empty), hasMore)
+	}
+
+	t.Log("p2p backward pagination verified: latest 20 (6..25), then 1..5, then empty")
+}
+
+// TestStorage_GetHistoryMessages_Group verifies backward pagination for group
+// topics, including dedupe of messages that also appear in the mention inbox.
+func TestStorage_GetHistoryMessages_Group(t *testing.T) {
+	worker, _, cleanup := setupMsgWorker(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	mentionedUID := int64(200)
+	topic := "grp_hist_1"
+
+	for i := 0; i < 25; i++ {
+		upstream := &v1.UpstreamMessage{
+			SenderId:    100,
+			Topic:       topic,
+			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+			Content:     []byte(fmt.Sprintf("group history %d", i+1)),
+			ClientMsgId: fmt.Sprintf("grp-hist-%d", i),
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		// Mention the user on the last message so it lands in both the
+		// messages collection and the mention inbox.
+		if i == 24 {
+			upstream.MentionedUserIds = []int64{mentionedUID}
+		}
+		data, _ := proto.Marshal(upstream)
+		if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+			t.Fatalf("handle message %d failed: %v", i, err)
+		}
+	}
+
+	seen := make(map[uint64]bool)
+	for _, endSeq := range []uint64{0, 6} {
+		msgs, _, err := worker.Storage().GetHistoryMessages(ctx, mentionedUID, topic, endSeq, 20)
+		if err != nil {
+			t.Fatalf("get group history (endSeq=%d) failed: %v", endSeq, err)
+		}
+		for _, m := range msgs {
+			if seen[m.TopicSeq] {
+				t.Fatalf("duplicate seq %d in group history (mention merge bug)", m.TopicSeq)
+			}
+			seen[m.TopicSeq] = true
+		}
+	}
+	if len(seen) != 25 {
+		t.Fatalf("expected 25 unique messages across pages, got %d", len(seen))
+	}
+
+	t.Log("group backward pagination verified: 25 unique messages across pages")
+}
+
+// TestGateway_Pull_BackwardHistory verifies the WS pull handler serves
+// backward history pages (initial load anchors on latest; end_seq pages
+// backwards; has_more/next_seq are correct) while forward incremental pull
+// keeps working.
+func TestGateway_Pull_BackwardHistory(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	ctx := context.Background()
+	receiverID := int64(200)
+	topic := "p2p_100_200"
+
+	seqGen := msgworker.NewSeqGenerator(ts.redis, testLogger)
+	snowflake := msgworker.NewSnowflake(1)
+	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, ts.storage, nil, testLogger)
+
+	for i := 0; i < 25; i++ {
+		upstream := &v1.UpstreamMessage{
+			SenderId:    100,
+			Topic:       topic,
+			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
+			Content:     []byte(fmt.Sprintf("ws history %d", i+1)),
+			ClientMsgId: fmt.Sprintf("ws-hist-%d", i),
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		data, _ := proto.Marshal(upstream)
+		if err := worker.HandleMessage(ctx, []byte(topic), data, nil); err != nil {
+			t.Fatalf("handle message %d failed: %v", i, err)
+		}
+	}
+
+	wsConn := wsConnect(t)
+	defer wsConn.Close()
+
+	wsSendPacket(t, wsConn, &v1.Packet{
+		Cmd: v1.Command_CMD_AUTH,
+		Seq: 1,
+		Payload: &v1.Packet_AuthReq{
+			AuthReq: &v1.AuthRequest{
+				Token:    generateJWTToken(receiverID, ts.authConf.JwtSecret),
+				DeviceId: "web-hist-pull",
+			},
+		},
+	})
+	wsReadPacket(t, wsConn, 2*time.Second)
+
+	pull := func(seq int, req *v1.PullRequest) *v1.PullReply {
+		t.Helper()
+		wsSendPacket(t, wsConn, &v1.Packet{
+			Cmd:     v1.Command_CMD_PULL,
+			Seq:     uint64(seq),
+			Payload: &v1.Packet_PullReq{PullReq: req},
+		})
+		resp := wsReadPacket(t, wsConn, 3*time.Second)
+		if resp.Cmd != v1.Command_CMD_PULL {
+			t.Fatalf("expected CMD_PULL response, got %v", resp.Cmd)
+		}
+		reply := resp.GetPullReply()
+		if reply == nil {
+			t.Fatal("expected PullReply payload, got nil")
+		}
+		return reply
+	}
+
+	// Initial load: latest page (lastSeq=0, endSeq=0), limit 20 -> seqs 6..25.
+	page1 := pull(2, &v1.PullRequest{Topic: topic, Limit: 20})
+	if len(page1.Messages) != 20 {
+		t.Fatalf("expected 20 messages on initial page, got %d", len(page1.Messages))
+	}
+	if !page1.HasMore {
+		t.Fatal("expected hasMore=true on initial page")
+	}
+	if page1.NextSeq != 6 {
+		t.Fatalf("expected nextSeq=6 (oldest returned) on initial page, got %d", page1.NextSeq)
+	}
+	for i, m := range page1.Messages {
+		if m.TopicSeq != uint64(i+6) {
+			t.Fatalf("expected seq=%d at index %d, got %d", i+6, i, m.TopicSeq)
+		}
+	}
+
+	// Page backwards with endSeq=6 -> seqs 1..5, exhausted.
+	page2 := pull(3, &v1.PullRequest{Topic: topic, EndSeq: 6, Limit: 20})
+	if len(page2.Messages) != 5 {
+		t.Fatalf("expected 5 messages on second page, got %d", len(page2.Messages))
+	}
+	if page2.HasMore {
+		t.Fatal("expected hasMore=false when history is exhausted")
+	}
+	if page2.NextSeq != 1 {
+		t.Fatalf("expected nextSeq=1 on second page, got %d", page2.NextSeq)
+	}
+
+	// endSeq=1: empty page.
+	page3 := pull(4, &v1.PullRequest{Topic: topic, EndSeq: 1, Limit: 20})
+	if len(page3.Messages) != 0 || page3.HasMore {
+		t.Fatalf("expected empty exhausted page, got %d msgs hasMore=%v", len(page3.Messages), page3.HasMore)
+	}
+
+	// Forward incremental pull still works: lastSeq=20 -> seqs 21..25.
+	forward := pull(5, &v1.PullRequest{Topic: topic, LastSeq: 20, Limit: 20})
+	if len(forward.Messages) != 5 {
+		t.Fatalf("expected 5 forward messages after lastSeq=20, got %d", len(forward.Messages))
+	}
+	for i, m := range forward.Messages {
+		if m.TopicSeq != uint64(i+21) {
+			t.Fatalf("expected forward seq=%d at index %d, got %d", i+21, i, m.TopicSeq)
+		}
+	}
+
+	t.Log("gateway backward history verified: latest page, end_seq paging, forward intact")
+}

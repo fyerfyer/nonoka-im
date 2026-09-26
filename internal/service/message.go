@@ -106,40 +106,59 @@ func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) 
 	var messages []*v1.PullMessage
 	var hasMore bool
 
-	switch topicType {
-	case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
-		msgs, err := s.storage.GetOfflineMessages(ctx, userID, req.Topic, req.LastSeq, limit)
+	// Backward history page: end_seq > 0 (page before end_seq), or the
+	// initial load (both zero) which anchors on the latest messages.
+	// Forward incremental pull requires last_seq > 0 with end_seq == 0.
+	if req.EndSeq > 0 || req.LastSeq == 0 {
+		msgs, more, err := s.storage.GetHistoryMessages(ctx, userID, req.Topic, req.EndSeq, limit)
 		if err != nil {
-			s.log.Warnf("get offline messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
+			s.log.Warnf("get history messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
 			return &v1.PullReply{}, nil
 		}
 		messages = inboxToPullMessages(msgs)
-		hasMore = len(msgs) >= limit && limit > 0
+		hasMore = more
+	} else {
+		switch topicType {
+		case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
+			msgs, err := s.storage.GetOfflineMessages(ctx, userID, req.Topic, req.LastSeq, limit)
+			if err != nil {
+				s.log.Warnf("get offline messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
+				return &v1.PullReply{}, nil
+			}
+			messages = inboxToPullMessages(msgs)
+			hasMore = len(msgs) >= limit && limit > 0
 
-	case msgworker.TopicTypeGroup:
-		groupMsgs, err := s.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, limit)
-		if err != nil {
-			s.log.Warnf("get group messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
+		case msgworker.TopicTypeGroup:
+			groupMsgs, err := s.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, limit)
+			if err != nil {
+				s.log.Warnf("get group messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
+				return &v1.PullReply{}, nil
+			}
+			mentionMsgs, err := s.storage.GetMentionMessages(ctx, userID, req.Topic, req.LastSeq, limit)
+			if err != nil {
+				mentionMsgs = nil // Non-fatal
+			}
+			messages = mergeAndSortMessages(groupMsgs, mentionMsgs)
+			if len(messages) > limit && limit > 0 {
+				messages = messages[:limit]
+			}
+			hasMore = len(messages) >= limit && limit > 0
+
+		default:
+			s.log.Warnf("invalid topic type for pull: topic=%s", req.Topic)
 			return &v1.PullReply{}, nil
 		}
-		mentionMsgs, err := s.storage.GetMentionMessages(ctx, userID, req.Topic, req.LastSeq, limit)
-		if err != nil {
-			mentionMsgs = nil // Non-fatal
-		}
-		messages = mergeAndSortMessages(groupMsgs, mentionMsgs)
-		if len(messages) > limit && limit > 0 {
-			messages = messages[:limit]
-		}
-		hasMore = len(messages) >= limit && limit > 0
-
-	default:
-		s.log.Warnf("invalid topic type for pull: topic=%s", req.Topic)
-		return &v1.PullReply{}, nil
 	}
 
+	// Forward mode: next_seq = last returned seq + 1. Backward mode: oldest
+	// returned seq, suitable as the next end_seq for paging further back.
 	var nextSeq uint64
 	if len(messages) > 0 {
-		nextSeq = messages[len(messages)-1].TopicSeq + 1
+		if req.EndSeq > 0 || req.LastSeq == 0 {
+			nextSeq = messages[0].TopicSeq
+		} else {
+			nextSeq = messages[len(messages)-1].TopicSeq + 1
+		}
 	}
 
 	return &v1.PullReply{

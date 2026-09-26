@@ -808,6 +808,147 @@ func (s *MessageStorage) GetGroupMessages(ctx context.Context, topic string, las
 	return results, nil
 }
 
+// GetHistoryMessages retrieves messages for backward pagination: the latest
+// messages with topic_seq < endSeq (or the latest overall when endSeq == 0),
+// returned in ascending topic_seq order.
+//
+// For P2P/system topics it queries the inbox collection; for group topics it
+// merges the messages collection (read扩散) with the user's mention inbox
+// (write扩散), deduplicated by topic_seq. The hasMore return is computed
+// honestly by fetching limit+1 rows.
+func (s *MessageStorage) GetHistoryMessages(ctx context.Context, userID int64, topic string, endSeq uint64, limit int) ([]*InboxMessage, bool, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	fetchLimit := int64(limit + 1)
+
+	seqFilter := bson.M{}
+	if endSeq > 0 {
+		seqFilter["topic_seq"] = bson.M{"$lt": endSeq}
+	}
+
+	topicType := ParseTopicType(topic)
+	merged := make(map[uint64]*InboxMessage, fetchLimit)
+
+	switch topicType {
+	case TopicTypeP2P, TopicTypeSystem:
+		filter := bson.M{"user_id": userID, "topic": topic}
+		for k, v := range seqFilter {
+			filter[k] = v
+		}
+		s.incMongoOp(CollectionInboxes, "find")
+		opts := options.Find().
+			SetSort(bson.D{{Key: "topic_seq", Value: -1}}).
+			SetLimit(fetchLimit)
+		cursor, err := s.collection(CollectionInboxes).Find(ctx, filter, opts)
+		if err != nil {
+			return nil, false, fmt.Errorf("find history messages: %w", err)
+		}
+		var rows []*InboxMessage
+		if err := cursor.All(ctx, &rows); err != nil {
+			cursor.Close(ctx)
+			return nil, false, fmt.Errorf("decode history messages: %w", err)
+		}
+		cursor.Close(ctx)
+		for _, m := range rows {
+			merged[m.TopicSeq] = m
+		}
+
+	case TopicTypeGroup:
+		msgFilter := bson.M{"topic": topic}
+		for k, v := range seqFilter {
+			msgFilter[k] = v
+		}
+		s.incMongoOp(CollectionMessages, "find")
+		msgOpts := options.Find().
+			SetSort(bson.D{{Key: "topic_seq", Value: -1}}).
+			SetLimit(fetchLimit)
+		msgCursor, err := s.collection(CollectionMessages).Find(ctx, msgFilter, msgOpts)
+		if err != nil {
+			return nil, false, fmt.Errorf("find group history messages: %w", err)
+		}
+		var stored []*StoredMessage
+		if err := msgCursor.All(ctx, &stored); err != nil {
+			msgCursor.Close(ctx)
+			return nil, false, fmt.Errorf("decode group history messages: %w", err)
+		}
+		msgCursor.Close(ctx)
+		for _, gm := range stored {
+			merged[gm.TopicSeq] = &InboxMessage{
+				UserID:      userID,
+				MsgID:       gm.MsgID,
+				Topic:       gm.Topic,
+				SenderID:    gm.SenderID,
+				MsgType:     gm.MsgType,
+				Content:     gm.Content,
+				Timestamp:   gm.Timestamp,
+				TopicSeq:    gm.TopicSeq,
+				ClientMsgID: gm.ClientMsgID,
+				CreatedAt:   gm.CreatedAt,
+			}
+		}
+
+		// Also page the user's mention inbox; mentions may carry seqs the
+		// user has not seen in the messages collection pull.
+		mentionFilter := bson.M{"user_id": userID, "topic": topic}
+		for k, v := range seqFilter {
+			mentionFilter[k] = v
+		}
+		s.incMongoOp(CollectionMentionInboxes, "find")
+		mentionOpts := options.Find().
+			SetSort(bson.D{{Key: "topic_seq", Value: -1}}).
+			SetLimit(fetchLimit)
+		mentionCursor, err := s.collection(CollectionMentionInboxes).Find(ctx, mentionFilter, mentionOpts)
+		if err != nil {
+			return nil, false, fmt.Errorf("find mention history messages: %w", err)
+		}
+		var mentions []*MentionMessage
+		if err := mentionCursor.All(ctx, &mentions); err != nil {
+			mentionCursor.Close(ctx)
+			return nil, false, fmt.Errorf("decode mention history messages: %w", err)
+		}
+		mentionCursor.Close(ctx)
+		for _, mm := range mentions {
+			if _, exists := merged[mm.TopicSeq]; !exists {
+				merged[mm.TopicSeq] = &InboxMessage{
+					UserID:      userID,
+					MsgID:       mm.MsgID,
+					Topic:       mm.Topic,
+					SenderID:    mm.SenderID,
+					MsgType:     mm.MsgType,
+					Content:     mm.Content,
+					Timestamp:   mm.Timestamp,
+					TopicSeq:    mm.TopicSeq,
+					ClientMsgID: mm.ClientMsgID,
+					CreatedAt:   mm.CreatedAt,
+				}
+			}
+		}
+
+	default:
+		return nil, false, fmt.Errorf("unknown topic type: %s", topic)
+	}
+
+	results := make([]*InboxMessage, 0, len(merged))
+	for _, m := range merged {
+		results = append(results, m)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].TopicSeq > results[j].TopicSeq // descending
+	})
+
+	hasMore := len(results) > limit
+	if hasMore {
+		results = results[:limit]
+	}
+	// Return ascending order for display.
+	for i, j := 0, len(results)-1; i < j; i, j = i+1, j-1 {
+		results[i], results[j] = results[j], results[i]
+	}
+
+	return results, hasMore, nil
+}
+
 // GetMentionMessages retrieves unread @mention messages for a user.
 func (s *MessageStorage) GetMentionMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]*MentionMessage, error) {
 	s.incMongoOp(CollectionMentionInboxes, "find")

@@ -426,12 +426,21 @@ func (x *UpstreamMessage) GetMentionedUserIds() []int64 {
 	return nil
 }
 
-// PullRequest is sent by client to request offline messages.
+// PullRequest is sent by client to pull messages.
+//
+// Two mutually exclusive modes:
+//   - Forward (incremental): last_seq > 0, end_seq == 0. Returns messages
+//     with seq > last_seq in ascending order (offline catch-up).
+//   - Backward (history): end_seq > 0, or both zero. Returns the latest
+//     messages with seq < end_seq (or the latest overall when end_seq == 0)
+//     in ascending order, for paging history backwards. Use the oldest
+//     returned topic_seq as the next end_seq.
 type PullRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
 	LastSeq       uint64                 `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"` // client last known seq, fetch messages with seq > last_seq
 	Limit         int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	EndSeq        uint64                 `protobuf:"varint,4,opt,name=end_seq,json=endSeq,proto3" json:"end_seq,omitempty"` // exclusive upper bound; 0 = from the latest (backward history page)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -483,6 +492,13 @@ func (x *PullRequest) GetLastSeq() uint64 {
 func (x *PullRequest) GetLimit() int32 {
 	if x != nil {
 		return x.Limit
+	}
+	return 0
+}
+
+func (x *PullRequest) GetEndSeq() uint64 {
+	if x != nil {
+		return x.EndSeq
 	}
 	return 0
 }
@@ -598,10 +614,12 @@ func (x *PullMessage) GetRecalled() bool {
 
 // PullReply is sent by server in response to PullRequest.
 type PullReply struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Messages      []*PullMessage         `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
-	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
-	NextSeq       uint64                 `protobuf:"varint,3,opt,name=next_seq,json=nextSeq,proto3" json:"next_seq,omitempty"` // next seq to pull from
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Messages []*PullMessage         `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
+	HasMore  bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	// Forward mode: next seq to pull from (> last returned seq).
+	// Backward mode: oldest returned seq, suitable as the next end_seq.
+	NextSeq       uint64 `protobuf:"varint,3,opt,name=next_seq,json=nextSeq,proto3" json:"next_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -690,11 +708,12 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\acontent\x18\x04 \x01(\fR\acontent\x12\"\n" +
 	"\rclient_msg_id\x18\x05 \x01(\tR\vclientMsgId\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12,\n" +
-	"\x12mentioned_user_ids\x18\a \x03(\x03R\x10mentionedUserIds\"T\n" +
+	"\x12mentioned_user_ids\x18\a \x03(\x03R\x10mentionedUserIds\"m\n" +
 	"\vPullRequest\x12\x14\n" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x19\n" +
 	"\blast_seq\x18\x02 \x01(\x04R\alastSeq\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\x87\x02\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x17\n" +
+	"\aend_seq\x18\x04 \x01(\x04R\x06endSeq\"\x87\x02\n" +
 	"\vPullMessage\x12\x15\n" +
 	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +

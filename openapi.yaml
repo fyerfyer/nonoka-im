@@ -275,6 +275,10 @@ paths:
                   schema:
                     type: integer
                     format: int32
+                - name: endSeq
+                  in: query
+                  schema:
+                    type: string
             responses:
                 "200":
                     description: OK
@@ -519,6 +523,9 @@ components:
                     type: boolean
                 nextSeq:
                     type: string
+                    description: |-
+                        Forward mode: next seq to pull from (> last returned seq).
+                         Backward mode: oldest returned seq, suitable as the next end_seq.
             description: PullReply is sent by server in response to PullRequest.
         api.im.v1.RefreshTokenRequest:
             type: object

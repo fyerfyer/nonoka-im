@@ -40,12 +40,13 @@ func (s *MessageService) SendMessage(ctx context.Context, req *SendMessageReques
 	}, nil
 }
 
-// PullMessages pulls offline messages via HTTP fallback.
+// PullMessages pulls messages via HTTP fallback.
 func (s *MessageService) PullMessages(ctx context.Context, req *PullMessagesRequest) (*PullResult, error) {
 	reply, err := s.client.PullMessages(ctx, &v1.PullRequest{
 		Topic:   req.Topic,
 		LastSeq: req.LastSeq,
 		Limit:   req.Limit,
+		EndSeq:  req.EndSeq,
 	})
 	if err != nil {
 		return nil, err
@@ -57,10 +58,16 @@ func (s *MessageService) PullMessages(ctx context.Context, req *PullMessagesRequ
 	}, nil
 }
 
-// PullMessagesRequest is the request for pulling offline messages via HTTP.
+// PullMessagesRequest is the request for pulling messages via HTTP.
+//
+// Forward (incremental) pull: set LastSeq > 0, EndSeq == 0 to fetch messages
+// with seq > LastSeq. Backward (history) page: set EndSeq > 0 (exclusive
+// upper bound), or leave both zero to fetch the latest page; continue paging
+// with EndSeq = oldest returned topic_seq.
 type PullMessagesRequest struct {
 	Topic   string
 	LastSeq uint64
+	EndSeq  uint64
 	Limit   int32
 }
 
