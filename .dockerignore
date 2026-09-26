@@ -1,0 +1,12 @@
+# Build context for the root Dockerfile (Go binaries only).
+.git
+.github
+.claude
+.codegraph
+.playwright-mcp
+docs
+self-files
+web
+bin
+*.log
+tmp*
