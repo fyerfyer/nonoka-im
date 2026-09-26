@@ -817,6 +817,9 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 	if pushMsg.TopicSeq != 1 {
 		t.Fatalf("expected topic_seq=1, got %d", pushMsg.TopicSeq)
 	}
+	if len(pushMsg.MentionedUserIds) != 1 || pushMsg.MentionedUserIds[0] != mentionedID {
+		t.Fatalf("expected mentioned_user_ids=[%d], got %v", mentionedID, pushMsg.MentionedUserIds)
+	}
 
 	// 8. Verify mention_inboxes has the record
 	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)

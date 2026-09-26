@@ -371,6 +371,11 @@ func (rt *RealtimeClient) authenticate(ctx context.Context) error {
 // SendMessage sends a message to the specified topic via WebSocket.
 // It returns the server ACK with the assigned message metadata.
 func (rt *RealtimeClient) SendMessage(ctx context.Context, topic string, msgType v1.MsgType, content []byte, clientMsgID string) (*SendResult, error) {
+	return rt.SendMessageWithMentions(ctx, topic, msgType, content, clientMsgID, nil)
+}
+
+// SendMessageWithMentions is SendMessage with @mention recipients attached.
+func (rt *RealtimeClient) SendMessageWithMentions(ctx context.Context, topic string, msgType v1.MsgType, content []byte, clientMsgID string, mentionedUserIDs []int64) (*SendResult, error) {
 	if rt.state.Load() != rtStateAuthed {
 		return nil, ErrNotConnected
 	}
@@ -381,10 +386,11 @@ func (rt *RealtimeClient) SendMessage(ctx context.Context, topic string, msgType
 		Seq: seq,
 		Payload: &v1.Packet_SendReq{
 			SendReq: &v1.SendMessageRequest{
-				Topic:       topic,
-				MsgType:     msgType,
-				Content:     content,
-				ClientMsgId: clientMsgID,
+				Topic:            topic,
+				MsgType:          msgType,
+				Content:          content,
+				ClientMsgId:      clientMsgID,
+				MentionedUserIds: mentionedUserIDs,
 			},
 		},
 	}

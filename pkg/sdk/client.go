@@ -309,7 +309,7 @@ func (c *Client) SendMessageWithMentions(ctx context.Context, topic string, msgT
 		var result *SendResult
 		var err error
 		if c.Realtime != nil && c.Realtime.IsAuthed() {
-			result, err = c.Realtime.SendMessage(ctx, topic, msgType, content, clientMsgID)
+			result, err = c.Realtime.SendMessageWithMentions(ctx, topic, msgType, content, clientMsgID, mentionedUserIDs)
 		} else if c.Message != nil {
 			result, err = c.Message.SendMessage(ctx, &SendMessageRequest{
 				Topic:            topic,

@@ -225,18 +225,19 @@ func (x *SendMessageReply) GetTopicSeq() uint64 {
 
 // Push
 type MessagePush struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MsgId         int64                  `protobuf:"varint,1,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
-	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	SenderId      int64                  `protobuf:"varint,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
-	MsgType       int32                  `protobuf:"varint,4,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
-	Content       []byte                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	TopicSeq      uint64                 `protobuf:"varint,7,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
-	ClientMsgId   string                 `protobuf:"bytes,8,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	Recalled      bool                   `protobuf:"varint,9,opt,name=recalled,proto3" json:"recalled,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	MsgId            int64                  `protobuf:"varint,1,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	Topic            string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
+	SenderId         int64                  `protobuf:"varint,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	MsgType          int32                  `protobuf:"varint,4,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	Content          []byte                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	Timestamp        int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	TopicSeq         uint64                 `protobuf:"varint,7,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
+	ClientMsgId      string                 `protobuf:"bytes,8,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	Recalled         bool                   `protobuf:"varint,9,opt,name=recalled,proto3" json:"recalled,omitempty"`
+	MentionedUserIds []int64                `protobuf:"varint,10,rep,packed,name=mentioned_user_ids,json=mentionedUserIds,proto3" json:"mentioned_user_ids,omitempty"` // @mentioned users, for highlight/badge on the client
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *MessagePush) Reset() {
@@ -330,6 +331,13 @@ func (x *MessagePush) GetRecalled() bool {
 		return x.Recalled
 	}
 	return false
+}
+
+func (x *MessagePush) GetMentionedUserIds() []int64 {
+	if x != nil {
+		return x.MentionedUserIds
+	}
+	return nil
 }
 
 // UpstreamMessage is sent from the Gateway to Kafka.
@@ -690,7 +698,7 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x15\n" +
 	"\x06msg_id\x18\x02 \x01(\x03R\x05msgId\x12\x1c\n" +
 	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\x12\x1b\n" +
-	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\"\x87\x02\n" +
+	"\ttopic_seq\x18\x04 \x01(\x04R\btopicSeq\"\xb5\x02\n" +
 	"\vMessagePush\x12\x15\n" +
 	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
@@ -700,7 +708,9 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1b\n" +
 	"\ttopic_seq\x18\a \x01(\x04R\btopicSeq\x12\"\n" +
 	"\rclient_msg_id\x18\b \x01(\tR\vclientMsgId\x12\x1a\n" +
-	"\brecalled\x18\t \x01(\bR\brecalled\"\xe9\x01\n" +
+	"\brecalled\x18\t \x01(\bR\brecalled\x12,\n" +
+	"\x12mentioned_user_ids\x18\n" +
+	" \x03(\x03R\x10mentionedUserIds\"\xe9\x01\n" +
 	"\x0fUpstreamMessage\x12\x1b\n" +
 	"\tsender_id\x18\x01 \x01(\x03R\bsenderId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x19\n" +

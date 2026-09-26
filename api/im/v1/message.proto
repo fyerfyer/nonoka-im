@@ -57,6 +57,7 @@ message MessagePush {
   uint64 topic_seq = 7;
   string client_msg_id = 8;
   bool recalled = 9;
+  repeated int64 mentioned_user_ids = 10; // @mentioned users, for highlight/badge on the client
 }
 
 // UpstreamMessage is sent from the Gateway to Kafka.
