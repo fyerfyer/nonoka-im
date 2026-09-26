@@ -32,6 +32,11 @@ export function ChatHeader({
   const group = useChatStore((s) =>
     conversation?.type === "group" ? s.groups.get(conversation.topic) : undefined
   );
+  const memberCount = useChatStore((s) =>
+    conversation?.type === "group"
+      ? s.memberNames.get(conversation.topic)?.size
+      : undefined
+  );
 
   const title = conversation
     ? conversation.name ||
@@ -40,7 +45,12 @@ export function ChatHeader({
         : "Group")
     : "Chat";
 
-  const subtitle = getSubtitle(conversation, connectionState, peerOnline);
+  const subtitle = getSubtitle(
+    conversation,
+    connectionState,
+    peerOnline,
+    memberCount
+  );
   const isPeerOnline =
     conversation?.type === "p2p" &&
     connectionState === "authed" &&
@@ -120,10 +130,15 @@ export function ChatHeader({
 function getSubtitle(
   conversation: Conversation | undefined,
   state: ConnectionState,
-  peerOnline: boolean | undefined
+  peerOnline: boolean | undefined,
+  memberCount: number | undefined
 ): string {
   if (state !== "authed") return getConnectionLabel(state);
-  if (conversation?.type === "group") return "Group conversation";
+  if (conversation?.type === "group") {
+    return memberCount !== undefined
+      ? `${memberCount} member${memberCount === 1 ? "" : "s"}`
+      : "Group conversation";
+  }
   if (peerOnline === undefined) return "Checking status...";
   return peerOnline ? "Online" : "Offline";
 }

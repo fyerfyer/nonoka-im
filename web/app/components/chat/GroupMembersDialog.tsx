@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { groupApi, userApi } from "@/lib/api";
 import { Group, GroupMember, User } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
+import { useChatStore } from "@/stores/chatStore";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ export function GroupMembersDialog({
     try {
       const reply = await groupApi.listMembers(group.groupId);
       setMembers(reply.members);
+      useChatStore.getState().setMemberNames(group.topic, reply.members);
     } catch (err) {
       toast.error(
         `Failed to load members: ${err instanceof Error ? err.message : "unknown"}`
@@ -47,7 +49,7 @@ export function GroupMembersDialog({
     } finally {
       setLoading(false);
     }
-  }, [group.groupId]);
+  }, [group.groupId, group.topic]);
 
   useEffect(() => {
     if (open) {
