@@ -6,16 +6,26 @@ import { useAuthStore } from "@/stores/authStore";
 import { ConversationItem } from "./ConversationItem";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, MessageSquare, Loader2 } from "lucide-react";
+import { Plus, MessageSquare, Loader2, LogOut } from "lucide-react";
 import { useRouter, useParams } from "next/navigation";
 import { useState } from "react";
 import { NewChatDialog } from "./NewChatDialog";
 import { NewGroupDialog } from "./NewGroupDialog";
 import { ConnectionBar } from "./ConnectionBar";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export function ConversationList() {
   const user = useAuthStore((s) => s.user);
+  const { logout } = useAuth();
   const chatStore = useChatStore();
   const router = useRouter();
   const params = useParams();
@@ -42,9 +52,27 @@ export function ConversationList() {
       <ConnectionBar />
       <div className="flex h-14 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-            {initials}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground outline-none transition-opacity hover:opacity-80"
+                title={user?.username}
+              >
+                {initials}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>{user?.username}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={logout}
+              >
+                <LogOut className="h-4 w-4" />
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <span className="text-sm font-semibold">Messages</span>
         </div>
         <div className="flex items-center gap-1">

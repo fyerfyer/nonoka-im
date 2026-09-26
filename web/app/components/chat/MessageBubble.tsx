@@ -2,7 +2,7 @@
 
 import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
-import { Check, CheckCheck, Loader2, AlertCircle } from "lucide-react";
+import { Check, CheckCheck, Loader2, AlertCircle, Undo2 } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -21,13 +21,24 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
 
+  const canRecall = isMe && onRecall && message.status !== "recalled" && !message.recalled;
+
   return (
     <div
       className={cn(
-        "flex w-full",
+        "group flex w-full items-center",
         isMe ? "justify-end" : "justify-start"
       )}
     >
+      {canRecall && (
+        <button
+          className="mr-1 rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+          title="Recall message"
+          onClick={onRecall}
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+        </button>
+      )}
       <div
         className={cn(
           "flex max-w-[75%] flex-col",
@@ -40,7 +51,6 @@ export function MessageBubble({
           </span>
         )}
         <div
-          onContextMenu={(e) => { if (isMe && onRecall && message.status !== "recalled") { e.preventDefault(); onRecall(); } }}
           title={new Date(message.timestamp * 1000).toLocaleString()}
           className={cn(
             "relative rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-all",
