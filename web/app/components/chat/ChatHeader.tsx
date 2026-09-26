@@ -5,6 +5,12 @@ import { Conversation, ConnectionState } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -29,6 +35,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const router = useRouter();
   const [membersOpen, setMembersOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const group = useChatStore((s) =>
     conversation?.type === "group" ? s.groups.get(conversation.topic) : undefined
   );
@@ -83,21 +90,43 @@ export function ChatHeader({
             )}
           </AvatarFallback>
         </Avatar>
-        <div className="flex flex-col">
-          <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
-            {title}
-          </h2>
-          <span
-            className={cn(
-              "text-xs",
-              isPeerOnline
-                ? "text-emerald-600"
-                : "text-muted-foreground"
-            )}
+        {conversation?.type === "p2p" ? (
+          <button
+            className="flex flex-col items-start rounded-md px-1 py-0.5 text-left hover:bg-muted"
+            onClick={() => setProfileOpen(true)}
+            title="View profile"
           >
-            {subtitle}
-          </span>
-        </div>
+            <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
+              {title}
+            </h2>
+            <span
+              className={cn(
+                "text-xs",
+                isPeerOnline
+                  ? "text-emerald-600"
+                  : "text-muted-foreground"
+              )}
+            >
+              {subtitle}
+            </span>
+          </button>
+        ) : (
+          <div className="flex flex-col">
+            <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
+              {title}
+            </h2>
+            <span
+              className={cn(
+                "text-xs",
+                isPeerOnline
+                  ? "text-emerald-600"
+                  : "text-muted-foreground"
+              )}
+            >
+              {subtitle}
+            </span>
+          </div>
+        )}
       </div>
       {conversation?.type === "group" && (
         <>
@@ -123,6 +152,39 @@ export function ChatHeader({
           )}
         </>
       )}
+      {/* Read-only peer profile (P2P only). */}
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>User profile</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            <Avatar className="h-16 w-16">
+              <AvatarFallback className="bg-primary/10 text-xl font-semibold text-primary">
+                {title.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="text-center">
+              <p className="text-sm font-semibold">{title}</p>
+              <p className="text-xs text-muted-foreground">
+                ID: {conversation?.peerId || "Unknown"}
+              </p>
+              <p
+                className={cn(
+                  "mt-1 text-xs font-medium",
+                  isPeerOnline ? "text-emerald-600" : "text-muted-foreground"
+                )}
+              >
+                {connectionState === "authed"
+                  ? isPeerOnline
+                    ? "Online"
+                    : "Offline"
+                  : getConnectionLabel(connectionState)}
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

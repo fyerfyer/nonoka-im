@@ -14,6 +14,8 @@ interface ChatStore {
   groups: Map<string, Group>;
   // Group member tables keyed by topic, used to resolve sender display names.
   memberNames: Map<string, Map<number, string>>;
+  // Topics where the current user was @mentioned (badge until read).
+  mentionedTopics: Set<string>;
   setConversations: (list: Conversation[]) => void;
   upsertConversation: (conv: Partial<Conversation> & { topic: string }) => void;
   setActiveTopic: (topic: string | null) => void;
@@ -31,6 +33,7 @@ interface ChatStore {
   setGroup: (group: Group) => void;
   setGroups: (groups: Group[]) => void;
   setMemberNames: (topic: string, members: GroupMember[]) => void;
+  markTopicMentioned: (topic: string) => void;
   reset: () => void;
 }
 
@@ -92,6 +95,7 @@ const initialState = {
   connectionState: "disconnected" as ConnectionState,
   groups: new Map<string, Group>(),
   memberNames: new Map<string, Map<number, string>>(),
+  mentionedTopics: new Set<string>(),
 };
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -238,7 +242,9 @@ export const useChatStore = create<ChatStore>((set) => ({
         unreadCount: 0,
         lastReadSeq: Math.max(conv.lastReadSeq, upToSeq),
       });
-      return { conversations: map };
+      const mentioned = new Set(state.mentionedTopics);
+      mentioned.delete(topic);
+      return { conversations: map, mentionedTopics: mentioned };
     }),
   updateConnectionState: (state) => set({ connectionState: state }),
   setGroup: (group) =>
@@ -265,6 +271,13 @@ export const useChatStore = create<ChatStore>((set) => ({
       }
       map.set(topic, names);
       return { memberNames: map };
+    }),
+  markTopicMentioned: (topic) =>
+    set((state) => {
+      if (state.mentionedTopics.has(topic)) return state;
+      const mentioned = new Set(state.mentionedTopics);
+      mentioned.add(topic);
+      return { mentionedTopics: mentioned };
     }),
   reset: () => set(initialState),
 }));

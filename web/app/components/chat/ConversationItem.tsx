@@ -3,7 +3,8 @@
 import { Conversation } from "@/types";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { Users } from "lucide-react";
+import { Users, AtSign } from "lucide-react";
+import { useChatStore } from "@/stores/chatStore";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -16,6 +17,9 @@ export function ConversationItem({
   isActive,
   onClick,
 }: ConversationItemProps) {
+  const mentioned = useChatStore((s) =>
+    s.mentionedTopics.has(conversation.topic)
+  );
   const title = conversation.name || conversation.peerUsername || "Unknown";
   const preview = conversation.lastMsgPreview || "No messages yet";
   const time = conversation.lastMsgAt
@@ -65,7 +69,18 @@ export function ConversationItem({
           )}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "truncate text-xs",
+              mentioned ? "font-medium text-foreground" : "text-muted-foreground"
+            )}
+          >
+            {mentioned && (
+              <span className="mr-1 inline-flex items-center rounded bg-amber-200/80 px-1 py-px text-[9px] font-semibold text-amber-900">
+                <AtSign className="mr-px h-2.5 w-2.5" />
+                我
+              </span>
+            )}
             {preview}
           </span>
           {conversation.unreadCount > 0 && (

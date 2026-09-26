@@ -3,7 +3,17 @@
 import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { absoluteFileUrl, formatSize, parseMediaContent } from "@/lib/media";
-import { Check, CheckCheck, Loader2, AlertCircle, Undo2, FileIcon } from "lucide-react";
+import { segmentMentions, MentionMember } from "@/lib/mentions";
+import { toast } from "sonner";
+import {
+  Check,
+  CheckCheck,
+  Loader2,
+  AlertCircle,
+  Undo2,
+  FileIcon,
+  Copy,
+} from "lucide-react";
 
 const MSG_TYPE_IMAGE = 2;
 const MSG_TYPE_FILE = 3;
@@ -13,6 +23,8 @@ interface MessageBubbleProps {
   isMe: boolean;
   showSender?: boolean;
   senderName?: string;
+  members?: MentionMember[];
+  currentUserId?: number;
   onRecall?: () => void;
   onRetry?: () => void;
 }
@@ -22,12 +34,25 @@ export function MessageBubble({
   isMe,
   showSender,
   senderName,
+  members,
+  currentUserId,
   onRecall,
   onRetry,
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
 
   const canRecall = isMe && onRecall && message.status !== "recalled" && !message.recalled;
+  const canCopy =
+    !message.recalled && message.msgType !== MSG_TYPE_IMAGE && message.msgType !== MSG_TYPE_FILE;
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      toast.success("Copied to clipboard");
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
 
   return (
     <div
@@ -42,14 +67,32 @@ export function MessageBubble({
           isMe ? "items-end" : "items-start"
         )}
       >
-        {canRecall && (
-          <button
-            className="absolute -left-7 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
-            title="Recall message"
-            onClick={onRecall}
+        {(canCopy || canRecall) && (
+          <div
+            className={cn(
+              "absolute top-1/2 flex -translate-y-1/2 flex-col gap-0.5",
+              isMe ? "-left-8" : "-right-8"
+            )}
           >
-            <Undo2 className="h-3.5 w-3.5" />
-          </button>
+            {canCopy && (
+              <button
+                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+                title="Copy message"
+                onClick={copyText}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {canRecall && (
+              <button
+                className="rounded-full p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+                title="Recall message"
+                onClick={onRecall}
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         )}
         {showSender && senderName && (
           <span className="text-muted-foreground mb-1 px-1 text-xs">
@@ -65,7 +108,12 @@ export function MessageBubble({
               : "bg-muted rounded-bl-md"
           )}
         >
-          <MessageBody message={message} />
+          <MessageBody
+            message={message}
+            isMe={isMe}
+            members={members}
+            currentUserId={currentUserId}
+          />
           <div
             className={cn(
               "mt-1 flex items-center gap-1 text-[10px] opacity-70",
@@ -85,7 +133,17 @@ export function MessageBubble({
 
 // MessageBody renders text, image, and file message content. Media messages
 // carry JSON metadata in content; malformed payloads fall back to plain text.
-function MessageBody({ message }: { message: ChatMessage }) {
+function MessageBody({
+  message,
+  isMe,
+  members,
+  currentUserId,
+}: {
+  message: ChatMessage;
+  isMe: boolean;
+  members?: MentionMember[];
+  currentUserId?: number;
+}) {
   if (message.recalled) {
     return (
       <p className="italic opacity-70">This message was recalled</p>
@@ -132,8 +190,31 @@ function MessageBody({ message }: { message: ChatMessage }) {
     );
   }
 
+  // Text: highlight @mentions of known group members; mentions of the
+  // current user get an extra background emphasis.
+  const segments = segmentMentions(message.content, members || []);
   return (
-    <p className={cn("whitespace-pre-wrap break-words")}>{message.content}</p>
+    <p className="whitespace-pre-wrap break-words">
+      {segments.map((seg, i) =>
+        seg.mentionedUserId !== undefined ? (
+          <span
+            key={i}
+            className={cn(
+              "font-semibold",
+              isMe
+                ? "underline decoration-primary-foreground/60 underline-offset-2"
+                : "text-primary",
+              seg.mentionedUserId === currentUserId &&
+                "rounded bg-amber-200/80 px-0.5 text-amber-900 decoration-amber-900/60"
+            )}
+          >
+            {seg.text}
+          </span>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+    </p>
   );
 }
 

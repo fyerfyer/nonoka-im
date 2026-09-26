@@ -101,10 +101,12 @@ function handleIncomingMessage(
     timestamp: number;
     topicSeq: number;
     clientMsgId?: string;
+    mentionedUserIds?: number[];
   },
   currentUser: User | null
 ) {
   const chatStore = useChatStore.getState();
+  const myId = currentUser ? Number(currentUser.userId) : 0;
   const msg: ChatMessage = {
     clientMsgId: detail.clientMsgId || `${detail.topicSeq}-${detail.msgId}`,
     msgId: detail.msgId,
@@ -114,8 +116,13 @@ function handleIncomingMessage(
     msgType: detail.msgType,
     timestamp: detail.timestamp,
     topicSeq: detail.topicSeq,
-    status: detail.senderId === currentUser?.userId ? "sent" : "delivered",
+    status: detail.senderId === myId ? "sent" : "delivered",
   };
+
+  const mentionsMe =
+    myId !== 0 &&
+    Array.isArray(detail.mentionedUserIds) &&
+    detail.mentionedUserIds.includes(myId);
 
   const isActive = chatStore.activeTopic === detail.topic;
   chatStore.appendMessage(detail.topic, msg);
@@ -139,5 +146,26 @@ function handleIncomingMessage(
     // Active conversation: mark as read immediately.
     realtimeClient.sendReadReceipt(detail.topic, detail.topicSeq);
     chatStore.markTopicRead(detail.topic, detail.topicSeq);
+  }
+
+  // Someone @mentioned me: toast always; the "@我" badge only when the
+  // conversation is not open (an open conversation is already being read).
+  if (mentionsMe && detail.senderId !== myId) {
+    const senderName =
+      chatStore.memberNames.get(detail.topic)?.get(Number(detail.senderId)) ||
+      conv?.peerUsername ||
+      `User ${detail.senderId}`;
+    const convName = conv?.name || senderName;
+    toast.info(`${senderName} @了你（${convName}）`, {
+      description:
+        detail.msgType === 1
+          ? detail.content.slice(0, 60)
+          : detail.msgType === 2
+          ? "[图片]"
+          : "[文件]",
+    });
+    if (!isActive) {
+      chatStore.markTopicMentioned(detail.topic);
+    }
   }
 }

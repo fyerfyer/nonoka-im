@@ -25,7 +25,7 @@ export default function ChatDetailPage() {
   const user = useAuthStore((s) => s.user);
   const connectionState = useChatStore((s) => s.connectionState);
 
-  const { conversation, loadingMore, loadMore, sendMessage, sendFileMessage, retryMessage, recallMessage } = useConversation(
+  const { conversation, loadingMore, loadMore, sendMessage, mentionMembers, sendFileMessage, retryMessage, recallMessage } = useConversation(
     topic || null
   );
   const peerOnline = usePresence(
@@ -65,10 +65,12 @@ export default function ChatDetailPage() {
             onLoadMore={loadMore}
             onRecall={recallMessage}
             onRetry={retryMessage}
+            members={mentionMembers()}
           />
           <MessageInput
             onSend={sendMessage}
             onSendFile={(file) => void sendFileMessage(file)}
+            members={mentionMembers()}
             disabled={connectionState !== "authed"}
           />
         </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { messageApi, conversationApi, groupApi, fileApi } from "@/lib/api";
 import { realtimeClient } from "@/lib/realtime";
 import { generateClientMsgId } from "@/lib/uuid";
+import { extractMentionIds } from "@/lib/mentions";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { ChatMessage, Conversation, User } from "@/types";
@@ -115,9 +116,16 @@ export function useConversation(topic: string | null) {
   }, [conversation, topic, user]);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, mentionedUserIds?: number[]) => {
       if (!topic || !text.trim()) return;
-      const { clientMsgId, ok } = realtimeClient.sendText(topic, text.trim());
+      const { clientMsgId, ok } = realtimeClient.sendText(
+        topic,
+        text.trim(),
+        generateClientMsgId(),
+        mentionedUserIds && mentionedUserIds.length > 0
+          ? mentionedUserIds
+          : undefined
+      );
       const msg: ChatMessage = {
         clientMsgId,
         topic,
@@ -133,6 +141,29 @@ export function useConversation(topic: string | null) {
       }
     },
     [topic, user]
+  );
+
+  // Group member list for @mentions (empty for P2P). Subscribed reactively:
+  // the table arrives asynchronously after entering a group conversation.
+  const topicMemberNames = useChatStore(
+    useCallback((s) => (topic ? s.memberNames.get(topic) : undefined), [topic])
+  );
+  const mentionMembers = useCallback(
+    () =>
+      topicMemberNames
+        ? Array.from(topicMemberNames, ([userId, username]) => ({
+            userId,
+            username,
+          }))
+        : [],
+    [topicMemberNames]
+  );
+
+  const sendTextWithMentions = useCallback(
+    (text: string) => {
+      sendMessage(text, extractMentionIds(text, mentionMembers()));
+    },
+    [sendMessage, mentionMembers]
   );
 
   const retryMessage = useCallback(
@@ -266,7 +297,8 @@ export function useConversation(topic: string | null) {
     conversation,
     loadingMore,
     loadMore,
-    sendMessage,
+    sendMessage: sendTextWithMentions,
+    mentionMembers,
     sendFileMessage,
     retryMessage,
     markRead,

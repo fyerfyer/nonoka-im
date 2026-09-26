@@ -25,6 +25,7 @@ export interface RealtimeMessage {
   timestamp: number;
   topicSeq: number;
   clientMsgId?: string;
+  mentionedUserIds?: number[];
 }
 
 export interface SendReceiptPayload {
@@ -202,7 +203,8 @@ export class RealtimeClient extends EventTarget {
     topic: string,
     msgType: number,
     data: Uint8Array,
-    clientMsgId = generateClientMsgId()
+    clientMsgId = generateClientMsgId(),
+    mentionedUserIds?: number[]
   ): { clientMsgId: string; ok: boolean } {
     const ok = this.send(Packet.create({
       cmd: Command.CMD_PUBLISH,
@@ -212,6 +214,7 @@ export class RealtimeClient extends EventTarget {
         msgType,
         content: data,
         clientMsgId,
+        mentionedUserIds,
       },
     }));
     return { clientMsgId, ok };
@@ -220,13 +223,15 @@ export class RealtimeClient extends EventTarget {
   sendText(
     topic: string,
     text: string,
-    clientMsgId = generateClientMsgId()
+    clientMsgId = generateClientMsgId(),
+    mentionedUserIds?: number[]
   ): { clientMsgId: string; ok: boolean } {
     return this.sendMessage(
       topic,
       1, // MSG_TYPE_TEXT
       new TextEncoder().encode(text),
-      clientMsgId
+      clientMsgId,
+      mentionedUserIds
     );
   }
 
@@ -360,6 +365,9 @@ export class RealtimeClient extends EventTarget {
           timestamp: Number(n.timestamp),
           topicSeq: Number(n.topicSeq),
           clientMsgId: n.clientMsgId,
+          mentionedUserIds: Array.isArray(n.mentionedUserIds)
+            ? n.mentionedUserIds.map(Number)
+            : undefined,
         } as RealtimeMessage);
         // Auto ack delivery
         this.sendAck(Number(n.msgId), n.topic || "", Number(n.topicSeq));

@@ -10195,6 +10195,7 @@ export const api = $root.api = (() => {
                  * @property {number|Long|null} [topicSeq] MessagePush topicSeq
                  * @property {string|null} [clientMsgId] MessagePush clientMsgId
                  * @property {boolean|null} [recalled] MessagePush recalled
+                 * @property {Array.<number|Long>|null} [mentionedUserIds] MessagePush mentionedUserIds
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -10220,6 +10221,7 @@ export const api = $root.api = (() => {
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
                 const MessagePush = function (properties) {
+                    this.mentionedUserIds = [];
                     if (properties)
                         for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
                             if (properties[keys[i]] != null && keys[i] !== "__proto__")
@@ -10299,6 +10301,14 @@ export const api = $root.api = (() => {
                 MessagePush.prototype.recalled = false;
 
                 /**
+                 * MessagePush mentionedUserIds.
+                 * @member {Array.<number|Long>} mentionedUserIds
+                 * @memberof api.im.v1.MessagePush
+                 * @instance
+                 */
+                MessagePush.prototype.mentionedUserIds = $util.emptyArray;
+
+                /**
                  * Creates a new MessagePush instance using the specified properties.
                  * @function create
                  * @memberof api.im.v1.MessagePush
@@ -10348,6 +10358,12 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 8, wireType 2 =*/66).string(message.clientMsgId);
                     if (message.recalled != null && $Object.hasOwnProperty.call(message, "recalled"))
                         writer.uint32(/* id 9, wireType 0 =*/72).bool(message.recalled);
+                    if (message.mentionedUserIds != null && message.mentionedUserIds.length) {
+                        writer.uint32(/* id 10, wireType 2 =*/82).fork();
+                        for (let i = 0; i < message.mentionedUserIds.length; ++i)
+                            writer.int64(message.mentionedUserIds[i]);
+                        writer.ldelim();
+                    }
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -10476,6 +10492,22 @@ export const api = $root.api = (() => {
                                     delete message.recalled;
                                 continue;
                             }
+                        case 10: {
+                                if (wireType === 2) {
+                                    if (!(message.mentionedUserIds && message.mentionedUserIds.length))
+                                        message.mentionedUserIds = [];
+                                    let end2 = reader.uint32() + reader.pos;
+                                    while (reader.pos < end2)
+                                        message.mentionedUserIds.push(reader.int64());
+                                    continue;
+                                }
+                                if (wireType !== 0)
+                                    break;
+                                if (!(message.mentionedUserIds && message.mentionedUserIds.length))
+                                    message.mentionedUserIds = [];
+                                message.mentionedUserIds.push(reader.int64());
+                                continue;
+                            }
                         }
                         reader.skipType(wireType, _depth, tag);
                         if (!reader.discardUnknown) {
@@ -10546,6 +10578,13 @@ export const api = $root.api = (() => {
                     if (message.recalled != null && $Object.hasOwnProperty.call(message, "recalled"))
                         if (typeof message.recalled !== "boolean")
                             return "recalled: boolean expected";
+                    if (message.mentionedUserIds != null && $Object.hasOwnProperty.call(message, "mentionedUserIds")) {
+                        if (!$Array.isArray(message.mentionedUserIds))
+                            return "mentionedUserIds: array expected";
+                        for (let i = 0; i < message.mentionedUserIds.length; ++i)
+                            if (!$util.isInteger(message.mentionedUserIds[i]) && !(message.mentionedUserIds[i] && $util.isInteger(message.mentionedUserIds[i].low) && $util.isInteger(message.mentionedUserIds[i].high)))
+                                return "mentionedUserIds: integer|Long[] expected";
+                    }
                     return null;
                 };
 
@@ -10625,6 +10664,20 @@ export const api = $root.api = (() => {
                     if (object.recalled != null)
                         if (object.recalled)
                             message.recalled = $Boolean(object.recalled);
+                    if (object.mentionedUserIds) {
+                        if (!$Array.isArray(object.mentionedUserIds))
+                            throw $TypeError(".api.im.v1.MessagePush.mentionedUserIds: array expected");
+                        message.mentionedUserIds = $Array(object.mentionedUserIds.length);
+                        for (let i = 0; i < object.mentionedUserIds.length; ++i)
+                            if ($util.Long)
+                                message.mentionedUserIds[i] = $util.Long.fromValue(object.mentionedUserIds[i], false);
+                            else if (typeof object.mentionedUserIds[i] === "string")
+                                message.mentionedUserIds[i] = $parseInt(object.mentionedUserIds[i], 10);
+                            else if (typeof object.mentionedUserIds[i] === "number")
+                                message.mentionedUserIds[i] = object.mentionedUserIds[i];
+                            else if (typeof object.mentionedUserIds[i] === "object")
+                                message.mentionedUserIds[i] = new $util.LongBits(object.mentionedUserIds[i].low >>> 0, object.mentionedUserIds[i].high >>> 0).toNumber();
+                    }
                     return message;
                 };
 
@@ -10645,6 +10698,8 @@ export const api = $root.api = (() => {
                     if (_depth > $util.recursionLimit)
                         throw $Error("max depth exceeded");
                     let object = {};
+                    if (options.arrays || options.defaults)
+                        object.mentionedUserIds = [];
                     if (options.defaults) {
                         if ($util.Long) {
                             let long = new $util.Long(0, 0, false);
@@ -10716,6 +10771,16 @@ export const api = $root.api = (() => {
                         object.clientMsgId = message.clientMsgId;
                     if (message.recalled != null && $Object.hasOwnProperty.call(message, "recalled"))
                         object.recalled = message.recalled;
+                    if (message.mentionedUserIds && message.mentionedUserIds.length) {
+                        object.mentionedUserIds = $Array(message.mentionedUserIds.length);
+                        for (let j = 0; j < message.mentionedUserIds.length; ++j)
+                            if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                                object.mentionedUserIds[j] = typeof message.mentionedUserIds[j] === "number" ? $BigInt(message.mentionedUserIds[j]) : $util.Long.fromBits(message.mentionedUserIds[j].low >>> 0, message.mentionedUserIds[j].high >>> 0, false).toBigInt();
+                            else if (typeof message.mentionedUserIds[j] === "number")
+                                object.mentionedUserIds[j] = options.longs === $String ? $String(message.mentionedUserIds[j]) : message.mentionedUserIds[j];
+                            else
+                                object.mentionedUserIds[j] = options.longs === $String ? $util.Long.prototype.toString.call(message.mentionedUserIds[j]) : options.longs === $Number ? new $util.LongBits(message.mentionedUserIds[j].low >>> 0, message.mentionedUserIds[j].high >>> 0).toNumber() : message.mentionedUserIds[j];
+                    }
                     return object;
                 };
 

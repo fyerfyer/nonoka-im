@@ -4232,6 +4232,9 @@ export namespace api {
                 /** MessagePush recalled. */
                 recalled: boolean;
 
+                /** MessagePush mentionedUserIds. */
+                mentionedUserIds: (number|Long)[];
+
                 /**
                  * Creates a new MessagePush instance using the specified properties.
                  * @param [properties] Properties to set
@@ -4342,6 +4345,9 @@ export namespace api {
 
                     /** MessagePush recalled */
                     recalled?: (boolean|null);
+
+                    /** MessagePush mentionedUserIds */
+                    mentionedUserIds?: ((number|Long)[]|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];

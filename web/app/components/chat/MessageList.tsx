@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
+import { MentionMember } from "@/lib/mentions";
 
 const NEAR_BOTTOM_PX = 100;
 
@@ -17,6 +18,7 @@ interface MessageListProps {
   onLoadMore?: () => void;
   onRecall?: (message: ChatMessage) => void;
   onRetry?: (message: ChatMessage) => void;
+  members?: MentionMember[];
 }
 
 export function MessageList({
@@ -26,6 +28,7 @@ export function MessageList({
   onLoadMore,
   onRecall,
   onRetry,
+  members,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -159,6 +162,10 @@ export function MessageList({
                     showSender
                       ? getSenderName(msg.senderId, conversation, memberNames)
                       : undefined
+                  }
+                  members={members}
+                  currentUserId={
+                    currentUser ? Number(currentUser.userId) : undefined
                   }
                   onRecall={() => onRecall?.(msg)}
                   onRetry={() => onRetry?.(msg)}

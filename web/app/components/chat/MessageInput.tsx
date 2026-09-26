@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,6 +10,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Send, Smile, Paperclip, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  activeMentionQuery,
+  filterMembers,
+  MentionMember,
+} from "@/lib/mentions";
 
 const EMOJIS = [
   "😀", "😄", "😂", "🤣", "😊", "😍", "😘", "🤔",
@@ -20,15 +25,48 @@ const EMOJIS = [
 interface MessageInputProps {
   onSend: (text: string) => void;
   onSendFile?: (file: File) => void;
+  members?: MentionMember[];
   disabled?: boolean;
 }
 
-export function MessageInput({ onSend, onSendFile, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, onSendFile, members, disabled }: MessageInputProps) {
   const [text, setText] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Active "@query" completion state (group mentions only).
+  const mentionState = useMemo(() => {
+    if (!members || members.length === 0 || mentionDismissed) return null;
+    const el = textareaRef.current;
+    const caret = el?.selectionStart ?? text.length;
+    const active = activeMentionQuery(text, caret);
+    if (!active) return null;
+    const candidates = filterMembers(members, active.query);
+    if (candidates.length === 0) return null;
+    return { ...active, candidates };
+  }, [text, members, mentionDismissed]);
+
+  const applyMention = (username: string) => {
+    if (!mentionState) return;
+    const el = textareaRef.current;
+    const caret = el?.selectionStart ?? text.length;
+    const next =
+      text.slice(0, mentionState.start) +
+      `@${username} ` +
+      text.slice(caret);
+    setMentionDismissed(false);
+    setText(next);
+    setMentionIndex(0);
+    requestAnimationFrame(() => {
+      el?.focus();
+      const pos = mentionState.start + username.length + 2;
+      el?.setSelectionRange(pos, pos);
+    });
+  };
 
   const handleSubmit = () => {
     if (!text.trim() || disabled) return;
@@ -40,6 +78,32 @@ export function MessageInput({ onSend, onSendFile, disabled }: MessageInputProps
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionState) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionState.candidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex(
+          (i) =>
+            (i - 1 + mentionState.candidates.length) %
+            mentionState.candidates.length
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyMention(mentionState.candidates[mentionIndex].username);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionDismissed(true);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -156,10 +220,41 @@ export function MessageInput({ onSend, onSendFile, disabled }: MessageInputProps
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {mentionState && (
+          <div className="absolute bottom-full left-10 z-50 mb-2 w-52 rounded-xl border bg-popover p-1 shadow-lg">
+            <div className="px-2 py-1 text-[10px] text-muted-foreground">
+              提及群成员
+            </div>
+            {mentionState.candidates.map((m, i) => (
+              <button
+                key={m.userId}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
+                  i === Math.min(mentionIndex, mentionState.candidates.length - 1)
+                    ? "bg-muted"
+                    : "hover:bg-muted"
+                )}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep textarea focus
+                  applyMention(m.username);
+                }}
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                  {m.username.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="truncate">{m.username}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setMentionDismissed(false);
+            setText(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           disabled={disabled}
