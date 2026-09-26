@@ -13,6 +13,7 @@ export function useConversation(topic: string | null) {
   const [loadingMore, setLoadingMore] = useState(false);
   const loadedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
+  const loadingMoreRef = useRef(false);
   // Subscribe to the conversation object so status updates trigger re-renders
   const conversation = useChatStore(
     useCallback(
@@ -21,70 +22,94 @@ export function useConversation(topic: string | null) {
     )
   );
 
-  const loadMessages = useCallback(
-    async (lastSeq = 0) => {
-      if (!topic || !user) return;
-      // Guard against concurrent initial loads: store actions replace the
-      // conversation object (zustand Object.is), which re-renders this hook,
-      // and we must not start a new pull for every render.
-      if (lastSeq === 0) {
-        if (loadedRef.current.has(topic) || inFlightRef.current.has(topic)) {
-          return;
-        }
-        inFlightRef.current.add(topic);
-      }
-      useChatStore.getState().setMessagesLoading(topic, true);
-      try {
-        const reply = await messageApi.pullMessages(topic, lastSeq, 20);
-        const msgs: ChatMessage[] = reply.messages.map((m) => ({
-          clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
-          msgId: m.msgId,
-          topic: m.topic,
-          senderId: m.senderId,
-          content: decodeMessageContent(m.content, m.msgType),
-          msgType: m.msgType,
-          timestamp: m.timestamp,
-          topicSeq: m.topicSeq,
-          recalled: m.recalled || undefined,
-          status: m.recalled
-            ? "recalled"
-            : m.senderId === user.userId
-            ? "sent"
-            : "delivered",
-        }));
-
-        if (lastSeq === 0) {
-          useChatStore.getState().upsertConversation({
-            topic,
-            messages: msgs,
-            hasMore: reply.hasMore,
-          });
-        } else {
-          useChatStore.getState().prependMessages(topic, msgs);
-        }
-      } catch (err) {
-        toast.error(
-          `Failed to load messages: ${
-            err instanceof Error ? err.message : "unknown error"
-          }`
-        );
-      } finally {
-        useChatStore.getState().setMessagesLoading(topic, false);
-        loadedRef.current.add(topic);
-        inFlightRef.current.delete(topic);
-      }
-    },
-    [topic, user]
-  );
+  const loadLatest = useCallback(async () => {
+    if (!topic || !user) return;
+    // Guard against concurrent initial loads: store actions replace the
+    // conversation object (zustand Object.is), which re-renders this hook,
+    // and we must not start a new pull for every render.
+    if (loadedRef.current.has(topic) || inFlightRef.current.has(topic)) {
+      return;
+    }
+    inFlightRef.current.add(topic);
+    useChatStore.getState().setMessagesLoading(topic, true);
+    try {
+      // endSeq=0 anchors on the latest page of history.
+      const reply = await messageApi.pullMessages(topic, 0, 20, 0);
+      const msgs: ChatMessage[] = reply.messages.map((m) => ({
+        clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
+        msgId: m.msgId,
+        topic: m.topic,
+        senderId: m.senderId,
+        content: decodeMessageContent(m.content, m.msgType),
+        msgType: m.msgType,
+        timestamp: m.timestamp,
+        topicSeq: m.topicSeq,
+        recalled: m.recalled || undefined,
+        status: m.recalled
+          ? "recalled"
+          : m.senderId === user.userId
+          ? "sent"
+          : "delivered",
+      }));
+      useChatStore.getState().upsertConversation({
+        topic,
+        messages: msgs,
+        hasMore: reply.hasMore,
+      });
+    } catch (err) {
+      toast.error(
+        `Failed to load messages: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
+    } finally {
+      useChatStore.getState().setMessagesLoading(topic, false);
+      loadedRef.current.add(topic);
+      inFlightRef.current.delete(topic);
+    }
+  }, [topic, user]);
 
   const loadMore = useCallback(async () => {
     if (!conversation || !topic || conversation.isLoading || !conversation.hasMore)
       return;
+    // Page backwards from the oldest message currently held. topicSeq may be
+    // a proto-JSON string; coerce for the exclusive end_seq bound.
+    const oldest = conversation.messages[0]?.topicSeq;
+    const endSeq = oldest !== undefined ? Number(oldest) : 0;
+    if (endSeq <= 0) return; // no messages yet; nothing older exists
+    if (loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
-    const oldest = conversation.messages[0]?.topicSeq || 0;
-    await loadMessages(oldest > 0 ? oldest - 1 : 0);
-    setLoadingMore(false);
-  }, [conversation, topic, loadMessages]);
+    try {
+      const reply = await messageApi.pullMessages(topic, 0, 20, endSeq);
+      const msgs: ChatMessage[] = reply.messages.map((m) => ({
+        clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
+        msgId: m.msgId,
+        topic: m.topic,
+        senderId: m.senderId,
+        content: decodeMessageContent(m.content, m.msgType),
+        msgType: m.msgType,
+        timestamp: m.timestamp,
+        topicSeq: m.topicSeq,
+        recalled: m.recalled || undefined,
+        status: m.recalled
+          ? "recalled"
+          : m.senderId === user?.userId
+          ? "sent"
+          : "delivered",
+      }));
+      useChatStore.getState().prependMessages(topic, msgs, reply.hasMore);
+    } catch (err) {
+      toast.error(
+        `Failed to load older messages: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [conversation, topic, user]);
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -148,12 +173,12 @@ export function useConversation(topic: string | null) {
   useEffect(() => {
     if (!topic) return;
     useChatStore.getState().setActiveTopic(topic);
-    loadMessages();
+    loadLatest();
     markRead();
     return () => {
       useChatStore.getState().setActiveTopic(null);
     };
-  }, [topic, loadMessages, markRead]);
+  }, [topic, loadLatest, markRead]);
 
   // Mark read when unread messages arrive while this topic is open.
   const unreadCount = conversation?.unreadCount ?? 0;

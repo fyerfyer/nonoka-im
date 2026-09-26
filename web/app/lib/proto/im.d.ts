@@ -35,6 +35,12 @@ export namespace api {
 
                 /** Calls Login. */
                 login: api.im.v1.AuthService.Login;
+
+                /** Calls RefreshToken. */
+                refreshToken: api.im.v1.AuthService.RefreshToken;
+
+                /** Calls Logout. */
+                logout: api.im.v1.AuthService.Logout;
             }
 
             namespace AuthService {
@@ -73,6 +79,44 @@ export namespace api {
                   readonly path: "/api.im.v1.AuthService/Login";
                   readonly requestType: "LoginRequest";
                   readonly responseType: "LoginReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.AuthService#refreshToken}.
+                 * @param error Error, if any
+                 * @param [response] LoginReply
+                 */
+                type RefreshTokenCallback = (error: (Error|null), response?: api.im.v1.LoginReply) => void;
+
+                /** Calls RefreshToken. */
+                type RefreshToken = {
+                  (request: api.im.v1.IRefreshTokenRequest, callback: api.im.v1.AuthService.RefreshTokenCallback): void;
+                  (request: api.im.v1.IRefreshTokenRequest): Promise<api.im.v1.LoginReply>;
+                  readonly name: "RefreshToken";
+                  readonly path: "/api.im.v1.AuthService/RefreshToken";
+                  readonly requestType: "RefreshTokenRequest";
+                  readonly responseType: "LoginReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.AuthService#logout}.
+                 * @param error Error, if any
+                 * @param [response] LogoutReply
+                 */
+                type LogoutCallback = (error: (Error|null), response?: api.im.v1.LogoutReply) => void;
+
+                /** Calls Logout. */
+                type Logout = {
+                  (request: api.im.v1.ILogoutRequest, callback: api.im.v1.AuthService.LogoutCallback): void;
+                  (request: api.im.v1.ILogoutRequest): Promise<api.im.v1.LogoutReply>;
+                  readonly name: "Logout";
+                  readonly path: "/api.im.v1.AuthService/Logout";
+                  readonly requestType: "LogoutRequest";
+                  readonly responseType: "LogoutReply";
                   readonly requestStream: undefined;
                   readonly responseStream: undefined;
                 };
@@ -472,6 +516,9 @@ export namespace api {
                 /** LoginReply token. */
                 token: string;
 
+                /** LoginReply refreshToken. */
+                refreshToken: string;
+
                 /**
                  * Creates a new LoginReply instance using the specified properties.
                  * @param [properties] Properties to set
@@ -562,12 +609,372 @@ export namespace api {
                     /** LoginReply token */
                     token?: (string|null);
 
+                    /** LoginReply refreshToken */
+                    refreshToken?: (string|null);
+
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];
                 }
 
                 /** Shape of a LoginReply. */
                 type $Shape = api.im.v1.LoginReply.$Properties;
+            }
+
+            /**
+             * Properties of a RefreshTokenRequest.
+             * @deprecated Use api.im.v1.RefreshTokenRequest.$Properties instead.
+             */
+            interface IRefreshTokenRequest extends api.im.v1.RefreshTokenRequest.$Properties {
+            }
+
+            /** Represents a RefreshTokenRequest. */
+            class RefreshTokenRequest {
+
+                /**
+                 * Constructs a new RefreshTokenRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.RefreshTokenRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** RefreshTokenRequest userId. */
+                userId: (number|Long);
+
+                /** RefreshTokenRequest deviceId. */
+                deviceId: string;
+
+                /** RefreshTokenRequest refreshToken. */
+                refreshToken: string;
+
+                /**
+                 * Creates a new RefreshTokenRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns RefreshTokenRequest instance
+                 */
+                static create(properties: api.im.v1.RefreshTokenRequest.$Shape): api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape;
+                static create(properties?: api.im.v1.RefreshTokenRequest.$Properties): api.im.v1.RefreshTokenRequest;
+
+                /**
+                 * Encodes the specified RefreshTokenRequest message. Does not implicitly {@link api.im.v1.RefreshTokenRequest.verify|verify} messages.
+                 * @param message RefreshTokenRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.RefreshTokenRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified RefreshTokenRequest message, length delimited. Does not implicitly {@link api.im.v1.RefreshTokenRequest.verify|verify} messages.
+                 * @param message RefreshTokenRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.RefreshTokenRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a RefreshTokenRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape} RefreshTokenRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape;
+
+                /**
+                 * Decodes a RefreshTokenRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape} RefreshTokenRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape;
+
+                /**
+                 * Verifies a RefreshTokenRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a RefreshTokenRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns RefreshTokenRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.RefreshTokenRequest;
+
+                /**
+                 * Creates a plain object from a RefreshTokenRequest message. Also converts values to other types if specified.
+                 * @param message RefreshTokenRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.RefreshTokenRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this RefreshTokenRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for RefreshTokenRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace RefreshTokenRequest {
+
+                /** Properties of a RefreshTokenRequest. */
+                interface $Properties {
+
+                    /** RefreshTokenRequest userId */
+                    userId?: (number|Long|null);
+
+                    /** RefreshTokenRequest deviceId */
+                    deviceId?: (string|null);
+
+                    /** RefreshTokenRequest refreshToken */
+                    refreshToken?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a RefreshTokenRequest. */
+                type $Shape = api.im.v1.RefreshTokenRequest.$Properties;
+            }
+
+            /**
+             * Properties of a LogoutRequest.
+             * @deprecated Use api.im.v1.LogoutRequest.$Properties instead.
+             */
+            interface ILogoutRequest extends api.im.v1.LogoutRequest.$Properties {
+            }
+
+            /** Represents a LogoutRequest. */
+            class LogoutRequest {
+
+                /**
+                 * Constructs a new LogoutRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.LogoutRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /**
+                 * Creates a new LogoutRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns LogoutRequest instance
+                 */
+                static create(properties: api.im.v1.LogoutRequest.$Shape): api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape;
+                static create(properties?: api.im.v1.LogoutRequest.$Properties): api.im.v1.LogoutRequest;
+
+                /**
+                 * Encodes the specified LogoutRequest message. Does not implicitly {@link api.im.v1.LogoutRequest.verify|verify} messages.
+                 * @param message LogoutRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.LogoutRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified LogoutRequest message, length delimited. Does not implicitly {@link api.im.v1.LogoutRequest.verify|verify} messages.
+                 * @param message LogoutRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.LogoutRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a LogoutRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape} LogoutRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape;
+
+                /**
+                 * Decodes a LogoutRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape} LogoutRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape;
+
+                /**
+                 * Verifies a LogoutRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a LogoutRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns LogoutRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.LogoutRequest;
+
+                /**
+                 * Creates a plain object from a LogoutRequest message. Also converts values to other types if specified.
+                 * @param message LogoutRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.LogoutRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this LogoutRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for LogoutRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace LogoutRequest {
+
+                /** Properties of a LogoutRequest. */
+                interface $Properties {
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a LogoutRequest. */
+                type $Shape = api.im.v1.LogoutRequest.$Properties;
+            }
+
+            /**
+             * Properties of a LogoutReply.
+             * @deprecated Use api.im.v1.LogoutReply.$Properties instead.
+             */
+            interface ILogoutReply extends api.im.v1.LogoutReply.$Properties {
+            }
+
+            /** Represents a LogoutReply. */
+            class LogoutReply {
+
+                /**
+                 * Constructs a new LogoutReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.LogoutReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** LogoutReply success. */
+                success: boolean;
+
+                /**
+                 * Creates a new LogoutReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns LogoutReply instance
+                 */
+                static create(properties: api.im.v1.LogoutReply.$Shape): api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape;
+                static create(properties?: api.im.v1.LogoutReply.$Properties): api.im.v1.LogoutReply;
+
+                /**
+                 * Encodes the specified LogoutReply message. Does not implicitly {@link api.im.v1.LogoutReply.verify|verify} messages.
+                 * @param message LogoutReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.LogoutReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified LogoutReply message, length delimited. Does not implicitly {@link api.im.v1.LogoutReply.verify|verify} messages.
+                 * @param message LogoutReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.LogoutReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a LogoutReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape} LogoutReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape;
+
+                /**
+                 * Decodes a LogoutReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape} LogoutReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape;
+
+                /**
+                 * Verifies a LogoutReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a LogoutReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns LogoutReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.LogoutReply;
+
+                /**
+                 * Creates a plain object from a LogoutReply message. Also converts values to other types if specified.
+                 * @param message LogoutReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.LogoutReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this LogoutReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for LogoutReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace LogoutReply {
+
+                /** Properties of a LogoutReply. */
+                interface $Properties {
+
+                    /** LogoutReply success */
+                    success?: (boolean|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a LogoutReply. */
+                type $Shape = api.im.v1.LogoutReply.$Properties;
             }
 
             /** Represents a ConversationService */
@@ -3541,6 +3948,9 @@ export namespace api {
                 /** PullRequest limit. */
                 limit: number;
 
+                /** PullRequest endSeq. */
+                endSeq: (number|Long);
+
                 /**
                  * Creates a new PullRequest instance using the specified properties.
                  * @param [properties] Properties to set
@@ -3633,6 +4043,9 @@ export namespace api {
 
                     /** PullRequest limit */
                     limit?: (number|null);
+
+                    /** PullRequest endSeq */
+                    endSeq?: (number|Long|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];

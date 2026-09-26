@@ -3,7 +3,7 @@ import $protobuf from "protobufjs/minimal.js";
 
 // Common aliases
 const $Reader = $protobuf.Reader, $Writer = $protobuf.Writer, $util = $protobuf.util;
-const $Object = $util.global.Object, $undefined = $util.global.undefined, $Error = $util.global.Error, $TypeError = $util.global.TypeError, $String = $util.global.String, $Number = $util.global.Number, $parseInt = $util.global.parseInt, $BigInt = $util.global.BigInt, $Array = $util.global.Array, $Boolean = $util.global.Boolean, $isFinite = $util.global.isFinite;
+const $Object = $util.global.Object, $undefined = $util.global.undefined, $Error = $util.global.Error, $TypeError = $util.global.TypeError, $String = $util.global.String, $Number = $util.global.Number, $parseInt = $util.global.parseInt, $BigInt = $util.global.BigInt, $Boolean = $util.global.Boolean, $Array = $util.global.Array, $isFinite = $util.global.isFinite;
 
 // Exported root namespace
 const $root = $protobuf.roots["default"] || ($protobuf.roots["default"] = {});
@@ -145,6 +145,88 @@ export const api = $root.api = (() => {
                     path: { value: "/api.im.v1.AuthService/Login" },
                     requestType: { value: "LoginRequest" },
                     responseType: { value: "LoginReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
+                /**
+                 * Callback as used by {@link api.im.v1.AuthService#refreshToken}.
+                 * @memberof api.im.v1.AuthService
+                 * @typedef RefreshTokenCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.LoginReply} [response] LoginReply
+                 */
+
+                /**
+                 * Calls RefreshToken.
+                 * @memberof api.im.v1.AuthService
+                 * @typedef RefreshToken
+                 * @type {{
+                 *   (request: api.im.v1.IRefreshTokenRequest, callback: api.im.v1.AuthService.RefreshTokenCallback): void;
+                 *   (request: api.im.v1.IRefreshTokenRequest): Promise<api.im.v1.LoginReply>;
+                 *   readonly name: "RefreshToken";
+                 *   readonly path: "/api.im.v1.AuthService/RefreshToken";
+                 *   readonly requestType: "RefreshTokenRequest";
+                 *   readonly responseType: "LoginReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls RefreshToken.
+                 * @name api.im.v1.AuthService#refreshToken
+                 * @type {api.im.v1.AuthService.RefreshToken}
+                 */
+                $Object.defineProperties(AuthService.prototype.refreshToken = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, AuthService.prototype.refreshToken, $root.api.im.v1.RefreshTokenRequest, $root.api.im.v1.LoginReply, request, callback);
+                }, {
+                    name: { value: "RefreshToken" },
+                    path: { value: "/api.im.v1.AuthService/RefreshToken" },
+                    requestType: { value: "RefreshTokenRequest" },
+                    responseType: { value: "LoginReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
+                /**
+                 * Callback as used by {@link api.im.v1.AuthService#logout}.
+                 * @memberof api.im.v1.AuthService
+                 * @typedef LogoutCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.LogoutReply} [response] LogoutReply
+                 */
+
+                /**
+                 * Calls Logout.
+                 * @memberof api.im.v1.AuthService
+                 * @typedef Logout
+                 * @type {{
+                 *   (request: api.im.v1.ILogoutRequest, callback: api.im.v1.AuthService.LogoutCallback): void;
+                 *   (request: api.im.v1.ILogoutRequest): Promise<api.im.v1.LogoutReply>;
+                 *   readonly name: "Logout";
+                 *   readonly path: "/api.im.v1.AuthService/Logout";
+                 *   readonly requestType: "LogoutRequest";
+                 *   readonly responseType: "LogoutReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls Logout.
+                 * @name api.im.v1.AuthService#logout
+                 * @type {api.im.v1.AuthService.Logout}
+                 */
+                $Object.defineProperties(AuthService.prototype.logout = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, AuthService.prototype.logout, $root.api.im.v1.LogoutRequest, $root.api.im.v1.LogoutReply, request, callback);
+                }, {
+                    name: { value: "Logout" },
+                    path: { value: "/api.im.v1.AuthService/Logout" },
+                    requestType: { value: "LogoutRequest" },
+                    responseType: { value: "LogoutReply" },
                     requestStream: { value: $undefined },
                     responseStream: { value: $undefined }
                 });
@@ -1044,6 +1126,7 @@ export const api = $root.api = (() => {
                  * @typedef {Object} api.im.v1.LoginReply.$Properties
                  * @property {number|Long|null} [userId] LoginReply userId
                  * @property {string|null} [token] LoginReply token
+                 * @property {string|null} [refreshToken] LoginReply refreshToken
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -1092,6 +1175,14 @@ export const api = $root.api = (() => {
                 LoginReply.prototype.token = "";
 
                 /**
+                 * LoginReply refreshToken.
+                 * @member {string} refreshToken
+                 * @memberof api.im.v1.LoginReply
+                 * @instance
+                 */
+                LoginReply.prototype.refreshToken = "";
+
+                /**
                  * Creates a new LoginReply instance using the specified properties.
                  * @function create
                  * @memberof api.im.v1.LoginReply
@@ -1127,6 +1218,8 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
                     if (message.token != null && $Object.hasOwnProperty.call(message, "token"))
                         writer.uint32(/* id 2, wireType 2 =*/18).string(message.token);
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        writer.uint32(/* id 3, wireType 2 =*/26).string(message.refreshToken);
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -1192,6 +1285,15 @@ export const api = $root.api = (() => {
                                     delete message.token;
                                 continue;
                             }
+                        case 3: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.refreshToken = value;
+                                else
+                                    delete message.refreshToken;
+                                continue;
+                            }
                         }
                         reader.skipType(wireType, _depth, tag);
                         if (!reader.discardUnknown) {
@@ -1241,6 +1343,9 @@ export const api = $root.api = (() => {
                     if (message.token != null && $Object.hasOwnProperty.call(message, "token"))
                         if (!$util.isString(message.token))
                             return "token: string expected";
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        if (!$util.isString(message.refreshToken))
+                            return "refreshToken: string expected";
                     return null;
                 };
 
@@ -1275,6 +1380,9 @@ export const api = $root.api = (() => {
                     if (object.token != null)
                         if (typeof object.token !== "string" || object.token.length)
                             message.token = $String(object.token);
+                    if (object.refreshToken != null)
+                        if (typeof object.refreshToken !== "string" || object.refreshToken.length)
+                            message.refreshToken = $String(object.refreshToken);
                     return message;
                 };
 
@@ -1302,6 +1410,7 @@ export const api = $root.api = (() => {
                         } else
                             object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
                         object.token = "";
+                        object.refreshToken = "";
                     }
                     if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
                         if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
@@ -1312,6 +1421,8 @@ export const api = $root.api = (() => {
                             object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
                     if (message.token != null && $Object.hasOwnProperty.call(message, "token"))
                         object.token = message.token;
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        object.refreshToken = message.refreshToken;
                     return object;
                 };
 
@@ -1341,6 +1452,820 @@ export const api = $root.api = (() => {
                 };
 
                 return LoginReply;
+            })();
+
+            v1.RefreshTokenRequest = (function() {
+
+                /**
+                 * Properties of a RefreshTokenRequest.
+                 * @typedef {Object} api.im.v1.RefreshTokenRequest.$Properties
+                 * @property {number|Long|null} [userId] RefreshTokenRequest userId
+                 * @property {string|null} [deviceId] RefreshTokenRequest deviceId
+                 * @property {string|null} [refreshToken] RefreshTokenRequest refreshToken
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a RefreshTokenRequest.
+                 * @memberof api.im.v1
+                 * @interface IRefreshTokenRequest
+                 * @augments api.im.v1.RefreshTokenRequest.$Properties
+                 * @deprecated Use api.im.v1.RefreshTokenRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a RefreshTokenRequest.
+                 * @typedef {api.im.v1.RefreshTokenRequest.$Properties} api.im.v1.RefreshTokenRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new RefreshTokenRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a RefreshTokenRequest.
+                 * @constructor
+                 * @param {api.im.v1.RefreshTokenRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const RefreshTokenRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * RefreshTokenRequest userId.
+                 * @member {number|Long} userId
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @instance
+                 */
+                RefreshTokenRequest.prototype.userId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * RefreshTokenRequest deviceId.
+                 * @member {string} deviceId
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @instance
+                 */
+                RefreshTokenRequest.prototype.deviceId = "";
+
+                /**
+                 * RefreshTokenRequest refreshToken.
+                 * @member {string} refreshToken
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @instance
+                 */
+                RefreshTokenRequest.prototype.refreshToken = "";
+
+                /**
+                 * Creates a new RefreshTokenRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {api.im.v1.RefreshTokenRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.RefreshTokenRequest} RefreshTokenRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.RefreshTokenRequest.$Shape): api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape;
+                 *   (properties?: api.im.v1.RefreshTokenRequest.$Properties): api.im.v1.RefreshTokenRequest;
+                 * }}
+                 */
+                RefreshTokenRequest.create = function(properties) {
+                    return new RefreshTokenRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified RefreshTokenRequest message. Does not implicitly {@link api.im.v1.RefreshTokenRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {api.im.v1.RefreshTokenRequest.$Properties} message RefreshTokenRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                RefreshTokenRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
+                    if (message.deviceId != null && $Object.hasOwnProperty.call(message, "deviceId"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.deviceId);
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        writer.uint32(/* id 3, wireType 2 =*/26).string(message.refreshToken);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified RefreshTokenRequest message, length delimited. Does not implicitly {@link api.im.v1.RefreshTokenRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {api.im.v1.RefreshTokenRequest.$Properties} message RefreshTokenRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                RefreshTokenRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a RefreshTokenRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape} RefreshTokenRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                RefreshTokenRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.RefreshTokenRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.userId = value;
+                                else
+                                    delete message.userId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.deviceId = value;
+                                else
+                                    delete message.deviceId;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.refreshToken = value;
+                                else
+                                    delete message.refreshToken;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a RefreshTokenRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.RefreshTokenRequest & api.im.v1.RefreshTokenRequest.$Shape} RefreshTokenRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                RefreshTokenRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a RefreshTokenRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                RefreshTokenRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (!$util.isInteger(message.userId) && !(message.userId && $util.isInteger(message.userId.low) && $util.isInteger(message.userId.high)))
+                            return "userId: integer|Long expected";
+                    if (message.deviceId != null && $Object.hasOwnProperty.call(message, "deviceId"))
+                        if (!$util.isString(message.deviceId))
+                            return "deviceId: string expected";
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        if (!$util.isString(message.refreshToken))
+                            return "refreshToken: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a RefreshTokenRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.RefreshTokenRequest} RefreshTokenRequest
+                 */
+                RefreshTokenRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.RefreshTokenRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.RefreshTokenRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.RefreshTokenRequest();
+                    if (object.userId != null)
+                        if (typeof object.userId === "object" ? object.userId.low || object.userId.high : $Number(object.userId) !== 0)
+                            if ($util.Long)
+                                message.userId = $util.Long.fromValue(object.userId, false);
+                            else if (typeof object.userId === "string")
+                                message.userId = $parseInt(object.userId, 10);
+                            else if (typeof object.userId === "number")
+                                message.userId = object.userId;
+                            else if (typeof object.userId === "object")
+                                message.userId = new $util.LongBits(object.userId.low >>> 0, object.userId.high >>> 0).toNumber();
+                    if (object.deviceId != null)
+                        if (typeof object.deviceId !== "string" || object.deviceId.length)
+                            message.deviceId = $String(object.deviceId);
+                    if (object.refreshToken != null)
+                        if (typeof object.refreshToken !== "string" || object.refreshToken.length)
+                            message.refreshToken = $String(object.refreshToken);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a RefreshTokenRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {api.im.v1.RefreshTokenRequest} message RefreshTokenRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                RefreshTokenRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.userId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.deviceId = "";
+                        object.refreshToken = "";
+                    }
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.userId = typeof message.userId === "number" ? $BigInt(message.userId) : $util.Long.fromBits(message.userId.low >>> 0, message.userId.high >>> 0, false).toBigInt();
+                        else if (typeof message.userId === "number")
+                            object.userId = options.longs === $String ? $String(message.userId) : message.userId;
+                        else
+                            object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
+                    if (message.deviceId != null && $Object.hasOwnProperty.call(message, "deviceId"))
+                        object.deviceId = message.deviceId;
+                    if (message.refreshToken != null && $Object.hasOwnProperty.call(message, "refreshToken"))
+                        object.refreshToken = message.refreshToken;
+                    return object;
+                };
+
+                /**
+                 * Converts this RefreshTokenRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                RefreshTokenRequest.prototype.toJSON = function() {
+                    return RefreshTokenRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for RefreshTokenRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.RefreshTokenRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                RefreshTokenRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.RefreshTokenRequest";
+                };
+
+                return RefreshTokenRequest;
+            })();
+
+            v1.LogoutRequest = (function() {
+
+                /**
+                 * Properties of a LogoutRequest.
+                 * @typedef {Object} api.im.v1.LogoutRequest.$Properties
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a LogoutRequest.
+                 * @memberof api.im.v1
+                 * @interface ILogoutRequest
+                 * @augments api.im.v1.LogoutRequest.$Properties
+                 * @deprecated Use api.im.v1.LogoutRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a LogoutRequest.
+                 * @typedef {api.im.v1.LogoutRequest.$Properties} api.im.v1.LogoutRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new LogoutRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a LogoutRequest.
+                 * @constructor
+                 * @param {api.im.v1.LogoutRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const LogoutRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * Creates a new LogoutRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {api.im.v1.LogoutRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.LogoutRequest} LogoutRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.LogoutRequest.$Shape): api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape;
+                 *   (properties?: api.im.v1.LogoutRequest.$Properties): api.im.v1.LogoutRequest;
+                 * }}
+                 */
+                LogoutRequest.create = function(properties) {
+                    return new LogoutRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified LogoutRequest message. Does not implicitly {@link api.im.v1.LogoutRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {api.im.v1.LogoutRequest.$Properties} message LogoutRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                LogoutRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified LogoutRequest message, length delimited. Does not implicitly {@link api.im.v1.LogoutRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {api.im.v1.LogoutRequest.$Properties} message LogoutRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                LogoutRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a LogoutRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape} LogoutRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                LogoutRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.LogoutRequest();
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        reader.skipType(tag & 7, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a LogoutRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.LogoutRequest & api.im.v1.LogoutRequest.$Shape} LogoutRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                LogoutRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a LogoutRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                LogoutRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    return null;
+                };
+
+                /**
+                 * Creates a LogoutRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.LogoutRequest} LogoutRequest
+                 */
+                LogoutRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.LogoutRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.LogoutRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    return new $root.api.im.v1.LogoutRequest();
+                };
+
+                /**
+                 * Creates a plain object from a LogoutRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {api.im.v1.LogoutRequest} message LogoutRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                LogoutRequest.toObject = function () {
+                    return {};
+                };
+
+                /**
+                 * Converts this LogoutRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.LogoutRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                LogoutRequest.prototype.toJSON = function() {
+                    return LogoutRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for LogoutRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.LogoutRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                LogoutRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.LogoutRequest";
+                };
+
+                return LogoutRequest;
+            })();
+
+            v1.LogoutReply = (function() {
+
+                /**
+                 * Properties of a LogoutReply.
+                 * @typedef {Object} api.im.v1.LogoutReply.$Properties
+                 * @property {boolean|null} [success] LogoutReply success
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a LogoutReply.
+                 * @memberof api.im.v1
+                 * @interface ILogoutReply
+                 * @augments api.im.v1.LogoutReply.$Properties
+                 * @deprecated Use api.im.v1.LogoutReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a LogoutReply.
+                 * @typedef {api.im.v1.LogoutReply.$Properties} api.im.v1.LogoutReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new LogoutReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a LogoutReply.
+                 * @constructor
+                 * @param {api.im.v1.LogoutReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const LogoutReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * LogoutReply success.
+                 * @member {boolean} success
+                 * @memberof api.im.v1.LogoutReply
+                 * @instance
+                 */
+                LogoutReply.prototype.success = false;
+
+                /**
+                 * Creates a new LogoutReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {api.im.v1.LogoutReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.LogoutReply} LogoutReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.LogoutReply.$Shape): api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape;
+                 *   (properties?: api.im.v1.LogoutReply.$Properties): api.im.v1.LogoutReply;
+                 * }}
+                 */
+                LogoutReply.create = function(properties) {
+                    return new LogoutReply(properties);
+                };
+
+                /**
+                 * Encodes the specified LogoutReply message. Does not implicitly {@link api.im.v1.LogoutReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {api.im.v1.LogoutReply.$Properties} message LogoutReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                LogoutReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).bool(message.success);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified LogoutReply message, length delimited. Does not implicitly {@link api.im.v1.LogoutReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {api.im.v1.LogoutReply.$Properties} message LogoutReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                LogoutReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a LogoutReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape} LogoutReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                LogoutReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.LogoutReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.success = value;
+                                else
+                                    delete message.success;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a LogoutReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.LogoutReply & api.im.v1.LogoutReply.$Shape} LogoutReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                LogoutReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a LogoutReply message.
+                 * @function verify
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                LogoutReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        if (typeof message.success !== "boolean")
+                            return "success: boolean expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a LogoutReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.LogoutReply} LogoutReply
+                 */
+                LogoutReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.LogoutReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.LogoutReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.LogoutReply();
+                    if (object.success != null)
+                        if (object.success)
+                            message.success = $Boolean(object.success);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a LogoutReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {api.im.v1.LogoutReply} message LogoutReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                LogoutReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults)
+                        object.success = false;
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        object.success = message.success;
+                    return object;
+                };
+
+                /**
+                 * Converts this LogoutReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.LogoutReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                LogoutReply.prototype.toJSON = function() {
+                    return LogoutReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for LogoutReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.LogoutReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                LogoutReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.LogoutReply";
+                };
+
+                return LogoutReply;
             })();
 
             v1.ConversationService = (function() {
@@ -8916,6 +9841,7 @@ export const api = $root.api = (() => {
                  * @property {string|null} [topic] PullRequest topic
                  * @property {number|Long|null} [lastSeq] PullRequest lastSeq
                  * @property {number|null} [limit] PullRequest limit
+                 * @property {number|Long|null} [endSeq] PullRequest endSeq
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -8972,6 +9898,14 @@ export const api = $root.api = (() => {
                 PullRequest.prototype.limit = 0;
 
                 /**
+                 * PullRequest endSeq.
+                 * @member {number|Long} endSeq
+                 * @memberof api.im.v1.PullRequest
+                 * @instance
+                 */
+                PullRequest.prototype.endSeq = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
                  * Creates a new PullRequest instance using the specified properties.
                  * @function create
                  * @memberof api.im.v1.PullRequest
@@ -9009,6 +9943,8 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 2, wireType 0 =*/16).uint64(message.lastSeq);
                     if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
                         writer.uint32(/* id 3, wireType 0 =*/24).int32(message.limit);
+                    if (message.endSeq != null && $Object.hasOwnProperty.call(message, "endSeq"))
+                        writer.uint32(/* id 4, wireType 0 =*/32).uint64(message.endSeq);
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -9083,6 +10019,15 @@ export const api = $root.api = (() => {
                                     delete message.limit;
                                 continue;
                             }
+                        case 4: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.endSeq = value;
+                                else
+                                    delete message.endSeq;
+                                continue;
+                            }
                         }
                         reader.skipType(wireType, _depth, tag);
                         if (!reader.discardUnknown) {
@@ -9135,6 +10080,9 @@ export const api = $root.api = (() => {
                     if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
                         if (!$util.isInteger(message.limit))
                             return "limit: integer expected";
+                    if (message.endSeq != null && $Object.hasOwnProperty.call(message, "endSeq"))
+                        if (!$util.isInteger(message.endSeq) && !(message.endSeq && $util.isInteger(message.endSeq.low) && $util.isInteger(message.endSeq.high)))
+                            return "endSeq: integer|Long expected";
                     return null;
                 };
 
@@ -9172,6 +10120,16 @@ export const api = $root.api = (() => {
                     if (object.limit != null)
                         if ($Number(object.limit) !== 0)
                             message.limit = object.limit | 0;
+                    if (object.endSeq != null)
+                        if (typeof object.endSeq === "object" ? object.endSeq.low || object.endSeq.high : $Number(object.endSeq) !== 0)
+                            if ($util.Long)
+                                message.endSeq = $util.Long.fromValue(object.endSeq, true);
+                            else if (typeof object.endSeq === "string")
+                                message.endSeq = $parseInt(object.endSeq, 10);
+                            else if (typeof object.endSeq === "number")
+                                message.endSeq = object.endSeq;
+                            else if (typeof object.endSeq === "object")
+                                message.endSeq = new $util.LongBits(object.endSeq.low >>> 0, object.endSeq.high >>> 0).toNumber(true);
                     return message;
                 };
 
@@ -9200,6 +10158,11 @@ export const api = $root.api = (() => {
                         } else
                             object.lastSeq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
                         object.limit = 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.endSeq = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.endSeq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
                     }
                     if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
                         object.topic = message.topic;
@@ -9212,6 +10175,13 @@ export const api = $root.api = (() => {
                             object.lastSeq = options.longs === $String ? $util.Long.prototype.toString.call(message.lastSeq) : options.longs === $Number ? new $util.LongBits(message.lastSeq.low >>> 0, message.lastSeq.high >>> 0).toNumber(true) : message.lastSeq;
                     if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
                         object.limit = message.limit;
+                    if (message.endSeq != null && $Object.hasOwnProperty.call(message, "endSeq"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.endSeq = typeof message.endSeq === "number" ? $BigInt(message.endSeq) : $util.Long.fromBits(message.endSeq.low >>> 0, message.endSeq.high >>> 0, true).toBigInt();
+                        else if (typeof message.endSeq === "number")
+                            object.endSeq = options.longs === $String ? $String(message.endSeq) : message.endSeq;
+                        else
+                            object.endSeq = options.longs === $String ? $util.Long.prototype.toString.call(message.endSeq) : options.longs === $Number ? new $util.LongBits(message.endSeq.low >>> 0, message.endSeq.high >>> 0).toNumber(true) : message.endSeq;
                     return object;
                 };
 

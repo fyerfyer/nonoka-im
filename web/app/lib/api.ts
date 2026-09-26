@@ -264,7 +264,10 @@ export const dispatchApi = {
 };
 
 export const messageApi = {
-  pullMessages: (topic: string, lastSeq: number, limit = 20) =>
+  // Pull messages. Backward history page: pass endSeq (exclusive upper
+  // bound); endSeq=0 with lastSeq=0 returns the latest page. Forward
+  // incremental pull: lastSeq > 0, endSeq = 0.
+  pullMessages: (topic: string, lastSeq: number, limit = 20, endSeq = 0) =>
     api.get<{
       messages: Array<{
         msgId: number;
@@ -282,7 +285,7 @@ export const messageApi = {
     }>(
       `/v1/message/pull?topic=${encodeURIComponent(
         topic
-      )}&lastSeq=${lastSeq}&limit=${limit}`
+      )}&lastSeq=${lastSeq}&limit=${limit}&endSeq=${endSeq}`
     ),
 };
 

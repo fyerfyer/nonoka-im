@@ -25,7 +25,7 @@ interface ChatStore {
   ) => void;
   recallMessage: (topic: string, topicSeq: number, msgId?: number) => void;
   setMessagesLoading: (topic: string, flag: boolean) => void;
-  prependMessages: (topic: string, msgs: ChatMessage[]) => void;
+  prependMessages: (topic: string, msgs: ChatMessage[], hasMore: boolean) => void;
   markTopicRead: (topic: string, upToSeq: number) => void;
   updateConnectionState: (state: ConnectionState) => void;
   setGroup: (group: Group) => void;
@@ -54,6 +54,27 @@ function ensureConversation(
   };
   map.set(topic, conv);
   return conv;
+}
+
+// insertBySeq appends a message, keeping ascending topic_seq order. Pushed
+// messages can arrive late (after a pull already returned newer pages), so a
+// plain push to the end would break ordering.
+function insertBySeq(messages: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const seq = msg.topicSeq !== undefined ? Number(msg.topicSeq) : undefined;
+  const last = messages[messages.length - 1];
+  if (
+    seq === undefined ||
+    !last ||
+    last.topicSeq === undefined ||
+    seq >= Number(last.topicSeq)
+  ) {
+    return [...messages, msg];
+  }
+  const idx = messages.findIndex(
+    (m) => m.topicSeq !== undefined && Number(m.topicSeq) > seq
+  );
+  const at = idx === -1 ? messages.length : idx;
+  return [...messages.slice(0, at), msg, ...messages.slice(at)];
 }
 
 const initialState = {
@@ -108,7 +129,10 @@ export const useChatStore = create<ChatStore>((set) => ({
             // numbers; compare numerically so duplicates are caught.
             Number(m.topicSeq) === Number(msg.topicSeq))
       );
-      const messages = exists ? conv.messages : [...conv.messages, msg];
+      const messages = exists
+        ? conv.messages
+        : insertBySeq(conv.messages, msg);
+      const msgSeq = msg.topicSeq !== undefined ? Number(msg.topicSeq) : undefined;
       map.set(topic, {
         ...conv,
         messages,
@@ -117,9 +141,7 @@ export const useChatStore = create<ChatStore>((set) => ({
           : msg.content,
         lastMsgAt: msg.timestamp,
         lastSeq:
-          msg.topicSeq !== undefined && msg.topicSeq > conv.lastSeq
-            ? msg.topicSeq
-            : conv.lastSeq,
+          msgSeq !== undefined && msgSeq > conv.lastSeq ? msgSeq : conv.lastSeq,
       });
       return { conversations: map };
     }),
@@ -148,7 +170,7 @@ export const useChatStore = create<ChatStore>((set) => ({
       map.set(topic, { ...conv, isLoading: flag });
       return { conversations: map };
     }),
-  prependMessages: (topic, msgs) =>
+  prependMessages: (topic, msgs, hasMore) =>
     set((state) => {
       const map = new Map(state.conversations);
       const conv = ensureConversation(map, topic);
@@ -179,10 +201,11 @@ export const useChatStore = create<ChatStore>((set) => ({
       map.set(topic, {
         ...conv,
         messages: merged,
-        hasMore: msgs.length < 20 ? false : conv.hasMore,
+        // hasMore comes from the server (limit+1 probing), not msg count.
+        hasMore,
         lastSeq:
-          last?.topicSeq !== undefined && last.topicSeq > conv.lastSeq
-            ? last.topicSeq
+          last?.topicSeq !== undefined && Number(last.topicSeq) > conv.lastSeq
+            ? Number(last.topicSeq)
             : conv.lastSeq,
       });
       return { conversations: map };
