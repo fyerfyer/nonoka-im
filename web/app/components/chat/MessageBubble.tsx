@@ -2,7 +2,11 @@
 
 import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
-import { Check, CheckCheck, Loader2, AlertCircle, Undo2 } from "lucide-react";
+import { absoluteFileUrl, formatSize, parseMediaContent } from "@/lib/media";
+import { Check, CheckCheck, Loader2, AlertCircle, Undo2, FileIcon } from "lucide-react";
+
+const MSG_TYPE_IMAGE = 2;
+const MSG_TYPE_FILE = 3;
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -61,9 +65,7 @@ export function MessageBubble({
               : "bg-muted rounded-bl-md"
           )}
         >
-          <p className={cn("whitespace-pre-wrap break-words", message.recalled && "italic opacity-70") }>
-            {message.recalled ? "This message was recalled" : message.content}
-          </p>
+          <MessageBody message={message} />
           <div
             className={cn(
               "mt-1 flex items-center gap-1 text-[10px] opacity-70",
@@ -78,6 +80,60 @@ export function MessageBubble({
         </div>
       </div>
     </div>
+  );
+}
+
+// MessageBody renders text, image, and file message content. Media messages
+// carry JSON metadata in content; malformed payloads fall back to plain text.
+function MessageBody({ message }: { message: ChatMessage }) {
+  if (message.recalled) {
+    return (
+      <p className="italic opacity-70">This message was recalled</p>
+    );
+  }
+
+  if (message.msgType === MSG_TYPE_IMAGE || message.msgType === MSG_TYPE_FILE) {
+    const meta = parseMediaContent(message.content);
+    if (!meta) {
+      return (
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+      );
+    }
+    const href = absoluteFileUrl(meta.url);
+    if (message.msgType === MSG_TYPE_IMAGE) {
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" title={meta.name}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={href}
+            alt={meta.name}
+            className="max-h-60 max-w-full rounded-lg"
+          />
+        </a>
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 rounded-lg bg-background/60 px-1 py-1"
+      >
+        <FileIcon className="h-5 w-5 shrink-0" />
+        <span className="min-w-0">
+          <span className="block max-w-[200px] truncate text-sm underline underline-offset-2">
+            {meta.name}
+          </span>
+          <span className="block text-[10px] opacity-70">
+            {formatSize(meta.size)}
+          </span>
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <p className={cn("whitespace-pre-wrap break-words")}>{message.content}</p>
   );
 }
 

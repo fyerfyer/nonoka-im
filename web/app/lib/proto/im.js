@@ -4469,6 +4469,1432 @@ export const api = $root.api = (() => {
                 return GetGatewayReply;
             })();
 
+            v1.FileService = (function() {
+
+                /**
+                 * Constructs a new FileService service.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a FileService
+                 * @extends $protobuf.rpc.Service
+                 * @constructor
+                 * @param {$protobuf.RPCImpl} rpcImpl RPC implementation
+                 * @param {boolean} [requestDelimited=false] Whether requests are length-delimited
+                 * @param {boolean} [responseDelimited=false] Whether responses are length-delimited
+                 */
+                const FileService = function(rpcImpl, requestDelimited, responseDelimited) {
+                    $protobuf.rpc.Service.call(this, rpcImpl, requestDelimited, responseDelimited);
+                };
+
+                (FileService.prototype = $Object.create($protobuf.rpc.Service.prototype)).constructor = FileService;
+
+                /**
+                 * Creates new FileService service using the specified rpc implementation.
+                 * @function create
+                 * @memberof api.im.v1.FileService
+                 * @static
+                 * @param {$protobuf.RPCImpl} rpcImpl RPC implementation
+                 * @param {boolean} [requestDelimited=false] Whether requests are length-delimited
+                 * @param {boolean} [responseDelimited=false] Whether responses are length-delimited
+                 * @returns {FileService} RPC service. Useful where requests and/or responses are streamed.
+                 */
+                FileService.create = function(rpcImpl, requestDelimited, responseDelimited) {
+                    return new this(rpcImpl, requestDelimited, responseDelimited);
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.FileService#uploadFile}.
+                 * @memberof api.im.v1.FileService
+                 * @typedef UploadFileCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.UploadFileReply} [response] UploadFileReply
+                 */
+
+                /**
+                 * Calls UploadFile.
+                 * @memberof api.im.v1.FileService
+                 * @typedef UploadFile
+                 * @type {{
+                 *   (request: api.im.v1.IUploadFileRequest, callback: api.im.v1.FileService.UploadFileCallback): void;
+                 *   (request: api.im.v1.IUploadFileRequest): Promise<api.im.v1.UploadFileReply>;
+                 *   readonly name: "UploadFile";
+                 *   readonly path: "/api.im.v1.FileService/UploadFile";
+                 *   readonly requestType: "UploadFileRequest";
+                 *   readonly responseType: "UploadFileReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls UploadFile.
+                 * @name api.im.v1.FileService#uploadFile
+                 * @type {api.im.v1.FileService.UploadFile}
+                 */
+                $Object.defineProperties(FileService.prototype.uploadFile = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, FileService.prototype.uploadFile, $root.api.im.v1.UploadFileRequest, $root.api.im.v1.UploadFileReply, request, callback);
+                }, {
+                    name: { value: "UploadFile" },
+                    path: { value: "/api.im.v1.FileService/UploadFile" },
+                    requestType: { value: "UploadFileRequest" },
+                    responseType: { value: "UploadFileReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
+                /**
+                 * Callback as used by {@link api.im.v1.FileService#downloadFile}.
+                 * @memberof api.im.v1.FileService
+                 * @typedef DownloadFileCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.DownloadFileReply} [response] DownloadFileReply
+                 */
+
+                /**
+                 * Calls DownloadFile.
+                 * @memberof api.im.v1.FileService
+                 * @typedef DownloadFile
+                 * @type {{
+                 *   (request: api.im.v1.IDownloadFileRequest, callback: api.im.v1.FileService.DownloadFileCallback): void;
+                 *   (request: api.im.v1.IDownloadFileRequest): Promise<api.im.v1.DownloadFileReply>;
+                 *   readonly name: "DownloadFile";
+                 *   readonly path: "/api.im.v1.FileService/DownloadFile";
+                 *   readonly requestType: "DownloadFileRequest";
+                 *   readonly responseType: "DownloadFileReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls DownloadFile.
+                 * @name api.im.v1.FileService#downloadFile
+                 * @type {api.im.v1.FileService.DownloadFile}
+                 */
+                $Object.defineProperties(FileService.prototype.downloadFile = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, FileService.prototype.downloadFile, $root.api.im.v1.DownloadFileRequest, $root.api.im.v1.DownloadFileReply, request, callback);
+                }, {
+                    name: { value: "DownloadFile" },
+                    path: { value: "/api.im.v1.FileService/DownloadFile" },
+                    requestType: { value: "DownloadFileRequest" },
+                    responseType: { value: "DownloadFileReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
+                return FileService;
+            })();
+
+            v1.UploadFileRequest = (function() {
+
+                /**
+                 * Properties of an UploadFileRequest.
+                 * @typedef {Object} api.im.v1.UploadFileRequest.$Properties
+                 * @property {Uint8Array|null} [data] UploadFileRequest data
+                 * @property {string|null} [name] UploadFileRequest name
+                 * @property {string|null} [mime] UploadFileRequest mime
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of an UploadFileRequest.
+                 * @memberof api.im.v1
+                 * @interface IUploadFileRequest
+                 * @augments api.im.v1.UploadFileRequest.$Properties
+                 * @deprecated Use api.im.v1.UploadFileRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of an UploadFileRequest.
+                 * @typedef {api.im.v1.UploadFileRequest.$Properties} api.im.v1.UploadFileRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new UploadFileRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents an UploadFileRequest.
+                 * @constructor
+                 * @param {api.im.v1.UploadFileRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const UploadFileRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * UploadFileRequest data.
+                 * @member {Uint8Array} data
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @instance
+                 */
+                UploadFileRequest.prototype.data = $util.newBuffer([]);
+
+                /**
+                 * UploadFileRequest name.
+                 * @member {string} name
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @instance
+                 */
+                UploadFileRequest.prototype.name = "";
+
+                /**
+                 * UploadFileRequest mime.
+                 * @member {string} mime
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @instance
+                 */
+                UploadFileRequest.prototype.mime = "";
+
+                /**
+                 * Creates a new UploadFileRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {api.im.v1.UploadFileRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.UploadFileRequest} UploadFileRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.UploadFileRequest.$Shape): api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape;
+                 *   (properties?: api.im.v1.UploadFileRequest.$Properties): api.im.v1.UploadFileRequest;
+                 * }}
+                 */
+                UploadFileRequest.create = function(properties) {
+                    return new UploadFileRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified UploadFileRequest message. Does not implicitly {@link api.im.v1.UploadFileRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {api.im.v1.UploadFileRequest.$Properties} message UploadFileRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                UploadFileRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.data);
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.name);
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        writer.uint32(/* id 3, wireType 2 =*/26).string(message.mime);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified UploadFileRequest message, length delimited. Does not implicitly {@link api.im.v1.UploadFileRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {api.im.v1.UploadFileRequest.$Properties} message UploadFileRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                UploadFileRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes an UploadFileRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape} UploadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                UploadFileRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.UploadFileRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.bytes()).length)
+                                    message.data = value;
+                                else
+                                    delete message.data;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.name = value;
+                                else
+                                    delete message.name;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.mime = value;
+                                else
+                                    delete message.mime;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes an UploadFileRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape} UploadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                UploadFileRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies an UploadFileRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                UploadFileRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        if (!(message.data && typeof message.data.length === "number" || $util.isString(message.data)))
+                            return "data: buffer expected";
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        if (!$util.isString(message.name))
+                            return "name: string expected";
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        if (!$util.isString(message.mime))
+                            return "mime: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates an UploadFileRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.UploadFileRequest} UploadFileRequest
+                 */
+                UploadFileRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.UploadFileRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.UploadFileRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.UploadFileRequest();
+                    if (object.data != null)
+                        if (object.data.length)
+                            if (typeof object.data === "string")
+                                $util.base64.decode(object.data, message.data = $util.newBuffer($util.base64.length(object.data)), 0);
+                            else if (object.data.length >= 0)
+                                message.data = object.data;
+                    if (object.name != null)
+                        if (typeof object.name !== "string" || object.name.length)
+                            message.name = $String(object.name);
+                    if (object.mime != null)
+                        if (typeof object.mime !== "string" || object.mime.length)
+                            message.mime = $String(object.mime);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from an UploadFileRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {api.im.v1.UploadFileRequest} message UploadFileRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                UploadFileRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if (options.bytes === $String)
+                            object.data = "";
+                        else {
+                            object.data = [];
+                            if (options.bytes !== $Array)
+                                object.data = $util.newBuffer(object.data);
+                        }
+                        object.name = "";
+                        object.mime = "";
+                    }
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        object.data = options.bytes === $String ? $util.base64.encode(message.data, 0, message.data.length) : options.bytes === $Array ? $Array.prototype.slice.call(message.data) : message.data;
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        object.name = message.name;
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        object.mime = message.mime;
+                    return object;
+                };
+
+                /**
+                 * Converts this UploadFileRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                UploadFileRequest.prototype.toJSON = function() {
+                    return UploadFileRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for UploadFileRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.UploadFileRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                UploadFileRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.UploadFileRequest";
+                };
+
+                return UploadFileRequest;
+            })();
+
+            v1.UploadFileReply = (function() {
+
+                /**
+                 * Properties of an UploadFileReply.
+                 * @typedef {Object} api.im.v1.UploadFileReply.$Properties
+                 * @property {string|null} [fileId] UploadFileReply fileId
+                 * @property {string|null} [url] UploadFileReply url
+                 * @property {string|null} [name] UploadFileReply name
+                 * @property {number|Long|null} [size] UploadFileReply size
+                 * @property {string|null} [mime] UploadFileReply mime
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of an UploadFileReply.
+                 * @memberof api.im.v1
+                 * @interface IUploadFileReply
+                 * @augments api.im.v1.UploadFileReply.$Properties
+                 * @deprecated Use api.im.v1.UploadFileReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of an UploadFileReply.
+                 * @typedef {api.im.v1.UploadFileReply.$Properties} api.im.v1.UploadFileReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new UploadFileReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents an UploadFileReply.
+                 * @constructor
+                 * @param {api.im.v1.UploadFileReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const UploadFileReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * UploadFileReply fileId.
+                 * @member {string} fileId
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 */
+                UploadFileReply.prototype.fileId = "";
+
+                /**
+                 * UploadFileReply url.
+                 * @member {string} url
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 */
+                UploadFileReply.prototype.url = "";
+
+                /**
+                 * UploadFileReply name.
+                 * @member {string} name
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 */
+                UploadFileReply.prototype.name = "";
+
+                /**
+                 * UploadFileReply size.
+                 * @member {number|Long} size
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 */
+                UploadFileReply.prototype.size = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * UploadFileReply mime.
+                 * @member {string} mime
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 */
+                UploadFileReply.prototype.mime = "";
+
+                /**
+                 * Creates a new UploadFileReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {api.im.v1.UploadFileReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.UploadFileReply} UploadFileReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.UploadFileReply.$Shape): api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape;
+                 *   (properties?: api.im.v1.UploadFileReply.$Properties): api.im.v1.UploadFileReply;
+                 * }}
+                 */
+                UploadFileReply.create = function(properties) {
+                    return new UploadFileReply(properties);
+                };
+
+                /**
+                 * Encodes the specified UploadFileReply message. Does not implicitly {@link api.im.v1.UploadFileReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {api.im.v1.UploadFileReply.$Properties} message UploadFileReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                UploadFileReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).string(message.fileId);
+                    if (message.url != null && $Object.hasOwnProperty.call(message, "url"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.url);
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        writer.uint32(/* id 3, wireType 2 =*/26).string(message.name);
+                    if (message.size != null && $Object.hasOwnProperty.call(message, "size"))
+                        writer.uint32(/* id 4, wireType 0 =*/32).int64(message.size);
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        writer.uint32(/* id 5, wireType 2 =*/42).string(message.mime);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified UploadFileReply message, length delimited. Does not implicitly {@link api.im.v1.UploadFileReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {api.im.v1.UploadFileReply.$Properties} message UploadFileReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                UploadFileReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes an UploadFileReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape} UploadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                UploadFileReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.UploadFileReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.fileId = value;
+                                else
+                                    delete message.fileId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.url = value;
+                                else
+                                    delete message.url;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.name = value;
+                                else
+                                    delete message.name;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.size = value;
+                                else
+                                    delete message.size;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.mime = value;
+                                else
+                                    delete message.mime;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes an UploadFileReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape} UploadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                UploadFileReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies an UploadFileReply message.
+                 * @function verify
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                UploadFileReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        if (!$util.isString(message.fileId))
+                            return "fileId: string expected";
+                    if (message.url != null && $Object.hasOwnProperty.call(message, "url"))
+                        if (!$util.isString(message.url))
+                            return "url: string expected";
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        if (!$util.isString(message.name))
+                            return "name: string expected";
+                    if (message.size != null && $Object.hasOwnProperty.call(message, "size"))
+                        if (!$util.isInteger(message.size) && !(message.size && $util.isInteger(message.size.low) && $util.isInteger(message.size.high)))
+                            return "size: integer|Long expected";
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        if (!$util.isString(message.mime))
+                            return "mime: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates an UploadFileReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.UploadFileReply} UploadFileReply
+                 */
+                UploadFileReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.UploadFileReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.UploadFileReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.UploadFileReply();
+                    if (object.fileId != null)
+                        if (typeof object.fileId !== "string" || object.fileId.length)
+                            message.fileId = $String(object.fileId);
+                    if (object.url != null)
+                        if (typeof object.url !== "string" || object.url.length)
+                            message.url = $String(object.url);
+                    if (object.name != null)
+                        if (typeof object.name !== "string" || object.name.length)
+                            message.name = $String(object.name);
+                    if (object.size != null)
+                        if (typeof object.size === "object" ? object.size.low || object.size.high : $Number(object.size) !== 0)
+                            if ($util.Long)
+                                message.size = $util.Long.fromValue(object.size, false);
+                            else if (typeof object.size === "string")
+                                message.size = $parseInt(object.size, 10);
+                            else if (typeof object.size === "number")
+                                message.size = object.size;
+                            else if (typeof object.size === "object")
+                                message.size = new $util.LongBits(object.size.low >>> 0, object.size.high >>> 0).toNumber();
+                    if (object.mime != null)
+                        if (typeof object.mime !== "string" || object.mime.length)
+                            message.mime = $String(object.mime);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from an UploadFileReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {api.im.v1.UploadFileReply} message UploadFileReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                UploadFileReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        object.fileId = "";
+                        object.url = "";
+                        object.name = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.size = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.size = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.mime = "";
+                    }
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        object.fileId = message.fileId;
+                    if (message.url != null && $Object.hasOwnProperty.call(message, "url"))
+                        object.url = message.url;
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        object.name = message.name;
+                    if (message.size != null && $Object.hasOwnProperty.call(message, "size"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.size = typeof message.size === "number" ? $BigInt(message.size) : $util.Long.fromBits(message.size.low >>> 0, message.size.high >>> 0, false).toBigInt();
+                        else if (typeof message.size === "number")
+                            object.size = options.longs === $String ? $String(message.size) : message.size;
+                        else
+                            object.size = options.longs === $String ? $util.Long.prototype.toString.call(message.size) : options.longs === $Number ? new $util.LongBits(message.size.low >>> 0, message.size.high >>> 0).toNumber() : message.size;
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        object.mime = message.mime;
+                    return object;
+                };
+
+                /**
+                 * Converts this UploadFileReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.UploadFileReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                UploadFileReply.prototype.toJSON = function() {
+                    return UploadFileReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for UploadFileReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.UploadFileReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                UploadFileReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.UploadFileReply";
+                };
+
+                return UploadFileReply;
+            })();
+
+            v1.DownloadFileRequest = (function() {
+
+                /**
+                 * Properties of a DownloadFileRequest.
+                 * @typedef {Object} api.im.v1.DownloadFileRequest.$Properties
+                 * @property {string|null} [fileId] DownloadFileRequest fileId
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a DownloadFileRequest.
+                 * @memberof api.im.v1
+                 * @interface IDownloadFileRequest
+                 * @augments api.im.v1.DownloadFileRequest.$Properties
+                 * @deprecated Use api.im.v1.DownloadFileRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a DownloadFileRequest.
+                 * @typedef {api.im.v1.DownloadFileRequest.$Properties} api.im.v1.DownloadFileRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new DownloadFileRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a DownloadFileRequest.
+                 * @constructor
+                 * @param {api.im.v1.DownloadFileRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const DownloadFileRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * DownloadFileRequest fileId.
+                 * @member {string} fileId
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @instance
+                 */
+                DownloadFileRequest.prototype.fileId = "";
+
+                /**
+                 * Creates a new DownloadFileRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {api.im.v1.DownloadFileRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.DownloadFileRequest} DownloadFileRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.DownloadFileRequest.$Shape): api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape;
+                 *   (properties?: api.im.v1.DownloadFileRequest.$Properties): api.im.v1.DownloadFileRequest;
+                 * }}
+                 */
+                DownloadFileRequest.create = function(properties) {
+                    return new DownloadFileRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified DownloadFileRequest message. Does not implicitly {@link api.im.v1.DownloadFileRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {api.im.v1.DownloadFileRequest.$Properties} message DownloadFileRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                DownloadFileRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).string(message.fileId);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified DownloadFileRequest message, length delimited. Does not implicitly {@link api.im.v1.DownloadFileRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {api.im.v1.DownloadFileRequest.$Properties} message DownloadFileRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                DownloadFileRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a DownloadFileRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape} DownloadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                DownloadFileRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.DownloadFileRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.fileId = value;
+                                else
+                                    delete message.fileId;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a DownloadFileRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape} DownloadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                DownloadFileRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a DownloadFileRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                DownloadFileRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        if (!$util.isString(message.fileId))
+                            return "fileId: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a DownloadFileRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.DownloadFileRequest} DownloadFileRequest
+                 */
+                DownloadFileRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.DownloadFileRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.DownloadFileRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.DownloadFileRequest();
+                    if (object.fileId != null)
+                        if (typeof object.fileId !== "string" || object.fileId.length)
+                            message.fileId = $String(object.fileId);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a DownloadFileRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {api.im.v1.DownloadFileRequest} message DownloadFileRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                DownloadFileRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults)
+                        object.fileId = "";
+                    if (message.fileId != null && $Object.hasOwnProperty.call(message, "fileId"))
+                        object.fileId = message.fileId;
+                    return object;
+                };
+
+                /**
+                 * Converts this DownloadFileRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                DownloadFileRequest.prototype.toJSON = function() {
+                    return DownloadFileRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for DownloadFileRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.DownloadFileRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                DownloadFileRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.DownloadFileRequest";
+                };
+
+                return DownloadFileRequest;
+            })();
+
+            v1.DownloadFileReply = (function() {
+
+                /**
+                 * Properties of a DownloadFileReply.
+                 * @typedef {Object} api.im.v1.DownloadFileReply.$Properties
+                 * @property {Uint8Array|null} [data] DownloadFileReply data
+                 * @property {string|null} [name] DownloadFileReply name
+                 * @property {string|null} [mime] DownloadFileReply mime
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a DownloadFileReply.
+                 * @memberof api.im.v1
+                 * @interface IDownloadFileReply
+                 * @augments api.im.v1.DownloadFileReply.$Properties
+                 * @deprecated Use api.im.v1.DownloadFileReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a DownloadFileReply.
+                 * @typedef {api.im.v1.DownloadFileReply.$Properties} api.im.v1.DownloadFileReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new DownloadFileReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a DownloadFileReply.
+                 * @constructor
+                 * @param {api.im.v1.DownloadFileReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const DownloadFileReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * DownloadFileReply data.
+                 * @member {Uint8Array} data
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @instance
+                 */
+                DownloadFileReply.prototype.data = $util.newBuffer([]);
+
+                /**
+                 * DownloadFileReply name.
+                 * @member {string} name
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @instance
+                 */
+                DownloadFileReply.prototype.name = "";
+
+                /**
+                 * DownloadFileReply mime.
+                 * @member {string} mime
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @instance
+                 */
+                DownloadFileReply.prototype.mime = "";
+
+                /**
+                 * Creates a new DownloadFileReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {api.im.v1.DownloadFileReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.DownloadFileReply} DownloadFileReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.DownloadFileReply.$Shape): api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape;
+                 *   (properties?: api.im.v1.DownloadFileReply.$Properties): api.im.v1.DownloadFileReply;
+                 * }}
+                 */
+                DownloadFileReply.create = function(properties) {
+                    return new DownloadFileReply(properties);
+                };
+
+                /**
+                 * Encodes the specified DownloadFileReply message. Does not implicitly {@link api.im.v1.DownloadFileReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {api.im.v1.DownloadFileReply.$Properties} message DownloadFileReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                DownloadFileReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).bytes(message.data);
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.name);
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        writer.uint32(/* id 3, wireType 2 =*/26).string(message.mime);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified DownloadFileReply message, length delimited. Does not implicitly {@link api.im.v1.DownloadFileReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {api.im.v1.DownloadFileReply.$Properties} message DownloadFileReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                DownloadFileReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a DownloadFileReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape} DownloadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                DownloadFileReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.DownloadFileReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.bytes()).length)
+                                    message.data = value;
+                                else
+                                    delete message.data;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.name = value;
+                                else
+                                    delete message.name;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.mime = value;
+                                else
+                                    delete message.mime;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a DownloadFileReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape} DownloadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                DownloadFileReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a DownloadFileReply message.
+                 * @function verify
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                DownloadFileReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        if (!(message.data && typeof message.data.length === "number" || $util.isString(message.data)))
+                            return "data: buffer expected";
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        if (!$util.isString(message.name))
+                            return "name: string expected";
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        if (!$util.isString(message.mime))
+                            return "mime: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a DownloadFileReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.DownloadFileReply} DownloadFileReply
+                 */
+                DownloadFileReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.DownloadFileReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.DownloadFileReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.DownloadFileReply();
+                    if (object.data != null)
+                        if (object.data.length)
+                            if (typeof object.data === "string")
+                                $util.base64.decode(object.data, message.data = $util.newBuffer($util.base64.length(object.data)), 0);
+                            else if (object.data.length >= 0)
+                                message.data = object.data;
+                    if (object.name != null)
+                        if (typeof object.name !== "string" || object.name.length)
+                            message.name = $String(object.name);
+                    if (object.mime != null)
+                        if (typeof object.mime !== "string" || object.mime.length)
+                            message.mime = $String(object.mime);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a DownloadFileReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {api.im.v1.DownloadFileReply} message DownloadFileReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                DownloadFileReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if (options.bytes === $String)
+                            object.data = "";
+                        else {
+                            object.data = [];
+                            if (options.bytes !== $Array)
+                                object.data = $util.newBuffer(object.data);
+                        }
+                        object.name = "";
+                        object.mime = "";
+                    }
+                    if (message.data != null && $Object.hasOwnProperty.call(message, "data"))
+                        object.data = options.bytes === $String ? $util.base64.encode(message.data, 0, message.data.length) : options.bytes === $Array ? $Array.prototype.slice.call(message.data) : message.data;
+                    if (message.name != null && $Object.hasOwnProperty.call(message, "name"))
+                        object.name = message.name;
+                    if (message.mime != null && $Object.hasOwnProperty.call(message, "mime"))
+                        object.mime = message.mime;
+                    return object;
+                };
+
+                /**
+                 * Converts this DownloadFileReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                DownloadFileReply.prototype.toJSON = function() {
+                    return DownloadFileReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for DownloadFileReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.DownloadFileReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                DownloadFileReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.DownloadFileReply";
+                };
+
+                return DownloadFileReply;
+            })();
+
             v1.GroupService = (function() {
 
                 /**

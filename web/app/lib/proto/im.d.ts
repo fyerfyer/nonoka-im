@@ -1859,6 +1859,590 @@ export namespace api {
                 type $Shape = api.im.v1.GetGatewayReply.$Properties;
             }
 
+            /** Represents a FileService */
+            class FileService extends $protobuf.rpc.Service {
+
+                /**
+                 * Constructs a new FileService service.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 */
+                constructor(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean);
+
+                /**
+                 * Creates new FileService service using the specified rpc implementation.
+                 * @param rpcImpl RPC implementation
+                 * @param [requestDelimited=false] Whether requests are length-delimited
+                 * @param [responseDelimited=false] Whether responses are length-delimited
+                 * @returns RPC service. Useful where requests and/or responses are streamed.
+                 */
+                static create(rpcImpl: $protobuf.RPCImpl, requestDelimited?: boolean, responseDelimited?: boolean): FileService;
+
+                /** Calls UploadFile. */
+                uploadFile: api.im.v1.FileService.UploadFile;
+
+                /** Calls DownloadFile. */
+                downloadFile: api.im.v1.FileService.DownloadFile;
+            }
+
+            namespace FileService {
+
+                /**
+                 * Callback as used by {@link api.im.v1.FileService#uploadFile}.
+                 * @param error Error, if any
+                 * @param [response] UploadFileReply
+                 */
+                type UploadFileCallback = (error: (Error|null), response?: api.im.v1.UploadFileReply) => void;
+
+                /** Calls UploadFile. */
+                type UploadFile = {
+                  (request: api.im.v1.IUploadFileRequest, callback: api.im.v1.FileService.UploadFileCallback): void;
+                  (request: api.im.v1.IUploadFileRequest): Promise<api.im.v1.UploadFileReply>;
+                  readonly name: "UploadFile";
+                  readonly path: "/api.im.v1.FileService/UploadFile";
+                  readonly requestType: "UploadFileRequest";
+                  readonly responseType: "UploadFileReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.FileService#downloadFile}.
+                 * @param error Error, if any
+                 * @param [response] DownloadFileReply
+                 */
+                type DownloadFileCallback = (error: (Error|null), response?: api.im.v1.DownloadFileReply) => void;
+
+                /** Calls DownloadFile. */
+                type DownloadFile = {
+                  (request: api.im.v1.IDownloadFileRequest, callback: api.im.v1.FileService.DownloadFileCallback): void;
+                  (request: api.im.v1.IDownloadFileRequest): Promise<api.im.v1.DownloadFileReply>;
+                  readonly name: "DownloadFile";
+                  readonly path: "/api.im.v1.FileService/DownloadFile";
+                  readonly requestType: "DownloadFileRequest";
+                  readonly responseType: "DownloadFileReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+            }
+
+            /**
+             * Properties of an UploadFileRequest.
+             * @deprecated Use api.im.v1.UploadFileRequest.$Properties instead.
+             */
+            interface IUploadFileRequest extends api.im.v1.UploadFileRequest.$Properties {
+            }
+
+            /** Represents an UploadFileRequest. */
+            class UploadFileRequest {
+
+                /**
+                 * Constructs a new UploadFileRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.UploadFileRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** UploadFileRequest data. */
+                data: Uint8Array;
+
+                /** UploadFileRequest name. */
+                name: string;
+
+                /** UploadFileRequest mime. */
+                mime: string;
+
+                /**
+                 * Creates a new UploadFileRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns UploadFileRequest instance
+                 */
+                static create(properties: api.im.v1.UploadFileRequest.$Shape): api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape;
+                static create(properties?: api.im.v1.UploadFileRequest.$Properties): api.im.v1.UploadFileRequest;
+
+                /**
+                 * Encodes the specified UploadFileRequest message. Does not implicitly {@link api.im.v1.UploadFileRequest.verify|verify} messages.
+                 * @param message UploadFileRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.UploadFileRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified UploadFileRequest message, length delimited. Does not implicitly {@link api.im.v1.UploadFileRequest.verify|verify} messages.
+                 * @param message UploadFileRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.UploadFileRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes an UploadFileRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape} UploadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape;
+
+                /**
+                 * Decodes an UploadFileRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape} UploadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.UploadFileRequest & api.im.v1.UploadFileRequest.$Shape;
+
+                /**
+                 * Verifies an UploadFileRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates an UploadFileRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns UploadFileRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.UploadFileRequest;
+
+                /**
+                 * Creates a plain object from an UploadFileRequest message. Also converts values to other types if specified.
+                 * @param message UploadFileRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.UploadFileRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this UploadFileRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for UploadFileRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace UploadFileRequest {
+
+                /** Properties of an UploadFileRequest. */
+                interface $Properties {
+
+                    /** UploadFileRequest data */
+                    data?: (Uint8Array|null);
+
+                    /** UploadFileRequest name */
+                    name?: (string|null);
+
+                    /** UploadFileRequest mime */
+                    mime?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of an UploadFileRequest. */
+                type $Shape = api.im.v1.UploadFileRequest.$Properties;
+            }
+
+            /**
+             * Properties of an UploadFileReply.
+             * @deprecated Use api.im.v1.UploadFileReply.$Properties instead.
+             */
+            interface IUploadFileReply extends api.im.v1.UploadFileReply.$Properties {
+            }
+
+            /** Represents an UploadFileReply. */
+            class UploadFileReply {
+
+                /**
+                 * Constructs a new UploadFileReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.UploadFileReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** UploadFileReply fileId. */
+                fileId: string;
+
+                /** UploadFileReply url. */
+                url: string;
+
+                /** UploadFileReply name. */
+                name: string;
+
+                /** UploadFileReply size. */
+                size: (number|Long);
+
+                /** UploadFileReply mime. */
+                mime: string;
+
+                /**
+                 * Creates a new UploadFileReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns UploadFileReply instance
+                 */
+                static create(properties: api.im.v1.UploadFileReply.$Shape): api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape;
+                static create(properties?: api.im.v1.UploadFileReply.$Properties): api.im.v1.UploadFileReply;
+
+                /**
+                 * Encodes the specified UploadFileReply message. Does not implicitly {@link api.im.v1.UploadFileReply.verify|verify} messages.
+                 * @param message UploadFileReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.UploadFileReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified UploadFileReply message, length delimited. Does not implicitly {@link api.im.v1.UploadFileReply.verify|verify} messages.
+                 * @param message UploadFileReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.UploadFileReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes an UploadFileReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape} UploadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape;
+
+                /**
+                 * Decodes an UploadFileReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape} UploadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.UploadFileReply & api.im.v1.UploadFileReply.$Shape;
+
+                /**
+                 * Verifies an UploadFileReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates an UploadFileReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns UploadFileReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.UploadFileReply;
+
+                /**
+                 * Creates a plain object from an UploadFileReply message. Also converts values to other types if specified.
+                 * @param message UploadFileReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.UploadFileReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this UploadFileReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for UploadFileReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace UploadFileReply {
+
+                /** Properties of an UploadFileReply. */
+                interface $Properties {
+
+                    /** UploadFileReply fileId */
+                    fileId?: (string|null);
+
+                    /** UploadFileReply url */
+                    url?: (string|null);
+
+                    /** UploadFileReply name */
+                    name?: (string|null);
+
+                    /** UploadFileReply size */
+                    size?: (number|Long|null);
+
+                    /** UploadFileReply mime */
+                    mime?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of an UploadFileReply. */
+                type $Shape = api.im.v1.UploadFileReply.$Properties;
+            }
+
+            /**
+             * Properties of a DownloadFileRequest.
+             * @deprecated Use api.im.v1.DownloadFileRequest.$Properties instead.
+             */
+            interface IDownloadFileRequest extends api.im.v1.DownloadFileRequest.$Properties {
+            }
+
+            /** Represents a DownloadFileRequest. */
+            class DownloadFileRequest {
+
+                /**
+                 * Constructs a new DownloadFileRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.DownloadFileRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** DownloadFileRequest fileId. */
+                fileId: string;
+
+                /**
+                 * Creates a new DownloadFileRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns DownloadFileRequest instance
+                 */
+                static create(properties: api.im.v1.DownloadFileRequest.$Shape): api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape;
+                static create(properties?: api.im.v1.DownloadFileRequest.$Properties): api.im.v1.DownloadFileRequest;
+
+                /**
+                 * Encodes the specified DownloadFileRequest message. Does not implicitly {@link api.im.v1.DownloadFileRequest.verify|verify} messages.
+                 * @param message DownloadFileRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.DownloadFileRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified DownloadFileRequest message, length delimited. Does not implicitly {@link api.im.v1.DownloadFileRequest.verify|verify} messages.
+                 * @param message DownloadFileRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.DownloadFileRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a DownloadFileRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape} DownloadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape;
+
+                /**
+                 * Decodes a DownloadFileRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape} DownloadFileRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.DownloadFileRequest & api.im.v1.DownloadFileRequest.$Shape;
+
+                /**
+                 * Verifies a DownloadFileRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a DownloadFileRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns DownloadFileRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.DownloadFileRequest;
+
+                /**
+                 * Creates a plain object from a DownloadFileRequest message. Also converts values to other types if specified.
+                 * @param message DownloadFileRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.DownloadFileRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this DownloadFileRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for DownloadFileRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace DownloadFileRequest {
+
+                /** Properties of a DownloadFileRequest. */
+                interface $Properties {
+
+                    /** DownloadFileRequest fileId */
+                    fileId?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a DownloadFileRequest. */
+                type $Shape = api.im.v1.DownloadFileRequest.$Properties;
+            }
+
+            /**
+             * Properties of a DownloadFileReply.
+             * @deprecated Use api.im.v1.DownloadFileReply.$Properties instead.
+             */
+            interface IDownloadFileReply extends api.im.v1.DownloadFileReply.$Properties {
+            }
+
+            /** Represents a DownloadFileReply. */
+            class DownloadFileReply {
+
+                /**
+                 * Constructs a new DownloadFileReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.DownloadFileReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** DownloadFileReply data. */
+                data: Uint8Array;
+
+                /** DownloadFileReply name. */
+                name: string;
+
+                /** DownloadFileReply mime. */
+                mime: string;
+
+                /**
+                 * Creates a new DownloadFileReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns DownloadFileReply instance
+                 */
+                static create(properties: api.im.v1.DownloadFileReply.$Shape): api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape;
+                static create(properties?: api.im.v1.DownloadFileReply.$Properties): api.im.v1.DownloadFileReply;
+
+                /**
+                 * Encodes the specified DownloadFileReply message. Does not implicitly {@link api.im.v1.DownloadFileReply.verify|verify} messages.
+                 * @param message DownloadFileReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.DownloadFileReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified DownloadFileReply message, length delimited. Does not implicitly {@link api.im.v1.DownloadFileReply.verify|verify} messages.
+                 * @param message DownloadFileReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.DownloadFileReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a DownloadFileReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape} DownloadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape;
+
+                /**
+                 * Decodes a DownloadFileReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape} DownloadFileReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.DownloadFileReply & api.im.v1.DownloadFileReply.$Shape;
+
+                /**
+                 * Verifies a DownloadFileReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a DownloadFileReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns DownloadFileReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.DownloadFileReply;
+
+                /**
+                 * Creates a plain object from a DownloadFileReply message. Also converts values to other types if specified.
+                 * @param message DownloadFileReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.DownloadFileReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this DownloadFileReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for DownloadFileReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace DownloadFileReply {
+
+                /** Properties of a DownloadFileReply. */
+                interface $Properties {
+
+                    /** DownloadFileReply data */
+                    data?: (Uint8Array|null);
+
+                    /** DownloadFileReply name */
+                    name?: (string|null);
+
+                    /** DownloadFileReply mime */
+                    mime?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a DownloadFileReply. */
+                type $Shape = api.im.v1.DownloadFileReply.$Properties;
+            }
+
             /** Represents a GroupService */
             class GroupService extends $protobuf.rpc.Service {
 

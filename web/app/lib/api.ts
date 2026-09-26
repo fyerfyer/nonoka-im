@@ -263,6 +263,35 @@ export const dispatchApi = {
     ),
 };
 
+export interface UploadedFile {
+  file_id: string;
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
+}
+
+export const fileApi = {
+  upload: async (file: File): Promise<UploadedFile> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE_URL}/v1/files`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+      },
+      body: form,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        message?: string;
+      } | null;
+      throw new Error(body?.message || `upload failed (${res.status})`);
+    }
+    return (await res.json()) as UploadedFile;
+  },
+};
+
 export const messageApi = {
   // Pull messages. Backward history page: pass endSeq (exclusive upper
   // bound); endSeq=0 with lastSeq=0 returns the latest page. Forward

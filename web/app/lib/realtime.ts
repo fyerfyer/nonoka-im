@@ -198,23 +198,36 @@ export class RealtimeClient extends EventTarget {
     }
   }
 
-  sendText(
+  sendMessage(
     topic: string,
-    text: string,
+    msgType: number,
+    data: Uint8Array,
     clientMsgId = generateClientMsgId()
   ): { clientMsgId: string; ok: boolean } {
-    const encoded = new TextEncoder().encode(text);
     const ok = this.send(Packet.create({
       cmd: Command.CMD_PUBLISH,
       seq: this.nextSeq(),
       sendReq: {
         topic,
-        msgType: 1, // MSG_TYPE_TEXT
-        content: encoded,
+        msgType,
+        content: data,
         clientMsgId,
       },
     }));
     return { clientMsgId, ok };
+  }
+
+  sendText(
+    topic: string,
+    text: string,
+    clientMsgId = generateClientMsgId()
+  ): { clientMsgId: string; ok: boolean } {
+    return this.sendMessage(
+      topic,
+      1, // MSG_TYPE_TEXT
+      new TextEncoder().encode(text),
+      clientMsgId
+    );
   }
 
   pullMessages(topic: string, lastSeq: number, limit = 20) {

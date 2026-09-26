@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { messageApi, conversationApi, groupApi } from "@/lib/api";
+import { messageApi, conversationApi, groupApi, fileApi } from "@/lib/api";
 import { realtimeClient } from "@/lib/realtime";
+import { generateClientMsgId } from "@/lib/uuid";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { ChatMessage, Conversation, User } from "@/types";
 import { toast } from "sonner";
 
 const MSG_TYPE_TEXT = 1;
+const MSG_TYPE_IMAGE = 2;
+const MSG_TYPE_FILE = 3;
 
 export function useConversation(topic: string | null) {
   const user = useAuthStore((s) => s.user);
@@ -138,7 +141,12 @@ export function useConversation(topic: string | null) {
       useChatStore
         .getState()
         .updateMessageStatus(topic, msg.clientMsgId, { status: "sending" });
-      const { ok } = realtimeClient.sendText(topic, msg.content, msg.clientMsgId);
+      const { ok } = realtimeClient.sendMessage(
+        topic,
+        msg.msgType ?? MSG_TYPE_TEXT,
+        new TextEncoder().encode(msg.content),
+        msg.clientMsgId
+      );
       if (!ok) {
         useChatStore
           .getState()
@@ -147,6 +155,54 @@ export function useConversation(topic: string | null) {
       }
     },
     [topic]
+  );
+
+  // sendFileMessage uploads an image/file attachment, then sends it as a
+  // media message whose JSON content carries the file metadata.
+  const sendFileMessage = useCallback(
+    async (file: File) => {
+      if (!topic) return;
+      const isImage = file.type.startsWith("image/");
+      const msgType = isImage ? MSG_TYPE_IMAGE : MSG_TYPE_FILE;
+      const clientMsgId = generateClientMsgId();
+
+      let uploaded;
+      try {
+        uploaded = await fileApi.upload(file);
+      } catch (err) {
+        toast.error(
+          `Upload failed: ${err instanceof Error ? err.message : "unknown"}`
+        );
+        return;
+      }
+
+      const content = JSON.stringify({
+        url: uploaded.url,
+        name: uploaded.name,
+        size: uploaded.size,
+        mime: uploaded.mime,
+      });
+      const { ok } = realtimeClient.sendMessage(
+        topic,
+        msgType,
+        new TextEncoder().encode(content),
+        clientMsgId
+      );
+      const msg: ChatMessage = {
+        clientMsgId,
+        topic,
+        senderId: user?.userId || 0,
+        content,
+        msgType,
+        timestamp: Date.now() / 1000,
+        status: ok ? "sending" : "failed",
+      };
+      useChatStore.getState().appendMessage(topic, msg);
+      if (!ok) {
+        toast.error("Message failed to send — click the warning icon to retry");
+      }
+    },
+    [topic, user]
   );
 
   // Reads latest state so the callback identity stays stable regardless of
@@ -211,6 +267,7 @@ export function useConversation(topic: string | null) {
     loadingMore,
     loadMore,
     sendMessage,
+    sendFileMessage,
     retryMessage,
     markRead,
     recallMessage: (msg: ChatMessage) => { if (topic && msg.topicSeq) realtimeClient.recallMessage(topic, msg.topicSeq, msg.msgId); },

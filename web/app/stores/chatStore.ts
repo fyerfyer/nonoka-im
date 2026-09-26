@@ -56,6 +56,15 @@ function ensureConversation(
   return conv;
 }
 
+// previewForMessage renders the conversation-list preview for a message,
+// mirroring the server-side placeholder for media messages.
+function previewForMessage(msg: ChatMessage): string {
+  if (msg.recalled) return "This message was recalled";
+  if (msg.msgType === 2) return "[图片]";
+  if (msg.msgType === 3) return "[文件]";
+  return msg.content;
+}
+
 // insertBySeq appends a message, keeping ascending topic_seq order. Pushed
 // messages can arrive late (after a pull already returned newer pages), so a
 // plain push to the end would break ordering.
@@ -136,9 +145,7 @@ export const useChatStore = create<ChatStore>((set) => ({
       map.set(topic, {
         ...conv,
         messages,
-        lastMsgPreview: msg.recalled
-          ? "This message was recalled"
-          : msg.content,
+        lastMsgPreview: previewForMessage(msg),
         lastMsgAt: msg.timestamp,
         lastSeq:
           msgSeq !== undefined && msgSeq > conv.lastSeq ? msgSeq : conv.lastSeq,

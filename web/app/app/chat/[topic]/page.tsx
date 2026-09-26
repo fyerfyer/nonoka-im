@@ -25,7 +25,7 @@ export default function ChatDetailPage() {
   const user = useAuthStore((s) => s.user);
   const connectionState = useChatStore((s) => s.connectionState);
 
-  const { conversation, loadingMore, loadMore, sendMessage, retryMessage, recallMessage } = useConversation(
+  const { conversation, loadingMore, loadMore, sendMessage, sendFileMessage, retryMessage, recallMessage } = useConversation(
     topic || null
   );
   const peerOnline = usePresence(
@@ -68,6 +68,7 @@ export default function ChatDetailPage() {
           />
           <MessageInput
             onSend={sendMessage}
+            onSendFile={(file) => void sendFileMessage(file)}
             disabled={connectionState !== "authed"}
           />
         </div>

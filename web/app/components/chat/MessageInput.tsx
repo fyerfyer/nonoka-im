@@ -2,7 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Send, Smile } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Send, Smile, Paperclip, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const EMOJIS = [
@@ -13,13 +19,16 @@ const EMOJIS = [
 
 interface MessageInputProps {
   onSend: (text: string) => void;
+  onSendFile?: (file: File) => void;
   disabled?: boolean;
 }
 
-export function MessageInput({ onSend, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, onSendFile, disabled }: MessageInputProps) {
   const [text, setText] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
     if (!text.trim() || disabled) return;
@@ -50,6 +59,21 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
     });
   };
 
+  const pickFile = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    input.value = "";
+    input.click();
+  };
+
+  const handleFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (file && onSendFile) {
+      onSendFile(file);
+    }
+  };
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -59,6 +83,20 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
 
   return (
     <div className="border-t bg-background p-3">
+      {/* Hidden pickers for the attachment menu. */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileChange}
+      />
       <div className="relative flex items-center gap-2 rounded-2xl border bg-background px-3 py-1.5 shadow-sm">
         <button
           type="button"
@@ -96,6 +134,28 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
             </div>
           </>
         )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+              disabled={disabled}
+              title="Attach"
+            >
+              <Paperclip className="h-5 w-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top">
+            <DropdownMenuItem onSelect={() => pickFile(imageInputRef.current)}>
+              <ImageIcon className="h-4 w-4" />
+              Image
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => pickFile(fileInputRef.current)}>
+              <FileIcon className="h-4 w-4" />
+              File
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <textarea
           ref={textareaRef}
           value={text}
