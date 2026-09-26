@@ -102,7 +102,11 @@ export const useChatStore = create<ChatStore>((set) => ({
       const exists = conv.messages.some(
         (m) =>
           m.clientMsgId === msg.clientMsgId ||
-          (msg.topicSeq !== undefined && m.topicSeq === msg.topicSeq)
+          (msg.topicSeq !== undefined &&
+            m.topicSeq !== undefined &&
+            // Proto-JSON pull yields string seqs while realtime push yields
+            // numbers; compare numerically so duplicates are caught.
+            Number(m.topicSeq) === Number(msg.topicSeq))
       );
       const messages = exists ? conv.messages : [...conv.messages, msg];
       map.set(topic, {
@@ -134,7 +138,7 @@ export const useChatStore = create<ChatStore>((set) => ({
     }),
   recallMessage: (topic, topicSeq, msgId) => set((state) => {
     const map = new Map(state.conversations); const conv = map.get(topic); if (!conv) return state;
-    const messages = conv.messages.map((m) => m.topicSeq === topicSeq || (!!msgId && m.msgId === msgId) ? { ...m, content: "This message was recalled", status: "recalled" as const, recalled: true } : m);
+    const messages = conv.messages.map((m) => m.topicSeq !== undefined && (Number(m.topicSeq) === topicSeq || (!!msgId && Number(m.msgId) === msgId)) ? { ...m, content: "This message was recalled", status: "recalled" as const, recalled: true } : m);
     map.set(topic, { ...conv, messages, lastMsgPreview: "This message was recalled" }); return { conversations: map };
   }),
   setMessagesLoading: (topic, flag) =>
@@ -152,12 +156,13 @@ export const useChatStore = create<ChatStore>((set) => ({
         conv.messages
           .map((m) => m.topicSeq)
           .filter((s): s is number => s !== undefined)
+          .map(Number)
       );
       const existingClientIds = new Set(
         conv.messages.map((m) => m.clientMsgId).filter(Boolean)
       );
       const newMsgs = msgs.filter((m) => {
-        if (m.topicSeq !== undefined && existingSeqs.has(m.topicSeq)) {
+        if (m.topicSeq !== undefined && existingSeqs.has(Number(m.topicSeq))) {
           return false;
         }
         if (existingClientIds.has(m.clientMsgId)) {
@@ -166,8 +171,8 @@ export const useChatStore = create<ChatStore>((set) => ({
         return true;
       });
       const merged = [...newMsgs, ...conv.messages].sort((a, b) => {
-        const sa = a.topicSeq || 0;
-        const sb = b.topicSeq || 0;
+        const sa = Number(a.topicSeq) || 0;
+        const sb = Number(b.topicSeq) || 0;
         return sa - sb;
       });
       const last = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1] : undefined;
@@ -225,10 +230,17 @@ export const useChatStore = create<ChatStore>((set) => ({
       const map = new Map(state.memberNames);
       const names = new Map<number, string>();
       for (const m of members) {
-        names.set(m.userId, m.username);
+        // Proto int64 fields arrive as strings in JSON; normalize.
+        names.set(Number(m.userId), m.username);
       }
       map.set(topic, names);
       return { memberNames: map };
     }),
   reset: () => set(initialState),
 }));
+
+// Debug/testing handle: inspect or drive the store from devtools. Stripped
+// from production builds.
+if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__chatStore = useChatStore;
+}

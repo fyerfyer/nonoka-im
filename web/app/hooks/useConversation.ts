@@ -3,7 +3,7 @@ import { messageApi, conversationApi, groupApi } from "@/lib/api";
 import { realtimeClient } from "@/lib/realtime";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
-import { ChatMessage, Conversation, GroupMember, User } from "@/types";
+import { ChatMessage, Conversation, User } from "@/types";
 import { toast } from "sonner";
 
 const MSG_TYPE_TEXT = 1;
@@ -12,6 +12,7 @@ export function useConversation(topic: string | null) {
   const user = useAuthStore((s) => s.user);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadedRef = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
   // Subscribe to the conversation object so status updates trigger re-renders
   const conversation = useChatStore(
     useCallback(
@@ -23,6 +24,15 @@ export function useConversation(topic: string | null) {
   const loadMessages = useCallback(
     async (lastSeq = 0) => {
       if (!topic || !user) return;
+      // Guard against concurrent initial loads: store actions replace the
+      // conversation object (zustand Object.is), which re-renders this hook,
+      // and we must not start a new pull for every render.
+      if (lastSeq === 0) {
+        if (loadedRef.current.has(topic) || inFlightRef.current.has(topic)) {
+          return;
+        }
+        inFlightRef.current.add(topic);
+      }
       useChatStore.getState().setMessagesLoading(topic, true);
       try {
         const reply = await messageApi.pullMessages(topic, lastSeq, 20);
@@ -61,6 +71,7 @@ export function useConversation(topic: string | null) {
       } finally {
         useChatStore.getState().setMessagesLoading(topic, false);
         loadedRef.current.add(topic);
+        inFlightRef.current.delete(topic);
       }
     },
     [topic, user]
@@ -113,48 +124,62 @@ export function useConversation(topic: string | null) {
     [topic]
   );
 
+  // Reads latest state so the callback identity stays stable regardless of
+  // conversation object churn.
   const markRead = useCallback(() => {
-    if (!topic || !conversation) return;
-    const upToSeq = conversation.lastSeq;
-    if (upToSeq === 0) return;
-    if (conversation.unreadCount > 0) {
-      conversationApi.markRead(topic).catch(() => {
-        // ignore
-      });
-      realtimeClient.sendReadReceipt(topic, upToSeq);
-      useChatStore.getState().markTopicRead(topic, upToSeq);
-    }
-  }, [topic, conversation]);
+    if (!topic) return;
+    const conv = useChatStore.getState().conversations.get(topic);
+    if (!conv || conv.lastSeq === 0 || conv.unreadCount === 0) return;
+    conversationApi.markRead(topic).catch(() => {
+      // ignore
+    });
+    realtimeClient.sendReadReceipt(topic, conv.lastSeq);
+    useChatStore.getState().markTopicRead(topic, conv.lastSeq);
+  }, [topic]);
 
   // Group conversations need a member table to render sender names; cached
   // per topic in the chat store (rebuilt from the server on each page load).
-  const loadGroupMembers = useCallback(async () => {
-    if (!topic) return;
-    const group = useChatStore.getState().groups.get(topic);
-    if (!group) return;
-    try {
-      const reply = await groupApi.listMembers(group.groupId);
-      const members: GroupMember[] = reply.members;
-      useChatStore.getState().setMemberNames(topic, members);
-    } catch {
-      // Sender names fall back to "Unknown"; not worth blocking the chat.
-    }
-  }, [topic]);
+  const group = useChatStore(
+    useCallback((s) => (topic ? s.groups.get(topic) : undefined), [topic])
+  );
 
+  // Mount/topic effect: stable deps only (topic + stable callbacks), so
+  // store notifications don't re-trigger it.
   useEffect(() => {
     if (!topic) return;
     useChatStore.getState().setActiveTopic(topic);
-    if (!loadedRef.current.has(topic)) {
-      loadMessages();
-    }
-    if (conversation?.type === "group") {
-      void loadGroupMembers();
-    }
+    loadMessages();
     markRead();
     return () => {
       useChatStore.getState().setActiveTopic(null);
     };
-  }, [topic, loadMessages, markRead, conversation?.type, loadGroupMembers]);
+  }, [topic, loadMessages, markRead]);
+
+  // Mark read when unread messages arrive while this topic is open.
+  const unreadCount = conversation?.unreadCount ?? 0;
+  const lastSeq = conversation?.lastSeq ?? 0;
+  useEffect(() => {
+    if (unreadCount > 0) markRead();
+  }, [unreadCount, lastSeq, markRead]);
+
+  // Load the group member table once the group metadata is available.
+  useEffect(() => {
+    if (!topic || conversation?.type !== "group" || !group) return;
+    let cancelled = false;
+    groupApi
+      .listMembers(group.groupId)
+      .then((reply) => {
+        if (!cancelled) {
+          useChatStore.getState().setMemberNames(topic, reply.members);
+        }
+      })
+      .catch(() => {
+        // Sender names fall back to "Unknown"; not worth blocking the chat.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [topic, conversation?.type, group]);
 
   return {
     conversation,

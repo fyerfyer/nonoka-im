@@ -66,8 +66,10 @@ export function MessageList({
     const firstKey = messages[0]?.clientMsgId;
     const lastKey = messages[messages.length - 1]?.clientMsgId;
 
-    if (el && prevCountRef.current > 0) {
+    if (el) {
+      const hadContent = prevCountRef.current > 0;
       const prepended =
+        hadContent &&
         firstKey !== prevFirstKeyRef.current &&
         messages.length > prevCountRef.current;
       const lastChanged = lastKey !== prevLastKeyRef.current;
@@ -189,7 +191,8 @@ function getSenderName(
   memberNames: Map<number, string> | undefined
 ): string {
   if (conversation.type === "group") {
-    return memberNames?.get(senderId) || "Unknown";
+    // senderId may be a proto-JSON string at runtime; coerce for the lookup.
+    return memberNames?.get(Number(senderId)) || "Unknown";
   }
   if (senderId === conversation.peerId) {
     return conversation.peerUsername || "Unknown";
