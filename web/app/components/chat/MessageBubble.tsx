@@ -205,7 +205,9 @@ function MessageBody({
                 ? "underline decoration-primary-foreground/60 underline-offset-2"
                 : "text-primary",
               seg.mentionedUserId === currentUserId &&
-                "rounded bg-amber-200/80 px-0.5 text-amber-900 decoration-amber-900/60"
+                (isMe
+                  ? "rounded bg-white/25 px-0.5"
+                  : "rounded bg-primary/15 px-0.5")
             )}
           >
             {seg.text}

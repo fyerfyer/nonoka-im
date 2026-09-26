@@ -223,7 +223,7 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
         {mentionState && (
           <div className="absolute bottom-full left-10 z-50 mb-2 w-52 rounded-xl border bg-popover p-1 shadow-lg">
             <div className="px-2 py-1 text-[10px] text-muted-foreground">
-              提及群成员
+              Mention a member
             </div>
             {mentionState.candidates.map((m, i) => (
               <button
