@@ -23,7 +23,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 	}
@@ -49,7 +49,10 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		case "/api.im.v1.AuthService/Register",
 			"/api.im.v1.AuthService/Login",
 			"/api.im.v1.AuthService/RefreshToken",
-			"/api.im.v1.DispatchService/Gateway":
+			"/api.im.v1.DispatchService/Gateway",
+			// File downloads are public: the unguessable file id is the
+			// credential (demo-grade tradeoff, see FileService.DownloadHTTP).
+			"/v1/files/{file_id}":
 			return false
 		}
 		return true
@@ -105,6 +108,13 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	}
 	if group != nil {
 		v1.RegisterGroupServiceHTTPServer(srv, group)
+	}
+	// File upload/download are stream-oriented, so they are registered as
+	// raw routes on the kratos router instead of generated JSON handlers.
+	if file != nil {
+		r := srv.Route("/")
+		r.POST("/v1/files", file.UploadHTTP)
+		r.GET("/v1/files/{file_id}", file.DownloadHTTP)
 	}
 
 	// Register WebSocket handler

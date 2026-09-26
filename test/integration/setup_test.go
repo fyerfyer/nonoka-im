@@ -16,8 +16,8 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/metrics"
+	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -25,15 +25,15 @@ import (
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	jwt5 "github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
@@ -52,19 +52,20 @@ var (
 
 // testServer holds all dependencies for integration tests.
 type testServer struct {
-	data           *data.Data
-	cleanup        func()
-	httpSrv        *khttp.Server
-	gwManager      *gateway.Manager
-	gwSessionMgr   *gateway.SessionManager
-	redis          redis.UniversalClient
-	authConf       *conf.Auth
-	kafkaProducer  gateway.MessageProducer
-	kafkaTopic     string
-	mongoDB        *mongo.Database
-	storage        *msgworker.MessageStorage
-	msgWorker      *msgworker.MsgWorker
-	grpcCleanup    func()
+	data          *data.Data
+	cleanup       func()
+	httpSrv       *khttp.Server
+	gwManager     *gateway.Manager
+	gwSessionMgr  *gateway.SessionManager
+	redis         redis.UniversalClient
+	authConf      *conf.Auth
+	kafkaProducer gateway.MessageProducer
+	kafkaTopic    string
+	mongoDB       *mongo.Database
+	storage       *msgworker.MessageStorage
+	msgWorker     *msgworker.MsgWorker
+	fileSvc       *service.FileService
+	grpcCleanup   func()
 }
 
 // setupTestServer bootstraps a full HTTP server against the test database.
@@ -238,8 +239,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	// Rate limiting is disabled in the integration harness: several existing
 	// tests deliberately hammer login/register and rapid WS publishes. The
 	// limiter logic itself is covered by unit tests.
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, wsServer, authConf, nil, nil, testLogger, testMetrics)
-
+	fileSvc := service.NewFileService(mongoDB, testLogger)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, fileSvc, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	// 8. Start HTTP server in background
 	go func() {
 		if err := hs.Start(ctx); err != nil {
@@ -271,6 +272,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		mongoDB:       mongoDB,
 		storage:       storage,
 		msgWorker:     worker,
+		fileSvc:       fileSvc,
 		grpcCleanup:   grpcCleanup,
 	}
 }

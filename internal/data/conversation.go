@@ -64,7 +64,7 @@ func (r *conversationRepo) UpsertConversation(ctx context.Context, userID int64,
 		return nil
 	}
 
-	preview := truncatePreview(string(msg.Content), 120)
+	preview := previewForMessage(msg)
 	now := time.Now()
 
 	var peerID int64
@@ -226,6 +226,19 @@ func truncatePreview(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// previewForMessage renders the conversation-list preview for a message.
+// Media messages carry JSON metadata in content, which must not be shown raw.
+func previewForMessage(msg *pb.UpstreamMessage) string {
+	switch pb.MsgType(msg.MsgType) {
+	case pb.MsgType_MSG_TYPE_IMAGE:
+		return "[图片]"
+	case pb.MsgType_MSG_TYPE_FILE:
+		return "[文件]"
+	default:
+		return truncatePreview(string(msg.Content), 120)
+	}
 }
 
 // ensure interface compliance

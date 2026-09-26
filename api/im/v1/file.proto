@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package api.im.v1;
+
+option go_package = "nonoka-im/api/im/v1;v1";
+
+// FileService stores and serves message attachments (images, files).
+//
+// The HTTP mapping is registered manually in internal/server/http.go rather
+// than via google.api.http annotations, because upload/download are
+// stream-oriented (multipart form / raw bytes) instead of JSON RPC:
+//   - POST /v1/files           (JWT required) multipart field "file",
+//                              or raw body with ?name=<filename>
+//   - GET  /v1/files/{file_id} (public: the unguessable id is the credential)
+service FileService {
+  rpc UploadFile (UploadFileRequest) returns (UploadFileReply) {}
+  rpc DownloadFile (DownloadFileRequest) returns (DownloadFileReply) {}
+}
+
+message UploadFileRequest {
+  bytes data = 1;
+  string name = 2;
+  string mime = 3;
+}
+
+message UploadFileReply {
+  string file_id = 1;
+  string url = 2;
+  string name = 3;
+  int64 size = 4;
+  string mime = 5;
+}
+
+message DownloadFileRequest {
+  string file_id = 1;
+}
+
+message DownloadFileReply {
+  bytes data = 1;
+  string name = 2;
+  string mime = 3;
+}
