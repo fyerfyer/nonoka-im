@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/data"
 	"nonoka-im/pkg/sdk"
 )
 
@@ -462,7 +463,11 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "sdk-mention-user", "123456")
+	token, userID := registerAndLogin(t, "sdk-mention-user", "123456")
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "sdk mentions", userID, nil)
+	if err != nil {
+		t.Fatalf("create mention test group: %v", err)
+	}
 
 	client := sdk.NewClient(sdk.Options{
 		GatewayURL:        testWSURL,
@@ -483,7 +488,7 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
-	result, err := client.SendMessageWithMentions(sendCtx, "grp_test", v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
+	result, err := client.SendMessageWithMentions(sendCtx, group.Topic, v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
 	if err != nil {
 		t.Fatalf("send message with mentions failed: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/data"
 )
 
 // ============================================
@@ -244,9 +245,13 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 
 	// Set up authenticated connections
 	conns := make([]*websocket.Conn, concurrency)
+	memberIDs := make([]int64, 0, concurrency)
+	userIDs := make([]int64, concurrency)
 	for i := range concurrency {
 		username := "publish-user-" + string(rune('a'+i%26))
-		token, _ := registerAndLogin(t, username, "123456")
+		token, userID := registerAndLogin(t, username, "123456")
+		userIDs[i] = userID
+		memberIDs = append(memberIDs, userID)
 
 		wsConn := wsConnect(t)
 		conns[i] = wsConn
@@ -262,6 +267,10 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 			},
 		})
 		wsReadPacket(t, wsConn, 2*time.Second)
+	}
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "concurrent publish", userIDs[0], memberIDs[1:])
+	if err != nil {
+		t.Fatalf("create group: %v", err)
 	}
 
 	// Publish concurrently
@@ -281,7 +290,7 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 					Seq: uint64(j + 1),
 					Payload: &v1.Packet_SendReq{
 						SendReq: &v1.SendMessageRequest{
-							Topic:       "p2p_1_2",
+							Topic:       group.Topic,
 							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
 							Content:     []byte("concurrent message"),
 							ClientMsgId: "msg-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),

@@ -615,7 +615,7 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
-	// Pull a topic with no messages
+	// Pull another user's P2P topic: authorization must reject it before data access.
 	pullReq := &v1.PullRequest{
 		Topic:   "p2p_999_1000",
 		LastSeq: 0,
@@ -632,22 +632,10 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 		t.Fatalf("expected CMD_PULL response, got %v", resp.Cmd)
 	}
 
-	pullReply := resp.GetPullReply()
-	if pullReply == nil {
-		t.Fatalf("expected PullReply payload, got nil")
+	if errReply := resp.GetError(); errReply == nil || errReply.Message != "topic access denied" {
+		t.Fatalf("expected topic access denial, got %+v", resp.Payload)
 	}
-
-	if len(pullReply.Messages) != 0 {
-		t.Fatalf("expected 0 messages for empty topic, got %d", len(pullReply.Messages))
-	}
-	if pullReply.HasMore {
-		t.Fatal("expected has_more=false for empty result")
-	}
-	if pullReply.NextSeq != 0 {
-		t.Fatalf("expected next_seq=0 for empty result, got %d", pullReply.NextSeq)
-	}
-
-	t.Log("gateway pull empty result verified: 0 messages, has_more=false")
+	t.Log("gateway pull rejects unauthorized topic")
 }
 
 // TestMsgWorker_GroupMention_SaveToMentionInbox verifies that group messages

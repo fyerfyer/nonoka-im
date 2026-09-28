@@ -58,8 +58,8 @@ func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	_, userID := registerAndLogin(t, "file-roundtrip", "123456")
-	token := generateJWTToken(userID, ts.authConf.JwtSecret)
+	token, userID := registerAndLogin(t, "file-roundtrip", "123456")
+	token = generateJWTToken(userID, ts.authConf.JwtSecret)
 
 	content := []byte("hello attachment 你好")
 	resp := uploadFileMultipart(t, token, "greeting.txt", "text/plain", content)
@@ -80,8 +80,13 @@ func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 		t.Fatalf("reply metadata mismatch: %+v", &reply)
 	}
 
-	// Download: no Authorization header on purpose (public endpoint).
-	dl, err := http.Get(testBaseURL + reply.Url)
+	// Downloads require the same authenticated owner who uploaded the file.
+	dlReq, err := http.NewRequest(http.MethodGet, testBaseURL+reply.Url, nil)
+	if err != nil {
+		t.Fatalf("create download request failed: %v", err)
+	}
+	dlReq.Header.Set("Authorization", "Bearer "+generateJWTToken(userID, ts.authConf.JwtSecret))
+	dl, err := http.DefaultClient.Do(dlReq)
 	if err != nil {
 		t.Fatalf("download request failed: %v", err)
 	}
@@ -104,7 +109,12 @@ func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 	}
 
 	// Missing file -> 404.
-	miss, err := http.Get(testBaseURL + "/v1/files/does-not-exist")
+	missReq, err := http.NewRequest(http.MethodGet, testBaseURL+"/v1/files/does-not-exist", nil)
+	if err != nil {
+		t.Fatalf("create missing-file request failed: %v", err)
+	}
+	missReq.Header.Set("Authorization", "Bearer "+generateJWTToken(userID, ts.authConf.JwtSecret))
+	miss, err := http.DefaultClient.Do(missReq)
 	if err != nil {
 		t.Fatalf("missing-file request failed: %v", err)
 	}

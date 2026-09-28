@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/data"
 	"nonoka-im/pkg/sdk"
 )
 
@@ -21,14 +22,14 @@ func TestAutoReconnectTriggersOnConnectCallback(t *testing.T) {
 	connected := make(chan struct{}, 2)
 
 	client := sdk.NewClient(sdk.Options{
-		BaseURL:           testBaseURL,
-		GatewayURL:        testWSURL,
-		Token:             token,
-		DeviceID:          "sdk-test",
-		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    5 * time.Second,
-		ReconnectInterval: 200 * time.Millisecond,
-		AutoReconnect:     true,
+		BaseURL:              testBaseURL,
+		GatewayURL:           testWSURL,
+		Token:                token,
+		DeviceID:             "sdk-test",
+		HeartbeatInterval:    5 * time.Second,
+		RequestTimeout:       5 * time.Second,
+		ReconnectInterval:    200 * time.Millisecond,
+		AutoReconnect:        true,
 		MaxReconnectAttempts: 10,
 		OnConnect: func() {
 			connectCount.Add(1)
@@ -78,7 +79,11 @@ func TestSendMessageWithMentionsWorks(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "mention-user", "123456")
+	token, userID := registerAndLogin(t, "mention-user", "123456")
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "mentions", userID, nil)
+	if err != nil {
+		t.Fatalf("create mention test group: %v", err)
+	}
 
 	client := sdk.NewClient(sdk.Options{
 		BaseURL:           testBaseURL,
@@ -100,7 +105,7 @@ func TestSendMessageWithMentionsWorks(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
-	result, err := client.SendMessageWithMentions(sendCtx, "grp_test", v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
+	result, err := client.SendMessageWithMentions(sendCtx, group.Topic, v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
 	if err != nil {
 		t.Fatalf("send message with mentions failed: %v", err)
 	}

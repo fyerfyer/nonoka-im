@@ -1,15 +1,18 @@
 package integration
 
 import (
+	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/gateway"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/data"
+	"nonoka-im/internal/gateway"
 )
 
 // ============================================
@@ -104,6 +107,10 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	defer ts.stop()
 
 	token, userID := registerAndLogin(t, "kafka-content-user", "123456")
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "kafka content", userID, nil)
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -131,7 +138,7 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 		Seq: 2,
 		Payload: &v1.Packet_SendReq{
 			SendReq: &v1.SendMessageRequest{
-				Topic:       "grp_42",
+				Topic:       group.Topic,
 				MsgType:     v1.MsgType_MSG_TYPE_IMAGE,
 				Content:     []byte(`{"url":"https://example.com/img.png","width":800}`),
 				ClientMsgId: "content-msg-002",
@@ -146,8 +153,8 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	msg := consumeKafkaMessage(t, reader, 5*time.Second)
 
 	// Verify Kafka message key is the topic (for partition affinity)
-	if string(msg.Key) != "grp_42" {
-		t.Fatalf("expected Kafka message key='grp_42', got '%s'", string(msg.Key))
+	if string(msg.Key) != group.Topic {
+		t.Fatalf("expected Kafka message key=%q, got %q", group.Topic, string(msg.Key))
 	}
 
 	// Verify headers
@@ -195,9 +202,16 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 	const messagesPerClient = 5
 
 	tokens := make([]string, concurrency)
+	userIDs := make([]int64, concurrency)
+	memberIDs := make([]int64, 0, concurrency)
 	for i := 0; i < concurrency; i++ {
 		username := "kafka-concurrent-user-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		tokens[i], _ = registerAndLogin(t, username, "123456")
+		tokens[i], userIDs[i] = registerAndLogin(t, username, "123456")
+		memberIDs = append(memberIDs, userIDs[i])
+	}
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "kafka concurrent", userIDs[0], memberIDs[1:])
+	if err != nil {
+		t.Fatalf("create group: %v", err)
 	}
 
 	// Create reader BEFORE any publish to capture only test messages
@@ -236,7 +250,7 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 					Seq: uint64(j + 2),
 					Payload: &v1.Packet_SendReq{
 						SendReq: &v1.SendMessageRequest{
-							Topic:       "p2p_1_2",
+							Topic:       group.Topic,
 							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
 							Content:     []byte("concurrent kafka message"),
 							ClientMsgId: "kafka-concurrent-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
@@ -307,7 +321,7 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "kafka-affinity-user", "123456")
+	token, userID := registerAndLogin(t, "kafka-affinity-user", "123456")
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -331,7 +345,7 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 
 	// Send multiple messages to the same topic
 	const messageCount = 5
-	topic := "p2p_100_200"
+	topic := fmt.Sprintf("p2p_%d_200", userID)
 
 	for i := 0; i < messageCount; i++ {
 		wsSendPacket(t, wsConn, &v1.Packet{
@@ -416,7 +430,11 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "kafka-multi-topic-user", "123456")
+	token, userID := registerAndLogin(t, "kafka-multi-topic-user", "123456")
+	group, err := data.NewGroupRepo(ts.data, testLogger).CreateGroup(context.Background(), "kafka multi", userID, nil)
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -438,7 +456,7 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	defer reader.Close()
 
 	// Send messages to different topics
-	topics := []string{"p2p_1_2", "grp_42", "sys_123"}
+	topics := []string{fmt.Sprintf("p2p_%d_2", userID), group.Topic, fmt.Sprintf("sys_%d", userID)}
 	for i, topic := range topics {
 		wsSendPacket(t, wsConn, &v1.Packet{
 			Cmd: v1.Command_CMD_PUBLISH,
