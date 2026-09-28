@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/metrics"
@@ -222,6 +223,15 @@ func main() {
 	// Wire conversation summary repository so MsgWorker upserts conversation rows.
 	conversationRepo := data.NewConversationRepo(dataLayer, logger)
 	worker.SetConversationRepo(conversationRepo)
+	// Agent events are recorded in MongoDB's transactional outbox together with
+	// the message. MsgWorker relays pending rows to Kafka and retries failures.
+	eventBrokers := kafkaCfg.Brokers
+	if raw := os.Getenv("KAFKA_BROKERS"); raw != "" {
+		eventBrokers = []string{raw}
+	}
+	agentPublisher := agevent.NewKafkaPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
+	worker.SetAgentEventPublisher(agentPublisher)
+	defer agentPublisher.Close()
 
 	// Wire handler after worker is created
 	consumer.SetHandler(worker.HandleMessage)

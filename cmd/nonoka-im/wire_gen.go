@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
@@ -57,7 +58,9 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	}
 	kafkaConfig := provideKafkaConfig(confData)
 	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
-	messageService := service.NewMessageService(messageStorage, kafkaProducer, logger)
+	groupRepo := data.NewGroupRepo(dataData, logger)
+	topicAuthorizer := authz.NewTopicAuthorizer(groupRepo)
+	messageService := service.NewMessageServiceWithAuthorizer(messageStorage, kafkaProducer, topicAuthorizer, logger)
 	string2 := provideNodeIDString()
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
@@ -68,12 +71,11 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	manager := gateway.NewManager(logger, v...)
 	pushService := service.NewPushService(manager, logger)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, messageService, userService, conversationService, pushService, auth, logger)
-	groupRepo := data.NewGroupRepo(dataData, logger)
 	groupService := service.NewGroupService(groupRepo)
-	fileService := service.NewFileService(database, logger)
+	fileService := service.NewFileServiceWithAuthorizer(database, topicAuthorizer, logger)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
+	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, topicAuthorizer, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, fileService, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
@@ -303,8 +305,9 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups data.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups data.GroupRepo, authorizer authz.Authorizer, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
 	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
+	h.SetAuthorizer(authorizer)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
 	}

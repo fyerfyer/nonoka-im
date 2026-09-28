@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/metrics"
 	"google.golang.org/protobuf/proto"
+	pb "nonoka-im/api/im/v1"
+	agevent "nonoka-im/internal/agent/event"
+	"nonoka-im/internal/metrics"
 )
 
 // ConversationRepo mirrors the subset of conversation operations required by
@@ -38,11 +39,11 @@ type receiptBatcher struct {
 	batchTimeout time.Duration
 	log          *log.Helper
 
-	mu      sync.Mutex
-	pending map[int64][]*pb.SendReceipt
-	stopCh  chan struct{}
+	mu       sync.Mutex
+	pending  map[int64][]*pb.SendReceipt
+	stopCh   chan struct{}
 	stopOnce sync.Once
-	wg      sync.WaitGroup
+	wg       sync.WaitGroup
 }
 
 // newReceiptBatcher creates a new receipt batcher.
@@ -184,11 +185,11 @@ type groupMessageBatcher struct {
 	batchTimeout time.Duration
 	log          *log.Helper
 
-	mu      sync.Mutex
-	pending []*groupBatchItem
-	stopCh  chan struct{}
+	mu       sync.Mutex
+	pending  []*groupBatchItem
+	stopCh   chan struct{}
 	stopOnce sync.Once
-	wg      sync.WaitGroup
+	wg       sync.WaitGroup
 }
 
 // newGroupMessageBatcher creates a new group message batcher.
@@ -351,18 +352,22 @@ type deliveryTask struct {
 // MsgWorker consumes Kafka upstream messages, persists them to MongoDB,
 // generates sequence numbers, and pushes messages to online users via Gateway.
 type MsgWorker struct {
-	consumer        *KafkaConsumer
-	seqGen          *SeqGenerator
-	snowflake       *IDGenerator
-	storage         *MessageStorage
-	pusher          Pusher
-	groupMemberSvc     GroupMemberService
-	conversationRepo   ConversationRepo
-	retryQueue         *PushRetryQueue
-	receiptBatcher     *receiptBatcher
-	groupBatcher       *groupMessageBatcher
-	metrics            *metrics.Metrics
-	log                *log.Helper
+	consumer         *KafkaConsumer
+	seqGen           *SeqGenerator
+	snowflake        *IDGenerator
+	storage          *MessageStorage
+	pusher           Pusher
+	groupMemberSvc   GroupMemberService
+	conversationRepo ConversationRepo
+	retryQueue       *PushRetryQueue
+	receiptBatcher   *receiptBatcher
+	groupBatcher     *groupMessageBatcher
+	metrics          *metrics.Metrics
+	log              *log.Helper
+	agentPublisher   agevent.Publisher
+	outboxStopCh     chan struct{}
+	outboxStopOnce   sync.Once
+	outboxWg         sync.WaitGroup
 
 	// Async delivery pipeline
 	pushPool     chan deliveryTask
@@ -422,6 +427,7 @@ func NewMsgWorker(
 		pushPool:            make(chan deliveryTask, 1024),
 		pushWorkers:         defaultPushWorkers(),
 		pushStopCh:          make(chan struct{}),
+		outboxStopCh:        make(chan struct{}),
 		receiptBatchSize:    32,
 		receiptBatchTimeout: 10 * time.Millisecond,
 		groupBatchSize:      16,
@@ -472,6 +478,29 @@ func (w *MsgWorker) SetPusher(pusher Pusher) {
 	w.pusher = pusher
 }
 
+// SetAgentEventPublisher enables the transactional Agent outbox and configures
+// the Kafka publisher used by the relay. It no longer publishes inline on the
+// IM consumer path.
+func (w *MsgWorker) SetAgentEventPublisher(p agevent.Publisher) { w.agentPublisher = p }
+
+func (w *MsgWorker) agentOutboxLoop(ctx context.Context) {
+	defer w.outboxWg.Done()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.outboxStopCh:
+			return
+		case <-ticker.C:
+			if _, err := w.storage.RelayAgentEvents(ctx, w.agentPublisher, 32, time.Second); err != nil {
+				w.log.Warnf("relay agent outbox failed: %v", err)
+			}
+		}
+	}
+}
+
 // SetPushWorkers configures the number of async push workers. Must be called
 // before Start.
 func (w *MsgWorker) SetPushWorkers(n int) {
@@ -491,9 +520,16 @@ func (w *MsgWorker) Start(ctx context.Context) error {
 	}
 
 	// Initialize group message batcher if storage is configured.
-	if w.storage != nil && w.groupBatcher == nil {
+	// Transactional Agent writes use the single-message path so the message
+	// and outbox row share one transaction; batching is kept for the normal IM
+	// path where no Agent outbox is configured.
+	if w.storage != nil && w.groupBatcher == nil && w.agentPublisher == nil {
 		w.groupBatcher = newGroupMessageBatcher(w.storage, w.groupBatchSize, w.groupBatchTimeout, w.log.Logger())
 		w.groupBatcher.Start(ctx)
+	}
+	if w.storage != nil && w.agentPublisher != nil {
+		w.outboxWg.Add(1)
+		go w.agentOutboxLoop(ctx)
 	}
 
 	// Start push retry loop if retry queue is configured.
@@ -544,6 +580,8 @@ func (w *MsgWorker) Stop() error {
 	if w.groupBatcher != nil {
 		w.groupBatcher.Stop()
 	}
+	w.outboxStopOnce.Do(func() { close(w.outboxStopCh) })
+	w.outboxWg.Wait()
 
 	if w.pusher != nil {
 		if err := w.pusher.Close(); err != nil {
@@ -589,21 +627,32 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		return fmt.Errorf("generate topic seq: %w", err)
 	}
 
-	// Persist based on topic type
+	// Persist based on topic type. When Agent events are enabled, the message
+	// and its trigger outbox row are committed in one MongoDB transaction.
 	topicType := ParseTopicType(upstream.GetTopic())
+	var agentEvent agevent.MessageEvent
+	if w.agentPublisher != nil {
+		agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds())
+	}
 	var recipientIDs []int64
 	var isDuplicate bool
 
 	switch topicType {
 	case TopicTypeP2P:
-		recipientIDs, isDuplicate, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
+		if w.agentPublisher != nil {
+			recipientIDs, isDuplicate, err = w.storage.SaveP2PMessageWithAgentEvent(ctx, &upstream, msgID, topicSeq, agentEvent)
+		} else {
+			recipientIDs, isDuplicate, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
+		}
 		if err != nil {
 			return fmt.Errorf("save p2p message: %w", err)
 		}
 
 	case TopicTypeGroup:
-		if w.groupBatcher != nil {
+		if w.groupBatcher != nil && w.agentPublisher == nil {
 			isDuplicate, err = w.groupBatcher.Add(ctx, &upstream, msgID, topicSeq)
+		} else if w.agentPublisher != nil {
+			isDuplicate, err = w.storage.SaveGroupMessageWithAgentEvent(ctx, &upstream, msgID, topicSeq, agentEvent)
 		} else {
 			isDuplicate, err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)
 		}
@@ -645,7 +694,6 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 
 	// Upsert per-user conversation summaries in PostgreSQL.
 	w.upsertConversations(ctx, &upstream, topicSeq, recipientIDs, topicType == TopicTypeGroup)
-
 	w.metrics.IncMessagesProcessed()
 	w.metrics.ObserveProcessingLatency(time.Since(start).Seconds())
 

@@ -35,10 +35,15 @@ services:
     container_name: nonoka_mongodb_test
     ports:
       - "27018:27017"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
     volumes:
       - mongodbdata_test:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok }\" | grep -q 1"]
       interval: 2s
       timeout: 5s
       retries: 10

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 
@@ -45,6 +46,7 @@ type Handler struct {
 	sendTimeout  time.Duration
 	recallWindow time.Duration
 	groupMembers func(context.Context, string) ([]int64, error)
+	authorizer   authz.Authorizer
 
 	// Per-connection publish rate limit (token bucket). limiters maps
 	// connID to the connection's bucket; entries are removed on close.
@@ -82,6 +84,9 @@ func NewHandler(manager *Manager, sessionManager *SessionManager, producer Messa
 	}
 	return h
 }
+
+// SetAuthorizer installs the shared topic authorization boundary.
+func (h *Handler) SetAuthorizer(a authz.Authorizer) { h.authorizer = a }
 
 // SetMessageRateLimit configures the per-connection publish rate limit.
 // msgPerSec <= 0 disables limiting (fail open); burst < 1 resets to 1.
@@ -162,6 +167,14 @@ func (h *Handler) handleRecall(c *Connection, packet *v1.Packet) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if h.authorizer == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4030, "topic authorization unavailable")
+		return
+	}
+	if err := h.authorizer.CanAccessTopic(ctx, c.UserID(), topic); err != nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4030, "topic access denied")
+		return
+	}
 	sender, err := h.storage.GetMessageSender(ctx, topic, req.TopicSeq)
 	if err != nil || sender != c.UserID() {
 		h.sendError(c, packet.Seq, v1.Command_CMD_RECALL, 4030, "only the sender can recall this message")
@@ -348,6 +361,14 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4009, "invalid topic")
 		return
 	}
+	if h.authorizer == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4030, "topic authorization unavailable")
+		return
+	}
+	if err := h.authorizer.CanAccessTopic(context.Background(), c.UserID(), normalizedTopic); err != nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4030, "topic access denied")
+		return
+	}
 
 	h.log.Debugf("publish received: user_id=%d, topic=%s, client_msg_id=%s",
 		c.UserID(), normalizedTopic, req.ClientMsgId)
@@ -424,6 +445,14 @@ func (h *Handler) handlePull(c *Connection, packet *v1.Packet) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if h.authorizer == nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4030, "topic authorization unavailable")
+		return
+	}
+	if err := h.authorizer.CanAccessTopic(ctx, c.UserID(), req.Topic); err != nil {
+		h.sendError(c, packet.Seq, v1.Command_CMD_PULL, 4030, "topic access denied")
+		return
+	}
 
 	topicType := msgworker.ParseTopicType(req.Topic)
 	var pullMessages []*v1.PullMessage

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
@@ -172,6 +173,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
+	topicAuthorizer := authz.NewTopicAuthorizer(data.NewGroupRepo(d, testLogger))
+	gwHandler.SetAuthorizer(topicAuthorizer)
 	// Integration tests intentionally exercise rapid/burst traffic, so the
 	// per-connection publish rate limiter is disabled here. It is covered by
 	// unit tests and enabled with real defaults in the wire assembly.
@@ -179,7 +182,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second, 10*time.Second, nil)
 
 	// 7. Message service (with producer for HTTP fallback)
-	msgSvc := service.NewMessageService(storage, msgProducer, testLogger)
+	msgSvc := service.NewMessageServiceWithAuthorizer(storage, msgProducer, topicAuthorizer, testLogger)
 	userSvc := service.NewUserService(authUC)
 	conversationSvc := service.NewConversationService(data.NewConversationRepo(d, testLogger))
 
@@ -239,7 +242,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	// Rate limiting is disabled in the integration harness: several existing
 	// tests deliberately hammer login/register and rapid WS publishes. The
 	// limiter logic itself is covered by unit tests.
-	fileSvc := service.NewFileService(mongoDB, testLogger)
+	fileSvc := service.NewFileServiceWithAuthorizer(mongoDB, topicAuthorizer, testLogger)
 	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, fileSvc, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	// 8. Start HTTP server in background
 	go func() {
@@ -656,7 +659,7 @@ func consumeKafkaMessageOrNil(reader *kafka.Reader, timeout time.Duration) *kafk
 // ---------- MsgWorker test helpers ----------
 
 const (
-	testMongoURI = "mongodb://127.0.0.1:27018"
+	testMongoURI = "mongodb://127.0.0.1:27018/?replicaSet=rs0&directConnection=true"
 	testMongoDB  = "nonoka_im_test"
 )
 

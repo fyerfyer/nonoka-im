@@ -49,10 +49,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		case "/api.im.v1.AuthService/Register",
 			"/api.im.v1.AuthService/Login",
 			"/api.im.v1.AuthService/RefreshToken",
-			"/api.im.v1.DispatchService/Gateway",
-			// File downloads are public: the unguessable file id is the
-			// credential (demo-grade tradeoff, see FileService.DownloadHTTP).
-			"/v1/files/{file_id}":
+			"/api.im.v1.DispatchService/Gateway":
 			return false
 		}
 		return true

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/authz"
 
 	"github.com/go-kratos/kratos/v2/log"
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
@@ -47,15 +48,21 @@ type FileService struct {
 	files          *mongo.Collection
 	log            *log.Helper
 	MaxUploadBytes int64
+	authorizer     authz.Authorizer
 }
 
 // NewFileService creates a FileService backed by the given MongoDB database.
 func NewFileService(db *mongo.Database, logger log.Logger) *FileService {
+	return NewFileServiceWithAuthorizer(db, nil, logger)
+}
+
+func NewFileServiceWithAuthorizer(db *mongo.Database, authorizer authz.Authorizer, logger log.Logger) *FileService {
 	return &FileService{
 		db:             db,
 		files:          db.Collection(CollectionFiles),
 		log:            log.NewHelper(logger),
 		MaxUploadBytes: DefaultMaxUploadBytes,
+		authorizer:     authorizer,
 	}
 }
 
@@ -147,10 +154,8 @@ func (s *FileService) handleUpload(ctx context.Context, httpCtx khttp.Context) e
 	return nil
 }
 
-// DownloadHTTP handles GET /v1/files/{file_id}. The endpoint is intentionally
-// public: the unguessable random file id acts as the capability. This is a
-// demo-grade tradeoff (no per-user authorization, no expiry); a production
-// system would sign URLs or check access control.
+// DownloadHTTP handles GET /v1/files/{file_id}. Downloads require an
+// authenticated owner; unguessable IDs are not treated as authorization.
 func (s *FileService) DownloadHTTP(httpCtx khttp.Context) error {
 	h := httpCtx.Middleware(func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return nil, s.handleDownload(ctx, httpCtx)
@@ -161,6 +166,11 @@ func (s *FileService) DownloadHTTP(httpCtx khttp.Context) error {
 
 func (s *FileService) handleDownload(ctx context.Context, httpCtx khttp.Context) error {
 	w := httpCtx.Response()
+	userID := fileUserIDFromContext(ctx)
+	if userID <= 0 {
+		http.Error(w, `{"message":"authentication required"}`, http.StatusUnauthorized)
+		return nil
+	}
 	fileID := httpCtx.Vars().Get("file_id")
 
 	var doc storedFile
@@ -172,6 +182,14 @@ func (s *FileService) handleDownload(ctx context.Context, httpCtx khttp.Context)
 	if err != nil {
 		s.log.Errorf("file lookup failed: file_id=%s, err=%v", fileID, err)
 		http.Error(w, `{"message":"failed to load file"}`, http.StatusInternalServerError)
+		return nil
+	}
+	denied := userID != doc.OwnerID
+	if s.authorizer != nil {
+		denied = s.authorizer.CanReadFile(ctx, userID, doc.OwnerID) != nil
+	}
+	if denied {
+		http.Error(w, `{"message":"file access denied"}`, http.StatusForbidden)
 		return nil
 	}
 

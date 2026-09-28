@@ -50,7 +50,8 @@ cmd/nonoka-im/nonoka-im
 
 # Self files 
 self-files/
-docs/
+docs/*
+!docs/agent-architecture.md
 .claude/
 /DESIGN.md
 .codegraph/

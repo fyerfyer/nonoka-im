@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type allowAllAuthorizer struct{}
+
+func (allowAllAuthorizer) CanAccessTopic(context.Context, int64, string) error { return nil }
+func (allowAllAuthorizer) CanReadFile(context.Context, int64, int64) error     { return nil }
+
 // newRateLimitTestHandler builds a handler with storage/session dependencies
 // omitted; publish only needs the producer, manager and metrics.
 func newRateLimitTestHandler(t *testing.T, msgPerSec float64, burst int) (*Handler, *Connection) {
@@ -21,6 +27,7 @@ func newRateLimitTestHandler(t *testing.T, msgPerSec float64, burst int) (*Handl
 	h := NewHandler(m, nil, NewNoopProducer(), nil, []byte("secret"),
 		HeartbeatConfig{Interval: 30 * time.Second, Timeout: 90 * time.Second},
 		logger, metrics.NewMetrics())
+	h.SetAuthorizer(allowAllAuthorizer{})
 	h.SetMessageRateLimit(msgPerSec, burst)
 
 	// A connection without a live websocket is enough: SendWithTimeout only

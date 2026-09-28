@@ -20,7 +20,7 @@ var ProviderSet = wire.NewSet(NewData, NewAuthRepo, NewGroupMemberRepo, NewConve
 
 // Data .
 type Data struct {
-	db  *gorm.DB
+	db *gorm.DB
 	// Redis client for distributed session and caching
 	Redis redis.UniversalClient
 }
@@ -28,7 +28,7 @@ type Data struct {
 // CleanTestData truncates all user tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
-	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations RESTART IDENTITY CASCADE").Error
+	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations, agent_runs, agent_turns, agent_sessions RESTART IDENTITY CASCADE").Error
 }
 
 // NewData .
@@ -95,7 +95,7 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	}
 	defer lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrateLockKey) //nolint:errcheck
 
-	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}, &AgentRun{}, &AgentTurn{}, &AgentSession{}); err != nil {
 		return nil, nil, err
 	}
 

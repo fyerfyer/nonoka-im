@@ -2,6 +2,7 @@ package msgworker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -17,21 +18,24 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 	pb "nonoka-im/api/im/v1"
+	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/metrics"
 )
 
 var (
-	ErrRecallNotFound = errors.New("message not found or already recalled")
-	ErrRecallExpired  = errors.New("message recall window expired")
+	ErrRecallNotFound         = errors.New("message not found or already recalled")
+	ErrRecallExpired          = errors.New("message recall window expired")
+	errTransactionalDuplicate = errors.New("message already persisted")
 )
 
 const (
 	// Collection names
-	CollectionMessages       = "messages"        // group messages (read扩散)
-	CollectionInboxes        = "inboxes"         // user inboxes (write扩散 for P2P)
-	CollectionTopicSeqs      = "topic_seqs"      // topic max seq backup
-	CollectionMentionInboxes = "mention_inboxes" // group @mention inbox (for large groups)
-	CollectionDeliveryStatus = "delivery_status" // message delivery tracking per user
+	CollectionMessages       = "messages"           // group messages (read扩散)
+	CollectionInboxes        = "inboxes"            // user inboxes (write扩散 for P2P)
+	CollectionTopicSeqs      = "topic_seqs"         // topic max seq backup
+	CollectionMentionInboxes = "mention_inboxes"    // group @mention inbox (for large groups)
+	CollectionDeliveryStatus = "delivery_status"    // message delivery tracking per user
+	CollectionAgentOutbox    = "agent_event_outbox" // transactional Agent trigger events
 
 	// senderCacheKeyPrefix is the Redis key prefix for message sender cache.
 	senderCacheKeyPrefix = "im:sender"
@@ -105,6 +109,23 @@ type DeliveryStatus struct {
 	DeliveredAt time.Time `bson:"delivered_at"`
 }
 
+// AgentEventOutbox is written in the same MongoDB transaction as the IM
+// message. The relay publishes Payload to Kafka and then marks the row
+// published. Rows are retained after publishing for audit and duplicate
+// detection; event_id is the idempotency boundary.
+type AgentEventOutbox struct {
+	ID            bson.ObjectID `bson:"_id,omitempty"`
+	EventID       string        `bson:"event_id"`
+	Payload       []byte        `bson:"payload"`
+	Status        string        `bson:"status"`
+	Attempts      int           `bson:"attempts"`
+	NextAttemptAt time.Time     `bson:"next_attempt_at"`
+	LockedUntil   time.Time     `bson:"locked_until,omitempty"`
+	LastError     string        `bson:"last_error,omitempty"`
+	CreatedAt     time.Time     `bson:"created_at"`
+	PublishedAt   time.Time     `bson:"published_at,omitempty"`
+}
+
 // MessageStorage handles MongoDB persistence for messages.
 type MessageStorage struct {
 	db           *mongo.Database
@@ -160,6 +181,156 @@ func (s *MessageStorage) SetMetrics(m *metrics.Metrics) {
 // SetRedis configures an optional Redis client for caches (e.g., sender lookup).
 func (s *MessageStorage) SetRedis(redis redis.UniversalClient) {
 	s.redis = redis
+}
+
+// SaveP2PMessageWithAgentEvent persists the IM message and its Agent trigger
+// in one MongoDB transaction. The event is only added for a newly inserted
+// message; duplicate upstream deliveries do not create another outbox row.
+func (s *MessageStorage) SaveP2PMessageWithAgentEvent(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64, ev agevent.MessageEvent) ([]int64, bool, error) {
+	payload, err := ev.Marshal()
+	if err != nil {
+		return nil, false, err
+	}
+	sess, err := s.db.Client().StartSession()
+	if err != nil {
+		return nil, false, fmt.Errorf("start mongo transaction session: %w", err)
+	}
+	defer sess.EndSession(ctx)
+	var recipients []int64
+	var duplicate bool
+	_, err = sess.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+		recipients, duplicate, err = s.SaveP2PMessage(txCtx, msg, msgID, topicSeq)
+		if err != nil {
+			return nil, err
+		}
+		if duplicate {
+			// A duplicate-key write aborts the Mongo transaction even though the
+			// legacy Save method reports it as an idempotent success. Return a
+			// sentinel so WithTransaction aborts cleanly instead of retrying a
+			// transaction that can no longer commit.
+			return nil, errTransactionalDuplicate
+		}
+		return nil, s.enqueueAgentEvent(txCtx, ev.EventID, payload)
+	})
+	if errors.Is(err, errTransactionalDuplicate) {
+		return recipients, true, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("persist p2p message and agent event: %w", err)
+	}
+	return recipients, duplicate, nil
+}
+
+// SaveGroupMessageWithAgentEvent is the transactional group-message variant.
+func (s *MessageStorage) SaveGroupMessageWithAgentEvent(ctx context.Context, msg *pb.UpstreamMessage, msgID int64, topicSeq uint64, ev agevent.MessageEvent) (bool, error) {
+	payload, err := ev.Marshal()
+	if err != nil {
+		return false, err
+	}
+	sess, err := s.db.Client().StartSession()
+	if err != nil {
+		return false, fmt.Errorf("start mongo transaction session: %w", err)
+	}
+	defer sess.EndSession(ctx)
+	var duplicate bool
+	_, err = sess.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+		duplicate, err = s.SaveGroupMessage(txCtx, msg, msgID, topicSeq)
+		if err != nil {
+			return nil, err
+		}
+		if duplicate {
+			return nil, errTransactionalDuplicate
+		}
+		return nil, s.enqueueAgentEvent(txCtx, ev.EventID, payload)
+	})
+	if errors.Is(err, errTransactionalDuplicate) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("persist group message and agent event: %w", err)
+	}
+	return duplicate, nil
+}
+
+func (s *MessageStorage) enqueueAgentEvent(ctx context.Context, eventID string, payload []byte) error {
+	if strings.TrimSpace(eventID) == "" {
+		return fmt.Errorf("agent event id is required")
+	}
+	now := time.Now()
+	_, err := s.collection(CollectionAgentOutbox).InsertOne(ctx, AgentEventOutbox{
+		EventID: eventID, Payload: payload, Status: "pending", NextAttemptAt: now, CreatedAt: now,
+	})
+	if err != nil && mongo.IsDuplicateKeyError(err) {
+		// A transaction retry or an earlier successful delivery may already have
+		// recorded this event. Keeping the existing row preserves at-least-once
+		// delivery without creating a second trigger.
+		return nil
+	}
+	return err
+}
+
+// RelayAgentEvents claims due outbox rows, publishes them, and marks them
+// published. A short lease makes rows recoverable after a relay crash. Kafka
+// delivery remains at-least-once; the Agent worker deduplicates by event_id.
+func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent.Publisher, limit int, retryBackoff time.Duration) (int, error) {
+	if publisher == nil {
+		return 0, fmt.Errorf("agent event publisher is nil")
+	}
+	if limit <= 0 {
+		limit = 32
+	}
+	if retryBackoff <= 0 {
+		retryBackoff = time.Second
+	}
+	processed := 0
+	for i := 0; i < limit; i++ {
+		row, err := s.claimAgentEvent(ctx)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return processed, nil
+			}
+			return processed, err
+		}
+		var ev agevent.MessageEvent
+		if err := json.Unmarshal(row.Payload, &ev); err != nil {
+			_ = s.failAgentEvent(ctx, row.ID, err, retryBackoff)
+			return processed, fmt.Errorf("decode agent outbox event: %w", err)
+		}
+		if err := publisher.Publish(ctx, ev); err != nil {
+			if releaseErr := s.failAgentEvent(ctx, row.ID, err, retryBackoff); releaseErr != nil {
+				return processed, fmt.Errorf("publish agent event: %w (release: %v)", err, releaseErr)
+			}
+			return processed, err
+		}
+		if err := s.markAgentEventPublished(ctx, row.ID); err != nil {
+			return processed, err
+		}
+		processed++
+	}
+	return processed, nil
+}
+
+func (s *MessageStorage) claimAgentEvent(ctx context.Context) (*AgentEventOutbox, error) {
+	now := time.Now()
+	filter := bson.M{"$or": []bson.M{
+		{"status": "pending", "next_attempt_at": bson.M{"$lte": now}},
+		{"status": "processing", "locked_until": bson.M{"$lt": now}},
+	}}
+	update := bson.M{"$set": bson.M{"status": "processing", "locked_until": now.Add(time.Minute)}, "$inc": bson.M{"attempts": 1}}
+	var row AgentEventOutbox
+	err := s.collection(CollectionAgentOutbox).FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetReturnDocument(options.After)).Decode(&row)
+	return &row, err
+}
+
+func (s *MessageStorage) markAgentEventPublished(ctx context.Context, id bson.ObjectID) error {
+	now := time.Now()
+	_, err := s.collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"_id": id, "status": "processing"}, bson.M{"$set": bson.M{"status": "published", "published_at": now}, "$unset": bson.M{"locked_until": "", "last_error": ""}})
+	return err
+}
+
+func (s *MessageStorage) failAgentEvent(ctx context.Context, id bson.ObjectID, eventErr error, backoff time.Duration) error {
+	_, err := s.collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"_id": id, "status": "processing"}, bson.M{"$set": bson.M{"status": "pending", "next_attempt_at": time.Now().Add(backoff), "last_error": eventErr.Error()}, "$unset": bson.M{"locked_until": ""}})
+	return err
 }
 
 // incMongoOp increments the MongoDB operation counter if metrics is configured.
@@ -276,6 +447,18 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		Options: options.Index().SetUnique(true),
 	}); err != nil {
 		return fmt.Errorf("create delivery_status index: %w", err)
+	}
+
+	if err := s.createIndex(ctx, CollectionAgentOutbox, "agent_outbox_event_unique", mongo.IndexModel{
+		Keys:    bson.D{{Key: "event_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		return fmt.Errorf("create agent outbox event index: %w", err)
+	}
+	if err := s.createIndex(ctx, CollectionAgentOutbox, "agent_outbox_due", mongo.IndexModel{
+		Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_attempt_at", Value: 1}},
+	}); err != nil {
+		return fmt.Errorf("create agent outbox due index: %w", err)
 	}
 
 	return nil
@@ -947,6 +1130,39 @@ func (s *MessageStorage) GetHistoryMessages(ctx context.Context, userID int64, t
 	}
 
 	return results, hasMore, nil
+}
+
+// GetRecentMessages returns a bounded recent window in ascending sequence
+// order. The caller must authorize the user for the topic before invoking it.
+func (s *MessageStorage) GetRecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]*InboxMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, _, err := s.GetHistoryMessages(ctx, userID, topic, 0, limit)
+	return rows, err
+}
+
+// GetMessageForUser loads one message for an already-authorized user. The
+// caller must verify topic access before calling; P2P/system lookup is scoped
+// to the user's inbox, while group lookup is scoped to the requested topic.
+func (s *MessageStorage) GetMessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (*InboxMessage, error) {
+	var result InboxMessage
+	var collection *mongo.Collection
+	filter := bson.M{"msg_id": msgID, "topic": topic}
+	switch ParseTopicType(topic) {
+	case TopicTypeP2P, TopicTypeSystem:
+		collection = s.collection(CollectionInboxes)
+		filter["user_id"] = userID
+	case TopicTypeGroup:
+		collection = s.collection(CollectionMessages)
+	default:
+		return nil, fmt.Errorf("invalid message topic")
+	}
+	s.incMongoOp(collection.Name(), "find")
+	if err := collection.FindOne(ctx, filter).Decode(&result); err != nil {
+		return nil, fmt.Errorf("load message: %w", err)
+	}
+	return &result, nil
 }
 
 // GetMentionMessages retrieves unread @mention messages for a user.

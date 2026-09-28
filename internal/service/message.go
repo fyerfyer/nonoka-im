@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/msgworker"
 
@@ -19,17 +20,23 @@ import (
 // MessageService provides message-related HTTP APIs including pull fallback.
 type MessageService struct {
 	v1.UnimplementedMessageServiceServer
-	storage  *msgworker.MessageStorage
-	producer gateway.MessageProducer
-	log      *log.Helper
+	storage    *msgworker.MessageStorage
+	producer   gateway.MessageProducer
+	log        *log.Helper
+	authorizer authz.Authorizer
 }
 
 // NewMessageService creates a new MessageService.
 func NewMessageService(storage *msgworker.MessageStorage, producer gateway.MessageProducer, logger log.Logger) *MessageService {
+	return NewMessageServiceWithAuthorizer(storage, producer, nil, logger)
+}
+
+func NewMessageServiceWithAuthorizer(storage *msgworker.MessageStorage, producer gateway.MessageProducer, authorizer authz.Authorizer, logger log.Logger) *MessageService {
 	return &MessageService{
-		storage:  storage,
-		producer: producer,
-		log:      log.NewHelper(logger),
+		storage:    storage,
+		producer:   producer,
+		log:        log.NewHelper(logger),
+		authorizer: authorizer,
 	}
 }
 
@@ -51,6 +58,12 @@ func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageReq
 	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
 	if err != nil {
 		return nil, fmt.Errorf("invalid topic: %w", err)
+	}
+	if s.authorizer == nil {
+		return nil, errors.New("topic authorization unavailable")
+	}
+	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
+		return nil, fmt.Errorf("topic access denied")
 	}
 
 	// Enforce the same message size limit as the WebSocket gateway.
@@ -94,8 +107,19 @@ func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) 
 	// Extract user_id from context (set by JWT middleware)
 	userID := extractUserIDFromContext(ctx)
 	if userID == 0 {
-		return &v1.PullReply{}, nil
+		return nil, errors.New("authentication required")
 	}
+	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
+	if err != nil {
+		return nil, fmt.Errorf("invalid topic: %w", err)
+	}
+	if s.authorizer == nil {
+		return nil, errors.New("topic authorization unavailable")
+	}
+	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
+		return nil, fmt.Errorf("topic access denied")
+	}
+	req.Topic = normalizedTopic
 
 	limit := int(req.Limit)
 	if limit <= 0 || limit > 100 {
