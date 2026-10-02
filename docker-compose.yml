@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: nonoka
       POSTGRES_DB: nonoka
     ports:
-      - "5432:5432"
+      - "${NONOKA_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -30,12 +30,17 @@ services:
   mongodb:
     image: mongo:7
     container_name: nonoka_mongodb
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}).ok }\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -75,6 +80,50 @@ services:
       timeout: 10s
       retries: 10
 
+  # OpenFGA stores authorization tuples in its own PostgreSQL database. The
+  # backend auto-bootstraps the local `nonoka-im` store/model when the stack
+  # starts; production deployments should pin the generated IDs instead.
+  openfga-postgres:
+    image: postgres:15-alpine
+    container_name: nonoka_openfga_postgres
+    environment:
+      POSTGRES_USER: openfga
+      POSTGRES_PASSWORD: openfga
+      POSTGRES_DB: openfga
+      TZ: Asia/Shanghai
+    volumes:
+      - openfga_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openfga -d openfga"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  openfga-migrate:
+    image: openfga/openfga:v1.8.0
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga@openfga-postgres:5432/openfga?sslmode=disable
+    depends_on:
+      openfga-postgres:
+        condition: service_healthy
+
+  openfga:
+    image: openfga/openfga:v1.8.0
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga@openfga-postgres:5432/openfga?sslmode=disable
+      OPENFGA_HTTP_ADDR: 0.0.0.0:8080
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: nonoka-openfga-dev-key
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+
   nonoka-im:
     build:
       context: .
@@ -89,12 +138,24 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      openfga:
+        condition: service_started
+    environment:
+      GATEWAY_WS_ADDR: ws://127.0.0.1:${NONOKA_HTTP_PORT:-8000}/ws
+      GATEWAY_GRPC_ADDR: nonoka-im:9002
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      # This must match the agent worker so bot send tokens are accepted.
+      AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
     ports:
-      - "8000:8000"
-      - "9002:9002"
+      - "${NONOKA_HTTP_PORT:-8000}:8000"
+      - "${NONOKA_GRPC_PORT:-9002}:9002"
     volumes:
-      - ./configs/config.docker.yaml:/data/conf/config.yaml:ro
-    command: ["/app/nonoka-im", "-conf", "/data/conf/config.yaml"]
+      - ./configs:/data/conf:ro
+    command: ["/app/nonoka-im", "-conf", "/data/conf/config.docker.yaml"]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/metrics > /dev/null"]
       interval: 5s
@@ -110,22 +171,60 @@ services:
       nonoka-im:
         condition: service_healthy
     volumes:
-      - ./configs/config.docker.yaml:/data/conf/config.yaml:ro
-    command: ["/app/msgworker", "-conf", "/data/conf/config.yaml"]
+      - ./configs:/data/conf:ro
+    command: ["/app/msgworker", "-conf", "/data/conf/config.docker.yaml"]
+
+  # Agent worker runs as part of the full demo stack. Without a model API key
+  # it stays idle (logs a warning and waits) so the IM stack is unaffected.
+  agent-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nonoka_agent_worker
+    depends_on:
+      nonoka-im:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      openfga:
+        condition: service_started
+    environment:
+      POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_DATABASE: nonoka_im
+      KAFKA_BROKERS: kafka:19092
+      IM_HTTP_URL: http://nonoka-im:8000
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
+      AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
+      AGENT_WORKERS: ${AGENT_WORKERS:-2}
+      AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+    command: ["/app/agent-worker"]
 
   web:
     build:
       context: ./web/app
       args:
         # Browser-side calls go to the host-mapped backend port.
-        NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+        NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:${NONOKA_HTTP_PORT:-8000}
     container_name: nonoka_web
     depends_on:
       nonoka-im:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${NONOKA_WEB_PORT:-3000}:3000"
 
 volumes:
   postgres_data:
   mongodb_data:
+  openfga_data:

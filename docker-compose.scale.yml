@@ -50,17 +50,62 @@ services:
   mongodb:
     image: mongo:6-jammy
     hostname: mongodb
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     volumes: [mongodb_data:/data/db]
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}).ok }\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks: [nonoka]
+  openfga-postgres:
+    image: postgres:15-alpine
+    hostname: openfga-postgres
+    environment: {POSTGRES_USER: openfga, POSTGRES_PASSWORD: openfga, POSTGRES_DB: openfga}
+    volumes: [openfga_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openfga -d openfga"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [nonoka]
+  openfga-migrate:
+    image: openfga/openfga:v1.8.0
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga@openfga-postgres:5432/openfga?sslmode=disable
+    depends_on:
+      openfga-postgres: {condition: service_healthy}
+    networks: [nonoka]
+  openfga:
+    image: openfga/openfga:v1.8.0
+    hostname: openfga
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga@openfga-postgres:5432/openfga?sslmode=disable
+      OPENFGA_HTTP_ADDR: 0.0.0.0:8080
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: nonoka-openfga-dev-key
+    depends_on:
+      openfga-migrate: {condition: service_completed_successfully}
+    networks: [nonoka]
   gateway-1:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-1
-    environment: {GATEWAY_NODE_ID: gateway-1, GATEWAY_WS_ADDR: ws://127.0.0.1:8001/ws, GATEWAY_GRPC_ADDR: gateway-1:9002, METRICS_ADDR: 0.0.0.0:9001}
+    environment:
+      GATEWAY_NODE_ID: gateway-1
+      GATEWAY_WS_ADDR: ws://127.0.0.1:8001/ws
+      GATEWAY_GRPC_ADDR: gateway-1:9002
+      METRICS_ADDR: 0.0.0.0:9001
+      # Must match the agent worker so bot send tokens are accepted.
+      AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
     ports: ["8001:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-1"]
     volumes: [./configs:/data/conf:ro]
@@ -69,11 +114,23 @@ services:
       redis: {condition: service_healthy}
       mongodb: {condition: service_healthy}
       kafka: {condition: service_healthy}
+      openfga: {condition: service_started}
     networks: [nonoka]
   gateway-2:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-2
-    environment: {GATEWAY_NODE_ID: gateway-2, GATEWAY_WS_ADDR: ws://127.0.0.1:8002/ws, GATEWAY_GRPC_ADDR: gateway-2:9002, METRICS_ADDR: 0.0.0.0:9001}
+    environment:
+      GATEWAY_NODE_ID: gateway-2
+      GATEWAY_WS_ADDR: ws://127.0.0.1:8002/ws
+      GATEWAY_GRPC_ADDR: gateway-2:9002
+      METRICS_ADDR: 0.0.0.0:9001
+      # Must match the agent worker so bot send tokens are accepted.
+      AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
     ports: ["8002:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-2"]
     volumes: [./configs:/data/conf:ro]
@@ -82,6 +139,7 @@ services:
       redis: {condition: service_healthy}
       mongodb: {condition: service_healthy}
       kafka: {condition: service_healthy}
+      openfga: {condition: service_started}
     networks: [nonoka]
   msgworker:
     build: {context: ., dockerfile: Dockerfile}
@@ -95,6 +153,37 @@ services:
       kafka: {condition: service_healthy}
       gateway-1: {condition: service_started}
       gateway-2: {condition: service_started}
+    networks: [nonoka]
+  # Single agent worker in the scale demo; replies go through the nginx LB so
+  # they hit whichever gateway holds the bot's send path. Stays idle when no
+  # model API key is configured.
+  agent-worker:
+    build: {context: ., dockerfile: Dockerfile}
+    environment:
+      POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_DATABASE: nonoka_im
+      KAFKA_BROKERS: kafka:19092
+      IM_HTTP_URL: http://nginx
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
+      AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
+      AGENT_WORKERS: ${AGENT_WORKERS:-2}
+      AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+    command: ["/app/agent-worker"]
+    depends_on:
+      nginx: {condition: service_started}
+      mongodb: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      openfga: {condition: service_started}
     networks: [nonoka]
   nginx:
     image: nginx:alpine
@@ -114,6 +203,7 @@ services:
 volumes:
   postgres_data:
   mongodb_data:
+  openfga_data:
 networks:
   nonoka:
     driver: bridge

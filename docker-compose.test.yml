@@ -8,7 +8,7 @@ services:
       POSTGRES_DB: nonoka_im_test
       TZ: Asia/Shanghai
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata_test:/var/lib/postgresql/data
     healthcheck:
@@ -17,11 +17,52 @@ services:
       timeout: 3s
       retries: 10
 
+  openfga-postgres-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: openfga
+      POSTGRES_PASSWORD: openfga_test
+      POSTGRES_DB: openfga_test
+    volumes:
+      - openfga_pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openfga -d openfga_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  openfga-migrate-test:
+    image: openfga/openfga:v1.8.0
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga_test@openfga-postgres-test:5432/openfga_test?sslmode=disable
+    depends_on:
+      openfga-postgres-test:
+        condition: service_healthy
+
+  openfga-test:
+    image: openfga/openfga:v1.8.0
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:openfga_test@openfga-postgres-test:5432/openfga_test?sslmode=disable
+      OPENFGA_HTTP_ADDR: 0.0.0.0:8080
+      OPENFGA_AUTHN_METHOD: preshared
+      # Must match testOpenFGADefaultToken in test/integration/setup_test.go
+      # and OPENFGA_API_TOKEN exported by the integration test runner.
+      OPENFGA_AUTHN_PRESHARED_KEYS: nonoka-openfga-test-key
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      openfga-migrate-test:
+        condition: service_completed_successfully
+
   redis-test:
     image: redis:7-alpine
     container_name: nonoka_redis_test
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redisdata_test:/data
     healthcheck:
@@ -34,7 +75,7 @@ services:
     image: mongo:7
     container_name: nonoka_mongodb_test
     ports:
-      - "27018:27017"
+      - "127.0.0.1:27018:27017"
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ulimits:
       nofile:
@@ -55,7 +96,7 @@ services:
     image: apache/kafka:3.8.1
     container_name: nonoka_kafka_test
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:9092"
     environment:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_NODE_ID: 1
@@ -76,5 +117,6 @@ services:
 
 volumes:
   pgdata_test:
+  openfga_pgdata_test:
   redisdata_test:
   mongodbdata_test:

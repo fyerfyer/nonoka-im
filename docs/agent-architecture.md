@@ -2,6 +2,8 @@
 
 > 状态：讨论稿，作为后续分模块实现的设计基线。本文优先覆盖可演示、可维护的 MVP，不以完整企业 IM 或通用 Agent 平台为目标。
 
+分阶段实施、验收和发布顺序见 [Agent Harness 分阶段实施计划](agent-implementation-plan.md)。
+
 ## 1. 目标与范围
 
 在现有 Nonoka IM 上增加可用的 Agent 能力，同时保留现有消息链路和服务边界。第一阶段目标：
@@ -132,17 +134,17 @@ internal/agent/
 
 ### 5.2 可见范围和资源范围
 
-Agent 的分享策略首期可用数据库枚举表示：
+Agent 管理界面提供以下分享方式，授权关系统一写入 OpenFGA：
 
 - `private`：只有 owner 可调用。
 - `selected_users`：指定的用户可调用。
 - `group`：指定群成员可调用。
 
-分享 Agent 仅授予“调用 Agent”的能力，不自动授予其创建者的数据访问权限。每次工具访问采用权限交集：
+分享 Agent 仅授予“调用 Agent”的能力，不自动授予其创建者的数据访问权限。独立权限模块通过 OpenFGA 关系检查与组合每次工具访问的授权条件：
 
 ```text
 有效访问 = actor 当前对 IM 资源的权限
-         ∩ Agent 已启用工具允许访问的资源类型/范围
+         ∩ OpenFGA 中 Agent/工具的执行关系
          ∩ 本次会话 topic 的范围
 ```
 
@@ -150,14 +152,9 @@ Agent 的分享策略首期可用数据库枚举表示：
 
 ### 5.3 授权组件选择
 
-第一阶段使用 PostgreSQL 中的 Agent access policy/ACL 表，并由统一 `Authorizer` 接口提供检查，避免散落硬编码。当前角色和关系简单，额外部署授权服务会增加实现成本。
+授权使用独立的 `internal/authz` 模块和 [OpenFGA](https://openfga.dev/)；OpenFGA 是权限关系和允许/拒绝判断的唯一来源。该模块独占 OpenFGA SDK、版本化 model、关系写入、检查、重试和对账；IM、Agent、文件、MCP 与工具层只调用它的接口，不维护另一套 ACL。现有 PostgreSQL 群成员、Agent 配置和 MongoDB 文件元数据仍用于业务展示或投递，但不能作为放行规则。群成员等跨库变更由权限模块协调：新增授权最后生效，撤权先在 OpenFGA 生效，失败时拒绝敏感访问并对账修复。
 
-当需要组织/工作区、群组嵌套、文件夹继承、复杂用户关系后，再考虑：
-
-- [OpenFGA](https://openfga.dev/)：适合以用户—群组—资源关系为中心的细粒度授权。
-- [Casbin](https://casbin.org/)：适合在 Go 服务内嵌入 RBAC/ABAC 策略检查。
-
-无论用哪种组件，授权都要发生在 IM 服务/工具执行边界。提示词、工具描述或 Agent middleware 本身都不是安全边界。Eino middleware 可做统一拦截、日志或审批流程，但不能替代消息服务的数据 ACL。
+`Authorizer` 至少提供 `CanManageAgent`、`CanUseAgent`、`CanAccessTopic`、`CanReadFile`、`CanExecuteTool`。工具执行检查接收可信 actor、Agent 版本、工具、当前 topic 和目标资源；多资源条件在权限模块内组合 OpenFGA Check 或建模为关系交集，不分散到 Harness/ToolGuard。授权检查仍要在各服务端资源入口调用。OpenFGA 不负责验证 JWT、解析模型工具参数或存储审批状态；这些分别由身份、中间件、工具和审批模块处理。提示词、工具描述和 Eino middleware 不是授权边界。
 
 ### 5.4 MVP 授权基线
 
@@ -173,7 +170,22 @@ Agent 的分享策略首期可用数据库枚举表示：
 
 Eino ADK 适合作为 Runtime 的框架基础：Agent、Runner、AgentEvent 流、ChatModelAgent、Tools、middleware/callbacks、流式执行和 Interrupt/Resume。框架负责 Agent 执行机制，Harness 管项目策略和 IM 生命周期。
 
-具体实现时应先盘点 Eino 核心和 `eino-ext`：模型与 Embedding 提供方、文件/S3 Loader、文档 Parser/Splitter/Reranker、向量数据库 Indexer/Retriever、官方工具适配器及 Skill/审批 middleware 等。优先选择成熟扩展并通过 Runtime/工具装配层接入；只有 IM 消息读取、Nonoka ACL、Agent 分享范围等产品专属逻辑由项目实现。不要仅因能力在 `eino-ext` 而非 Eino 核心仓库，就误认为需要自行重写。
+### 6.1 MCP 与 Skill 的接入边界
+
+MCP 和 Skill 是两个不同层次的扩展机制，不能把 Skill 文档当成工具权限，也不能把接入 MCP server 等同于允许 Agent 使用该 server 的全部能力。
+
+- **MCP** 是外部工具、资源和 Prompt 的协议边界。Eino `eino-ext` 提供 MCP Tool/Prompt 适配器，可把已初始化的 MCP client 暴露为 Eino Tool 或 ChatTemplate；Nonoka 负责 MCP server 注册、连接凭据、工具清单、版本和健康状态。
+- **Skill** 是可发现、可按需加载的行为说明和流程知识。Eino ADK Skill middleware 可从技能目录加载 `SKILL.md` 并通过工具调用发现/读取技能。Nonoka 负责 Skill 的来源、版本、发布范围和内容审查；Eino 只负责运行时加载和注入。
+- Eino middleware、dynamic tool/工具搜索和 Skill middleware 可以减少 Harness 中的编排代码，但它们不是授权边界。每次 MCP 或本地工具调用都向独立权限模块提交 `actor_user_id`、Agent、工具、topic 与目标资源进行 OpenFGA 检查；审批状态由审批模块另行验证。
+- 首版只允许平台管理员配置受信任的 MCP server，或允许 Agent owner 绑定平台已登记的 server；不允许用户提交任意远程 URL、任意 stdio 命令或带凭据的 MCP 配置。若未来开放自定义 server，需要沙箱、网络出口策略、凭据隔离和独立审批。
+- Skill 首版只支持平台内置和经审核的版本化 `SKILL.md`。Skill 内容视为不可信提示输入：不能覆盖系统策略、改变 actor、绕过工具 ACL 或自动授予新工具。技能绑定只能缩小 Agent 的可用能力，不能扩大 Agent 已获授权的工具集合。
+- 外部 MCP 工具默认按高风险处理。除明确登记为只读且通过参数级策略验证的工具外，写入、发送、删除、外部 API 变更和读取敏感资源的调用都进入 Approval/Interrupt/Resume 流程。批准时重新检查 MCP server、工具版本、参数摘要和当前资源权限。
+
+运行时先由 Harness 根据 `agent_id + actor_user_id + topic` 加载 Agent 配置，并通过权限模块取得可用的 Skill 和工具；MCP Registry 只向 Eino 暴露登记且通过权限模块过滤的工具 schema；Skill middleware 按需读取允许的 Skill 版本；Nonoka Tool Guard 在工具实际执行前校验 schema、限额和审批状态，并调用权限模块检查 actor、Agent、工具与资源，记录 server/tool/version。限制 Skill 数量、文档大小和递归深度。模型不能通过参数选择未绑定的 server、tool、Skill 文件路径或凭据。
+
+首版不做公共 Skill 市场、任意第三方 MCP server、Skill 自动安装、Skill 间依赖解析或跨 Agent 共享用户凭据。MCP server 日志、Skill 文档原文和工具参数按敏感数据策略分别留存，不能默认写入普通聊天消息或 Trace。
+
+具体实现时应先盘点 Eino 核心和 `eino-ext`：模型与 Embedding 提供方、文件/S3 Loader、文档 Parser/Splitter/Reranker、向量数据库 Indexer/Retriever、官方工具适配器、MCP Tool/Prompt 适配器、Skill middleware 和 Interrupt/Resume 支持。Eino 官方扩展提供 MCP Tool/Prompt 适配器；当前项目锁定的 Eino `v0.8.4` 已包含 Skill middleware。优先选择成熟扩展并通过 Runtime/工具装配层接入；IM 消息读取、独立 OpenFGA 权限模块、MCP Registry、Skill 发布和审批状态等产品专属逻辑由项目实现。不要仅因能力在 `eino-ext` 而非 Eino 核心仓库，就误认为需要自行重写。
 
 每次 Run 的核心步骤：
 
@@ -306,9 +318,9 @@ Eino callbacks 可接入运行 Trace/模型/工具阶段观测；Harness 自己�
 
 首期可按需精简，概念上需要以下实体：
 
-- `agents`：owner、名称、系统指令、模型配置引用、enabled 状态、可见策略。
-- `agent_access`：Agent 对 user/group 的调用授权；private 可由 owner 关系表达。
-- `agent_tools`：Agent 启用的工具名和受控配置，不存任意代码。
+- `agents`：owner、名称、系统指令、模型配置引用、enabled 状态；可见关系统一存 OpenFGA。
+- Agent 对 user/group 的调用与管理授权保存在 OpenFGA 关系中；不建立可独立判权的 `agent_access` ACL 表。
+- `agent_tools`：工具定义和受控配置，不存任意代码；执行资格由 OpenFGA 判断。
 - `agent_sessions`：agent_id、topic、actor/会话关联、最近活动时间。
 - `agent_runs`：trigger event 唯一键、状态、checkpoint ID、开始/结束时间、错误分类。
 - `agent_turns`：输入/最终输出或关联 IM msg_id；按隐私策略控制原文保存。
@@ -318,8 +330,11 @@ Eino callbacks 可接入运行 Trace/模型/工具阶段观测；Harness 自己�
 
 ## 14. 分阶段实现顺序
 
+本节只概述能力演进；实际阶段编号、模块和验收顺序以 [Agent Harness 分阶段实施计划](agent-implementation-plan.md) 为准。
+
 ### 阶段 0：IM 权限基线
 
+- 部署 OpenFGA 和独立权限模块，以 OpenFGA 作为现有 IM 权限的唯一判定来源；首次 P2P 会话由模块建立规范化 topic 关系。
 - 校验 P2P topic 参与者及 group topic 成员。
 - 修复 HTTP/WebSocket 发送、拉取等入口的一致性。
 - 给文件读取/下载增加用户与资源授权。
@@ -341,8 +356,8 @@ Eino callbacks 可接入运行 Trace/模型/工具阶段观测；Harness 自己�
 
 ### 阶段 3：共享范围和审批
 
-- 增加 private/user/group Agent 可见策略。
-- 工具执行时按 actor 权限和资源 topic 验证。
+- Agent private/user/group 可见关系由多 Agent 管理功能写入 OpenFGA。
+- 扩展 OpenFGA 工具/跨资源关系，执行时由权限模块按 actor、Agent、工具和资源 topic 统一验证。
 - 对选定的副作用工具接 Eino Interrupt/Resume、持久化 checkpoint 和审批状态。
 
 ### 阶段 4：按实际需求增强检索和文件
@@ -384,7 +399,7 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
 - Eino 负责 Agent 执行机制，不负责 Nonoka 的消息权限、分享策略、业务记忆或完整服务 Harness。
 - 实现前先查 Eino 核心、`eino-ext` 和官方示例；框架/扩展已有能力优先复用，自定义实现限于 Nonoka 的业务适配和产品策略。
 - 调用者身份和 Agent owner 身份始终分开；工具遵守调用者权限，不继承创建者权限。
-- Interrupt/Resume 用于人工审批流程，ACL 由服务端独立强制检查。
+- Interrupt/Resume 用于人工审批流程；独立权限模块以 OpenFGA 为唯一授权引擎，并由服务端资源入口强制检查。
 - Memory 先做最近对话历史；Checkpoint 单独持久化；长期记忆暂缓。
 - 先做权限过滤的关键词搜索/Agentic Search，再根据效果决定是否增加 pgvector；MinIO 也不是前置条件。
 - 第一阶段完整回复，不假设现有 IM 协议已支持流式 Agent delta。
@@ -402,4 +417,3 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
 - [Eino examples](https://github.com/cloudwego/eino-examples)
 - [Mattermost Agents](https://github.com/mattermost/mattermost-plugin-agents)
 - [OpenFGA documentation](https://openfga.dev/docs/)
-- [Casbin documentation](https://casbin.org/)

@@ -17,7 +17,7 @@ data:
     read_timeout: 0.2s
     write_timeout: 0.2s
   mongodb:
-    uri: mongodb://mongodb:27017
+    uri: mongodb://mongodb:27017/?replicaSet=rs0
     database: nonoka_im
     write_concern: w1
   kafka:
@@ -44,11 +44,6 @@ data:
     commit_batch_size: 20
     commit_flush_interval: 1s
 dispatch:
-  gateways:
-  - node_id: gateway-1
-    # Advertised to clients (browsers), so it must be host-reachable.
-    gateway_url: ws://127.0.0.1:8000/ws
-    gateway_grpc_addr: nonoka-im:9002
   strategy: consistent_hash
   heartbeat_interval: 10s
   node_ttl: 30s

@@ -52,6 +52,7 @@ cmd/nonoka-im/nonoka-im
 self-files/
 docs/*
 !docs/agent-architecture.md
+!docs/agent-implementation-plan.md
 .claude/
 /DESIGN.md
 .codegraph/
@@ -61,3 +62,6 @@ web/app/node_modules/
 web/app/.next/
 web/app/out/
 web/app/.env*.local
+
+# Locally built binary at repo root (build output goes to bin/)
+/agent-worker

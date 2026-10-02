@@ -2,6 +2,12 @@ GOHOSTOS:=$(shell go env GOHOSTOS)
 GOPATH:=$(shell go env GOPATH)
 VERSION=$(shell git describe --tags --always)
 
+# Bearer token the integration tests use against the preshared-authenticated
+# OpenFGA test container (docker-compose.test.yml). Only test recipes set it;
+# it must NOT be exported globally, otherwise `make demo` would inject the
+# test token into the demo stack and break OpenFGA auth there.
+TEST_OPENFGA_TOKEN := OPENFGA_API_TOKEN=nonoka-openfga-test-key
+
 ifeq ($(GOHOSTOS), windows)
 	#the `find.exe` is different from `find` in bash/shell.
 	#to see https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/find.
@@ -58,22 +64,22 @@ test-deps-down:
 .PHONY: test-auth
 # run auth integration tests
 test-auth:
-	@go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s
 
 .PHONY: test-gateway
 # run gateway basic integration tests (no concurrent, no kafka)
 test-gateway:
-	@go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
 
 .PHONY: test-gateway-concurrent
 # run gateway concurrent / stress / reliability tests
 test-gateway-concurrent:
-	@go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s
 
 .PHONY: test-kafka
 # run kafka integration tests (requires test-deps-up)
 test-kafka:
-	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s
 
 .PHONY: test
 # run all integration tests (start deps, run tests by group, cleanup)
@@ -81,19 +87,19 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Auth Tests               ==="
 	@echo "========================================"
-	@go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Gateway Tests            ==="
 	@echo "========================================"
-	@go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_' -skip 'TestGateway_(Concurrent|Kafka|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Gateway Concurrent Tests ==="
 	@echo "========================================"
-	@go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_(Concurrent|MixedTraffic|Broadcast_Concurrent|Connection_Reliability|RedisSession)' -count=1 -timeout 60s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Kafka Tests              ==="
 	@echo "========================================"
-	@go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"
@@ -105,12 +111,15 @@ build:
 	mkdir -p bin/ && go build -ldflags "-X main.Version=$(VERSION)" -o ./bin/ ./...
 
 .PHONY: demo
-# start the full demo stack (single gateway, single msgworker, web frontend)
+# start the full demo stack (postgres / redis / mongo / kafka / openfga /
+# nonoka-im / msgworker / agent-worker / web); the agent worker stays idle
+# unless a model API key (DEEPSEEK_API_KEY) is available
 demo:
 	docker compose -f docker-compose.yml up -d --build
 
 .PHONY: demo-scale
-# start the scale demo: two gateways behind nginx, three scalable msgworkers, web frontend
+# start the scale demo: two gateways behind nginx, three scalable msgworkers,
+# agent worker, web frontend
 demo-scale:
 	docker compose -f docker-compose.scale.yml up -d --build --scale msgworker=3
 

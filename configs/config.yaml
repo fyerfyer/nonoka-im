@@ -70,11 +70,13 @@ auth:
   jwt_secret: change-me-in-production-use-random-string
   # Access token TTL. Kept short on purpose: clients obtain a new pair via
   # POST /v1/auth/refresh before the access token expires.
-  token_ttl: 24h
+  # google.protobuf.Duration uses the seconds suffix; Go duration strings
+  # such as 24h are not valid in this YAML parser.
+  token_ttl: 86400s
   # Refresh token TTL (30 days). Opaque random tokens stored hashed in Redis
   # (im:refresh:{user_id}:{device_id}), rotated on every refresh and revoked
   # on logout.
-  refresh_token_ttl: 720h
+  refresh_token_ttl: 2592000s
 msgworker:
   session_cache_ttl: 5s
   receipt_batch_size: 32

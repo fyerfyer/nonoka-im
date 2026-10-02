@@ -121,11 +121,33 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 ### 1. 启动基础设施
 
 ```bash
-# 启动 PostgreSQL、Redis、MongoDB、ZooKeeper、Kafka
-docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka
+# 启动 PostgreSQL、Redis、MongoDB、ZooKeeper、Kafka 和 OpenFGA
+docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka openfga-postgres openfga-migrate openfga
 ```
 
 > 若需要一键启动全部后端服务、中间件依赖与 Web 前端，可使用 `make demo`（停止并清理用 `make demo-down`），前端访问 <http://localhost:3000>。首次构建需要可访问 Go 模块代理（Dockerfile 默认使用 goproxy.cn，可用 `--build-arg GOPROXY=...` 覆盖）与 npm registry。
+
+也可以直接启动完整的默认 Compose：
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+如果本机的 `3000` 或 `5432` 已被其他服务占用，可以只改变宿主机映射端口，容器内部地址无需修改：
+
+```bash
+NONOKA_HTTP_PORT=8001 NONOKA_GRPC_PORT=9003 NONOKA_WEB_PORT=3010 NONOKA_POSTGRES_PORT=55432 \
+  docker compose -f docker-compose.yml up -d --build
+```
+
+若要在 Compose 中运行 Agent worker，先在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`，然后执行：
+
+```bash
+docker compose -f docker-compose.yml --profile agent up -d --build
+docker compose -f docker-compose.yml logs -f agent-worker
+```
+
+`agent-worker` 是可选 profile；不加 `--profile agent` 时不会启动，也不会要求模型密钥。启动后打开 Web 的 **Agents** 页面创建并发布 Agent，再在私聊或已授权的群聊中触发它。
 
 ### 2. 初始化 Kafka Topic
 
@@ -145,11 +167,13 @@ make build
 ### 4. 启动主服务
 
 ```bash
+OPENFGA_API_URL=http://127.0.0.1:8080 \
+OPENFGA_AUTO_BOOTSTRAP=true \
 ./bin/nonoka-im -conf ./configs/config.yaml
 ```
 
 - HTTP API: [http://localhost:8000](http://localhost:8000)
-- gRPC: `localhost:9000`
+- gRPC: `localhost:9002`
 - WebSocket: `ws://localhost:8000/ws`
 
 ### 5. 启动 MsgWorker
@@ -162,17 +186,19 @@ make build
 
 ### 6. 启动 Web 前端（本地开发）
 
-`make demo` / `make demo-scale` 已包含 Web 前端容器；以下步骤仅用于本地开发调试：
+`make demo` / `make demo-scale` 已包含 OpenFGA、后端、消息工作者和 Web 前端容器；以下步骤仅用于本地开发调试：
 
 ```bash
 cd web/app
 pnpm install
-pnpm dev
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 pnpm dev
 ```
 
 前端默认运行在 [http://localhost:3000](http://localhost:3000)。如果 3000 端口被占用，Next.js 会自动提示切换到其他端口。
 
-打开浏览器注册/登录后即可开始单聊或群聊。前端开发详情请参考 [web/app/README.md](web/app/README.md)。
+打开浏览器注册/登录后即可开始单聊或群聊。前端开发详情请参考 [web/app/README.md](web/app/README.md)。如果浏览器提示 `Failed to fetch` 或 `ERR_CONNECTION_REFUSED`，先检查后端是否监听 `127.0.0.1:8000`；这表示服务尚未启动，不是账号校验失败。
+
+OpenFGA 的开发 Compose 会自动创建或复用名为 `nonoka-im` 的 store，并写入仓库内的授权模型。生产环境应关闭 `OPENFGA_AUTO_BOOTSTRAP`，改用部署 Secret 固定 `OPENFGA_STORE_ID` 和 `OPENFGA_MODEL_ID`。
 
 ### 7. 运行 SDK 示例
 
