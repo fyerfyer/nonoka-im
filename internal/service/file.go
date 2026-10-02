@@ -139,6 +139,15 @@ func (s *FileService) handleUpload(ctx context.Context, httpCtx khttp.Context) e
 		http.Error(w, `{"message":"failed to store file"}`, http.StatusInternalServerError)
 		return nil
 	}
+	if writer, ok := s.authorizer.(interface {
+		SetFileOwner(context.Context, string, int64) error
+	}); ok {
+		if err := writer.SetFileOwner(ctx, fileID, userID); err != nil {
+			s.log.Errorf("file authorization write failed: file_id=%s, err=%v", fileID, err)
+			http.Error(w, `{"message":"failed to authorize file"}`, http.StatusInternalServerError)
+			return nil
+		}
+	}
 
 	s.log.Debugf("file uploaded: file_id=%s, name=%s, size=%d, user_id=%d", fileID, name, len(data), userID)
 	reply := &v1.UploadFileReply{
@@ -184,10 +193,7 @@ func (s *FileService) handleDownload(ctx context.Context, httpCtx khttp.Context)
 		http.Error(w, `{"message":"failed to load file"}`, http.StatusInternalServerError)
 		return nil
 	}
-	denied := userID != doc.OwnerID
-	if s.authorizer != nil {
-		denied = s.authorizer.CanReadFile(ctx, userID, doc.OwnerID) != nil
-	}
+	denied := s.authorizer == nil || s.authorizer.CanReadFile(ctx, userID, fileID) != nil
 	if denied {
 		http.Error(w, `{"message":"file access denied"}`, http.StatusForbidden)
 		return nil

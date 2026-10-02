@@ -53,10 +53,10 @@ func TestTopicAuthorizer(t *testing.T) {
 
 func TestTopicAuthorizerFileOwner(t *testing.T) {
 	a := NewTopicAuthorizer(nil)
-	if err := a.CanReadFile(context.Background(), 10, 10); err != nil {
+	if err := a.CanReadFile(context.Background(), 10, "10"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.CanReadFile(context.Background(), 11, 10); err == nil {
+	if err := a.CanReadFile(context.Background(), 11, "10"); err == nil {
 		t.Fatal("expected non-owner to be denied")
 	}
 }

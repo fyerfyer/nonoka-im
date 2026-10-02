@@ -4,6 +4,7 @@ import (
 	"context"
 
 	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/data"
 
 	"github.com/go-kratos/kratos/v2/errors"
@@ -32,6 +33,12 @@ func (s *GroupService) requireMember(ctx context.Context, groupID string, userID
 	if err != nil {
 		return nil, err
 	}
+	if s.authorizer != nil {
+		if err := s.authorizer.CanAccessTopic(ctx, userID, group.Topic); err != nil {
+			return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "group membership required")
+		}
+		return group, nil
+	}
 	members, err := s.groupMemberIDs(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -46,12 +53,17 @@ func (s *GroupService) requireMember(ctx context.Context, groupID string, userID
 type GroupService struct {
 	pb.UnimplementedGroupServiceServer
 
-	repo data.GroupRepo
+	repo       data.GroupRepo
+	authorizer *authz.OpenFGA
 }
 
 // NewGroupService creates a new GroupService.
 func NewGroupService(repo data.GroupRepo) *GroupService {
 	return &GroupService{repo: repo}
+}
+
+func NewGroupServiceWithAuthorizer(repo data.GroupRepo, authorizer *authz.OpenFGA) *GroupService {
+	return &GroupService{repo: repo, authorizer: authorizer}
 }
 
 // CreateGroup creates a new group and adds the creator as a member.
@@ -69,6 +81,19 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *pb.CreateGroupReque
 	group, err := s.repo.CreateGroup(ctx, name, userID, req.GetMemberIds())
 	if err != nil {
 		return nil, err
+	}
+	if s.authorizer != nil {
+		if err := s.authorizer.SetGroupOwner(ctx, group.GroupID, userID); err != nil {
+			return nil, err
+		}
+		for _, memberID := range req.GetMemberIds() {
+			if err := s.authorizer.SetGroupMember(ctx, group.GroupID, memberID, true); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.authorizer.SetTopicGroup(ctx, group.Topic, group.GroupID); err != nil {
+			return nil, err
+		}
 	}
 
 	return &pb.CreateGroupReply{
@@ -89,15 +114,18 @@ func (s *GroupService) ListMyGroups(ctx context.Context, _ *emptypb.Empty) (*pb.
 		return nil, err
 	}
 
-	reply := make([]*pb.Group, len(groups))
-	for i, g := range groups {
-		reply[i] = &pb.Group{
+	reply := make([]*pb.Group, 0, len(groups))
+	for _, g := range groups {
+		if s.authorizer != nil && s.authorizer.CanAccessTopic(ctx, userID, g.Topic) != nil {
+			continue
+		}
+		reply = append(reply, &pb.Group{
 			GroupId:   g.GroupID,
 			Topic:     g.Topic,
 			Name:      g.Name,
 			OwnerId:   g.OwnerID,
 			CreatedAt: g.CreatedAt,
-		}
+		})
 	}
 
 	return &pb.ListGroupsReply{Groups: reply}, nil
@@ -146,17 +174,28 @@ func (s *GroupService) AddGroupMember(ctx context.Context, req *pb.AddGroupMembe
 	if err != nil {
 		return nil, err
 	}
-	members, err := s.groupMemberIDs(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if group.OwnerID != userID {
-		if _, ok := members[userID]; !ok {
+	if s.authorizer != nil {
+		if err := s.authorizer.CanAccessTopic(ctx, userID, group.Topic); err != nil {
 			return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "only group members can add members")
+		}
+	} else {
+		members, err := s.groupMemberIDs(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if group.OwnerID != userID {
+			if _, ok := members[userID]; !ok {
+				return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "only group members can add members")
+			}
 		}
 	}
 	if err := s.repo.AddMember(ctx, groupID, memberID); err != nil {
 		return nil, err
+	}
+	if s.authorizer != nil {
+		if err := s.authorizer.SetGroupMember(ctx, groupID, memberID, true); err != nil {
+			return nil, err
+		}
 	}
 	return &emptypb.Empty{}, nil
 }
@@ -178,11 +217,20 @@ func (s *GroupService) RemoveGroupMember(ctx context.Context, req *pb.RemoveGrou
 	if err != nil {
 		return nil, err
 	}
-	if group.OwnerID != userID && memberID != userID {
+	if s.authorizer != nil {
+		if memberID != userID && s.authorizer.CanManageGroup(ctx, userID, groupID) != nil {
+			return nil, errors.Forbidden("GROUP_REMOVE_FORBIDDEN", "only the group owner or the member can remove this user")
+		}
+	} else if group.OwnerID != userID && memberID != userID {
 		return nil, errors.Forbidden("GROUP_REMOVE_FORBIDDEN", "only the group owner or the member can remove this user")
 	}
 	if memberID == group.OwnerID && userID != group.OwnerID {
 		return nil, errors.Forbidden("GROUP_OWNER_REQUIRED", "the group owner cannot be removed by another member")
+	}
+	if s.authorizer != nil {
+		if err := s.authorizer.SetGroupMember(ctx, groupID, memberID, false); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.repo.RemoveMember(ctx, groupID, memberID); err != nil {
 		return nil, err

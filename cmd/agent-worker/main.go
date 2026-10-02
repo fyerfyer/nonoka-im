@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,12 +14,14 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/app"
+	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/eino"
 	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/topic"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -65,8 +68,10 @@ func main() {
 		panic(fmt.Errorf("ping mongo: %w", err))
 	}
 	messageStorage := msgworker.NewMessageStorage(mongoClient.Database(mongoDBName), logger)
-	groups := data.NewGroupRepo(dataLayer, logger)
-	az := authz.NewTopicAuthorizer(groups)
+	az, err := authz.NewOpenFGAFromEnv()
+	if err != nil {
+		panic(err)
+	}
 	store := data.NewAgentStore(dataLayer)
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
@@ -85,16 +90,145 @@ func main() {
 	}
 	agentID := envInt64("AGENT_ID", 1)
 	botID := envInt64("AGENT_BOT_ID", 0)
-	botToken := strings.TrimSpace(os.Getenv("AGENT_BOT_TOKEN"))
-	if agentID <= 0 || botID <= 0 || botToken == "" {
-		panic("AGENT_ID, AGENT_BOT_ID, and AGENT_BOT_TOKEN must be configured")
+	if ownerID := envInt64("AGENT_BOOTSTRAP_OWNER_ID", 0); ownerID > 0 {
+		instruction := env("AGENT_BOOTSTRAP_INSTRUCTION", "You are the Nonoka IM assistant. Use concise, helpful answers.")
+		if err := store.BootstrapAgent(ctx, agentID, botID, ownerID, env("AGENT_BOOTSTRAP_NAME", "Nonoka Assistant"), instruction, modelName, func(ctx context.Context, id int64) error { return az.SetAgentOwner(ctx, id, ownerID) }); err != nil {
+			panic(err)
+		}
 	}
-	sender := &app.HTTPSender{BaseURL: env("IM_HTTP_URL", "http://127.0.0.1:8000"), Token: botToken, Client: &http.Client{Timeout: 30 * time.Second}}
+	secret := []byte(os.Getenv("AGENT_WORKER_JWT_SECRET"))
+	if len(secret) < 32 {
+		panic("AGENT_WORKER_JWT_SECRET must contain at least 32 bytes")
+	}
+	if apiKey == "" {
+		// The demo stack always starts this worker, but a model key is
+		// optional: without it there is nothing to run, so stay idle instead
+		// of crash-looping and leave the IM stack untouched.
+		logger.Log(log.LevelWarn, "msg", "OPENAI_API_KEY/DEEPSEEK_API_KEY not set; agent worker idle")
+		<-ctx.Done()
+		return
+	}
+	sender := &app.HTTPSender{BaseURL: env("IM_HTTP_URL", "http://127.0.0.1:8000"), Client: &http.Client{Timeout: 30 * time.Second}, TokenIssuer: func(agentID, botID int64, topic string) (string, error) {
+		return credential.Sign(secret, agentID, botID, topic)
+	}}
 	rt, err := eino.NewRuntimeWithTools(ctx, apiKey, base, modelName, &app.MessageTools{Storage: messageStorage, Authorizer: az, Sender: sender})
 	if err != nil {
 		panic(err)
 	}
-	h := &app.Harness{AgentID: agentID, BotID: botID, Store: store, Runtime: rt, Authorizer: az, HistoryLimit: 8, MaxContextChars: int(envInt64("AGENT_MAX_CONTEXT_CHARS", 12000)), Sender: sender}
+	h := &app.Harness{Store: store, Runtime: rt, Authorizer: az, Sender: sender}
+	process := func(ctx context.Context, ev agevent.MessageEvent, pinned *data.AgentRun) error {
+		if err := az.CanAccessTopic(ctx, ev.SenderID, ev.Topic); err != nil {
+			if pinned != nil && errors.Is(err, authz.ErrDenied) {
+				return store.UpdateRun(ctx, pinned.ID, map[string]any{"status": "cancelled", "error_code": "access_revoked", "finished_at": time.Now()})
+			}
+			return fmt.Errorf("event actor topic authorization failed: %w", err)
+		}
+		var agents []data.Agent
+		if pinned != nil {
+			agent, err := store.GetAgent(ctx, pinned.AgentID)
+			if err != nil {
+				return err
+			}
+			if agent.Status != "active" {
+				return store.UpdateRun(ctx, pinned.ID, map[string]any{"status": "cancelled", "finished_at": time.Now()})
+			}
+			agents = []data.Agent{*agent}
+		} else {
+			var botIDs []int64
+			switch topic.ParseType(ev.Topic) {
+			case topic.TypeP2P:
+				x, y, err := topic.ExtractUserIDsFromP2PTopic(ev.Topic)
+				if err != nil {
+					return err
+				}
+				if x == ev.SenderID {
+					botIDs = []int64{y}
+				} else if y == ev.SenderID {
+					botIDs = []int64{x}
+				}
+			case topic.TypeGroup:
+				botIDs = ev.MentionedAgentIDs
+			}
+			var err error
+			agents, err = store.ActiveAgentsByBot(ctx, botIDs)
+			if err != nil {
+				return err
+			}
+		}
+		if len(agents) == 0 {
+			return nil
+		}
+		stored, err := messageStorage.GetMessageForUser(ctx, ev.SenderID, ev.Topic, ev.MsgID)
+		if err != nil {
+			return err
+		}
+		ev.Content = string(stored.Content)
+		for _, agent := range agents {
+			if ev.SenderID == agent.BotUserID {
+				continue
+			}
+			if err := az.CanUseAgent(ctx, ev.SenderID, agent.ID); err != nil {
+				if pinned != nil && errors.Is(err, authz.ErrDenied) {
+					return store.UpdateRun(ctx, pinned.ID, map[string]any{"status": "cancelled", "error_code": "access_revoked", "finished_at": time.Now()})
+				}
+				if !errors.Is(err, authz.ErrDenied) {
+					return err
+				}
+				continue
+			}
+			if err := az.CanAccessTopic(ctx, agent.BotUserID, ev.Topic); err != nil {
+				if pinned != nil && errors.Is(err, authz.ErrDenied) {
+					return store.UpdateRun(ctx, pinned.ID, map[string]any{"status": "cancelled", "error_code": "access_revoked", "finished_at": time.Now()})
+				}
+				if !errors.Is(err, authz.ErrDenied) {
+					return err
+				}
+				continue
+			}
+			versionNumber := agent.CurrentVersion
+			if pinned != nil {
+				versionNumber = pinned.AgentVersion
+			}
+			version, err := store.GetVersion(ctx, agent.ID, versionNumber)
+			if err != nil {
+				return err
+			}
+			var allowed []string
+			if err := json.Unmarshal([]byte(version.Tools), &allowed); err != nil {
+				return err
+			}
+			resolved := app.ResolvedAgent{ID: agent.ID, BotID: agent.BotUserID, Version: version.Version, Instruction: version.Instruction, Model: version.Model, Tools: allowed, RestrictTools: true}
+			if err := h.HandleResolved(ctx, ev, resolved); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runs, err := store.QueuedRuns(ctx, 32)
+				if err != nil {
+					logger.Log(log.LevelError, "msg", fmt.Sprintf("load queued runs: %v", err))
+					continue
+				}
+				for i := range runs {
+					r := runs[i]
+					ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: r.EventID, MsgID: r.MsgID, TopicSeq: r.TopicSeq, Topic: r.Topic, SenderID: r.ActorUserID}
+					runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+					if err := process(runCtx, ev, &r); err != nil {
+						logger.Log(log.LevelError, "msg", fmt.Sprintf("queued run %d: %v", r.ID, err))
+					}
+					cancel()
+				}
+			}
+		}
+	}()
 	brokers := []string{env("KAFKA_BROKERS", "127.0.0.1:9092")}
 	consumer := msgworker.NewKafkaConsumer(msgworker.KafkaConsumerConfig{Brokers: brokers, Topic: env("AGENT_EVENTS_TOPIC", agevent.Topic), GroupID: env("AGENT_EVENTS_GROUP", "nonoka-agent-worker"), WorkerCount: int(envInt64("AGENT_WORKERS", 2)), MaxRetries: int(envInt64("AGENT_MAX_RETRIES", 2)), HandlerTimeout: 90 * time.Second, RetryBackoff: 500 * time.Millisecond}, func(ctx context.Context, _, value []byte, _ map[string]string) error {
 		var ev agevent.MessageEvent
@@ -104,21 +238,7 @@ func main() {
 		if ev.SchemaVersion != agevent.SchemaVersion || ev.EventID == "" || ev.MsgID <= 0 {
 			return fmt.Errorf("invalid agent event")
 		}
-		if !h.ShouldHandle(ev) {
-			return nil
-		}
-		if err := az.CanAccessTopic(ctx, ev.SenderID, ev.Topic); err != nil {
-			return fmt.Errorf("event actor topic authorization failed")
-		}
-		if err := az.CanAccessTopic(ctx, botID, ev.Topic); err != nil {
-			return fmt.Errorf("agent bot topic authorization failed")
-		}
-		stored, err := messageStorage.GetMessageForUser(ctx, ev.SenderID, ev.Topic, ev.MsgID)
-		if err != nil {
-			return err
-		}
-		ev.Content = string(stored.Content)
-		return h.Handle(ctx, ev)
+		return process(ctx, ev, nil)
 	}, logger)
 	defer consumer.Stop()
 	if err := consumer.Start(ctx); err != nil && ctx.Err() == nil {

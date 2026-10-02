@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/conf"
 	"github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/conf"
 )
 
 // MessageProducer produces upstream messages to Kafka.
@@ -83,6 +83,7 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
 		Topic:        cfg.Topic,
+		Balancer:     &kafka.Hash{},
 		BatchSize:    cfg.BatchSize,
 		BatchTimeout: cfg.BatchTimeout,
 		RequiredAcks: cfg.RequiredAcks,

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	"nonoka-im/internal/data"
 	"github.com/redis/go-redis/v9"
+	"nonoka-im/internal/data"
 )
 
 // GroupMemberService provides group membership information.

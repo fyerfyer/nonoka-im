@@ -319,8 +319,8 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideMessageStorage,
 		provideMetrics,
 		provideMetricsSlice,
-		authz.NewTopicAuthorizer,
-		wire.Bind(new(authz.Authorizer), new(*authz.TopicAuthorizer)),
+		authz.NewOpenFGAFromEnv,
+		wire.Bind(new(authz.Authorizer), new(*authz.OpenFGA)),
 		newApp,
 	))
 }

@@ -25,10 +25,25 @@ type Data struct {
 	Redis redis.UniversalClient
 }
 
+// ListBotUserIDs returns the IDs of all bot users (agent accounts).
+func (d *Data) ListBotUserIDs(ctx context.Context) ([]int64, error) {
+	var ids []int64
+	err := d.db.WithContext(ctx).Model(&User{}).Where("is_bot = ?", true).Pluck("id", &ids).Error
+	return ids, err
+}
+
+// IsBotUser reports whether the given user is a bot account. Users that do
+// not exist count as non-bots.
+func (d *Data) IsBotUser(ctx context.Context, id int64) (bool, error) {
+	var n int64
+	err := d.db.WithContext(ctx).Model(&User{}).Where("id = ? AND is_bot = ?", id, true).Count(&n).Error
+	return n > 0, err
+}
+
 // CleanTestData truncates all user tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
-	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations, agent_runs, agent_turns, agent_sessions RESTART IDENTITY CASCADE").Error
+	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations, agent_runs, agent_turns, agent_sessions, agent_context_snapshots, agent_versions, agents RESTART IDENTITY CASCADE").Error
 }
 
 // NewData .
@@ -95,7 +110,22 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	}
 	defer lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrateLockKey) //nolint:errcheck
 
-	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}, &AgentRun{}, &AgentTurn{}, &AgentSession{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}, &AgentRun{}, &AgentTurn{}, &AgentSession{}, &AgentContextSnapshot{}, &Agent{}, &AgentVersion{}); err != nil {
+		return nil, nil, err
+	}
+	if err := db.Exec("DROP INDEX IF EXISTS idx_agent_runs_event_id").Error; err != nil {
+		return nil, nil, err
+	}
+	// Older turns predate session IDs. Backfill before new runs load history.
+	if err := db.Exec(`INSERT INTO agent_sessions (agent_id, actor_user_id, topic, created_at, updated_at)
+		SELECT DISTINCT agent_id, actor_user_id, topic, NOW(), NOW()
+		FROM agent_turns WHERE session_id = 0
+		ON CONFLICT (agent_id, actor_user_id, topic) DO NOTHING`).Error; err != nil {
+		return nil, nil, err
+	}
+	if err := db.Exec(`UPDATE agent_turns AS t SET session_id = s.id
+		FROM agent_sessions AS s WHERE t.session_id = 0
+		AND t.agent_id = s.agent_id AND t.actor_user_id = s.actor_user_id AND t.topic = s.topic`).Error; err != nil {
 		return nil, nil, err
 	}
 

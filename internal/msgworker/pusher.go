@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	pb "nonoka-im/api/im/v1"
+	"nonoka-im/internal/metrics"
 )
 
 const (
@@ -31,10 +31,10 @@ type gatewayConn struct {
 
 // GatewayPusher pushes messages to online users via Gateway's gRPC PushService.
 // It supports two modes:
-//   1. Static address list (backward compatible): tries every configured gateway.
-//   2. Dynamic routing: when a Router is configured, it resolves each user
-//      to the gateway node hosting their device sessions and pushes only to those
-//      nodes, avoiding O(#gateways) broadcast amplification.
+//  1. Static address list (backward compatible): tries every configured gateway.
+//  2. Dynamic routing: when a Router is configured, it resolves each user
+//     to the gateway node hosting their device sessions and pushes only to those
+//     nodes, avoiding O(#gateways) broadcast amplification.
 type GatewayPusher struct {
 	// staticConns are pre-configured gateway connections used when no router is set.
 	staticConns []*gatewayConn

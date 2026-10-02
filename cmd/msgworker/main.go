@@ -232,6 +232,15 @@ func main() {
 	agentPublisher := agevent.NewKafkaPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
 	worker.SetAgentEventPublisher(agentPublisher)
 	defer agentPublisher.Close()
+	// Only write agent outbox rows for messages that can actually trigger an
+	// agent (bot peer in P2P, bot mention in groups). The index refreshes from
+	// PostgreSQL and additionally queries on miss, so a freshly created bot
+	// triggers immediately instead of after the next refresh; if the initial
+	// load fails the worker keeps the legacy write-everything behavior until
+	// the first successful refresh.
+	botIndex := msgworker.NewBotIndexWithQuery(dataLayer.ListBotUserIDs, dataLayer.IsBotUser, logger)
+	botIndex.Start(ctx, 30*time.Second)
+	worker.SetBotIndex(botIndex)
 
 	// Wire handler after worker is created
 	consumer.SetHandler(worker.HandleMessage)

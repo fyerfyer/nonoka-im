@@ -365,7 +365,22 @@ func (h *Handler) handlePublish(c *Connection, packet *v1.Packet) {
 		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4030, "topic authorization unavailable")
 		return
 	}
-	if err := h.authorizer.CanAccessTopic(context.Background(), c.UserID(), normalizedTopic); err != nil {
+	if initializer, ok := h.authorizer.(interface {
+		EnsureTopicForSend(context.Context, int64, string) error
+	}); ok {
+		// Use a detached timeout instead of the request context: the WS
+		// connection outlives per-request handling, same as PULL/RECALL below.
+		authzCtx, authzCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer authzCancel()
+		if err := initializer.EnsureTopicForSend(authzCtx, c.UserID(), normalizedTopic); err != nil {
+			h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4030, "topic access denied")
+			return
+		}
+	}
+	// See above: detached timeout, not the WS request context.
+	authzCtx, authzCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer authzCancel()
+	if err := h.authorizer.CanAccessTopic(authzCtx, c.UserID(), normalizedTopic); err != nil {
 		h.sendError(c, packet.Seq, v1.Command_CMD_PUBLISH, 4030, "topic access denied")
 		return
 	}

@@ -14,7 +14,7 @@ import (
 // Implementations must fail closed when membership cannot be determined.
 type Authorizer interface {
 	CanAccessTopic(context.Context, int64, string) error
-	CanReadFile(context.Context, int64, int64) error
+	CanReadFile(context.Context, int64, string) error
 }
 
 // TopicAuthorizer uses the authoritative PostgreSQL group repository. File
@@ -76,7 +76,11 @@ func (a *TopicAuthorizer) CanAccessTopic(ctx context.Context, userID int64, raw 
 	return nil
 }
 
-func (a *TopicAuthorizer) CanReadFile(_ context.Context, userID, ownerID int64) error {
+func (a *TopicAuthorizer) CanReadFile(_ context.Context, userID int64, fileID string) error {
+	ownerID, err := strconv.ParseInt(fileID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("legacy authorizer requires owner ID")
+	}
 	if userID <= 0 {
 		return fmt.Errorf("authentication required")
 	}

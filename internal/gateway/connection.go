@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	v1 "nonoka-im/api/im/v1"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
 )
 
 // ConnState represents the current state of a connection.

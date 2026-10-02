@@ -16,10 +16,10 @@ import (
 
 const (
 	// Default dispatch strategy
-	strategyConsistentHash     = "consistent_hash"
-	strategyLeastConnections   = "least_connections"
-	defaultHeartbeatInterval   = 10 * time.Second
-	defaultNodeTTL             = 30 * time.Second
+	strategyConsistentHash   = "consistent_hash"
+	strategyLeastConnections = "least_connections"
+	defaultHeartbeatInterval = 10 * time.Second
+	defaultNodeTTL           = 30 * time.Second
 )
 
 // DispatchService implements the gateway dispatch logic.
@@ -32,11 +32,11 @@ const (
 type DispatchService struct {
 	pb.UnimplementedDispatchServiceServer
 
-	redis      redis.UniversalClient
-	strategy   string
-	localNode  *gateway.GatewayNode
-	nodeTTL    time.Duration
-	log        *log.Helper
+	redis     redis.UniversalClient
+	strategy  string
+	localNode *gateway.GatewayNode
+	nodeTTL   time.Duration
+	log       *log.Helper
 }
 
 // NewDispatchService creates a new dispatch service.

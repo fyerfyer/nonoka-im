@@ -116,6 +116,8 @@ type DeliveryStatus struct {
 type AgentEventOutbox struct {
 	ID            bson.ObjectID `bson:"_id,omitempty"`
 	EventID       string        `bson:"event_id"`
+	Topic         string        `bson:"topic"`
+	TopicSeq      uint64        `bson:"topic_seq"`
 	Payload       []byte        `bson:"payload"`
 	Status        string        `bson:"status"`
 	Attempts      int           `bson:"attempts"`
@@ -210,7 +212,7 @@ func (s *MessageStorage) SaveP2PMessageWithAgentEvent(ctx context.Context, msg *
 			// transaction that can no longer commit.
 			return nil, errTransactionalDuplicate
 		}
-		return nil, s.enqueueAgentEvent(txCtx, ev.EventID, payload)
+		return nil, s.enqueueAgentEvent(txCtx, ev, payload)
 	})
 	if errors.Is(err, errTransactionalDuplicate) {
 		return recipients, true, nil
@@ -241,7 +243,7 @@ func (s *MessageStorage) SaveGroupMessageWithAgentEvent(ctx context.Context, msg
 		if duplicate {
 			return nil, errTransactionalDuplicate
 		}
-		return nil, s.enqueueAgentEvent(txCtx, ev.EventID, payload)
+		return nil, s.enqueueAgentEvent(txCtx, ev, payload)
 	})
 	if errors.Is(err, errTransactionalDuplicate) {
 		return true, nil
@@ -252,13 +254,13 @@ func (s *MessageStorage) SaveGroupMessageWithAgentEvent(ctx context.Context, msg
 	return duplicate, nil
 }
 
-func (s *MessageStorage) enqueueAgentEvent(ctx context.Context, eventID string, payload []byte) error {
-	if strings.TrimSpace(eventID) == "" {
+func (s *MessageStorage) enqueueAgentEvent(ctx context.Context, ev agevent.MessageEvent, payload []byte) error {
+	if strings.TrimSpace(ev.EventID) == "" {
 		return fmt.Errorf("agent event id is required")
 	}
 	now := time.Now()
 	_, err := s.collection(CollectionAgentOutbox).InsertOne(ctx, AgentEventOutbox{
-		EventID: eventID, Payload: payload, Status: "pending", NextAttemptAt: now, CreatedAt: now,
+		EventID: ev.EventID, Topic: ev.Topic, TopicSeq: ev.TopicSeq, Payload: payload, Status: "pending", NextAttemptAt: now, CreatedAt: now,
 	})
 	if err != nil && mongo.IsDuplicateKeyError(err) {
 		// A transaction retry or an earlier successful delivery may already have
@@ -312,14 +314,42 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 
 func (s *MessageStorage) claimAgentEvent(ctx context.Context) (*AgentEventOutbox, error) {
 	now := time.Now()
-	filter := bson.M{"$or": []bson.M{
+	due := bson.M{"$or": []bson.M{
 		{"status": "pending", "next_attempt_at": bson.M{"$lte": now}},
 		{"status": "processing", "locked_until": bson.M{"$lt": now}},
 	}}
 	update := bson.M{"$set": bson.M{"status": "processing", "locked_until": now.Add(time.Minute)}, "$inc": bson.M{"attempts": 1}}
-	var row AgentEventOutbox
-	err := s.collection(CollectionAgentOutbox).FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetReturnDocument(options.After)).Decode(&row)
-	return &row, err
+	rows, err := s.collection(CollectionAgentOutbox).Find(ctx, due, options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(1000))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close(ctx)
+	for rows.Next(ctx) {
+		var candidate AgentEventOutbox
+		if err := rows.Decode(&candidate); err != nil {
+			return nil, err
+		}
+		if candidate.TopicSeq > 0 {
+			older, err := s.collection(CollectionAgentOutbox).CountDocuments(ctx, bson.M{"topic": candidate.Topic, "topic_seq": bson.M{"$gt": 0, "$lt": candidate.TopicSeq}, "status": bson.M{"$ne": "published"}})
+			if err != nil {
+				return nil, err
+			}
+			if older > 0 {
+				continue
+			}
+		}
+		var row AgentEventOutbox
+		filter := bson.M{"_id": candidate.ID, "$or": due["$or"]}
+		err := s.collection(CollectionAgentOutbox).FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&row)
+		if err == mongo.ErrNoDocuments {
+			continue
+		}
+		return &row, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nil, mongo.ErrNoDocuments
 }
 
 func (s *MessageStorage) markAgentEventPublished(ctx context.Context, id bson.ObjectID) error {
@@ -459,6 +489,9 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_attempt_at", Value: 1}},
 	}); err != nil {
 		return fmt.Errorf("create agent outbox due index: %w", err)
+	}
+	if err := s.createIndex(ctx, CollectionAgentOutbox, "agent_outbox_topic_order", mongo.IndexModel{Keys: bson.D{{Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}, {Key: "status", Value: 1}}}); err != nil {
+		return fmt.Errorf("create agent outbox topic index: %w", err)
 	}
 
 	return nil

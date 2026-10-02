@@ -365,6 +365,7 @@ type MsgWorker struct {
 	metrics          *metrics.Metrics
 	log              *log.Helper
 	agentPublisher   agevent.Publisher
+	botIndex         *BotIndex
 	outboxStopCh     chan struct{}
 	outboxStopOnce   sync.Once
 	outboxWg         sync.WaitGroup
@@ -482,6 +483,64 @@ func (w *MsgWorker) SetPusher(pusher Pusher) {
 // the Kafka publisher used by the relay. It no longer publishes inline on the
 // IM consumer path.
 func (w *MsgWorker) SetAgentEventPublisher(p agevent.Publisher) { w.agentPublisher = p }
+
+// SetBotIndex configures the bot user index used to filter Agent outbox
+// writes. When unset (or not yet loaded) every message keeps the legacy
+// behavior of writing an outbox row.
+func (w *MsgWorker) SetBotIndex(idx *BotIndex) { w.botIndex = idx }
+
+// messageCanTriggerAgent reports whether the message could trigger an agent
+// run: a P2P message whose peer is a bot (messages sent by bots never trigger
+// their own agent), or a group message that mentions at least one bot. Bot
+// lookups go through the index, which queries PostgreSQL on miss, so a newly
+// created bot triggers immediately. When a lookup fails the decision fails
+// open (keep the legacy write-everything behavior) and lets the agent worker
+// filter, matching the not-ready index semantics.
+func (w *MsgWorker) messageCanTriggerAgent(ctx context.Context, upstream *pb.UpstreamMessage) bool {
+	switch ParseTopicType(upstream.GetTopic()) {
+	case TopicTypeP2P:
+		uid1, uid2, err := ExtractUserIDsFromP2PTopic(upstream.GetTopic())
+		if err != nil {
+			return false
+		}
+		sender := upstream.GetSenderId()
+		peer := uid1
+		if sender == uid1 {
+			peer = uid2
+		} else if sender != uid2 {
+			// The sender is not a participant of its own P2P topic.
+			return false
+		}
+		senderBot, err := w.botIndex.IsBot(ctx, sender)
+		if err != nil {
+			w.log.Warnf("bot lookup failed (sender=%d): %v", sender, err)
+			return true
+		}
+		if senderBot {
+			return false
+		}
+		peerBot, err := w.botIndex.IsBot(ctx, peer)
+		if err != nil {
+			w.log.Warnf("bot lookup failed (peer=%d): %v", peer, err)
+			return true
+		}
+		return peerBot
+	case TopicTypeGroup:
+		for _, id := range upstream.GetMentionedUserIds() {
+			bot, err := w.botIndex.IsBot(ctx, id)
+			if err != nil {
+				w.log.Warnf("bot lookup failed (mention=%d): %v", id, err)
+				return true
+			}
+			if bot {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
 
 func (w *MsgWorker) agentOutboxLoop(ctx context.Context) {
 	defer w.outboxWg.Done()
@@ -629,17 +688,29 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 
 	// Persist based on topic type. When Agent events are enabled, the message
 	// and its trigger outbox row are committed in one MongoDB transaction.
+	// The outbox row is only written when the message can actually trigger an
+	// agent: agent events for human-only conversations would be dropped by the
+	// worker anyway, so they are filtered out before paying for outbox + Kafka.
 	topicType := ParseTopicType(upstream.GetTopic())
 	var agentEvent agevent.MessageEvent
+	agentEnabled := false
 	if w.agentPublisher != nil {
-		agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds())
+		if w.botIndex == nil || !w.botIndex.Ready() {
+			agentEnabled = true
+		} else {
+			agentEnabled = w.messageCanTriggerAgent(ctx, &upstream)
+		}
+		if agentEnabled {
+			agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds())
+			agentEvent.TopicSeq = topicSeq
+		}
 	}
 	var recipientIDs []int64
 	var isDuplicate bool
 
 	switch topicType {
 	case TopicTypeP2P:
-		if w.agentPublisher != nil {
+		if agentEnabled {
 			recipientIDs, isDuplicate, err = w.storage.SaveP2PMessageWithAgentEvent(ctx, &upstream, msgID, topicSeq, agentEvent)
 		} else {
 			recipientIDs, isDuplicate, err = w.storage.SaveP2PMessage(ctx, &upstream, msgID, topicSeq)
@@ -649,9 +720,9 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		}
 
 	case TopicTypeGroup:
-		if w.groupBatcher != nil && w.agentPublisher == nil {
+		if w.groupBatcher != nil && !agentEnabled {
 			isDuplicate, err = w.groupBatcher.Add(ctx, &upstream, msgID, topicSeq)
-		} else if w.agentPublisher != nil {
+		} else if agentEnabled {
 			isDuplicate, err = w.storage.SaveGroupMessageWithAgentEvent(ctx, &upstream, msgID, topicSeq, agentEvent)
 		} else {
 			isDuplicate, err = w.storage.SaveGroupMessage(ctx, &upstream, msgID, topicSeq)

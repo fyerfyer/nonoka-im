@@ -1,0 +1,89 @@
+package eino
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+	"nonoka-im/internal/agent/runtime"
+)
+
+type fakeModel struct {
+	calls       [][]*schema.Message
+	failSummary bool
+}
+
+func (f *fakeModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	f.calls = append(f.calls, input)
+	if strings.Contains(input[len(input)-1].Content, "CURRENT_INPUT_MARKER") {
+		return schema.AssistantMessage("final answer", nil), nil
+	}
+	if f.failSummary {
+		return nil, errors.New("summary unavailable")
+	}
+	return schema.AssistantMessage("stable previous fact", nil), nil
+}
+
+func (f *fakeModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	msg, err := f.Generate(ctx, input, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.StreamReaderFromArray([]*schema.Message{msg}), nil
+}
+
+func (f *fakeModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
+}
+
+func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
+	fake := &fakeModel{}
+	r := &Runtime{model: fake}
+	in := runtime.Input{
+		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
+		History:      []runtime.Turn{{ID: 7, Input: "old question", Output: "old answer"}},
+		NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 7,
+	}
+	result, err := r.Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Text != "final answer" || result.SummaryThroughTurnID != 7 || !strings.Contains(result.Summary, "stable previous fact") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(fake.calls) != 2 {
+		t.Fatalf("expected summary and answer model calls, got %d", len(fake.calls))
+	}
+	for _, msg := range fake.calls[0] {
+		if strings.Contains(msg.Content, "CURRENT_INPUT_MARKER") {
+			t.Fatal("current input leaked into summary request")
+		}
+	}
+	fresh := &fakeModel{}
+	_, err = (&Runtime{model: fresh}).Run(context.Background(), runtime.Input{
+		Instruction: in.Instruction, Summary: result.Summary, Text: "CURRENT_INPUT_MARKER",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.calls) != 1 || !strings.Contains(fresh.calls[0][1].Content, "stable previous fact") {
+		t.Fatal("new runtime did not load persisted summary")
+	}
+}
+
+func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
+	fake := &fakeModel{failSummary: true}
+	r := &Runtime{model: fake}
+	in := runtime.Input{Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER", History: []runtime.Turn{{ID: 1, Input: "old", Output: "reply"}}, NeedsSummary: true, TriggerTokens: 1}
+	if _, err := r.Run(context.Background(), in); !errors.Is(err, ErrSummary) {
+		t.Fatalf("expected summary error, got %v", err)
+	}
+	in.DisableSummary = true
+	result, err := r.Run(context.Background(), in)
+	if err != nil || result.Text != "final answer" {
+		t.Fatalf("fallback lost current input: result=%+v err=%v", result, err)
+	}
+}

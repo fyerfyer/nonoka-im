@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {"type": "user", "relations": {}},
+    {
+      "type": "group",
+      "relations": {
+        "owner": {"this": {}},
+        "member": {"union": {"child": [{"this": {}}, {"computedUserset": {"relation": "owner"}}]}},
+        "can_manage": {"computedUserset": {"relation": "owner"}}
+      },
+      "metadata": {"relations": {
+        "owner": {"directly_related_user_types": [{"type": "user"}]},
+        "member": {"directly_related_user_types": [{"type": "user"}]}
+      }}
+    },
+    {
+      "type": "topic",
+      "relations": {
+        "participant": {"this": {}},
+        "group": {"this": {}},
+        "can_access": {"union": {"child": [
+          {"computedUserset": {"relation": "participant"}},
+          {"tupleToUserset": {"tupleset": {"relation": "group"}, "computedUserset": {"relation": "member"}}}
+        ]}}
+      },
+      "metadata": {"relations": {
+        "participant": {"directly_related_user_types": [{"type": "user"}]},
+        "group": {"directly_related_user_types": [{"type": "group"}]}
+      }}
+    },
+    {
+      "type": "file",
+      "relations": {
+        "owner": {"this": {}},
+        "viewer": {"this": {}},
+        "can_read": {"union": {"child": [
+          {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "viewer"}}
+        ]}}
+      },
+      "metadata": {"relations": {
+        "owner": {"directly_related_user_types": [{"type": "user"}]},
+        "viewer": {"directly_related_user_types": [{"type": "user"}]}
+      }}
+    },
+    {
+      "type": "agent",
+      "relations": {
+        "owner": {"this": {}},
+        "viewer": {"this": {}},
+        "user_grant": {"this": {}},
+        "shared_group": {"this": {}},
+        "can_manage": {"computedUserset": {"relation": "owner"}},
+        "can_view": {"union": {"child": [
+          {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "viewer"}},
+          {"computedUserset": {"relation": "user_grant"}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}}
+        ]}},
+        "can_use": {"union": {"child": [
+          {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "user_grant"}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}}
+        ]}}
+      },
+      "metadata": {"relations": {
+        "owner": {"directly_related_user_types": [{"type": "user"}]},
+        "viewer": {"directly_related_user_types": [{"type": "user"}]},
+        "user_grant": {"directly_related_user_types": [{"type": "user"}]},
+        "shared_group": {"directly_related_user_types": [{"type": "group"}]}
+      }}
+    }
+  ]
+}

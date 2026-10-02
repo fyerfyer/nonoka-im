@@ -12,6 +12,7 @@ import (
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/msgworker"
 
+	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	jwt5 "github.com/golang-jwt/jwt/v5"
@@ -62,7 +63,20 @@ func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageReq
 	if s.authorizer == nil {
 		return nil, errors.New("topic authorization unavailable")
 	}
+	if initializer, ok := s.authorizer.(interface {
+		EnsureTopicForSend(context.Context, int64, string) error
+	}); ok {
+		if err := initializer.EnsureTopicForSend(ctx, userID, normalizedTopic); err != nil {
+			if errors.Is(err, authz.ErrDenied) {
+				return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
+			}
+			return nil, fmt.Errorf("topic access denied")
+		}
+	}
 	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
+		if errors.Is(err, authz.ErrDenied) {
+			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
+		}
 		return nil, fmt.Errorf("topic access denied")
 	}
 
@@ -117,6 +131,9 @@ func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) 
 		return nil, errors.New("topic authorization unavailable")
 	}
 	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
+		if errors.Is(err, authz.ErrDenied) {
+			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
+		}
 		return nil, fmt.Errorf("topic access denied")
 	}
 	req.Topic = normalizedTopic

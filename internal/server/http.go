@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"os"
+	"strings"
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
@@ -12,18 +14,20 @@ import (
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/service"
 
+	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware"
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
 	"github.com/go-kratos/kratos/v2/middleware/selector"
+	"github.com/go-kratos/kratos/v2/transport"
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	jwt5 "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/cors"
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 	}
@@ -41,6 +45,16 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	}
 	middlewares = append(middlewares, selector.Server(
 		jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
+			if token.Method.Alg() != jwt5.SigningMethodHS256.Alg() {
+				return nil, kerrors.Unauthorized("INVALID_TOKEN", "invalid token algorithm")
+			}
+			if token.Header["typ"] == "agent-bot" {
+				secret := os.Getenv("AGENT_WORKER_JWT_SECRET")
+				if len(secret) < 32 {
+					return nil, kerrors.Unauthorized("BOT_TOKEN_DISABLED", "bot credentials unavailable")
+				}
+				return []byte(secret), nil
+			}
 			return []byte(authConf.JwtSecret), nil
 		}),
 	).Match(func(ctx context.Context, operation string) bool {
@@ -54,6 +68,30 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		}
 		return true
 	}).Build())
+	middlewares = append(middlewares, func(next middleware.Handler) middleware.Handler {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
+			claims, ok := jwtMiddleware.FromContext(ctx)
+			if !ok {
+				return next(ctx, req)
+			}
+			mapped, ok := claims.(jwt5.MapClaims)
+			if !ok || mapped["scope"] == nil {
+				return next(ctx, req)
+			}
+			tr, ok := transport.FromServerContext(ctx)
+			if !ok || tr.Operation() != "/api.im.v1.MessageService/SendMessage" || agents == nil {
+				return nil, kerrors.Forbidden("BOT_SCOPE", "bot credential can only send messages")
+			}
+			messageReq, ok := req.(*v1.SendMessageRequest)
+			if !ok || messageReq.Topic != mapped["topic"] || !(strings.HasPrefix(messageReq.ClientMsgId, "agent-") || strings.HasPrefix(messageReq.ClientMsgId, "agent-tool-")) {
+				return nil, kerrors.Forbidden("BOT_SCOPE", "bot credential scope mismatch")
+			}
+			if err := agents.VerifyBotSend(ctx, mapped); err != nil {
+				return nil, kerrors.Forbidden("BOT_SCOPE", "bot credential not authorized")
+			}
+			return next(ctx, req)
+		}
+	})
 
 	var opts = []khttp.ServerOption{
 		khttp.Middleware(middlewares...),
@@ -112,6 +150,21 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r := srv.Route("/")
 		r.POST("/v1/files", file.UploadHTTP)
 		r.GET("/v1/files/{file_id}", file.DownloadHTTP)
+	}
+	if agents != nil {
+		r := srv.Route("/")
+		r.GET("/v1/agents", agents.List)
+		r.POST("/v1/agents", agents.Create)
+		r.GET("/v1/agents/{id}", agents.Detail)
+		r.PUT("/v1/agents/{id}/draft", agents.Draft)
+		r.POST("/v1/agents/{id}/publish", agents.Publish)
+		r.POST("/v1/agents/{id}/status", agents.Status)
+		r.PUT("/v1/agents/{id}/shares", agents.Share)
+		r.GET("/v1/agents/{id}/shares", agents.Shares)
+		r.GET("/v1/agents/{id}/runs", agents.Runs)
+		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
+		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
+		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
 	}
 
 	// Register WebSocket handler

@@ -91,4 +91,3 @@ func (s *ConversationService) MarkConversationRead(ctx context.Context, req *pb.
 	}
 	return &emptypb.Empty{}, nil
 }
-

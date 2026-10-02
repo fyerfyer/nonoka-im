@@ -18,6 +18,7 @@ type User struct {
 	ID       int64  `gorm:"primaryKey;autoIncrement"`
 	Username string `gorm:"uniqueIndex;type:varchar(50);not null"`
 	Password string `gorm:"type:varchar(255);not null"`
+	IsBot    bool   `gorm:"not null;default:false"`
 }
 
 type authRepo struct {

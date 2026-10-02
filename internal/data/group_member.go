@@ -78,5 +78,3 @@ func (r *groupMemberRepo) RemoveMember(ctx context.Context, groupID string, user
 	}
 	return nil
 }
-
-

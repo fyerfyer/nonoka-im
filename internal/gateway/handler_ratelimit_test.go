@@ -16,7 +16,7 @@ import (
 type allowAllAuthorizer struct{}
 
 func (allowAllAuthorizer) CanAccessTopic(context.Context, int64, string) error { return nil }
-func (allowAllAuthorizer) CanReadFile(context.Context, int64, int64) error     { return nil }
+func (allowAllAuthorizer) CanReadFile(context.Context, int64, string) error    { return nil }
 
 // newRateLimitTestHandler builds a handler with storage/session dependencies
 // omitted; publish only needs the producer, manager and metrics.

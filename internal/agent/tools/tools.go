@@ -6,6 +6,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -55,7 +56,14 @@ type Backend interface {
 	SendMessage(context.Context, RunContext, string) error
 }
 
-func New(backend Backend) []tool.InvokableTool {
+func New(backend Backend, budgets ...int) []tool.InvokableTool {
+	resultBudgetTokens := 8192
+	if len(budgets) > 0 {
+		resultBudgetTokens = budgets[0]
+	}
+	if resultBudgetTokens <= 0 {
+		resultBudgetTokens = 8192
+	}
 	search := utils.NewTool(&schema.ToolInfo{Name: "search_messages", Desc: "Search messages by keyword in the current authorized conversation."}, func(ctx context.Context, in SearchRequest) (SearchResult, error) {
 		r, ok := GetRunContext(ctx)
 		if !ok {
@@ -68,7 +76,7 @@ func New(backend Backend) []tool.InvokableTool {
 			in.Limit = 10
 		}
 		v, e := backend.SearchMessages(ctx, r, in.Query, in.Limit)
-		return SearchResult{Results: v}, e
+		return SearchResult{Results: limitItems(v, resultBudgetTokens)}, e
 	})
 	conversation := utils.NewTool(&schema.ToolInfo{Name: "get_conversation_context", Desc: "Read recent messages from the current authorized conversation."}, func(ctx context.Context, in ContextRequest) (ContextResult, error) {
 		r, ok := GetRunContext(ctx)
@@ -79,7 +87,7 @@ func New(backend Backend) []tool.InvokableTool {
 			in.Limit = 20
 		}
 		v, e := backend.ConversationContext(ctx, r, in.Limit)
-		return ContextResult{Messages: v}, e
+		return ContextResult{Messages: limitItems(v, resultBudgetTokens)}, e
 	})
 	send := utils.NewTool(&schema.ToolInfo{Name: "send_message", Desc: "Send a message to the current conversation only."}, func(ctx context.Context, in SendRequest) (SendResult, error) {
 		r, ok := GetRunContext(ctx)
@@ -93,4 +101,26 @@ func New(backend Backend) []tool.InvokableTool {
 		return SendResult{Accepted: e == nil}, e
 	})
 	return []tool.InvokableTool{search, conversation, send}
+}
+
+func limitItems(items []string, tokenBudget int) []string {
+	remaining := tokenBudget * 4
+	if remaining <= 0 {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if remaining <= 0 {
+			break
+		}
+		if len(item) > remaining {
+			item = item[:remaining]
+			for len(item) > 0 && !utf8.ValidString(item) {
+				item = item[:len(item)-1]
+			}
+		}
+		result = append(result, item)
+		remaining -= len(item)
+	}
+	return result
 }

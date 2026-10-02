@@ -17,6 +17,7 @@ type MessageEvent struct {
 	SchemaVersion     int     `json:"schema_version"`
 	EventID           string  `json:"event_id"`
 	MsgID             int64   `json:"msg_id"`
+	TopicSeq          uint64  `json:"topic_seq,omitempty"`
 	Topic             string  `json:"topic"`
 	SenderID          int64   `json:"sender_id"`
 	MsgType           int32   `json:"msg_type"`

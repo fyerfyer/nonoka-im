@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	pb "nonoka-im/api/im/v1"
 	"github.com/redis/go-redis/v9"
+	pb "nonoka-im/api/im/v1"
 )
 
 const (

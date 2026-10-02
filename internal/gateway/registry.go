@@ -118,10 +118,10 @@ func (r *GatewayRegistry) reportOnce() error {
 	pipe := r.redis.Pipeline()
 	pipe.SAdd(ctx, gatewayNodesKey, r.nodeID)
 	pipe.HSet(ctx, nodeKey, map[string]interface{}{
-		"url":        r.url,
-		"grpc_addr":  r.grpcAddr,
-		"conns":      connCount,
-		"heartbeat":  time.Now().Unix(),
+		"url":       r.url,
+		"grpc_addr": r.grpcAddr,
+		"conns":     connCount,
+		"heartbeat": time.Now().Unix(),
 	})
 	pipe.Expire(ctx, nodeKey, r.ttl)
 	pipe.Expire(ctx, gatewayNodesKey, r.ttl*2)
