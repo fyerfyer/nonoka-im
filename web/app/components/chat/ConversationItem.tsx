@@ -2,9 +2,11 @@
 
 import { Conversation } from "@/types";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Users, AtSign } from "lucide-react";
+import { Users, AtSign, Bot } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
+import { useAgentNames } from "@/hooks/useAgentNames";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -20,7 +22,16 @@ export function ConversationItem({
   const mentioned = useChatStore((s) =>
     s.mentionedTopics.has(conversation.topic)
   );
-  const title = conversation.name || conversation.peerUsername || "Unknown";
+  const agentNames = useAgentNames();
+  // The server conversation list does not flag bot peers, so resolve them
+  // against the agent directory: p2p conversations with a bot peer take the
+  // agent's display name (and the AI badge) over the raw bot username.
+  const agentName =
+    conversation.type === "p2p"
+      ? agentNames.get(conversation.peerId)?.name
+      : undefined;
+  const title =
+    agentName || conversation.name || conversation.peerUsername || "Unknown";
   const preview = conversation.lastMsgPreview || "No messages yet";
   const time = conversation.lastMsgAt
     ? formatTime(conversation.lastMsgAt)
@@ -54,13 +65,21 @@ export function ConversationItem({
       </Avatar>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-2">
-          <span
-            className={cn(
-              "truncate text-sm font-medium",
-              isActive && "text-primary"
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "truncate text-sm font-medium",
+                isActive && "text-primary"
+              )}
+            >
+              {title}
+            </span>
+            {(conversation.peerIsBot || agentName) && (
+              <Badge variant="secondary" className="px-1.5 text-[10px]">
+                <Bot className="h-2.5 w-2.5" />
+                AI
+              </Badge>
             )}
-          >
-            {title}
           </span>
           {time && (
             <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -78,7 +97,7 @@ export function ConversationItem({
             {mentioned && (
               <span className="mr-1 inline-flex items-center rounded bg-amber-200/80 px-1 py-px text-[9px] font-semibold text-amber-900">
                 <AtSign className="mr-px h-2.5 w-2.5" />
-                我
+                Mentioned
               </span>
             )}
             {preview}

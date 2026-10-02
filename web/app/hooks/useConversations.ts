@@ -40,7 +40,9 @@ export function refreshConversations(): Promise<void> {
         (c) => ({
           topic: c.topic,
           type: c.type === "group" ? "group" : "p2p",
-          peerId: c.peerId,
+          // proto int64 arrives as a string on the wire; normalize so Map
+          // lookups keyed by numeric botUserId (agent directory) hit.
+          peerId: Number(c.peerId),
           peerUsername: c.peerUsername,
           name:
             c.type === "group"

@@ -156,13 +156,13 @@ function handleIncomingMessage(
       conv?.peerUsername ||
       `User ${detail.senderId}`;
     const convName = conv?.name || senderName;
-    toast.info(`${senderName} @了你（${convName}）`, {
+    toast.info(`${senderName} mentioned you in ${convName}`, {
       description:
         detail.msgType === 1
           ? detail.content.slice(0, 60)
           : detail.msgType === 2
-          ? "[图片]"
-          : "[文件]",
+          ? "[Image]"
+          : "[File]",
     });
     if (!isActive) {
       chatStore.markTopicMentioned(detail.topic);

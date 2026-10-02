@@ -63,8 +63,8 @@ function ensureConversation(
 // mirroring the server-side placeholder for media messages.
 function previewForMessage(msg: ChatMessage): string {
   if (msg.recalled) return "This message was recalled";
-  if (msg.msgType === 2) return "[图片]";
-  if (msg.msgType === 3) return "[文件]";
+  if (msg.msgType === 2) return "[Image]";
+  if (msg.msgType === 3) return "[File]";
   return msg.content;
 }
 
@@ -110,6 +110,7 @@ export const useChatStore = create<ChatStore>((set) => ({
           messages: existing?.messages || conv.messages || [],
           name: conv.name || existing?.name,
           peerUsername: conv.peerUsername || existing?.peerUsername || "",
+          peerIsBot: conv.peerIsBot ?? existing?.peerIsBot,
         });
       }
       // Keep any conversations that are not in the server list (e.g. newly created)

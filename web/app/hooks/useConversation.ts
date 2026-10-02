@@ -3,9 +3,10 @@ import { messageApi, conversationApi, groupApi, fileApi } from "@/lib/api";
 import { realtimeClient } from "@/lib/realtime";
 import { generateClientMsgId } from "@/lib/uuid";
 import { extractMentionIds } from "@/lib/mentions";
+import { topicType } from "@/lib/topic";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
-import { ChatMessage, Conversation, User } from "@/types";
+import { ChatMessage, Conversation } from "@/types";
 import { toast } from "sonner";
 
 const MSG_TYPE_TEXT = 1;
@@ -61,11 +62,16 @@ export function useConversation(topic: string | null) {
         hasMore: reply.hasMore,
       });
     } catch (err) {
-      toast.error(
-        `Failed to load messages: ${
-          err instanceof Error ? err.message : "unknown error"
-        }`
-      );
+      // A brand-new p2p conversation has no authorization relation until the
+      // first message is sent, so the server rejects the initial history
+      // pull. That expected case reads as "no history", not an error.
+      if (!isFreshP2PAccessDenied(err, topic)) {
+        toast.error(
+          `Failed to load messages: ${
+            err instanceof Error ? err.message : "unknown error"
+          }`
+        );
+      }
     } finally {
       useChatStore.getState().setMessagesLoading(topic, false);
       loadedRef.current.add(topic);
@@ -338,10 +344,20 @@ function decodeMessageContent(
   }
 }
 
-export function getConversationTitle(
-  conv: Conversation | undefined,
-  currentUser: User | null
-): string {
+// isFreshP2PAccessDenied reports whether err is a topic-authorization
+// rejection on a p2p conversation that has no local messages yet — the
+// expected state before the first sent message establishes the relation.
+// Anything else (group topics, existing local history, network failures)
+// returns false so it still surfaces as a toast.
+function isFreshP2PAccessDenied(err: unknown, topic: string): boolean {
+  if (topicType(topic) !== "p2p") return false;
+  const conv = useChatStore.getState().conversations.get(topic);
+  if (conv && conv.messages.length > 0) return false;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /access denied|forbidden/i.test(message);
+}
+
+export function getConversationTitle(conv: Conversation | undefined): string {
   if (!conv) return "";
   if (conv.name) return conv.name;
   if (conv.type === "p2p") {

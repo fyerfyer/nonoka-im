@@ -6,13 +6,14 @@ import { useAuthStore } from "@/stores/authStore";
 import { ConversationItem } from "./ConversationItem";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, MessageSquare, Loader2, LogOut } from "lucide-react";
+import { Plus, MessageSquare, LogOut, Bot } from "lucide-react";
 import { useRouter, useParams } from "next/navigation";
 import { useState } from "react";
 import { NewChatDialog } from "./NewChatDialog";
 import { NewGroupDialog } from "./NewGroupDialog";
 import { ConnectionBar } from "./ConnectionBar";
 import { useAuth } from "@/hooks/useAuth";
+import { invalidateAgentNames } from "@/hooks/useAgentNames";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,9 +30,17 @@ export function ConversationList() {
   const chatStore = useChatStore();
   const router = useRouter();
   const params = useParams();
-  const { refresh } = useConversations();
+  useConversations();
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
+
+  const handleLogout = () => {
+    // Drop all conversation state (and the agent-directory cache) so the
+    // next user to log in on this tab never sees the previous user's data.
+    useChatStore.getState().reset();
+    invalidateAgentNames();
+    logout();
+  };
 
   const activeTopic =
     typeof params?.topic === "string" ? params.topic : null;
@@ -64,9 +73,12 @@ export function ConversationList() {
             <DropdownMenuContent align="start">
               <DropdownMenuLabel>{user?.username}</DropdownMenuLabel>
               <DropdownMenuSeparator />
+			  <DropdownMenuItem onClick={() => router.push("/agents")}>
+				<Bot className="h-4 w-4" /> Agents
+			  </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
-                onClick={logout}
+                onClick={handleLogout}
               >
                 <LogOut className="h-4 w-4" />
                 Log out

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Conversation, ConnectionState } from "@/types";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
@@ -18,7 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { GroupMembersDialog } from "./GroupMembersDialog";
 import { useChatStore } from "@/stores/chatStore";
-import { ArrowLeft, MoreVertical, Users } from "lucide-react";
+import { ArrowLeft, Bot, MoreVertical, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -96,9 +97,17 @@ export function ChatHeader({
             onClick={() => setProfileOpen(true)}
             title="View profile"
           >
-            <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
-              {title}
-            </h2>
+            <span className="flex items-center gap-1.5">
+              <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
+                {title}
+              </h2>
+              {conversation.peerIsBot && (
+                <Badge variant="secondary" className="px-1.5 text-[10px]">
+                  <Bot className="h-2.5 w-2.5" />
+                  AI
+                </Badge>
+              )}
+            </span>
             <span
               className={cn(
                 "text-xs",

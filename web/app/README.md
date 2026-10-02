@@ -71,7 +71,7 @@ pnpm install
 ### 启动开发服务器
 
 ```bash
-pnpm dev
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 pnpm dev
 ```
 
 默认监听 [http://localhost:3000](http://localhost:3000)。
@@ -83,7 +83,7 @@ pnpm dev
 - HTTP API: `http://127.0.0.1:8000/v1`
 - WebSocket: `ws://127.0.0.1:8000/ws`
 
-可在 `lib/api.ts` 与 `lib/realtime.ts` 中修改。
+可通过 `NEXT_PUBLIC_API_BASE_URL` 覆盖；该变量会在 Next.js 构建/启动时注入浏览器端代码。
 
 ### 生成 Protobuf 代码
 

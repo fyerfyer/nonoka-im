@@ -1,4 +1,5 @@
 import { User, Group, GroupMember } from "@/types";
+import { useChatStore } from "@/stores/chatStore";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -61,6 +62,9 @@ export function forceReLogin(): void {
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
+  // Wipe in-memory conversation state so a stale session's data is never
+  // rendered behind the login page.
+  useChatStore.getState().reset();
   if (!window.location.pathname.startsWith("/login")) {
     window.location.assign("/login");
   }
@@ -116,10 +120,23 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    // A refused connection is a deployment/startup problem, not an invalid
+    // username or password. Convert the browser's opaque "Failed to fetch"
+    // into an actionable message while preserving a stable error code.
+    const detail = error instanceof Error ? error.message : "network error";
+    throw new AppError(
+      "API_UNREACHABLE",
+      `Unable to reach the Nonoka server at ${API_BASE_URL}. Start the backend and try again (${detail}).`,
+      0
+    );
+  }
 
   let body: unknown;
   const contentType = res.headers.get("content-type") || "";
@@ -332,4 +349,89 @@ export const groupApi = {
     api.del<unknown>(`/v1/groups/${groupId}/members/${userId}`),
   listMembers: (groupId: string) =>
     api.get<{ members: GroupMember[] }>(`/v1/groups/${groupId}/members`),
+};
+
+export type AgentTool = "search_messages" | "get_conversation_context" | "send_message";
+
+export interface AgentDraft {
+  instruction: string;
+  model: string;
+  tools: AgentTool[];
+  revision: number;
+}
+
+export interface AgentPublishedVersion {
+  ID?: number;
+  AgentID?: number;
+  Version?: number;
+  Instruction?: string;
+  Model?: string;
+  Tools?: string;
+  CreatedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface ManagedAgent {
+  id: number;
+  botUserId: number;
+  ownerUserId: number;
+  name: string;
+  description: string;
+  status: "draft" | "active" | "disabled";
+  currentVersion: number;
+  canManage: boolean;
+  draft?: AgentDraft;
+  published?: AgentPublishedVersion;
+}
+
+export interface AgentShare {
+  kind: "user" | "group";
+  target: string;
+}
+
+export interface AgentRun {
+  ID: number;
+  AgentID: number;
+  ActorUserID: number;
+  Topic: string;
+  Status: string;
+  ErrorCode: string;
+  InputTokens: number;
+  OutputTokens: number;
+  TotalTokens: number;
+  CreatedAt: string;
+}
+
+export interface AgentInput {
+  name: string;
+  description: string;
+  instruction: string;
+  model: string;
+  tools: AgentTool[];
+}
+
+export interface ListAgentsReply {
+  agents: ManagedAgent[];
+  // Pagination may be added server-side; the array shape stays stable.
+  total?: number;
+  hasMore?: boolean;
+}
+
+export const agentApi = {
+  list: () => api.get<ListAgentsReply>("/v1/agents"),
+  detail: (id: number) => api.get<ManagedAgent>(`/v1/agents/${id}`),
+  create: (input: AgentInput) => api.post<ManagedAgent>("/v1/agents", input),
+  saveDraft: (id: number, input: AgentInput & { revision: number }) =>
+    api.put<ManagedAgent>(`/v1/agents/${id}/draft`, input),
+  publish: (id: number, revision: number) =>
+    api.post<unknown>(`/v1/agents/${id}/publish`, { revision }),
+  setStatus: (id: number, status: "active" | "disabled") =>
+    api.post<unknown>(`/v1/agents/${id}/status`, { status }),
+  shares: (id: number) =>
+    api.get<{ shares: AgentShare[] }>(`/v1/agents/${id}/shares`),
+  share: (id: number, kind: AgentShare["kind"], target: string, enabled: boolean) =>
+    api.put<unknown>(`/v1/agents/${id}/shares`, { kind, target, enabled }),
+  runs: (id: number) => api.get<{ runs: AgentRun[] }>(`/v1/agents/${id}/runs`),
+  runAction: (id: number, action: "retry" | "skip") =>
+    api.post<unknown>(`/v1/agent-runs/${id}/${action}`, {}),
 };

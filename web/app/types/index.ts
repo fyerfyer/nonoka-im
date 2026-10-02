@@ -36,6 +36,10 @@ export interface Conversation {
   type: "p2p" | "group";
   peerId: number;
   peerUsername: string;
+  // peerIsBot marks a p2p conversation whose peer is an agent bot user.
+  // Only set when the conversation was opened locally (NewChatDialog /
+  // Agents page); the server conversation list does not return it.
+  peerIsBot?: boolean;
   name?: string;
   lastMsgPreview?: string;
   lastMsgAt?: number;
