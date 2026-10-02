@@ -162,10 +162,19 @@ func TestSDK_PullMessages(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
+	// Seed the topic with one message so OpenFGA participant tuples exist;
+	// the noop producer persists nothing, so the pull below still returns
+	// an empty page past the seed message.
+	sendCtx, seedCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer seedCancel()
+	if _, err := client.SendMessage(sendCtx, "p2p_1_2", v1.MsgType_MSG_TYPE_TEXT, []byte("seed")); err != nil {
+		t.Fatalf("seed send failed: %v", err)
+	}
+
 	pullCtx, pullCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pullCancel()
 
-	result, err := client.PullMessages(pullCtx, "p2p_1_2", 0, 10)
+	result, err := client.PullMessages(pullCtx, "p2p_1_2", 1, 10)
 	if err != nil {
 		t.Fatalf("pull messages failed: %v", err)
 	}
@@ -462,7 +471,7 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "sdk-mention-user", "123456")
+	token, userID := registerAndLogin(t, "sdk-mention-user", "123456")
 
 	client := sdk.NewClient(sdk.Options{
 		GatewayURL:        testWSURL,
@@ -480,10 +489,14 @@ func TestSDK_SendMessage_WithMentions(t *testing.T) {
 		t.Fatalf("sdk connect failed: %v", err)
 	}
 
+	// Mention targets must be a conversation the sender can access: create a
+	// real group (owner = sender) and mention within its topic.
+	_, groupTopic := createGroupHTTP(t, token, "sdk-mention-group", userID)
+
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 
-	result, err := client.SendMessageWithMentions(sendCtx, "grp_test", v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
+	result, err := client.SendMessageWithMentions(sendCtx, groupTopic, v1.MsgType_MSG_TYPE_TEXT, []byte("hello @user"), []int64{2, 3})
 	if err != nil {
 		t.Fatalf("send message with mentions failed: %v", err)
 	}

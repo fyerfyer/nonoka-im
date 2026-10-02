@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"testing"
 
-	v1 "nonoka-im/api/im/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
 )
 
 func decodeProtoJSON(t *testing.T, body io.Reader, msg proto.Message) {

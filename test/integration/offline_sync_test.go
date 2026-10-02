@@ -615,10 +615,30 @@ func TestGateway_Pull_EmptyResult(t *testing.T) {
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
-	// Pull a topic with no messages
+	// OpenFGA grants access through participant tuples, which the first
+	// publish creates for both sides of the conversation. Publish one message
+	// (accepted by the noop producer) so the pull below is authorized, then
+	// read its ACK before pulling past it.
+	wsSendPacket(t, wsConn, &v1.Packet{
+		Cmd: v1.Command_CMD_PUBLISH,
+		Seq: 2,
+		Payload: &v1.Packet_SendReq{
+			SendReq: &v1.SendMessageRequest{
+				Topic:       "p2p_1_2",
+				MsgType:     v1.MsgType_MSG_TYPE_TEXT,
+				Content:     []byte("seed"),
+				ClientMsgId: "pull-empty-seed",
+			},
+		},
+	})
+	if ack := wsReadPacket(t, wsConn, 2*time.Second); ack.GetSendReply() == nil {
+		t.Fatalf("expected publish ACK, got %+v", ack)
+	}
+
+	// Pull the same topic past the seed message: no new messages.
 	pullReq := &v1.PullRequest{
-		Topic:   "p2p_999_1000",
-		LastSeq: 0,
+		Topic:   "p2p_1_2",
+		LastSeq: 1,
 		Limit:   50,
 	}
 	wsSendPacket(t, wsConn, &v1.Packet{
@@ -1087,6 +1107,16 @@ func TestGateway_Pull_BackwardHistory(t *testing.T) {
 	seqGen := msgworker.NewSeqGenerator(ts.redis, testLogger)
 	snowflake := msgworker.NewSnowflake(1)
 	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, ts.storage, nil, testLogger)
+
+	// The history below is injected directly, bypassing the gateway, so the
+	// OpenFGA participant tuples a real exchange would have created are
+	// seeded here explicitly; pulling users 100/200 is then authorized.
+	if err := ts.openFGA.SetTopicParticipant(ctx, topic, 100); err != nil {
+		t.Fatalf("seed participant 100 failed: %v", err)
+	}
+	if err := ts.openFGA.SetTopicParticipant(ctx, topic, 200); err != nil {
+		t.Fatalf("seed participant 200 failed: %v", err)
+	}
 
 	for i := 0; i < 25; i++ {
 		upstream := &v1.UpstreamMessage{

@@ -1,15 +1,16 @@
 package integration
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/gateway"
-	"google.golang.org/protobuf/proto"
 )
 
 // ============================================
@@ -125,13 +126,15 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-content")
 	defer reader.Close()
 
-	// Publish with specific content
+	// Publish with specific content to a group the sender belongs to
+	// (OpenFGA denies group topics without membership tuples).
+	_, groupTopic := createGroupHTTP(t, token, "kafka-content-group", userID)
 	wsSendPacket(t, wsConn, &v1.Packet{
 		Cmd: v1.Command_CMD_PUBLISH,
 		Seq: 2,
 		Payload: &v1.Packet_SendReq{
 			SendReq: &v1.SendMessageRequest{
-				Topic:       "grp_42",
+				Topic:       groupTopic,
 				MsgType:     v1.MsgType_MSG_TYPE_IMAGE,
 				Content:     []byte(`{"url":"https://example.com/img.png","width":800}`),
 				ClientMsgId: "content-msg-002",
@@ -146,8 +149,8 @@ func TestGateway_Kafka_Publish_Content(t *testing.T) {
 	msg := consumeKafkaMessage(t, reader, 5*time.Second)
 
 	// Verify Kafka message key is the topic (for partition affinity)
-	if string(msg.Key) != "grp_42" {
-		t.Fatalf("expected Kafka message key='grp_42', got '%s'", string(msg.Key))
+	if string(msg.Key) != groupTopic {
+		t.Fatalf("expected Kafka message key='%s', got '%s'", groupTopic, string(msg.Key))
 	}
 
 	// Verify headers
@@ -195,9 +198,10 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 	const messagesPerClient = 5
 
 	tokens := make([]string, concurrency)
+	userIDs := make([]int64, concurrency)
 	for i := 0; i < concurrency; i++ {
 		username := "kafka-concurrent-user-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		tokens[i], _ = registerAndLogin(t, username, "123456")
+		tokens[i], userIDs[i] = registerAndLogin(t, username, "123456")
 	}
 
 	// Create reader BEFORE any publish to capture only test messages
@@ -229,14 +233,16 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 			})
 			wsReadPacket(t, wsConn, 2*time.Second)
 
-			// Publish messages
+			// Publish messages, each to a P2P topic its sender belongs to
+			// (OpenFGA denies publishes to topics the sender is not part of).
+			topic := fmt.Sprintf("p2p_1_%d", userIDs[idx])
 			for j := 0; j < messagesPerClient; j++ {
 				wsSendPacket(t, wsConn, &v1.Packet{
 					Cmd: v1.Command_CMD_PUBLISH,
 					Seq: uint64(j + 2),
 					Payload: &v1.Packet_SendReq{
 						SendReq: &v1.SendMessageRequest{
-							Topic:       "p2p_1_2",
+							Topic:       topic,
 							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
 							Content:     []byte("concurrent kafka message"),
 							ClientMsgId: "kafka-concurrent-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),
@@ -251,11 +257,12 @@ func TestGateway_Kafka_ConcurrentPublish(t *testing.T) {
 					if resp == nil {
 						continue // short read timeout, keep trying until overall deadline
 					}
-					if resp.Cmd == v1.Command_CMD_PUBLISH {
+					if resp.Cmd == v1.Command_CMD_PUBLISH && resp.GetSendReply() != nil {
 						atomic.AddInt32(&successCount, 1)
 						break
 					}
-					// Otherwise it's a push notification (CMD_NOTIFY) — continue reading
+					// Otherwise it's a push notification (CMD_NOTIFY) or an
+					// error response — only a real SendReply counts as an ACK.
 				}
 			}
 		}(i)
@@ -307,7 +314,7 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "kafka-affinity-user", "123456")
+	token, uid := registerAndLogin(t, "kafka-affinity-user", "123456")
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -329,9 +336,10 @@ func TestGateway_Kafka_PartitionAffinity(t *testing.T) {
 	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-affinity")
 	defer reader.Close()
 
-	// Send multiple messages to the same topic
+	// Send multiple messages to the same topic. The topic must be one the
+	// sender is authorized for (OpenFGA participant check on publish).
 	const messageCount = 5
-	topic := "p2p_100_200"
+	topic := fmt.Sprintf("p2p_%d_%d", uid, uid+1)
 
 	for i := 0; i < messageCount; i++ {
 		wsSendPacket(t, wsConn, &v1.Packet{
@@ -416,7 +424,7 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	ts := setupTestServer(t, true)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "kafka-multi-topic-user", "123456")
+	token, userID := registerAndLogin(t, "kafka-multi-topic-user", "123456")
 
 	wsConn := wsConnect(t)
 	defer wsConn.Close()
@@ -437,8 +445,15 @@ func TestGateway_Kafka_Publish_DifferentTopics(t *testing.T) {
 	reader := createKafkaReader(testKafkaBroker, ts.kafkaTopic, "test-group-multi")
 	defer reader.Close()
 
-	// Send messages to different topics
-	topics := []string{"p2p_1_2", "grp_42", "sys_123"}
+	// Send messages to different topic kinds, each authorized for the sender:
+	// a P2P topic the user belongs to, a group it is a member of, and its own
+	// system topic (OpenFGA denies any topic without the matching tuples).
+	_, groupTopic := createGroupHTTP(t, token, "kafka-multi-group", userID)
+	topics := []string{
+		fmt.Sprintf("p2p_%d_%d", userID, userID+1),
+		groupTopic,
+		fmt.Sprintf("sys_%d", userID),
+	}
 	for i, topic := range topics {
 		wsSendPacket(t, wsConn, &v1.Packet{
 			Cmd: v1.Command_CMD_PUBLISH,

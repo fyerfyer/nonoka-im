@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -242,11 +243,14 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 	const concurrency = 15
 	const messagesPerClient = 5
 
-	// Set up authenticated connections
+	// Set up authenticated connections. Each user publishes to a P2P topic it
+	// belongs to (OpenFGA denies sends to topics the sender is not part of).
 	conns := make([]*websocket.Conn, concurrency)
+	userIDs := make([]int64, concurrency)
 	for i := range concurrency {
 		username := "publish-user-" + string(rune('a'+i%26))
-		token, _ := registerAndLogin(t, username, "123456")
+		token, uid := registerAndLogin(t, username, "123456")
+		userIDs[i] = uid
 
 		wsConn := wsConnect(t)
 		conns[i] = wsConn
@@ -276,12 +280,13 @@ func TestGateway_Concurrent_Publish(t *testing.T) {
 			wsConn := conns[idx]
 
 			for j := range messagesPerClient {
+				topic := fmt.Sprintf("p2p_1_%d", userIDs[idx])
 				wsSendPacket(t, wsConn, &v1.Packet{
 					Cmd: v1.Command_CMD_PUBLISH,
 					Seq: uint64(j + 1),
 					Payload: &v1.Packet_SendReq{
 						SendReq: &v1.SendMessageRequest{
-							Topic:       "p2p_1_2",
+							Topic:       topic,
 							MsgType:     v1.MsgType_MSG_TYPE_TEXT,
 							Content:     []byte("concurrent message"),
 							ClientMsgId: "msg-" + string(rune('0'+idx)) + "-" + string(rune('0'+j)),

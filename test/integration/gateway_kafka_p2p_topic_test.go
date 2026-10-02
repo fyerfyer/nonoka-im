@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	v1 "nonoka-im/api/im/v1"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
 )
 
 // TestGateway_Kafka_P2PTopicCanonical verifies that P2P topics are normalized

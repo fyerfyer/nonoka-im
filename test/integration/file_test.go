@@ -53,7 +53,7 @@ func uploadFileMultipart(t *testing.T, token, filename, mime string, content []b
 }
 
 // TestFile_UploadDownloadRoundTrip verifies multipart upload with JWT and
-// public download return identical bytes with correct metadata.
+// authenticated download returns identical bytes with correct metadata.
 func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -80,8 +80,20 @@ func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 		t.Fatalf("reply metadata mismatch: %+v", &reply)
 	}
 
-	// Download: no Authorization header on purpose (public endpoint).
-	dl, err := http.Get(testBaseURL + reply.Url)
+	unauthenticated, err := http.Get(testBaseURL + reply.Url)
+	if err != nil {
+		t.Fatalf("unauthenticated download request failed: %v", err)
+	}
+	unauthenticated.Body.Close()
+	if unauthenticated.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated download 401, got %d", unauthenticated.StatusCode)
+	}
+	req, err := http.NewRequest(http.MethodGet, testBaseURL+reply.Url, nil)
+	if err != nil {
+		t.Fatalf("create download request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	dl, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("download request failed: %v", err)
 	}
@@ -104,7 +116,12 @@ func TestFile_UploadDownloadRoundTrip(t *testing.T) {
 	}
 
 	// Missing file -> 404.
-	miss, err := http.Get(testBaseURL + "/v1/files/does-not-exist")
+	missingReq, err := http.NewRequest(http.MethodGet, testBaseURL+"/v1/files/does-not-exist", nil)
+	if err != nil {
+		t.Fatalf("create missing-file request failed: %v", err)
+	}
+	missingReq.Header.Set("Authorization", "Bearer "+token)
+	miss, err := http.DefaultClient.Do(missingReq)
 	if err != nil {
 		t.Fatalf("missing-file request failed: %v", err)
 	}

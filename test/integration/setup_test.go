@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -44,6 +45,9 @@ const (
 
 	testKafkaBroker = "127.0.0.1:9092"
 	testKafkaTopic  = "im-messages-test"
+
+	testOpenFGAURL          = "http://127.0.0.1:8081"
+	testOpenFGADefaultToken = "nonoka-openfga-test-key"
 )
 
 var (
@@ -67,6 +71,8 @@ type testServer struct {
 	msgWorker     *msgworker.MsgWorker
 	fileSvc       *service.FileService
 	grpcCleanup   func()
+	openFGA       *authz.OpenFGA
+	fgaCleanup    func()
 }
 
 // setupTestServer bootstraps a full HTTP server against the test database.
@@ -141,6 +147,11 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	}
 	dispatchSvc := service.NewDispatchService(d.Redis, dispatchConf, testLogger)
 
+	// 6.5 OpenFGA authorization: fresh store + embedded model per test server.
+	// CleanTestData recycles PostgreSQL user IDs, so tuple state must not leak
+	// across tests; a dedicated store per server instance isolates them.
+	fgaAuthorizer, fgaCleanup := setupOpenFGA(t)
+
 	// 7. Gateway layer
 	gwManager := gateway.NewManager(testLogger)
 	gwSessionMgr := gateway.NewSessionManager(d.Redis, "test-gateway-node")
@@ -173,8 +184,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Interval: 30 * time.Second,
 		Timeout:  90 * time.Second,
 	}, testLogger)
-	topicAuthorizer := authz.NewTopicAuthorizer(data.NewGroupRepo(d, testLogger))
-	gwHandler.SetAuthorizer(topicAuthorizer)
+	gwHandler.SetAuthorizer(fgaAuthorizer)
 	// Integration tests intentionally exercise rapid/burst traffic, so the
 	// per-connection publish rate limiter is disabled here. It is covered by
 	// unit tests and enabled with real defaults in the wire assembly.
@@ -182,9 +192,11 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second, 10*time.Second, nil)
 
 	// 7. Message service (with producer for HTTP fallback)
-	msgSvc := service.NewMessageServiceWithAuthorizer(storage, msgProducer, topicAuthorizer, testLogger)
+	msgSvc := service.NewMessageServiceWithAuthorizer(storage, msgProducer, fgaAuthorizer, testLogger)
 	userSvc := service.NewUserService(authUC)
 	conversationSvc := service.NewConversationService(data.NewConversationRepo(d, testLogger))
+	groupSvc := service.NewGroupServiceWithAuthorizer(data.NewGroupRepo(d, testLogger), fgaAuthorizer)
+	agentSvc := service.NewAgentHTTP(d, fgaAuthorizer, data.NewGroupRepo(d, testLogger))
 
 	// 7.5 Start msgworker and gRPC push server when using Kafka
 	var worker *msgworker.MsgWorker
@@ -242,8 +254,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	// Rate limiting is disabled in the integration harness: several existing
 	// tests deliberately hammer login/register and rapid WS publishes. The
 	// limiter logic itself is covered by unit tests.
-	fileSvc := service.NewFileServiceWithAuthorizer(mongoDB, topicAuthorizer, testLogger)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, nil, fileSvc, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	fileSvc := service.NewFileServiceWithAuthorizer(mongoDB, fgaAuthorizer, testLogger)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	// 8. Start HTTP server in background
 	go func() {
 		if err := hs.Start(ctx); err != nil {
@@ -277,6 +289,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		msgWorker:     worker,
 		fileSvc:       fileSvc,
 		grpcCleanup:   grpcCleanup,
+		openFGA:       fgaAuthorizer,
+		fgaCleanup:    fgaCleanup,
 	}
 }
 
@@ -289,6 +303,9 @@ func (ts *testServer) stop() {
 	}
 	if ts.httpSrv != nil {
 		ts.httpSrv.Stop(context.Background())
+	}
+	if ts.fgaCleanup != nil {
+		ts.fgaCleanup()
 	}
 	if ts.cleanup != nil {
 		ts.cleanup()
@@ -314,6 +331,132 @@ func waitForServer(url string) error {
 	return fmt.Errorf("server did not become ready in time")
 }
 
+// ---------- OpenFGA test helpers ----------
+
+// waitForOpenFGA waits for the OpenFGA HTTP API to become ready.
+func waitForOpenFGA(apiURL string) error {
+	for i := 0; i < 100; i++ {
+		resp, err := httpClient.Get(apiURL + "/healthz")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("openfga did not become ready in time")
+}
+
+// setupOpenFGA creates a fresh OpenFGA store with the embedded authorization
+// model for a single test server instance, and returns the authorizer plus a
+// cleanup that deletes the store again. The API token is read from
+// OPENFGA_API_TOKEN, defaulting to the preshared key configured in
+// docker-compose.test.yml, and exported so the authorizer built by
+// authz.NewOpenFGA attaches the same credentials. While the test container
+// still runs with authn=none the token is simply ignored; if the server ever
+// rejects it with 401 we fall back to anonymous access (probed once, kept
+// simple).
+func setupOpenFGA(t *testing.T) (*authz.OpenFGA, func()) {
+	t.Helper()
+	if err := waitForOpenFGA(testOpenFGAURL); err != nil {
+		t.Fatalf("openfga not ready: %v", err)
+	}
+	token := os.Getenv("OPENFGA_API_TOKEN")
+	if token == "" {
+		token = testOpenFGADefaultToken
+	}
+	if openFGAAcceptsToken(token) {
+		os.Setenv("OPENFGA_API_TOKEN", token)
+	} else {
+		t.Logf("openfga rejected the configured token; continuing without credentials")
+		os.Unsetenv("OPENFGA_API_TOKEN")
+		token = ""
+	}
+
+	api := func(method, path string, body, out any) error {
+		var reader io.Reader
+		if body != nil {
+			buf, err := json.Marshal(body)
+			if err != nil {
+				return err
+			}
+			reader = bytes.NewReader(buf)
+		}
+		req, err := http.NewRequest(method, testOpenFGAURL+path, reader)
+		if err != nil {
+			return err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		resp, err := httpClient.Do(req.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			payload, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			return fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, payload)
+		}
+		if out != nil {
+			return json.NewDecoder(resp.Body).Decode(out)
+		}
+		return nil
+	}
+
+	storeName := fmt.Sprintf("nonoka-it-%d", time.Now().UnixNano())
+	var store struct {
+		ID string `json:"id"`
+	}
+	if err := api(http.MethodPost, "/stores", map[string]string{"name": storeName}, &store); err != nil {
+		t.Fatalf("create openfga store: %v", err)
+	}
+	model, err := authz.Model()
+	if err != nil {
+		t.Fatalf("load embedded authorization model: %v", err)
+	}
+	var written struct {
+		AuthorizationModelID string `json:"authorization_model_id"`
+	}
+	if err := api(http.MethodPost, "/stores/"+store.ID+"/authorization-models", model, &written); err != nil {
+		t.Fatalf("write openfga authorization model: %v", err)
+	}
+	fga, err := authz.NewOpenFGA(testOpenFGAURL, store.ID, written.AuthorizationModelID)
+	if err != nil {
+		t.Fatalf("create openfga authorizer: %v", err)
+	}
+	cleanup := func() {
+		_ = api(http.MethodDelete, "/stores/"+store.ID, nil, nil)
+	}
+	return fga, cleanup
+}
+
+// openFGAAcceptsToken probes the store listing once with the given bearer
+// token. A 401 means the server runs a different authn setup, so anonymous
+// access is used instead.
+func openFGAAcceptsToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, testOpenFGAURL+"/stores", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode != http.StatusUnauthorized
+}
+
 // httpPost sends a JSON POST request and unmarshals the response.
 func httpPost(t *testing.T, url string, body interface{}) *http.Response {
 	var buf bytes.Buffer
@@ -324,6 +467,36 @@ func httpPost(t *testing.T, url string, body interface{}) *http.Response {
 	resp, err := httpClient.Post(url, "application/json", &buf)
 	if err != nil {
 		t.Fatalf("failed to POST %s: %v", url, err)
+	}
+	return resp
+}
+
+// httpPostAuth sends a JSON POST request with an Authorization bearer token.
+func httpPostAuth(t *testing.T, url, token string, body interface{}) *http.Response {
+	return httpDoAuth(t, http.MethodPost, url, token, body)
+}
+
+// httpPutAuth sends a JSON PUT request with an Authorization bearer token.
+func httpPutAuth(t *testing.T, url, token string, body interface{}) *http.Response {
+	return httpDoAuth(t, http.MethodPut, url, token, body)
+}
+
+func httpDoAuth(t *testing.T, method, url, token string, body interface{}) *http.Response {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		t.Fatalf("failed to encode request body: %v", err)
+	}
+	req, err := http.NewRequest(method, url, &buf)
+	if err != nil {
+		t.Fatalf("failed to create %s request: %v", method, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to %s %s: %v", method, url, err)
 	}
 	return resp
 }
