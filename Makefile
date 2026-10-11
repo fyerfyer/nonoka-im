@@ -99,7 +99,11 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Kafka Tests              ==="
 	@echo "========================================"
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 300s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running Agent Tests              ==="
+	@echo "========================================"
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgent' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"

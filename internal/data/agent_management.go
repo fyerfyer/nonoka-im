@@ -15,14 +15,25 @@ var ErrDraftConflict = errors.New("agent draft changed")
 var ErrRunState = errors.New("run state conflict")
 var ErrAgentNotFound = errors.New("agent not found")
 
-func (s *AgentStore) CreateAgent(ctx context.Context, ownerID int64, name, description, instruction, model, tools string, grant func(context.Context, int64) error) (*Agent, error) {
+// AgentSpec is the editable draft configuration of an agent. APIKeyEnc is the
+// sealed model credential; it is frozen into every published version so a run
+// always uses the key that was current when its version was published.
+type AgentSpec struct {
+	Name, Description, Instruction string
+	Model, Tools                   string
+	BaseURL, APIKeyEnc             string
+	MaxTokens                      int
+	MCPBindings, Skills            string
+}
+
+func (s *AgentStore) CreateAgent(ctx context.Context, ownerID int64, spec AgentSpec, grant func(context.Context, int64) error) (*Agent, error) {
 	var row Agent
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		bot := User{Username: "agent_" + uuid.NewString()[:12], Password: "!", IsBot: true}
 		if err := tx.Create(&bot).Error; err != nil {
 			return err
 		}
-		row = Agent{BotUserID: bot.ID, OwnerUserID: ownerID, Name: name, Description: description, Status: "draft", DraftInstruction: instruction, DraftModel: model, DraftTools: tools, DraftRevision: 1}
+		row = Agent{BotUserID: bot.ID, OwnerUserID: ownerID, Name: spec.Name, Description: spec.Description, Status: "draft", DraftInstruction: spec.Instruction, DraftModel: spec.Model, DraftTools: spec.Tools, DraftBaseURL: spec.BaseURL, DraftAPIKeyEnc: spec.APIKeyEnc, DraftMaxTokens: spec.MaxTokens, DraftMCPBindings: spec.MCPBindings, DraftSkills: spec.Skills, DraftRevision: 1}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -82,8 +93,15 @@ func (s *AgentStore) GetVersion(ctx context.Context, agentID, version int64) (*A
 	return &row, err
 }
 
-func (s *AgentStore) UpdateDraft(ctx context.Context, id, revision int64, name, description, instruction, model, tools string) (*Agent, error) {
-	result := s.db.WithContext(ctx).Model(&Agent{}).Where("id = ? AND draft_revision = ?", id, revision).Updates(map[string]interface{}{"name": name, "description": description, "draft_instruction": instruction, "draft_model": model, "draft_tools": tools, "draft_revision": gorm.Expr("draft_revision + 1"), "updated_at": time.Now()})
+// UpdateDraft replaces the draft configuration. updateKey=true overwrites the
+// sealed API key; false keeps the existing one (requests send an empty key to
+// mean "unchanged").
+func (s *AgentStore) UpdateDraft(ctx context.Context, id, revision int64, spec AgentSpec, updateKey bool) (*Agent, error) {
+	updates := map[string]interface{}{"name": spec.Name, "description": spec.Description, "draft_instruction": spec.Instruction, "draft_model": spec.Model, "draft_tools": spec.Tools, "draft_base_url": spec.BaseURL, "draft_max_tokens": spec.MaxTokens, "draft_mcp_bindings": spec.MCPBindings, "draft_skills": spec.Skills, "draft_revision": gorm.Expr("draft_revision + 1"), "updated_at": time.Now()}
+	if updateKey {
+		updates["draft_api_key_enc"] = spec.APIKeyEnc
+	}
+	result := s.db.WithContext(ctx).Model(&Agent{}).Where("id = ? AND draft_revision = ?", id, revision).Updates(updates)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -103,7 +121,7 @@ func (s *AgentStore) Publish(ctx context.Context, id, revision int64) (*AgentVer
 		if row.DraftRevision != revision {
 			return ErrDraftConflict
 		}
-		version = AgentVersion{AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction, Model: row.DraftModel, Tools: row.DraftTools}
+		version = AgentVersion{AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction, Model: row.DraftModel, Tools: row.DraftTools, BaseURL: row.DraftBaseURL, APIKeyEnc: row.DraftAPIKeyEnc, MaxTokens: row.DraftMaxTokens, MCPBindings: row.DraftMCPBindings, Skills: row.DraftSkills}
 		if err := tx.Create(&version).Error; err != nil {
 			return err
 		}
@@ -163,7 +181,7 @@ func (s *AgentStore) QueuedRuns(ctx context.Context, limit int) ([]AgentRun, err
 	return rows, err
 }
 
-func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model string, grant func(context.Context, int64) error) error {
+func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model, baseURL, apiKeyEnc string, maxTokens int, grant func(context.Context, int64) error) error {
 	if id <= 0 || ownerID <= 0 {
 		return fmt.Errorf("bootstrap agent and owner IDs required")
 	}
@@ -189,14 +207,14 @@ func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int6
 				return fmt.Errorf("bootstrap bot user %d does not exist", botID)
 			}
 		}
-		if model == "" {
-			model = "deepseek-chat"
+		if maxTokens <= 0 {
+			maxTokens = 4096
 		}
-		row := Agent{ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active", CurrentVersion: 1, DraftInstruction: instruction, DraftModel: model, DraftTools: `["search_messages","get_conversation_context","send_message"]`, DraftRevision: 1}
+		row := Agent{ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active", CurrentVersion: 1, DraftInstruction: instruction, DraftModel: model, DraftTools: `["search_messages","get_conversation_context","send_message"]`, DraftBaseURL: baseURL, DraftAPIKeyEnc: apiKeyEnc, DraftMaxTokens: maxTokens, DraftRevision: 1}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
-		version := AgentVersion{AgentID: id, Version: 1, Instruction: instruction, Model: model, Tools: row.DraftTools}
+		version := AgentVersion{AgentID: id, Version: 1, Instruction: instruction, Model: model, Tools: row.DraftTools, BaseURL: baseURL, APIKeyEnc: apiKeyEnc, MaxTokens: maxTokens}
 		if err := tx.Create(&version).Error; err != nil {
 			return err
 		}

@@ -2,7 +2,11 @@ package eino
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -85,5 +89,52 @@ func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
 	result, err := r.Run(context.Background(), in)
 	if err != nil || result.Text != "final answer" {
 		t.Fatalf("fallback lost current input: result=%+v err=%v", result, err)
+	}
+}
+
+// TestRunRoutesToAgentOwnedEndpoint verifies that an agent's own base URL,
+// API key and model name override the runtime defaults, so one worker can run
+// agents backed by different OpenAI-compatible providers.
+func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
+	var gotModel, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		gotAuth = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(body, &req)
+		gotModel = req.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"fixture-model","choices":[{"index":0,"message":{"role":"assistant","content":"reply from fixture"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`))
+	}))
+	defer srv.Close()
+
+	rt, err := NewRuntime(context.Background(), "default-key", "https://default.invalid/v1", "default-model")
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	res, err := rt.Run(context.Background(), runtime.Input{
+		Instruction: "hi", Text: "hello",
+		Model: "fixture-model", BaseURL: srv.URL + "/v1", APIKey: "agent-own-key", MaxTokens: 512,
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Text != "reply from fixture" {
+		t.Fatalf("unexpected reply %q", res.Text)
+	}
+	if gotModel != "fixture-model" {
+		t.Fatalf("fixture saw model %q", gotModel)
+	}
+	if gotAuth != "Bearer agent-own-key" {
+		t.Fatalf("fixture saw auth %q", gotAuth)
+	}
+	if res.Usage.TotalTokens != 3 {
+		t.Fatalf("usage not recorded: %+v", res.Usage)
 	}
 }

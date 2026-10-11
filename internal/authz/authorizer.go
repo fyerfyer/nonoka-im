@@ -15,6 +15,9 @@ import (
 type Authorizer interface {
 	CanAccessTopic(context.Context, int64, string) error
 	CanReadFile(context.Context, int64, string) error
+	// CanExecuteTool authorizes one agent tool call for the actor. resourceType
+	// is "file" or "topic" (empty resourceRef means the current topic).
+	CanExecuteTool(ctx context.Context, actorID, agentID int64, tool, currentTopic, resourceType, resourceRef string) error
 }
 
 // TopicAuthorizer uses the authoritative PostgreSQL group repository. File
@@ -88,4 +91,10 @@ func (a *TopicAuthorizer) CanReadFile(_ context.Context, userID int64, fileID st
 		return fmt.Errorf("file access denied")
 	}
 	return nil
+}
+
+// CanExecuteTool is a migration shim for the legacy authorizer: tool bindings
+// live in OpenFGA, so deployments using this authorizer cannot run tools.
+func (a *TopicAuthorizer) CanExecuteTool(_ context.Context, _, _ int64, _, _, _, _ string) error {
+	return fmt.Errorf("tool authorization requires OpenFGA")
 }

@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
+	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/data"
@@ -21,13 +24,14 @@ import (
 
 type AgentHTTP struct {
 	store  *data.AgentStore
+	ext    *data.MCPStore
 	auth   *authz.OpenFGA
 	groups data.GroupRepo
 	users  biz.AuthRepo
 }
 
 func NewAgentHTTP(d *data.Data, auth *authz.OpenFGA, groups data.GroupRepo) *AgentHTTP {
-	return &AgentHTTP{store: data.NewAgentStore(d), auth: auth, groups: groups, users: data.NewAuthRepo(d, log.DefaultLogger)}
+	return &AgentHTTP{store: data.NewAgentStore(d), ext: data.NewMCPStore(d), auth: auth, groups: groups, users: data.NewAuthRepo(d, log.DefaultLogger)}
 }
 
 type agentRequest struct {
@@ -36,11 +40,22 @@ type agentRequest struct {
 	Instruction string   `json:"instruction"`
 	Model       string   `json:"model"`
 	Tools       []string `json:"tools"`
-	Revision    int64    `json:"revision"`
-	Status      string   `json:"status"`
-	Kind        string   `json:"kind"`
-	Target      string   `json:"target"`
-	Enabled     bool     `json:"enabled"`
+	BaseURL     string   `json:"base_url"`
+	APIKey      string   `json:"api_key"`
+	MaxTokens   int      `json:"max_tokens"`
+	MCPBindings []struct {
+		Server string `json:"server"`
+		Tool   string `json:"tool"`
+	} `json:"mcp_bindings"`
+	Skills []struct {
+		Name    string `json:"name"`
+		Version int64  `json:"version"`
+	} `json:"skills"`
+	Revision int64  `json:"revision"`
+	Status   string `json:"status"`
+	Kind     string `json:"kind"`
+	Target   string `json:"target"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type agentInputError struct{ error }
@@ -49,22 +64,102 @@ func invalidAgentInput(format string, args ...any) error {
 	return agentInputError{fmt.Errorf(format, args...)}
 }
 
+// validateExtensions checks MCP and skill bindings against the registries and
+// returns their frozen JSON representation for the draft/version snapshot.
+func (s *AgentHTTP) validateExtensions(ctx context.Context, v *agentRequest) (string, string, error) {
+	mcpBindings := make([]data.MCPBinding, 0, len(v.MCPBindings))
+	seen := map[string]bool{}
+	for _, binding := range v.MCPBindings {
+		if binding.Server == "" || binding.Tool == "" || strings.ContainsAny(binding.Server+binding.Tool, " \t\n") {
+			return "", "", invalidAgentInput("invalid mcp binding")
+		}
+		key := binding.Server + "/" + binding.Tool
+		if seen[key] {
+			return "", "", invalidAgentInput("duplicate mcp binding %q", key)
+		}
+		seen[key] = true
+		server, err := s.ext.GetServer(ctx, binding.Server)
+		if err != nil || !server.Enabled {
+			return "", "", invalidAgentInput("mcp server %q is not available", binding.Server)
+		}
+		var allowed []string
+		if err := json.Unmarshal([]byte(server.AllowedTools), &allowed); err != nil {
+			return "", "", invalidAgentInput("mcp server %q has an invalid tool list", binding.Server)
+		}
+		found := false
+		for _, name := range allowed {
+			if name == binding.Tool {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", "", invalidAgentInput("tool %q is not allowed on mcp server %q", binding.Tool, binding.Server)
+		}
+		mcpBindings = append(mcpBindings, data.MCPBinding{Server: binding.Server, Tool: binding.Tool, Exposed: "mcp_" + binding.Server + "_" + binding.Tool})
+	}
+	skillBindings := make([]data.SkillBinding, 0, len(v.Skills))
+	seenSkill := map[string]bool{}
+	for _, binding := range v.Skills {
+		if binding.Name == "" || binding.Version <= 0 {
+			return "", "", invalidAgentInput("invalid skill binding")
+		}
+		if seenSkill[binding.Name] {
+			return "", "", invalidAgentInput("duplicate skill binding %q", binding.Name)
+		}
+		seenSkill[binding.Name] = true
+		row, err := s.ext.GetSkill(ctx, binding.Name, binding.Version)
+		if err != nil || !row.Published {
+			return "", "", invalidAgentInput("skill %q version %d is not published", binding.Name, binding.Version)
+		}
+		skillBindings = append(skillBindings, data.SkillBinding{Name: binding.Name, Version: binding.Version})
+	}
+	mcpJSON, _ := json.Marshal(mcpBindings)
+	skillsJSON, _ := json.Marshal(skillBindings)
+	return string(mcpJSON), string(skillsJSON), nil
+}
+
+// isAgentAdmin reports whether the user is in the platform admin set
+// configured through AGENT_ADMIN_USER_IDS (comma separated user IDs).
+func isAgentAdmin(uid int64) bool {
+	for _, part := range strings.Split(os.Getenv("AGENT_ADMIN_USER_IDS"), ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id == uid {
+			return true
+		}
+	}
+	return false
+}
+
 func validateAgentRequest(v *agentRequest) error {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Instruction = strings.TrimSpace(v.Instruction)
+	v.Model = strings.TrimSpace(v.Model)
 	if v.Model == "" {
 		v.Model = os.Getenv("OPENAI_MODEL")
-	}
-	if v.Model == "" {
-		v.Model = "deepseek-chat"
 	}
 	if len(v.Name) == 0 || len(v.Name) > 100 || v.Instruction == "" || len(v.Instruction) > 20000 || len(v.Description) > 4000 {
 		return invalidAgentInput("invalid agent name, description or instruction")
 	}
-	if v.Model != "deepseek-chat" && v.Model != os.Getenv("OPENAI_MODEL") {
-		return invalidAgentInput("unsupported model")
+	if len(v.Model) > 100 {
+		return invalidAgentInput("invalid model")
 	}
-	allowed := map[string]bool{"search_messages": true, "get_conversation_context": true, "send_message": true}
+	v.BaseURL = strings.TrimSpace(v.BaseURL)
+	if v.BaseURL != "" {
+		if len(v.BaseURL) > 200 {
+			return invalidAgentInput("invalid base_url")
+		}
+		u, err := url.Parse(v.BaseURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return invalidAgentInput("base_url must be an http(s) URL")
+		}
+	}
+	if len(v.APIKey) > 512 {
+		return invalidAgentInput("invalid api_key")
+	}
+	if v.MaxTokens < 0 || v.MaxTokens > 128000 {
+		return invalidAgentInput("invalid max_tokens")
+	}
+	allowed := map[string]bool{"search_messages": true, "get_conversation_context": true, "send_message": true, "read_file": true, "get_topic_info": true}
 	seen := map[string]bool{}
 	for _, name := range v.Tools {
 		if !allowed[name] || seen[name] {
@@ -73,6 +168,23 @@ func validateAgentRequest(v *agentRequest) error {
 		seen[name] = true
 	}
 	return nil
+}
+
+// sealAgentKey encrypts a caller-supplied model API key. An empty key means
+// "keep the existing one" and yields updateKey=false.
+func sealAgentKey(apiKey string) (enc string, updateKey bool, err error) {
+	if apiKey == "" {
+		return "", false, nil
+	}
+	key, err := credential.SealKeyFromEnv()
+	if err != nil {
+		return "", false, err
+	}
+	sealed, err := credential.Seal(key, []byte(apiKey))
+	if err != nil {
+		return "", false, err
+	}
+	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
 func parseAgentID(c khttp.Context) (int64, error) {
@@ -164,9 +276,23 @@ func (s *AgentHTTP) List(c khttp.Context) error {
 func agentView(row *data.Agent, manager bool) map[string]any {
 	view := map[string]any{"id": row.ID, "botUserId": row.BotUserID, "ownerUserId": row.OwnerUserID, "name": row.Name, "description": row.Description, "status": row.Status, "currentVersion": row.CurrentVersion, "canManage": manager}
 	if manager {
-		view["draft"] = map[string]any{"instruction": row.DraftInstruction, "model": row.DraftModel, "tools": json.RawMessage(row.DraftTools), "revision": row.DraftRevision}
+		view["draft"] = map[string]any{"instruction": row.DraftInstruction, "model": row.DraftModel, "tools": json.RawMessage(row.DraftTools), "baseUrl": row.DraftBaseURL, "hasApiKey": row.DraftAPIKeyEnc != "", "maxTokens": row.DraftMaxTokens, "mcpBindings": rawJSON(row.DraftMCPBindings), "skills": rawJSON(row.DraftSkills), "revision": row.DraftRevision}
 	}
 	return view
+}
+
+// rawJSON renders an empty snapshot column as an empty JSON array instead of
+// an invalid empty RawMessage.
+func rawJSON(s string) json.RawMessage {
+	if strings.TrimSpace(s) == "" {
+		return json.RawMessage("[]")
+	}
+	return json.RawMessage(s)
+}
+
+// versionView exposes a published version without the sealed API key.
+func versionView(v *data.AgentVersion) map[string]any {
+	return map[string]any{"id": v.ID, "agentId": v.AgentID, "version": v.Version, "instruction": v.Instruction, "model": v.Model, "tools": json.RawMessage(v.Tools), "baseUrl": v.BaseURL, "hasApiKey": v.APIKeyEnc != "", "maxTokens": v.MaxTokens, "mcpBindings": rawJSON(v.MCPBindings), "skills": rawJSON(v.Skills), "createdAt": v.CreatedAt}
 }
 
 func (s *AgentHTTP) Detail(c khttp.Context) error {
@@ -190,7 +316,7 @@ func (s *AgentHTTP) Detail(c khttp.Context) error {
 			if err != nil {
 				return err
 			}
-			view["published"] = version
+			view["published"] = versionView(version)
 		}
 		writeAgentJSON(w, http.StatusOK, view)
 		return nil
@@ -207,8 +333,17 @@ func (s *AgentHTTP) Create(c khttp.Context) error {
 			return err
 		}
 		tools, _ := json.Marshal(input.Tools)
+		apiKeyEnc, _, err := sealAgentKey(input.APIKey)
+		if err != nil {
+			return err
+		}
+		mcpJSON, skillsJSON, err := s.validateExtensions(ctx, &input)
+		if err != nil {
+			return err
+		}
 		uid := extractUserIDFromContext(ctx)
-		row, err := s.store.CreateAgent(ctx, uid, input.Name, input.Description, input.Instruction, input.Model, string(tools), func(ctx context.Context, id int64) error { return s.auth.SetAgentOwner(ctx, id, uid) })
+		spec := data.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
+		row, err := s.store.CreateAgent(ctx, uid, spec, func(ctx context.Context, id int64) error { return s.auth.SetAgentOwner(ctx, id, uid) })
 		if err != nil {
 			return err
 		}
@@ -234,7 +369,16 @@ func (s *AgentHTTP) Draft(c khttp.Context) error {
 			return err
 		}
 		tools, _ := json.Marshal(input.Tools)
-		row, err := s.store.UpdateDraft(ctx, id, input.Revision, input.Name, input.Description, input.Instruction, input.Model, string(tools))
+		apiKeyEnc, updateKey, err := sealAgentKey(input.APIKey)
+		if err != nil {
+			return err
+		}
+		mcpJSON, skillsJSON, err := s.validateExtensions(ctx, &input)
+		if err != nil {
+			return err
+		}
+		spec := data.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
+		row, err := s.store.UpdateDraft(ctx, id, input.Revision, spec, updateKey)
 		if err != nil {
 			return err
 		}
@@ -260,7 +404,31 @@ func (s *AgentHTTP) Publish(c khttp.Context) error {
 		if err != nil {
 			return err
 		}
-		writeAgentJSON(w, http.StatusOK, version)
+		// Bind the published tools in OpenFGA so tool execution can be
+		// authorized per (agent, tool). Bindings accumulate across versions:
+		// a tool removed in a newer version stays executable for runs that
+		// were claimed under the older version snapshot.
+		var tools []string
+		if err := json.Unmarshal([]byte(version.Tools), &tools); err != nil {
+			return err
+		}
+		for _, tool := range tools {
+			if err := s.auth.SetAgentToolBinding(ctx, id, tool, true); err != nil {
+				return fmt.Errorf("bind tool %q: %w", tool, err)
+			}
+		}
+		var mcpBindings []data.MCPBinding
+		if version.MCPBindings != "" {
+			if err := json.Unmarshal([]byte(version.MCPBindings), &mcpBindings); err != nil {
+				return err
+			}
+		}
+		for _, binding := range mcpBindings {
+			if err := s.auth.SetAgentToolBinding(ctx, id, binding.Exposed, true); err != nil {
+				return fmt.Errorf("bind mcp tool %q: %w", binding.Exposed, err)
+			}
+		}
+		writeAgentJSON(w, http.StatusOK, versionView(version))
 		return nil
 	})
 }

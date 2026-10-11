@@ -101,6 +101,7 @@ services:
       METRICS_ADDR: 0.0.0.0:9001
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
@@ -126,6 +127,7 @@ services:
       METRICS_ADDR: 0.0.0.0:9001
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
@@ -174,6 +176,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}

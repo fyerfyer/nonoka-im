@@ -117,18 +117,29 @@ func bootstrapOpenFGA(apiURL, storeID, modelID string) (*OpenFGA, error) {
 		if modelID == "" {
 			latest, err := configured.ReadLatestAuthorizationModel(ctx).Execute()
 			latestModelID := ""
+			var latestTypeDefs []fga.TypeDefinition
 			if err == nil && latest != nil {
 				latestModel := latest.GetAuthorizationModel()
 				latestModelID = latestModel.GetId()
+				latestTypeDefs = latestModel.GetTypeDefinitions()
 			}
-			if latestModelID != "" {
+			desired, modelErr := Model()
+			if modelErr != nil {
+				return nil, modelErr
+			}
+			// Reuse the deployed model only when it matches the embedded one;
+			// otherwise write the embedded model as a new version so added
+			// types/relations (e.g. agent_tool) become available.
+			sameModel := len(latestTypeDefs) == len(desired.TypeDefinitions)
+			if sameModel {
+				latestJSON, _ := json.Marshal(latestTypeDefs)
+				desiredJSON, _ := json.Marshal(desired.TypeDefinitions)
+				sameModel = string(latestJSON) == string(desiredJSON)
+			}
+			if latestModelID != "" && sameModel {
 				modelID = latestModelID
 			} else {
-				model, modelErr := Model()
-				if modelErr != nil {
-					return nil, modelErr
-				}
-				written, writeErr := configured.WriteAuthorizationModel(ctx).Body(*model).Execute()
+				written, writeErr := configured.WriteAuthorizationModel(ctx).Body(*desired).Execute()
 				if writeErr != nil {
 					lastErr = writeErr
 					time.Sleep(500 * time.Millisecond)
@@ -298,6 +309,65 @@ func (a *OpenFGA) SetTopicParticipant(ctx context.Context, raw string, userID in
 }
 func (a *OpenFGA) SetFileOwner(ctx context.Context, fileID string, userID int64) error {
 	return a.write(ctx, user(userID), "owner", "file:"+fileID, false)
+}
+func (a *OpenFGA) SetFileViewer(ctx context.Context, fileID string, userID int64, active bool) error {
+	return a.write(ctx, user(userID), "viewer", "file:"+fileID, !active)
+}
+func (a *OpenFGA) SetFileSharedTopic(ctx context.Context, fileID, rawTopic string, active bool) error {
+	t, err := topic.NormalizeTopic(rawTopic)
+	if err != nil {
+		return err
+	}
+	return a.write(ctx, "topic:"+t, "shared_topic", "file:"+fileID, !active)
+}
+func (a *OpenFGA) SetFileSharedGroup(ctx context.Context, fileID, groupID string, active bool) error {
+	return a.write(ctx, "group:"+groupID, "shared_group", "file:"+fileID, !active)
+}
+func (a *OpenFGA) SetAgentToolBinding(ctx context.Context, agentID int64, tool string, active bool) error {
+	return a.write(ctx, agent(agentID), "bound", "agent_tool:"+agentToolID(agentID, tool), !active)
+}
+
+// CanExecuteTool authorizes one tool call for a run. It combines, inside the
+// permission module: the actor may use the agent, the published agent version
+// binds the tool, and the actor may access the target resource within the
+// current topic scope. Any OpenFGA failure denies.
+//
+// resourceType is "file" (resourceRef is a file ID, checked with CanReadFile)
+// or "topic" (resourceRef must be empty or equal currentTopic, then checked
+// with CanAccessTopic, keeping topic-scoped tools on the current conversation).
+func (a *OpenFGA) CanExecuteTool(ctx context.Context, actorID, agentID int64, tool, currentTopic, resourceType, resourceRef string) error {
+	if actorID <= 0 || agentID <= 0 || tool == "" {
+		return ErrDenied
+	}
+	if err := a.check(ctx, user(actorID), "can_use", agent(agentID)); err != nil {
+		return err
+	}
+	if err := a.check(ctx, agent(agentID), "can_execute", "agent_tool:"+agentToolID(agentID, tool)); err != nil {
+		return err
+	}
+	switch resourceType {
+	case "file":
+		if resourceRef == "" {
+			return ErrDenied
+		}
+		return a.CanReadFile(ctx, actorID, resourceRef)
+	case "topic":
+		if resourceRef != "" && resourceRef != currentTopic {
+			return ErrDenied
+		}
+		return a.CanAccessTopic(ctx, actorID, currentTopic)
+	case "external":
+		// External (MCP) tools carry no IM resource; binding + agent use
+		// authorization above is the full scope.
+		return nil
+	default:
+		return ErrDenied
+	}
+}
+
+func agentToolID(agentID int64, tool string) string {
+	// OpenFGA object IDs cannot contain ':'; '.' separates agent and tool.
+	return strconv.FormatInt(agentID, 10) + "." + tool
 }
 func (a *OpenFGA) SetAgentOwner(ctx context.Context, agentID, userID int64) error {
 	return a.write(ctx, user(userID), "owner", agent(agentID), false)

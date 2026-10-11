@@ -150,6 +150,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r := srv.Route("/")
 		r.POST("/v1/files", file.UploadHTTP)
 		r.GET("/v1/files/{file_id}", file.DownloadHTTP)
+		r.POST("/v1/files/{file_id}/share", file.ShareHTTP)
 	}
 	if agents != nil {
 		r := srv.Route("/")
@@ -165,6 +166,11 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
 		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
 		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
+		r.POST("/v1/mcp/servers", agents.RegisterMCPServer)
+		r.GET("/v1/mcp/servers", agents.ListMCPServers)
+		r.POST("/v1/mcp/servers/{id}/status", agents.SetMCPServerStatus)
+		r.POST("/v1/skills", agents.PublishSkill)
+		r.GET("/v1/skills", agents.ListSkills)
 	}
 
 	// Register WebSocket handler

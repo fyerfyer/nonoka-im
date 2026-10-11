@@ -351,23 +351,46 @@ export const groupApi = {
     api.get<{ members: GroupMember[] }>(`/v1/groups/${groupId}/members`),
 };
 
-export type AgentTool = "search_messages" | "get_conversation_context" | "send_message";
+export type AgentTool = "search_messages" | "get_conversation_context" | "send_message" | "read_file" | "get_topic_info";
 
 export interface AgentDraft {
   instruction: string;
   model: string;
   tools: AgentTool[];
+  baseUrl?: string;
+  hasApiKey?: boolean;
+  maxTokens?: number;
+  mcpBindings?: { server: string; tool: string }[];
+  skills?: { name: string; version: number }[];
   revision: number;
 }
 
+export interface MCPServer {
+  id: number;
+  name: string;
+  url: string;
+  tools: string[];
+  risk: string;
+  enabled: boolean;
+}
+
+export interface PublishedSkill {
+  name: string;
+  version: number;
+  published: boolean;
+}
+
 export interface AgentPublishedVersion {
-  ID?: number;
-  AgentID?: number;
-  Version?: number;
-  Instruction?: string;
-  Model?: string;
-  Tools?: string;
-  CreatedAt?: string;
+  id?: number;
+  agentId?: number;
+  version?: number;
+  instruction?: string;
+  model?: string;
+  tools?: string;
+  baseUrl?: string;
+  hasApiKey?: boolean;
+  maxTokens?: number;
+  createdAt?: string;
   [key: string]: unknown;
 }
 
@@ -408,6 +431,11 @@ export interface AgentInput {
   instruction: string;
   model: string;
   tools: AgentTool[];
+  base_url?: string;
+  api_key?: string;
+  max_tokens?: number;
+  mcp_bindings?: { server: string; tool: string }[];
+  skills?: { name: string; version: number }[];
 }
 
 export interface ListAgentsReply {
@@ -434,4 +462,6 @@ export const agentApi = {
   runs: (id: number) => api.get<{ runs: AgentRun[] }>(`/v1/agents/${id}/runs`),
   runAction: (id: number, action: "retry" | "skip") =>
     api.post<unknown>(`/v1/agent-runs/${id}/${action}`, {}),
+  listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
+  listSkills: () => api.get<{ skills: PublishedSkill[] }>("/v1/skills"),
 };

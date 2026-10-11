@@ -27,6 +27,9 @@ func (a *authorizerStub) CanAccessTopic(_ context.Context, uid int64, _ string) 
 	return nil
 }
 func (*authorizerStub) CanReadFile(context.Context, int64, string) error { return nil }
+func (*authorizerStub) CanExecuteTool(context.Context, int64, int64, string, string, string, string) error {
+	return nil
+}
 
 func TestHandleResolvedBotAuthorization(t *testing.T) {
 	t.Run("bot message ignored", func(t *testing.T) {

@@ -78,6 +78,11 @@ type Agent struct {
 	DraftInstruction string `gorm:"type:text"`
 	DraftModel       string `gorm:"size:100"`
 	DraftTools       string `gorm:"type:text"`
+	DraftBaseURL     string `gorm:"size:200"`
+	DraftAPIKeyEnc   string `gorm:"type:text"`
+	DraftMaxTokens   int    `gorm:"not null;default:4096"`
+	DraftMCPBindings string `gorm:"type:text"`
+	DraftSkills      string `gorm:"type:text"`
 	DraftRevision    int64  `gorm:"not null;default:1"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -90,6 +95,11 @@ type AgentVersion struct {
 	Instruction string `gorm:"type:text;not null"`
 	Model       string `gorm:"size:100;not null"`
 	Tools       string `gorm:"type:text;not null"`
+	BaseURL     string `gorm:"size:200"`
+	APIKeyEnc   string `gorm:"type:text"`
+	MaxTokens   int    `gorm:"not null;default:4096"`
+	MCPBindings string `gorm:"type:text"`
+	Skills      string `gorm:"type:text"`
 	CreatedAt   time.Time
 }
 

@@ -1,6 +1,7 @@
 // Package tools contains the narrow, authorization-aware IM tool surface
 // exposed to an Agent. The backend implementations remain in the IM layer;
-// these adapters never accept an actor ID from model arguments.
+// these adapters never accept an actor ID from model arguments and every call
+// is authorized against the run context before it reaches the backend.
 package tools
 
 import (
@@ -40,6 +41,9 @@ type ContextRequest struct {
 type SendRequest struct {
 	Content string `json:"content"`
 }
+type ReadFileRequest struct {
+	FileID string `json:"file_id"`
+}
 type SearchResult struct {
 	Results []string `json:"results"`
 }
@@ -49,14 +53,36 @@ type ContextResult struct {
 type SendResult struct {
 	Accepted bool `json:"accepted"`
 }
+type ReadFileResult struct {
+	Name      string `json:"name"`
+	Mime      string `json:"mime"`
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
 
+// Backend performs the actual IM operations. Implementations must enforce
+// authorization for rc.ActorUserID on every call; the tool adapters only
+// validate argument shape and bound result size.
 type Backend interface {
 	SearchMessages(context.Context, RunContext, string, int) ([]string, error)
 	ConversationContext(context.Context, RunContext, int) ([]string, error)
 	SendMessage(context.Context, RunContext, string) error
+	// ReadFile returns the attachment content when the actor may read it.
+	// maxBytes bounds the returned content; the backend reports truncation.
+	ReadFile(context.Context, RunContext, string, int) (name, mime string, content []byte, truncated bool, err error)
+	// TopicInfo returns a human-readable description of the current
+	// conversation: type, group name and members, or the P2P peer.
+	TopicInfo(context.Context, RunContext) (string, error)
 }
 
-func New(backend Backend, budgets ...int) []tool.InvokableTool {
+// Guard authorizes every tool call against the run context before it reaches
+// the backend. It is the only authorization entry point for tools: adapters
+// hold no ACLs of their own.
+type Guard interface {
+	CanExecuteTool(ctx context.Context, actorID, agentID int64, tool, currentTopic, resourceType, resourceRef string) error
+}
+
+func New(backend Backend, guard Guard, budgets ...int) []tool.InvokableTool {
 	resultBudgetTokens := 8192
 	if len(budgets) > 0 {
 		resultBudgetTokens = budgets[0]
@@ -64,7 +90,13 @@ func New(backend Backend, budgets ...int) []tool.InvokableTool {
 	if resultBudgetTokens <= 0 {
 		resultBudgetTokens = 8192
 	}
-	search := utils.NewTool(&schema.ToolInfo{Name: "search_messages", Desc: "Search messages by keyword in the current authorized conversation."}, func(ctx context.Context, in SearchRequest) (SearchResult, error) {
+	search := utils.NewTool(&schema.ToolInfo{Name: "search_messages", Desc: `Search the current conversation's message history for messages containing a keyword or phrase.
+
+Use this tool when the user asks about something discussed earlier, wants you to find a specific message, or references facts you do not have in your current context. Results are the most recent matching messages.
+
+Args:
+- query: keyword or phrase to search for (required).
+- limit: max results, 1-20 (default 10).`}, func(ctx context.Context, in SearchRequest) (SearchResult, error) {
 		r, ok := GetRunContext(ctx)
 		if !ok {
 			return SearchResult{}, fmt.Errorf("run context missing")
@@ -75,10 +107,18 @@ func New(backend Backend, budgets ...int) []tool.InvokableTool {
 		if in.Limit <= 0 || in.Limit > 20 {
 			in.Limit = 10
 		}
+		if err := authorize(ctx, guard, r, "search_messages", "topic", ""); err != nil {
+			return SearchResult{}, err
+		}
 		v, e := backend.SearchMessages(ctx, r, in.Query, in.Limit)
 		return SearchResult{Results: limitItems(v, resultBudgetTokens)}, e
 	})
-	conversation := utils.NewTool(&schema.ToolInfo{Name: "get_conversation_context", Desc: "Read recent messages from the current authorized conversation."}, func(ctx context.Context, in ContextRequest) (ContextResult, error) {
+	conversation := utils.NewTool(&schema.ToolInfo{Name: "get_conversation_context", Desc: `Read the most recent messages of the current conversation, oldest first.
+
+Use this tool to catch up on what happened before you were called, or to quote earlier messages accurately. Do not use it when you only need a keyword lookup — prefer search_messages for that.
+
+Args:
+- limit: max messages, 1-50 (default 20).`}, func(ctx context.Context, in ContextRequest) (ContextResult, error) {
 		r, ok := GetRunContext(ctx)
 		if !ok {
 			return ContextResult{}, fmt.Errorf("run context missing")
@@ -86,10 +126,18 @@ func New(backend Backend, budgets ...int) []tool.InvokableTool {
 		if in.Limit <= 0 || in.Limit > 50 {
 			in.Limit = 20
 		}
+		if err := authorize(ctx, guard, r, "get_conversation_context", "topic", ""); err != nil {
+			return ContextResult{}, err
+		}
 		v, e := backend.ConversationContext(ctx, r, in.Limit)
 		return ContextResult{Messages: limitItems(v, resultBudgetTokens)}, e
 	})
-	send := utils.NewTool(&schema.ToolInfo{Name: "send_message", Desc: "Send a message to the current conversation only."}, func(ctx context.Context, in SendRequest) (SendResult, error) {
+	send := utils.NewTool(&schema.ToolInfo{Name: "send_message", Desc: `Send a message to the current conversation as the agent. The message is delivered to every participant immediately.
+
+Use this tool when the user explicitly asks you to post or announce something. Your normal final reply is already delivered to the conversation, so do not use this tool to repeat your answer.
+
+Args:
+- content: message text (required).`}, func(ctx context.Context, in SendRequest) (SendResult, error) {
 		r, ok := GetRunContext(ctx)
 		if !ok {
 			return SendResult{}, fmt.Errorf("run context missing")
@@ -97,10 +145,71 @@ func New(backend Backend, budgets ...int) []tool.InvokableTool {
 		if in.Content == "" {
 			return SendResult{}, fmt.Errorf("content is required")
 		}
+		if err := authorize(ctx, guard, r, "send_message", "topic", ""); err != nil {
+			return SendResult{}, err
+		}
 		e := backend.SendMessage(ctx, r, in.Content)
 		return SendResult{Accepted: e == nil}, e
 	})
-	return []tool.InvokableTool{search, conversation, send}
+	readFile := utils.NewTool(&schema.ToolInfo{Name: "read_file", Desc: `Read the content of an attachment (file or image) by its file ID, as long as the user who triggered you is allowed to see it.
+
+Use this tool when the user asks about the contents of a file shared in this conversation, e.g. "what does the attached log say". Text files are returned as text; other files return metadata only.
+
+Args:
+- file_id: the attachment ID from the message that shared the file (required).`}, func(ctx context.Context, in ReadFileRequest) (ReadFileResult, error) {
+		r, ok := GetRunContext(ctx)
+		if !ok {
+			return ReadFileResult{}, fmt.Errorf("run context missing")
+		}
+		if in.FileID == "" {
+			return ReadFileResult{}, fmt.Errorf("file_id is required")
+		}
+		if err := authorize(ctx, guard, r, "read_file", "file", in.FileID); err != nil {
+			return ReadFileResult{}, err
+		}
+		const maxBytes = 256 << 10
+		name, mime, content, truncated, err := backend.ReadFile(ctx, r, in.FileID, maxBytes)
+		if err != nil {
+			return ReadFileResult{}, err
+		}
+		result := ReadFileResult{Name: name, Mime: mime, Truncated: truncated}
+		if isTextMime(mime) {
+			result.Content = string(content)
+		} else {
+			result.Content = fmt.Sprintf("[%s attachment: %d bytes, content not shown]", mime, len(content))
+		}
+		return result, nil
+	})
+	topicInfo := utils.NewTool(&schema.ToolInfo{Name: "get_topic_info", Desc: `Get metadata about the current conversation: whether it is a direct chat or a group, the group's name and member list, or the direct chat counterpart.
+
+Use this tool when you need to know who is in this conversation or what group this is, e.g. before addressing someone by name. Takes no arguments.`}, func(ctx context.Context, _ struct{}) (string, error) {
+		r, ok := GetRunContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("run context missing")
+		}
+		if err := authorize(ctx, guard, r, "get_topic_info", "topic", ""); err != nil {
+			return "", err
+		}
+		return backend.TopicInfo(ctx, r)
+	})
+	return []tool.InvokableTool{search, conversation, send, readFile, topicInfo}
+}
+
+// authorize fails closed when no guard is configured, so a miswired worker
+// cannot silently run tools without authorization.
+func authorize(ctx context.Context, guard Guard, r RunContext, tool, resourceType, resourceRef string) error {
+	if guard == nil {
+		return fmt.Errorf("tool authorization unavailable")
+	}
+	if err := guard.CanExecuteTool(ctx, r.ActorUserID, r.AgentID, tool, r.Topic, resourceType, resourceRef); err != nil {
+		return fmt.Errorf("tool %s not authorized", tool)
+	}
+	return nil
+}
+
+func isTextMime(mime string) bool {
+	return mime == "" || mime == "text/plain" || mime == "text/markdown" || mime == "application/json" ||
+		len(mime) > 5 && (mime[:5] == "text/" || mime == "application/xml" || mime == "application/javascript" || mime == "application/x-yaml")
 }
 
 func limitItems(items []string, tokenBudget int) []string {

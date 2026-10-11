@@ -39,7 +39,12 @@ type ResolvedAgent struct {
 	Version       int64
 	Instruction   string
 	Model         string
+	BaseURL       string
+	APIKey        string
+	MaxTokens     int
 	Tools         []string
+	MCPTools      []runtime.MCPTool
+	Skills        []runtime.SkillBinding
 	RestrictTools bool
 }
 
@@ -111,7 +116,9 @@ func (h *Harness) HandleResolved(ctx context.Context, ev agevent.MessageEvent, a
 	}
 	in.EventID, in.AgentID, in.ActorUserID, in.BotID, in.Topic = ev.EventID, agent.ID, ev.SenderID, agent.BotID, ev.Topic
 	in.Model = agent.Model
+	in.BaseURL, in.APIKey, in.MaxTokens = agent.BaseURL, agent.APIKey, agent.MaxTokens
 	in.AllowedTools, in.RestrictTools = agent.Tools, agent.RestrictTools
+	in.MCPTools, in.Skills = agent.MCPTools, agent.Skills
 	res, err := h.Runtime.Run(ctx, in)
 	if errors.Is(err, eino.ErrSummary) {
 		res, err = h.Runtime.Run(ctx, builder.Fallback(in))

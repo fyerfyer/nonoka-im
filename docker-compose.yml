@@ -150,6 +150,8 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       # This must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      # Encrypts per-agent model API keys at rest; must match the agent worker.
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
     ports:
       - "${NONOKA_HTTP_PORT:-8000}:8000"
       - "${NONOKA_GRPC_PORT:-9002}:9002"
@@ -174,8 +176,8 @@ services:
       - ./configs:/data/conf:ro
     command: ["/app/msgworker", "-conf", "/data/conf/config.docker.yaml"]
 
-  # Agent worker runs as part of the full demo stack. Without a model API key
-  # it stays idle (logs a warning and waits) so the IM stack is unaffected.
+  # Agent worker runs as part of the full demo stack. Agents without their own
+  # API key fall back to DEEPSEEK_API_KEY; without either they cannot run.
   agent-worker:
     build:
       context: .
@@ -205,6 +207,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}

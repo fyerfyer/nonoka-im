@@ -34,14 +34,30 @@
       "relations": {
         "owner": {"this": {}},
         "viewer": {"this": {}},
+        "shared_topic": {"this": {}},
+        "shared_group": {"this": {}},
         "can_read": {"union": {"child": [
           {"computedUserset": {"relation": "owner"}},
-          {"computedUserset": {"relation": "viewer"}}
+          {"computedUserset": {"relation": "viewer"}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_topic"}, "computedUserset": {"relation": "can_access"}}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}}
         ]}}
       },
       "metadata": {"relations": {
         "owner": {"directly_related_user_types": [{"type": "user"}]},
-        "viewer": {"directly_related_user_types": [{"type": "user"}]}
+        "viewer": {"directly_related_user_types": [{"type": "user"}]},
+        "shared_topic": {"directly_related_user_types": [{"type": "topic"}]},
+        "shared_group": {"directly_related_user_types": [{"type": "group"}]}
+      }}
+    },
+    {
+      "type": "agent_tool",
+      "relations": {
+        "bound": {"this": {}},
+        "can_execute": {"computedUserset": {"relation": "bound"}}
+      },
+      "metadata": {"relations": {
+        "bound": {"directly_related_user_types": [{"type": "agent"}]}
       }}
     },
     {

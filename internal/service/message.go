@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
@@ -105,10 +107,42 @@ func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageReq
 	s.log.Debugf("message forwarded to kafka: user_id=%d, topic=%s, client_msg_id=%s",
 		userID, req.Topic, req.ClientMsgId)
 
+	// Grants take effect last: a failed share write must not block the send,
+	// it only leaves the attachment readable by the owner until the write
+	// succeeds (uploads already established owner readability).
+	s.shareAttachmentToTopic(ctx, userID, int32(req.MsgType), req.Content, normalizedTopic)
+
 	return &v1.SendMessageReply{
 		ClientMsgId: req.ClientMsgId,
 		Timestamp:   upstream.Timestamp,
 	}, nil
+}
+
+// shareAttachmentToTopic grants topic participants read access to the
+// attachment referenced by an image/file message.
+func (s *MessageService) shareAttachmentToTopic(ctx context.Context, userID int64, msgType int32, content []byte, normalizedTopic string) {
+	if msgType != 2 && msgType != 3 { // MSG_TYPE_IMAGE / MSG_TYPE_FILE
+		return
+	}
+	var meta struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(content, &meta); err != nil || meta.URL == "" {
+		return
+	}
+	fileID := strings.TrimPrefix(meta.URL, "/v1/files/")
+	if fileID == meta.URL || strings.ContainsAny(fileID, "/?#") {
+		return
+	}
+	sharer, ok := s.authorizer.(interface {
+		SetFileSharedTopic(context.Context, string, string, bool) error
+	})
+	if !ok {
+		return
+	}
+	if err := sharer.SetFileSharedTopic(ctx, fileID, normalizedTopic, true); err != nil {
+		s.log.Errorf("file share write failed: file_id=%s, topic=%s, err=%v", fileID, normalizedTopic, err)
+	}
 }
 
 // PullMessages retrieves offline messages via HTTP fallback.

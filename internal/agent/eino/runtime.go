@@ -2,6 +2,7 @@ package eino
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,8 +11,10 @@ import (
 
 	openai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -33,18 +36,37 @@ type Runtime struct {
 	model                      model.ToolCallingChatModel
 	tools                      []tool.InvokableTool
 	apiKey, baseURL, modelName string
+	maxTokens                  int
+
+	// mcpTools resolves per-run MCP bindings into guarded tools; nil disables
+	// MCP tools. skillBackend builds the skill middleware backend for the
+	// skills bound to the agent version; nil disables skills.
+	mcpTools     func(ctx context.Context, bindings []runtime.MCPTool) ([]tool.BaseTool, error)
+	skillBackend func(bindings []runtime.SkillBinding) (skill.Backend, error)
 
 	mu     sync.Mutex
-	models map[string]model.ToolCallingChatModel
+	models map[modelCacheKey]model.ToolCallingChatModel
+	order  []modelCacheKey // FIFO eviction order; capped at modelCacheLimit.
+}
+
+const modelCacheLimit = 64
+
+type modelCacheKey struct {
+	baseURL    string
+	apiKeyHash [32]byte
+	modelName  string
+	maxTokens  int
 }
 
 // NewRuntime creates the OpenAI-compatible Eino runtime without tools. Use
 // NewRuntimeWithTools in production when authorized IM tool backends are wired.
 func NewRuntime(ctx context.Context, apiKey, baseURL, modelName string) (*Runtime, error) {
-	return NewRuntimeWithTools(ctx, apiKey, baseURL, modelName, nil)
+	return NewRuntimeWithTools(ctx, apiKey, baseURL, modelName, nil, nil)
 }
 
-func NewRuntimeWithTools(ctx context.Context, apiKey, baseURL, modelName string, backend tools.Backend) (*Runtime, error) {
+// NewRuntimeWithTools builds a runtime whose tools are authorized through the
+// guard on every call. A nil guard is only safe when backend is nil.
+func NewRuntimeWithTools(ctx context.Context, apiKey, baseURL, modelName string, backend tools.Backend, guard tools.Guard) (*Runtime, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, fmt.Errorf("model API key is required")
 	}
@@ -53,42 +75,78 @@ func NewRuntimeWithTools(ctx context.Context, apiKey, baseURL, modelName string,
 	if err != nil {
 		return nil, err
 	}
-	r := &Runtime{model: m, apiKey: apiKey, baseURL: baseURL, modelName: modelName}
+	r := &Runtime{model: m, apiKey: apiKey, baseURL: baseURL, modelName: modelName, maxTokens: maxTokens}
 	if backend != nil {
-		r.tools = tools.New(backend, 8192)
+		r.tools = tools.New(backend, guard, 8192)
 	}
 	return r, nil
 }
 
-// chatModel returns the runtime's default model or a cached per-request model.
-// The completion-token budget of the first creation is kept for the lifetime
-// of the cached model.
-func (r *Runtime) chatModel(ctx context.Context, modelName string, maxTokens int) (model.ToolCallingChatModel, error) {
-	if modelName == "" || modelName == r.modelName {
+// SetMCPToolProvider installs the resolver for per-run MCP tool bindings.
+func (r *Runtime) SetMCPToolProvider(p func(ctx context.Context, bindings []runtime.MCPTool) ([]tool.BaseTool, error)) {
+	r.mcpTools = p
+}
+
+// SetSkillBackendFactory installs the factory building skill middleware
+// backends from the skills bound to the agent version.
+func (r *Runtime) SetSkillBackendFactory(f func(bindings []runtime.SkillBinding) (skill.Backend, error)) {
+	r.skillBackend = f
+}
+
+// chatModel resolves the model for a run. Agent-owned base URL / API key /
+// model / max tokens override the runtime defaults; overrides are cached with
+// a bounded FIFO cache keyed on the full combination.
+func (r *Runtime) chatModel(ctx context.Context, in runtime.Input) (model.ToolCallingChatModel, error) {
+	// No agent-owned overrides: use the runtime default model as-is.
+	if in.BaseURL == "" && in.APIKey == "" && (in.Model == "" || in.Model == r.modelName) {
 		return r.model, nil
 	}
+	baseURL := in.BaseURL
+	if baseURL == "" {
+		baseURL = r.baseURL
+	}
+	apiKey := in.APIKey
+	if apiKey == "" {
+		apiKey = r.apiKey
+	}
+	modelName := in.Model
+	if modelName == "" {
+		modelName = r.modelName
+	}
+	maxTokens := in.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = in.OutputTokenBudget
+	}
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("model API key is required")
+	}
+	key := modelCacheKey{baseURL: baseURL, apiKeyHash: sha256.Sum256([]byte(apiKey)), modelName: modelName, maxTokens: maxTokens}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.models == nil {
-		r.models = make(map[string]model.ToolCallingChatModel)
+		r.models = make(map[modelCacheKey]model.ToolCallingChatModel)
 	}
-	if cached, ok := r.models[modelName]; ok {
+	if cached, ok := r.models[key]; ok {
 		return cached, nil
 	}
-	m, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: r.apiKey, BaseURL: r.baseURL, Model: modelName, MaxCompletionTokens: &maxTokens})
+	m, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: apiKey, BaseURL: baseURL, Model: modelName, MaxCompletionTokens: &maxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("create model %q: %w", modelName, err)
 	}
-	r.models[modelName] = m
+	r.models[key] = m
+	r.order = append(r.order, key)
+	for len(r.order) > modelCacheLimit {
+		delete(r.models, r.order[0])
+		r.order = r.order[1:]
+	}
 	return m, nil
 }
 
 func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, error) {
-	maxTokens := in.OutputTokenBudget
-	if maxTokens <= 0 {
-		maxTokens = 4096
-	}
-	chatModel, err := r.chatModel(ctx, in.Model, maxTokens)
+	chatModel, err := r.chatModel(ctx, in)
 	if err != nil {
 		return runtime.Result{}, err
 	}
@@ -161,6 +219,28 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 	if instruction == "" {
 		instruction = "You are the Nonoka IM assistant. Use concise, helpful answers. Use tools only when needed. Never claim a tool action succeeded unless it returned success."
 	}
+	if len(in.Skills) > 0 && r.skillBackend != nil {
+		backend, err := r.skillBackend(in.Skills)
+		if err != nil {
+			return runtime.Result{}, fmt.Errorf("load skills: %w", err)
+		}
+		mw, err := skill.NewMiddleware(toolCtx, &skill.Config{Backend: backend})
+		if err != nil {
+			return runtime.Result{}, fmt.Errorf("create skill middleware: %w", err)
+		}
+		handlers = append(handlers, mw)
+	}
+	agentTools := allowedTools(toolCtx, r.tools, in.AllowedTools, in.RestrictTools)
+	if len(in.MCPTools) > 0 {
+		if r.mcpTools == nil {
+			return runtime.Result{}, fmt.Errorf("mcp tools not available")
+		}
+		extra, err := r.mcpTools(toolCtx, in.MCPTools)
+		if err != nil {
+			return runtime.Result{}, fmt.Errorf("resolve mcp tools: %w", err)
+		}
+		agentTools = append(agentTools, extra...)
+	}
 	agent, err := adk.NewChatModelAgent(toolCtx, &adk.ChatModelAgentConfig{
 		Name:          "nonoka-assistant",
 		Description:   "Nonoka IM conversation assistant",
@@ -168,7 +248,7 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 		Model:         chatModel,
 		Handlers:      handlers,
 		MaxIterations: 5,
-		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: allowedTools(toolCtx, r.tools, in.AllowedTools, in.RestrictTools)}},
+		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: agentTools}},
 	})
 	if err != nil {
 		return runtime.Result{}, fmt.Errorf("create Eino agent: %w", err)
@@ -269,15 +349,23 @@ func allowedTools(ctx context.Context, ts []tool.InvokableTool, names []string, 
 }
 
 // modelSpanHandler records model execution timing and failure status without
-// capturing prompts, outputs, tool arguments, or provider error text.
+// capturing prompts, outputs, tool arguments, or provider error text. Usage is
+// only counted for ChatModel component events: the runner also reports the
+// final message at the agent level, which would double-count tokens.
 func modelSpanHandler(usage *runtime.Usage) callbacks.Handler {
 	tracer := otel.Tracer("nonoka-im/agent/eino")
 	return callbacks.NewHandlerBuilder().
-		OnStartFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
+		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
+			if info.Component != components.ComponentOfChatModel {
+				return ctx
+			}
 			ctx, span := tracer.Start(ctx, "agent.chat_model.generate", trace.WithAttributes(attribute.String("gen_ai.operation.name", "chat")))
 			return context.WithValue(ctx, spanContextKey{}, span)
 		}).
-		OnEndFn(func(ctx context.Context, _ *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+			if info.Component != components.ComponentOfChatModel {
+				return ctx
+			}
 			if converted := model.ConvCallbackOutput(output); converted != nil {
 				if tokens := converted.TokenUsage; tokens != nil {
 					usage.InputTokens += tokens.PromptTokens
@@ -295,7 +383,10 @@ func modelSpanHandler(usage *runtime.Usage) callbacks.Handler {
 			}
 			return ctx
 		}).
-		OnErrorFn(func(ctx context.Context, _ *callbacks.RunInfo, _ error) context.Context {
+		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, _ error) context.Context {
+			if info.Component != components.ComponentOfChatModel {
+				return ctx
+			}
 			if span, ok := ctx.Value(spanContextKey{}).(trace.Span); ok {
 				span.SetStatus(codes.Error, "model generation failed")
 				span.End()

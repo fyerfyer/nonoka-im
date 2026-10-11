@@ -17,10 +17,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 const toolNames: { id: AgentTool; label: string }[] = [
   { id: "search_messages", label: "Search messages" },
   { id: "get_conversation_context", label: "Read conversation" },
+  { id: "read_file", label: "Read attachments" },
+  { id: "get_topic_info", label: "Conversation info" },
   { id: "send_message", label: "Send message" },
 ];
 
-const emptyInput: AgentInput = { name: "", description: "", instruction: "", model: "deepseek-chat", tools: ["search_messages", "get_conversation_context"] };
+const emptyInput: AgentInput = { name: "", description: "", instruction: "", model: "deepseek-chat", tools: ["search_messages", "get_conversation_context"], base_url: "", api_key: "", max_tokens: 4096, mcp_bindings: [], skills: [] };
 
 function errorText(err: unknown) { return err instanceof Error ? err.message : "Request failed"; }
 
@@ -54,7 +56,15 @@ export default function AgentsPage() {
     const detail = await agentApi.detail(id);
     setSelected(detail);
     const source = detail.draft;
-    if (source) setDraft({ name: detail.name, description: detail.description, instruction: source.instruction, model: source.model, tools: source.tools ?? [] });
+    if (source) setDraft({ name: detail.name, description: detail.description, instruction: source.instruction, model: source.model, tools: source.tools ?? [], base_url: source.baseUrl ?? "", api_key: "", max_tokens: source.maxTokens || 4096, mcp_bindings: source.mcpBindings ?? [], skills: source.skills ?? [] });
+  }, []);
+
+  const [mcpServers, setMcpServers] = useState<{ name: string; tools: string[] }[]>([]);
+  const [publishedSkills, setPublishedSkills] = useState<{ name: string; version: number }[]>([]);
+
+  useEffect(() => {
+    agentApi.listSkills().then((data) => setPublishedSkills(data.skills.map((s) => ({ name: s.name, version: s.version })))).catch(() => setPublishedSkills([]));
+    agentApi.listMCPServers().then((data) => setMcpServers(data.servers.filter((s) => s.enabled).map((s) => ({ name: s.name, tools: s.tools })))).catch(() => setMcpServers([]));
   }, []);
 
   useEffect(() => {
@@ -116,15 +126,34 @@ export default function AgentsPage() {
   const toggleTool = (input: AgentInput, set: (next: AgentInput) => void, tool: AgentTool) =>
     set({ ...input, tools: input.tools.includes(tool) ? input.tools.filter((item) => item !== tool) : [...input.tools, tool] });
 
+  const toggleMCPTool = (input: AgentInput, set: (next: AgentInput) => void, server: string, tool: string) => {
+    const bindings = input.mcp_bindings ?? [];
+    const exists = bindings.some((b) => b.server === server && b.tool === tool);
+    set({ ...input, mcp_bindings: exists ? bindings.filter((b) => !(b.server === server && b.tool === tool)) : [...bindings, { server, tool }] });
+  };
+
+  const toggleSkill = (input: AgentInput, set: (next: AgentInput) => void, name: string, version: number) => {
+    const bindings = input.skills ?? [];
+    const exists = bindings.some((b) => b.name === name);
+    set({ ...input, skills: exists ? bindings.filter((b) => b.name !== name) : [...bindings.filter((b) => b.name !== name), { name, version }] });
+  };
+
   const editor = (input: AgentInput, set: (next: AgentInput) => void) => (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm font-medium">Name<Input className="mt-1" value={input.name} maxLength={100} onChange={(e) => set({ ...input, name: e.target.value })} /></label>
-        <label className="block text-sm font-medium">Model<Input className="mt-1" value={input.model} readOnly /></label>
+        <label className="block text-sm font-medium">Model<Input className="mt-1" value={input.model} maxLength={100} placeholder="deepseek-chat" onChange={(e) => set({ ...input, model: e.target.value })} /></label>
       </div>
       <label className="block text-sm font-medium">Description<Input className="mt-1" value={input.description} maxLength={4000} onChange={(e) => set({ ...input, description: e.target.value })} /></label>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block text-sm font-medium">Base URL<Input className="mt-1" value={input.base_url ?? ""} maxLength={200} placeholder="https://api.deepseek.com/v1" onChange={(e) => set({ ...input, base_url: e.target.value })} /></label>
+        <label className="block text-sm font-medium">API Key<Input className="mt-1" type="password" value={input.api_key ?? ""} maxLength={512} placeholder="Leave blank to keep unchanged" onChange={(e) => set({ ...input, api_key: e.target.value })} /></label>
+        <label className="block text-sm font-medium">Max output tokens<Input className="mt-1" type="number" min={1} max={128000} value={input.max_tokens ?? 4096} onChange={(e) => set({ ...input, max_tokens: Number(e.target.value) || 0 })} /></label>
+      </div>
       <label className="block text-sm font-medium">Instructions<textarea className="mt-1 min-h-48 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" value={input.instruction} maxLength={20000} onChange={(e) => set({ ...input, instruction: e.target.value })} /></label>
       <fieldset className="space-y-2"><legend className="text-sm font-medium">Tools</legend>{toolNames.map((tool) => <label key={tool.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={input.tools.includes(tool.id)} onChange={() => toggleTool(input, set, tool.id)} />{tool.label}</label>)}</fieldset>
+      {mcpServers.length > 0 && <fieldset className="space-y-2"><legend className="text-sm font-medium">MCP tools</legend>{mcpServers.map((server) => <div key={server.name} className="text-sm"><div className="font-medium">{server.name}</div>{server.tools.map((tool) => <label key={tool} className="flex items-center gap-2 pl-3"><input type="checkbox" checked={(input.mcp_bindings ?? []).some((b) => b.server === server.name && b.tool === tool)} onChange={() => toggleMCPTool(input, set, server.name, tool)} />{tool}</label>)}</div>)}</fieldset>}
+      {publishedSkills.length > 0 && <fieldset className="space-y-2"><legend className="text-sm font-medium">Skills</legend>{publishedSkills.map((skill) => <label key={`${skill.name}@${skill.version}`} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={(input.skills ?? []).some((b) => b.name === skill.name)} onChange={() => toggleSkill(input, set, skill.name, skill.version)} />{skill.name} v{skill.version}</label>)}</fieldset>}
     </div>
   );
 
@@ -145,7 +174,7 @@ export default function AgentsPage() {
           {!selected ? <div className="py-20 text-center text-sm text-muted-foreground">No agents yet</div> : <>
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-xl font-semibold">{selected.name}</h2><Badge variant="secondary">{selected.status}</Badge><Button size="sm" variant="outline" aria-disabled={selected.currentVersion === 0} className={cn(selected.currentVersion === 0 && "cursor-not-allowed opacity-50")} onClick={chatWithBot}><MessageSquare /> Chat</Button></div><p className="mt-1 text-sm text-muted-foreground">Bot #{selected.botUserId} · Version {selected.currentVersion || "unpublished"}</p></div>{selected.canManage && selected.currentVersion > 0 && <Button size="sm" variant={selected.status === "active" ? "outline" : "default"} disabled={busy} onClick={() => act(() => agentApi.setStatus(selected.id, selected.status === "active" ? "disabled" : "active"), selected.status === "active" ? "Agent disabled" : "Agent enabled")}>{selected.status === "active" ? "Disable" : "Enable"}</Button>}</div>
             <div className="mb-5 flex gap-5 border-b text-sm">{(["config", "sharing", "runs"] as const).filter((item) => item === "config" || selected.canManage).map((item) => <button key={item} onClick={() => setTab(item)} className={`border-b-2 pb-2 capitalize ${tab === item ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item === "config" ? "Configuration" : item === "sharing" ? "Sharing" : "Runs"}</button>)}</div>
-            {tab === "config" && (selected.canManage && selected.draft ? <div className="max-w-3xl">{editor(draft, setDraft)}<div className="mt-5 flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !draft.name.trim() || !draft.instruction.trim()} onClick={() => act(() => agentApi.saveDraft(selected.id, { ...draft, revision: selected.draft!.revision }), "Draft saved")}><Save /> Save draft</Button><Button disabled={busy || !draft.name.trim() || !draft.instruction.trim()} onClick={() => act(async () => { const updated = await agentApi.saveDraft(selected.id, { ...draft, revision: selected.draft!.revision }); await agentApi.publish(selected.id, updated.draft!.revision); }, "Version published")}><Send /> Publish</Button></div></div> : <div className="max-w-3xl space-y-3 text-sm"><p>{selected.description || "No description"}</p><div><div className="mb-1 font-medium">Published instructions</div><p className="whitespace-pre-wrap text-muted-foreground">{selected.published?.Instruction || "No published version"}</p></div></div>)}
+            {tab === "config" && (selected.canManage && selected.draft ? <div className="max-w-3xl">{editor(draft, setDraft)}<div className="mt-5 flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !draft.name.trim() || !draft.instruction.trim()} onClick={() => act(() => agentApi.saveDraft(selected.id, { ...draft, revision: selected.draft!.revision }), "Draft saved")}><Save /> Save draft</Button><Button disabled={busy || !draft.name.trim() || !draft.instruction.trim()} onClick={() => act(async () => { const updated = await agentApi.saveDraft(selected.id, { ...draft, revision: selected.draft!.revision }); await agentApi.publish(selected.id, updated.draft!.revision); }, "Version published")}><Send /> Publish</Button></div></div> : <div className="max-w-3xl space-y-3 text-sm"><p>{selected.description || "No description"}</p><div><div className="mb-1 font-medium">Published instructions</div><p className="whitespace-pre-wrap text-muted-foreground">{selected.published?.instruction || "No published version"}</p></div></div>)}
             {tab === "sharing" && selected.canManage && <div className="max-w-2xl space-y-5"><div className="flex flex-wrap gap-2"><select aria-label="Share type" value={shareKind} onChange={(e) => { setShareKind(e.target.value as AgentShare["kind"]); setShareTarget(""); }} className="h-8 rounded-md border bg-background px-2 text-sm"><option value="user">User</option><option value="group">Group</option></select>{shareKind === "group" ? <select aria-label="Group" value={shareTarget} onChange={(e) => setShareTarget(e.target.value)} className="h-8 min-w-52 rounded-md border bg-background px-2 text-sm"><option value="">Select group</option>{groups.map((group) => <option key={group.groupId} value={group.groupId}>{group.name}</option>)}</select> : <div className="relative min-w-52 flex-1"><Input placeholder="Search users" value={shareTarget} onChange={(e) => setShareTarget(e.target.value)} />{userResults.length > 0 && <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border bg-background shadow-sm">{userResults.map((user) => <button key={user.userId} className="block w-full px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setShareTarget(String(user.userId)); setUserResults([]); }}>{user.username} · #{user.userId}</button>)}</div>}</div>}<Button disabled={busy || !shareTarget} onClick={() => act(async () => { await agentApi.share(selected.id, shareKind, shareTarget, true); setShares((old) => [...old.filter((s) => !(s.kind === shareKind && s.target === shareTarget)), { kind: shareKind, target: shareTarget }]); setShareTarget(""); }, "Access granted")}><Check /> Share</Button></div><div className="divide-y border-y">{shares.length === 0 && <p className="py-4 text-sm text-muted-foreground">Private · owner only</p>}{shares.map((share) => <div key={`${share.kind}:${share.target}`} className="flex items-center justify-between py-2 text-sm"><span>{share.kind === "group" ? "Group" : "User"} · {share.target}</span><Button variant="ghost" size="icon" title="Remove access" disabled={busy} onClick={() => act(async () => { await agentApi.share(selected.id, share.kind, share.target, false); setShares((old) => old.filter((s) => s !== share)); }, "Access removed")}><Trash2 /></Button></div>)}</div></div>}
             {tab === "runs" && selected.canManage && <div><div className="mb-3 flex justify-end"><Button variant="ghost" size="icon" title="Refresh runs" onClick={() => agentApi.runs(selected.id).then((data) => setRuns(data.runs)).catch((err) => toast.error(errorText(err)))}><RefreshCw /></Button></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-b text-xs text-muted-foreground"><tr><th className="py-2">Run</th><th>Actor</th><th>Topic</th><th>Status</th><th>Tokens</th><th>Created</th><th className="text-right">Action</th></tr></thead><tbody>{runs.map((run) => <tr key={run.ID} className="border-b"><td className="py-3">#{run.ID}</td><td>#{run.ActorUserID}</td><td className="max-w-40 truncate" title={run.Topic}>{run.Topic}</td><td><Badge variant={run.Status === "failed" ? "destructive" : "secondary"}>{run.Status}</Badge></td><td>{run.TotalTokens}</td><td>{new Date(run.CreatedAt).toLocaleString()}</td><td className="text-right">{run.Status === "failed" && <div className="flex justify-end gap-1"><Button size="xs" variant="outline" disabled={busy} onClick={() => act(async () => { await agentApi.runAction(run.ID, "retry"); setRuns((await agentApi.runs(selected.id)).runs); }, "Run queued")}>Retry</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => act(async () => { await agentApi.runAction(run.ID, "skip"); setRuns((await agentApi.runs(selected.id)).runs); }, "Run skipped")}>Skip</Button></div>}</td></tr>)}</tbody></table>{runs.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No runs</p>}</div></div>}
           </>}
