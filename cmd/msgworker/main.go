@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -227,7 +228,9 @@ func main() {
 	// the message. MsgWorker relays pending rows to Kafka and retries failures.
 	eventBrokers := kafkaCfg.Brokers
 	if raw := os.Getenv("KAFKA_BROKERS"); raw != "" {
-		eventBrokers = []string{raw}
+		if parsed := parseBrokerList(raw); len(parsed) > 0 {
+			eventBrokers = parsed
+		}
 	}
 	agentPublisher := agevent.NewKafkaPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
 	worker.SetAgentEventPublisher(agentPublisher)
@@ -275,6 +278,18 @@ func mustHostname() string {
 		return "msgworker-0"
 	}
 	return h
+}
+
+// parseBrokerList splits a comma-separated broker list, trimming whitespace
+// and dropping empty entries.
+func parseBrokerList(raw string) []string {
+	var out []string
+	for _, b := range strings.Split(raw, ",") {
+		if b = strings.TrimSpace(b); b != "" {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // msgworkerConfigFromProto builds a msgworker.KafkaConsumerConfig from the

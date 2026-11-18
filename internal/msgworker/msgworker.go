@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	pb "nonoka-im/api/im/v1"
 	agevent "nonoka-im/internal/agent/event"
@@ -703,6 +704,11 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 		if agentEnabled {
 			agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds())
 			agentEvent.TopicSeq = topicSeq
+			// Propagate the W3C trace context so the agent worker can link its
+			// spans to the message-processing trace that produced the event.
+			if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+				agentEvent.TraceParent = fmt.Sprintf("00-%s-%s-%s", sc.TraceID(), sc.SpanID(), sc.TraceFlags())
+			}
 		}
 	}
 	var recipientIDs []int64

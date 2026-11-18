@@ -25,6 +25,12 @@ type Input struct {
 	SummaryThroughTurnID        uint64
 	MCPTools                    []MCPTool
 	Skills                      []SkillBinding
+	// CheckPointID scopes the Eino execution checkpoint for this run. It must
+	// be stable across the run and its resume (e.g. derived from the run ID).
+	CheckPointID string
+	// ApprovalTools lists tool names whose calls interrupt for human
+	// confirmation instead of executing directly.
+	ApprovalTools []string
 }
 type Turn struct {
 	ID            uint64
@@ -44,12 +50,41 @@ type SkillBinding struct {
 	Version int64
 }
 
+// Run status values returned in Result.Status.
+const (
+	StatusCompleted   = "completed"
+	StatusInterrupted = "interrupted"
+)
+
+// InterruptInfo describes a tool call that paused the run for human approval.
+type InterruptInfo struct {
+	// ToolCallID is the Eino interrupt address (e.g.
+	// "agent:A;node:...;tool:<id>") used to target the resume.
+	ToolCallID string
+	Tool       string
+	Summary    string
+}
+
 type Result struct {
 	Text                 string
+	Status               string
+	Interrupt            *InterruptInfo
 	Summary              string
 	SummaryThroughTurnID uint64
 	Usage                Usage
 }
+
+// ResumeInput continues an interrupted run from its checkpoint.
+type ResumeInput struct {
+	Input
+	// InterruptID is the ToolCallID of the approval being resolved.
+	InterruptID string
+	// Approved decides what the interrupted tool call returns: execute the
+	// underlying tool, or feed the model a rejection message.
+	Approved bool
+}
+
 type Runtime interface {
 	Run(context.Context, Input) (Result, error)
+	Resume(context.Context, ResumeInput) (Result, error)
 }

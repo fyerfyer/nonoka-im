@@ -6,6 +6,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -69,9 +70,6 @@ func (p *Provider) tool(ctx context.Context, serverName, toolName string) (tool.
 	if err != nil {
 		return nil, err
 	}
-	if !entry.server.Enabled {
-		return nil, fmt.Errorf("mcp server %q is disabled", serverName)
-	}
 	exposed := ExposedName(serverName, toolName)
 	if t, ok := entry.tools[exposed]; ok {
 		return t, nil
@@ -79,22 +77,73 @@ func (p *Provider) tool(ctx context.Context, serverName, toolName string) (tool.
 	return nil, fmt.Errorf("tool %q not bound on server %q", toolName, serverName)
 }
 
+// entry returns the cached client for a server only when the registry record
+// still matches the snapshot the cache was built from. The record is re-read
+// from the Store on every call so disabling, deleting or reconfiguring a
+// server takes effect immediately instead of being served from a stale cache.
 func (p *Provider) entry(ctx context.Context, serverName string) (*clientEntry, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.clients == nil {
-		p.clients = make(map[string]*clientEntry)
-	}
-	if cached, ok := p.clients[serverName]; ok {
-		return cached, nil
-	}
 	server, err := p.Store.GetServer(ctx, serverName)
 	if err != nil {
+		if errors.Is(err, data.ErrMCPNotFound) {
+			p.evict(serverName)
+		}
 		return nil, err
 	}
 	if !server.Enabled {
+		p.evict(serverName)
 		return nil, fmt.Errorf("mcp server %q is disabled", serverName)
 	}
+	p.mu.Lock()
+	if cached, ok := p.clients[serverName]; ok && sameServerConfig(cached.server, server) {
+		p.mu.Unlock()
+		return cached, nil
+	}
+	p.mu.Unlock()
+
+	entry, err := p.connect(ctx, serverName, server)
+	if err != nil {
+		return nil, err
+	}
+	// Concurrent misses may both connect; the last write wins and the
+	// displaced client is closed. Close happens outside the lock.
+	p.mu.Lock()
+	if p.clients == nil {
+		p.clients = make(map[string]*clientEntry)
+	}
+	old := p.clients[serverName]
+	p.clients[serverName] = entry
+	p.mu.Unlock()
+	if old != nil && old != entry {
+		old.client.Close()
+	}
+	return entry, nil
+}
+
+// evict drops the cached client for a server (disabled or deleted from the
+// registry) so it is neither served again nor resurrected on re-enable.
+func (p *Provider) evict(serverName string) {
+	p.mu.Lock()
+	old := p.clients[serverName]
+	delete(p.clients, serverName)
+	p.mu.Unlock()
+	if old != nil {
+		old.client.Close()
+	}
+}
+
+// sameServerConfig reports whether the freshly read registry record still
+// matches the snapshot the cached client was built from. A drift in any
+// connection-shaping field invalidates the cache.
+func sameServerConfig(snapshot, fresh *data.MCPServer) bool {
+	return snapshot.Transport == fresh.Transport &&
+		snapshot.URL == fresh.URL &&
+		snapshot.AllowedTools == fresh.AllowedTools &&
+		snapshot.RiskClass == fresh.RiskClass
+}
+
+// connect builds a fresh client + tool table for a validated registry record.
+// It performs network I/O and must be called without p.mu held.
+func (p *Provider) connect(ctx context.Context, serverName string, server *data.MCPServer) (*clientEntry, error) {
 	var allowed []string
 	if err := json.Unmarshal([]byte(server.AllowedTools), &allowed); err != nil {
 		return nil, fmt.Errorf("mcp server %q has invalid tool list", serverName)
@@ -146,11 +195,15 @@ func (p *Provider) entry(ctx context.Context, serverName string) (*clientEntry, 
 		exposed := ExposedName(serverName, info.Name)
 		entry.tools[exposed] = &guardedTool{inner: t, guard: p.Guard, exposed: exposed}
 	}
-	p.clients[serverName] = entry
 	return entry, nil
 }
 
 const maxResultChars = 64 << 10
+
+// mcpToolCallTimeout bounds a single MCP tool call. It mirrors the per-call
+// timeout of the built-in IM tools so one hung MCP request cannot consume the
+// whole run budget.
+const mcpToolCallTimeout = 20 * time.Second
 
 // truncateResult bounds MCP tool output before it reaches the model.
 func truncateResult(result *mcp.CallToolResult) *mcp.CallToolResult {
@@ -206,5 +259,9 @@ func (g *guardedTool) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	if !ok {
 		return "", fmt.Errorf("mcp tool %s is not invokable", g.exposed)
 	}
+	// Bound one MCP call so a stuck server cannot eat the whole run budget.
+	// WithTimeout keeps an earlier run-context deadline when there is one.
+	ctx, cancel := context.WithTimeout(ctx, mcpToolCallTimeout)
+	defer cancel()
 	return inner.InvokableRun(ctx, argumentsInJSON, opts...)
 }

@@ -24,6 +24,7 @@ import (
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -109,7 +110,12 @@ func provideKafkaConfig(confData *conf.Data) gateway.KafkaConfig {
 	}
 
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
-		cfg.Brokers = []string{brokers}
+		cfg.Brokers = nil
+		for _, b := range strings.Split(brokers, ",") {
+			if b = strings.TrimSpace(b); b != "" {
+				cfg.Brokers = append(cfg.Brokers, b)
+			}
+		}
 	}
 	if topic := os.Getenv("KAFKA_TOPIC"); topic != "" {
 		cfg.Topic = topic

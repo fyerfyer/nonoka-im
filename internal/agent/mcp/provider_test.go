@@ -19,11 +19,14 @@ import (
 
 type fakeStore struct{ server *data.MCPServer }
 
+// GetServer returns a copy so tests exercise the provider re-reading the
+// registry instead of observing mutations through a shared pointer.
 func (f *fakeStore) GetServer(_ context.Context, name string) (*data.MCPServer, error) {
 	if f.server == nil || f.server.Name != name {
 		return nil, data.ErrMCPNotFound
 	}
-	return f.server, nil
+	snap := *f.server
+	return &snap, nil
 }
 
 type guardRecorder struct{ calls []string }
@@ -92,6 +95,41 @@ func TestProviderExposesOnlyBoundTools(t *testing.T) {
 	store.server.Enabled = false
 	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
 		t.Fatalf("disabled server still serves tools")
+	}
+}
+
+// TestProviderInvalidatesCachedClient verifies the provider re-reads the
+// registry on every Tools call: a cached client must stop serving tools when
+// the server is disabled or deleted, and must be rebuilt when the registry
+// configuration (allowlist) changes.
+func TestProviderInvalidatesCachedClient(t *testing.T) {
+	srv := newFixtureServer(t)
+	store := &fakeStore{server: registryEntry(t, srv, "echo")}
+	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second}
+
+	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Disable after a successful resolution: the stale cache must not serve.
+	store.server.Enabled = false
+	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+		t.Fatal("disabled server still serves cached tools")
+	}
+
+	// Re-enable with an expanded allowlist: the client reconnects and the
+	// newly allowed tool becomes resolvable.
+	store.server.Enabled = true
+	store.server.AllowedTools = `["echo","hidden"]`
+	ts, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "hidden"}})
+	if err != nil || len(ts) != 1 {
+		t.Fatalf("config change did not rebuild tools: %v, %v", ts, err)
+	}
+
+	// Delete the server: cached tools must fail closed.
+	store.server = nil
+	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+		t.Fatal("deleted server still serves cached tools")
 	}
 }
 

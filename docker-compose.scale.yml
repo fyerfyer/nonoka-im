@@ -161,6 +161,7 @@ services:
   # model API key is configured.
   agent-worker:
     build: {context: ., dockerfile: Dockerfile}
+    restart: unless-stopped
     environment:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
@@ -181,7 +182,16 @@ services:
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+      # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
+      AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
+      AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
     command: ["/app/agent-worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     depends_on:
       nginx: {condition: service_started}
       mongodb: {condition: service_healthy}

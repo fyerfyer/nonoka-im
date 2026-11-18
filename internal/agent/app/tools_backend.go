@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"nonoka-im/internal/agent/tools"
@@ -18,12 +20,36 @@ import (
 )
 
 // Directory resolves display metadata (usernames, group names and members)
-// for the get_topic_info tool. It is implemented over the existing data
-// repositories in cmd/agent-worker.
+// for the get_topic_info, get_my_info, list_my_groups and get_group_members
+// tools. It is implemented over the existing data repositories in
+// cmd/agent-worker.
 type Directory interface {
 	Username(ctx context.Context, id int64) (string, error)
 	GroupName(ctx context.Context, groupID string) (string, error)
 	GroupMemberIDs(ctx context.Context, groupID string) ([]int64, error)
+	// UserProfile returns the profile record of a single user. Tools use it
+	// for self lookups (the actor's own ID); implementations must not
+	// substitute any other user.
+	UserProfile(ctx context.Context, id int64) (UserProfile, error)
+	// MyGroups returns every group the user belongs to; the tool layer
+	// bounds how many are shown to the model.
+	MyGroups(ctx context.Context, userID int64) ([]GroupRef, error)
+}
+
+// UserProfile is the directory view of one account, returned to the model
+// by get_my_info.
+type UserProfile struct {
+	ID        int64
+	Username  string
+	CreatedAt int64
+}
+
+// GroupRef is the directory view of one group membership, listed by
+// list_my_groups.
+type GroupRef struct {
+	ID          string
+	Name        string
+	MemberCount int
 }
 
 // MessageTools is a narrow read/write adapter over the existing IM storage and
@@ -35,6 +61,13 @@ type MessageTools struct {
 	Sender     ReplySender
 	Files      *mongo.Database
 	Directory  Directory
+
+	// sendSeq numbers send_message calls process-wide so two identical
+	// contents in one run get distinct client_msg_id values: the IM layer
+	// dedupes client_msg_id only against network retries, while the model may
+	// legitimately post the same text twice. Cross-retry determinism is not
+	// needed because a rerun of the run uses a fresh EventID.
+	sendSeq atomic.Uint64
 }
 
 func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit int) ([]*msgworker.InboxMessage, error) {
@@ -50,21 +83,35 @@ func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit 
 	return b.Storage.GetRecentMessages(ctx, rc.ActorUserID, rc.Topic, limit)
 }
 
-func (b *MessageTools) SearchMessages(ctx context.Context, rc tools.RunContext, query string, limit int) ([]string, error) {
+func (b *MessageTools) SearchMessages(ctx context.Context, rc tools.RunContext, query string, limit int, filter tools.SearchFilter) ([]string, error) {
 	rows, err := b.messages(ctx, rc, 100)
 	if err != nil {
 		return nil, err
 	}
+	return boundToolResults(searchInboxRows(rows, query, limit, filter), 8000), nil
+}
+
+// searchInboxRows scans the most recent window for the newest messages that
+// match the query and the optional sender/time filters. A zero filter field
+// disables that condition, so callers that pass an empty filter get exactly
+// the previous search behavior.
+func searchInboxRows(rows []*msgworker.InboxMessage, query string, limit int, filter tools.SearchFilter) []string {
 	query = strings.ToLower(strings.TrimSpace(query))
 	result := make([]string, 0, limit)
 	for i := len(rows) - 1; i >= 0 && len(result) < limit; i-- {
 		row := rows[i]
+		if filter.SenderID != 0 && row.SenderID != filter.SenderID {
+			continue
+		}
+		if filter.Since != 0 && row.Timestamp < filter.Since {
+			continue
+		}
 		content := strings.ToValidUTF8(string(row.Content), "�")
 		if strings.Contains(strings.ToLower(content), query) {
 			result = append(result, formatToolMessage(row.SenderID, row.Timestamp, content))
 		}
 	}
-	return boundToolResults(result, 8000), nil
+	return result
 }
 
 func (b *MessageTools) ConversationContext(ctx context.Context, rc tools.RunContext, limit int) ([]string, error) {
@@ -92,7 +139,11 @@ func (b *MessageTools) SendMessage(ctx context.Context, rc tools.RunContext, con
 	if len(content) > 64*1024 {
 		return fmt.Errorf("message too large")
 	}
-	h := sha256.Sum256([]byte(rc.EventID + "\x00tool\x00" + content))
+	// The per-process sequence disambiguates repeated identical contents
+	// within one run; client_msg_id uniqueness, not content hashing, is what
+	// prevents the IM dedup layer from dropping the second message.
+	seq := b.sendSeq.Add(1)
+	h := sha256.Sum256([]byte(rc.EventID + "\x00tool\x00" + strconv.FormatUint(seq, 10) + "\x00" + content))
 	return b.Sender.Send(ctx, rc.Topic, content, "agent-tool-"+hex.EncodeToString(h[:16]))
 }
 
@@ -177,6 +228,88 @@ func (b *MessageTools) TopicInfo(ctx context.Context, rc tools.RunContext) (stri
 	default:
 		return "type=system", nil
 	}
+}
+
+// MyInfo describes the actor's own account. It never takes a user ID from
+// model arguments: the actor is the only user it will ever look up.
+func (b *MessageTools) MyInfo(ctx context.Context, rc tools.RunContext) (string, error) {
+	if b.Directory == nil {
+		return "", fmt.Errorf("user info unavailable")
+	}
+	profile, err := b.Directory.UserProfile(ctx, rc.ActorUserID)
+	if err != nil {
+		return "", fmt.Errorf("user info unavailable")
+	}
+	return fmt.Sprintf("user id=%d name=%q created_at=%d", profile.ID, profile.Username, profile.CreatedAt), nil
+}
+
+// MyGroups lists the actor's groups. It only ever lists groups for
+// rc.ActorUserID, so membership itself is the authorization boundary.
+func (b *MessageTools) MyGroups(ctx context.Context, rc tools.RunContext) (string, error) {
+	if b.Directory == nil {
+		return "", fmt.Errorf("group listing unavailable")
+	}
+	groups, err := b.Directory.MyGroups(ctx, rc.ActorUserID)
+	if err != nil {
+		return "", fmt.Errorf("group listing unavailable")
+	}
+	const groupCap = 50
+	truncated := false
+	if len(groups) > groupCap {
+		groups = groups[:groupCap]
+		truncated = true
+	}
+	entries := make([]string, 0, len(groups))
+	for _, g := range groups {
+		entries = append(entries, fmt.Sprintf("name=%q id=%s members=%d", g.Name, g.ID, g.MemberCount))
+	}
+	if len(entries) == 0 {
+		return "groups(0)", nil
+	}
+	suffix := ""
+	if truncated {
+		suffix = ", ..."
+	}
+	return fmt.Sprintf("groups(%d): %s%s", len(entries), strings.Join(entries, "; "), suffix), nil
+}
+
+// GroupMembers lists a group's members, but only after verifying the actor
+// belongs to that group. The authorization error is deliberately ambiguous:
+// a non-member must not learn whether the group exists.
+func (b *MessageTools) GroupMembers(ctx context.Context, rc tools.RunContext, groupID string) (string, error) {
+	if b.Authorizer == nil || b.Directory == nil {
+		return "", fmt.Errorf("group tools unavailable")
+	}
+	if groupID == "" || strings.ContainsAny(groupID, "/\\ \t\n") {
+		return "", fmt.Errorf("invalid group id")
+	}
+	if err := b.Authorizer.CanAccessTopic(ctx, rc.ActorUserID, topic.PrefixGroup+groupID); err != nil {
+		return "", fmt.Errorf("group unavailable or access denied")
+	}
+	name, err := b.Directory.GroupName(ctx, groupID)
+	if err != nil {
+		return "", fmt.Errorf("group unavailable or access denied")
+	}
+	ids, err := b.Directory.GroupMemberIDs(ctx, groupID)
+	if err != nil {
+		return "", fmt.Errorf("group members unavailable")
+	}
+	const memberCap = 200
+	truncated := false
+	if len(ids) > memberCap {
+		ids = ids[:memberCap]
+		truncated = true
+	}
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		username, _ := b.Directory.Username(ctx, id)
+		names = append(names, fmt.Sprintf("%s(id=%d)", username, id))
+	}
+	suffix := ""
+	if truncated {
+		suffix = ", ..."
+	}
+	return fmt.Sprintf("group name=%q id=%s members(%d): %s%s", name, groupID, len(ids), strings.Join(names, ", "), suffix), nil
 }
 
 func formatToolMessage(senderID, timestamp int64, content string) string {

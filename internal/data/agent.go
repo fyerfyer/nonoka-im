@@ -25,6 +25,7 @@ type AgentRun struct {
 	ErrorCode    string `gorm:"size:64"`
 	Attempts     int    `gorm:"not null;default:0"`
 	ReplyMsgID   int64
+	CheckpointID string `gorm:"size:64"`
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
@@ -271,6 +272,56 @@ func (s *AgentStore) ClaimRun(ctx context.Context, eventID string, run *AgentRun
 		return nil, false, err
 	}
 	return run, true, nil
+}
+
+// QueueRun records a triggered agent run without claiming it for execution.
+// The consumer dispatch path uses it so Kafka offsets are committed before any
+// model work starts; the run worker pool picks queued runs up afterwards.
+// Existing runs (already processed or in flight) are returned with
+// queued=false and no side effects.
+func (s *AgentStore) QueueRun(ctx context.Context, candidate *AgentRun) (queued bool, err error) {
+	if candidate.Status == "" {
+		candidate.Status = "queued"
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locked := &AgentStore{db: tx}
+		session, err := locked.GetSession(ctx, candidate.AgentID, candidate.ActorUserID, candidate.Topic)
+		if err != nil {
+			return err
+		}
+		candidate.SessionID = session.ID
+		_, claimed, err := locked.ClaimRun(ctx, candidate.EventID, candidate)
+		if err != nil {
+			return err
+		}
+		queued = claimed
+		return nil
+	})
+	return queued, err
+}
+
+// SweepStaleRuns requeues runs stuck in "running" (worker crash between reply
+// submission and terminal state write) and fails runs that exhausted their
+// attempts. The replay loop re-executes requeued runs; reply submission stays
+// idempotent through the deterministic client message ID, so a re-executed run
+// that already replied does not duplicate the message.
+func (s *AgentStore) SweepStaleRuns(ctx context.Context, threshold time.Duration, maxAttempts int) (requeued, failed int64, err error) {
+	cutoff := time.Now().Add(-threshold)
+	res := s.db.WithContext(ctx).Model(&AgentRun{}).
+		Where("status = ? AND attempts >= ? AND ((started_at IS NOT NULL AND started_at < ?) OR (started_at IS NULL AND created_at < ?))", "running", maxAttempts, cutoff, cutoff).
+		Updates(map[string]interface{}{"status": "failed", "error_code": "stalled", "finished_at": time.Now()})
+	if res.Error != nil {
+		return 0, 0, res.Error
+	}
+	failed = res.RowsAffected
+	res = s.db.WithContext(ctx).Model(&AgentRun{}).
+		Where("status = ? AND attempts < ? AND ((started_at IS NOT NULL AND started_at < ?) OR (started_at IS NULL AND created_at < ?))", "running", maxAttempts, cutoff, cutoff).
+		Updates(map[string]interface{}{"status": "queued", "started_at": nil})
+	if res.Error != nil {
+		return 0, 0, res.Error
+	}
+	requeued = res.RowsAffected
+	return requeued, failed, nil
 }
 
 func (s *AgentStore) BlockingRun(ctx context.Context, sessionID uint64, topicSeq uint64, runID uint64) (*AgentRun, error) {

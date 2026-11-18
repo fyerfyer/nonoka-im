@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"nonoka-im/internal/authz"
@@ -41,7 +42,12 @@ func provideKafkaConfig(confData *conf.Data) gateway.KafkaConfig {
 
 	// Environment variables override config file values.
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
-		cfg.Brokers = []string{brokers}
+		cfg.Brokers = nil
+		for _, b := range strings.Split(brokers, ",") {
+			if b = strings.TrimSpace(b); b != "" {
+				cfg.Brokers = append(cfg.Brokers, b)
+			}
+		}
 	}
 	if topic := os.Getenv("KAFKA_TOPIC"); topic != "" {
 		cfg.Topic = topic

@@ -92,6 +92,58 @@ func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
 	}
 }
 
+// TestSummaryTrackerWrapsGenerationErrors pins the error contract: the tracker
+// must tag summary model failures by wrapping ErrSummary (keeping errors.Is
+// working) so no global flag is needed to recognize them later.
+func TestSummaryTrackerWrapsGenerationErrors(t *testing.T) {
+	tr := summaryTracker{model: &fakeModel{failSummary: true}}
+	msgs := []*schema.Message{schema.UserMessage("summarize this")}
+	if _, err := tr.Generate(context.Background(), msgs); !errors.Is(err, ErrSummary) {
+		t.Fatalf("Generate error must wrap ErrSummary, got %v", err)
+	}
+	if _, err := tr.Stream(context.Background(), msgs); !errors.Is(err, ErrSummary) {
+		t.Fatalf("Stream error must wrap ErrSummary, got %v", err)
+	}
+}
+
+// failFinalModel summarizes successfully but blows up on the actual answer.
+type failFinalModel struct{ calls int }
+
+func (f *failFinalModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	f.calls++
+	if strings.Contains(input[len(input)-1].Content, "CURRENT_INPUT_MARKER") {
+		return nil, errors.New("answer generation exploded")
+	}
+	return schema.AssistantMessage("stable previous fact", nil), nil
+}
+
+func (f *failFinalModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	msg, err := f.Generate(ctx, input, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.StreamReaderFromArray([]*schema.Message{msg}), nil
+}
+
+func (f *failFinalModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
+}
+
+// TestRunErrorAfterSuccessfulSummaryIsNotErrSummary guards the fragile
+// heuristic this replaced: only errors raised by the summary model itself may
+// classify as ErrSummary; a later, unrelated model failure must surface as-is.
+func TestRunErrorAfterSuccessfulSummaryIsNotErrSummary(t *testing.T) {
+	r := &Runtime{model: &failFinalModel{}}
+	_, err := r.Run(context.Background(), runtime.Input{
+		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
+		History:      []runtime.Turn{{ID: 1, Input: "old", Output: "reply"}},
+		NeedsSummary: true, TriggerTokens: 1,
+	})
+	if err == nil || errors.Is(err, ErrSummary) {
+		t.Fatalf("answer failure must not be reported as ErrSummary: %v", err)
+	}
+}
+
 // TestRunRoutesToAgentOwnedEndpoint verifies that an agent's own base URL,
 // API key and model name override the runtime defaults, so one worker can run
 // agents backed by different OpenAI-compatible providers.

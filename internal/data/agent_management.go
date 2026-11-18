@@ -130,6 +130,45 @@ func (s *AgentStore) Publish(ctx context.Context, id, revision int64) (*AgentVer
 	return &version, err
 }
 
+// DeleteAgent removes an agent owned by the caller. The bot user is left in
+// place (historical messages still reference it) but can no longer act: bot
+// sends verify against the agent row. Unfinished runs are cancelled.
+func (s *AgentStore) DeleteAgent(ctx context.Context, id int64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("agent_id = ?", id).Delete(&AgentVersion{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&AgentRun{}).Where("agent_id = ? AND status IN ?", id, []string{"queued", "running", "waiting_approval"}).
+			Updates(map[string]interface{}{"status": "cancelled", "error_code": "agent_deleted", "finished_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&Agent{}, id).Error
+	})
+}
+
+// RollbackPublish removes a just-published version and restores the agent row
+// to its previous state. It refuses to roll back if a newer publish won the
+// race, so a failed tool binding never destroys a newer valid version.
+func (s *AgentStore) RollbackPublish(ctx context.Context, id, version int64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row Agent
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
+			return err
+		}
+		if row.CurrentVersion != version {
+			return fmt.Errorf("agent %d advanced past version %d; refusing rollback", id, version)
+		}
+		if err := tx.Where("agent_id = ? AND version = ?", id, version).Delete(&AgentVersion{}).Error; err != nil {
+			return err
+		}
+		updates := map[string]interface{}{"current_version": version - 1, "updated_at": time.Now()}
+		if version-1 == 0 {
+			updates["status"] = "draft"
+		}
+		return tx.Model(&Agent{}).Where("id = ?", id).Updates(updates).Error
+	})
+}
+
 func (s *AgentStore) SetAgentStatus(ctx context.Context, id int64, status string) error {
 	if status != "active" && status != "disabled" {
 		return fmt.Errorf("invalid agent status")
@@ -181,11 +220,16 @@ func (s *AgentStore) QueuedRuns(ctx context.Context, limit int) ([]AgentRun, err
 	return rows, err
 }
 
-func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model, baseURL, apiKeyEnc string, maxTokens int, grant func(context.Context, int64) error) error {
+// BootstrapAgent idempotently creates the preset agent. It returns
+// created=false (without error) when the agent already exists, so callers can
+// tell first-time initialization apart from a restart. Concurrent bootstraps
+// race safely: the insert is a no-op on conflict.
+func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model, baseURL, apiKeyEnc string, maxTokens int, grant func(context.Context, int64) error) (bool, error) {
 	if id <= 0 || ownerID <= 0 {
-		return fmt.Errorf("bootstrap agent and owner IDs required")
+		return false, fmt.Errorf("bootstrap agent and owner IDs required")
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	created := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing Agent
 		if err := tx.First(&existing, id).Error; err == nil {
 			return nil
@@ -211,11 +255,19 @@ func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int6
 			maxTokens = 4096
 		}
 		row := Agent{ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active", CurrentVersion: 1, DraftInstruction: instruction, DraftModel: model, DraftTools: `["search_messages","get_conversation_context","send_message"]`, DraftBaseURL: baseURL, DraftAPIKeyEnc: apiKeyEnc, DraftMaxTokens: maxTokens, DraftRevision: 1}
-		if err := tx.Create(&row).Error; err != nil {
-			return err
+		// OnConflict makes concurrent bootstraps from multiple workers safe:
+		// exactly one insert wins; the losers observe RowsAffected == 0.
+		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+		if res.Error != nil {
+			return res.Error
 		}
+		if res.RowsAffected == 0 {
+			// Lost the creation race to another worker.
+			return nil
+		}
+		created = true
 		version := AgentVersion{AgentID: id, Version: 1, Instruction: instruction, Model: model, Tools: row.DraftTools, BaseURL: baseURL, APIKeyEnc: apiKeyEnc, MaxTokens: maxTokens}
-		if err := tx.Create(&version).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&version).Error; err != nil {
 			return err
 		}
 		if grant != nil {
@@ -223,4 +275,5 @@ func (s *AgentStore) BootstrapAgent(ctx context.Context, id, botID, ownerID int6
 		}
 		return nil
 	})
+	return created, err
 }

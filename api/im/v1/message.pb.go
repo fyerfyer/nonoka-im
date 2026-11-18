@@ -30,6 +30,11 @@ const (
 	MsgType_MSG_TYPE_IMAGE       MsgType = 2
 	MsgType_MSG_TYPE_FILE        MsgType = 3
 	MsgType_MSG_TYPE_VOICE       MsgType = 4
+	// Agent approval card. Content is a versioned JSON payload
+	// ({"version":1,"run_id":...,"approval_id":...,"tool":...,"summary":...,
+	// "target":...,"status":...,"expires_at":...}) persisted and pushed through
+	// the normal message chain.
+	MsgType_MSG_TYPE_AGENT_CARD MsgType = 5
 )
 
 // Enum value maps for MsgType.
@@ -40,6 +45,7 @@ var (
 		2: "MSG_TYPE_IMAGE",
 		3: "MSG_TYPE_FILE",
 		4: "MSG_TYPE_VOICE",
+		5: "MSG_TYPE_AGENT_CARD",
 	}
 	MsgType_value = map[string]int32{
 		"MSG_TYPE_UNSPECIFIED": 0,
@@ -47,6 +53,7 @@ var (
 		"MSG_TYPE_IMAGE":       2,
 		"MSG_TYPE_FILE":        3,
 		"MSG_TYPE_VOICE":       4,
+		"MSG_TYPE_AGENT_CARD":  5,
 	}
 )
 
@@ -737,13 +744,14 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\tPullReply\x122\n" +
 	"\bmessages\x18\x01 \x03(\v2\x16.api.im.v1.PullMessageR\bmessages\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x19\n" +
-	"\bnext_seq\x18\x03 \x01(\x04R\anextSeq*q\n" +
+	"\bnext_seq\x18\x03 \x01(\x04R\anextSeq*\x8a\x01\n" +
 	"\aMsgType\x12\x18\n" +
 	"\x14MSG_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMSG_TYPE_TEXT\x10\x01\x12\x12\n" +
 	"\x0eMSG_TYPE_IMAGE\x10\x02\x12\x11\n" +
 	"\rMSG_TYPE_FILE\x10\x03\x12\x12\n" +
-	"\x0eMSG_TYPE_VOICE\x10\x042\xd0\x01\n" +
+	"\x0eMSG_TYPE_VOICE\x10\x04\x12\x17\n" +
+	"\x13MSG_TYPE_AGENT_CARD\x10\x052\xd0\x01\n" +
 	"\x0eMessageService\x12f\n" +
 	"\vSendMessage\x12\x1d.api.im.v1.SendMessageRequest\x1a\x1b.api.im.v1.SendMessageReply\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/v1/message/send\x12V\n" +
 	"\fPullMessages\x12\x16.api.im.v1.PullRequest\x1a\x14.api.im.v1.PullReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/message/pullB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"

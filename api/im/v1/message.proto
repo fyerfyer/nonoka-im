@@ -27,6 +27,11 @@ enum MsgType {
   MSG_TYPE_IMAGE = 2;
   MSG_TYPE_FILE = 3;
   MSG_TYPE_VOICE = 4;
+  // Agent approval card. Content is a versioned JSON payload
+  // ({"version":1,"run_id":...,"approval_id":...,"tool":...,"summary":...,
+  // "target":...,"status":...,"expires_at":...}) persisted and pushed through
+  // the normal message chain.
+  MSG_TYPE_AGENT_CARD = 5;
 }
 
 // Client-to-server request

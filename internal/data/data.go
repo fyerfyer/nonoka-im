@@ -43,7 +43,7 @@ func (d *Data) IsBotUser(ctx context.Context, id int64) (bool, error) {
 // CleanTestData truncates all user tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
-	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations, agent_runs, agent_turns, agent_sessions, agent_context_snapshots, agent_versions, agents, mcp_servers, skills RESTART IDENTITY CASCADE").Error
+	return d.db.Exec("TRUNCATE TABLE users, group_members, conversations, agent_runs, agent_turns, agent_sessions, agent_context_snapshots, agent_versions, agents, mcp_servers, skills, agent_checkpoints, agent_approvals RESTART IDENTITY CASCADE").Error
 }
 
 // NewData .
@@ -110,7 +110,7 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	}
 	defer lockConn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrateLockKey) //nolint:errcheck
 
-	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}, &AgentRun{}, &AgentTurn{}, &AgentSession{}, &AgentContextSnapshot{}, &Agent{}, &AgentVersion{}, &MCPServer{}, &Skill{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &GroupMember{}, &Conversation{}, &Group{}, &AgentRun{}, &AgentTurn{}, &AgentSession{}, &AgentContextSnapshot{}, &Agent{}, &AgentVersion{}, &MCPServer{}, &Skill{}, &AgentCheckpoint{}, &AgentApproval{}); err != nil {
 		return nil, nil, err
 	}
 	if err := db.Exec("DROP INDEX IF EXISTS idx_agent_runs_event_id").Error; err != nil {

@@ -159,7 +159,7 @@ func validateAgentRequest(v *agentRequest) error {
 	if v.MaxTokens < 0 || v.MaxTokens > 128000 {
 		return invalidAgentInput("invalid max_tokens")
 	}
-	allowed := map[string]bool{"search_messages": true, "get_conversation_context": true, "send_message": true, "read_file": true, "get_topic_info": true}
+	allowed := map[string]bool{"search_messages": true, "get_conversation_context": true, "send_message": true, "read_file": true, "get_topic_info": true, "get_my_info": true, "list_my_groups": true, "get_group_members": true}
 	seen := map[string]bool{}
 	for _, name := range v.Tools {
 		if !allowed[name] || seen[name] {
@@ -412,9 +412,12 @@ func (s *AgentHTTP) Publish(c khttp.Context) error {
 		if err := json.Unmarshal([]byte(version.Tools), &tools); err != nil {
 			return err
 		}
+		var bindErr error
+		var bindErrTool string
 		for _, tool := range tools {
 			if err := s.auth.SetAgentToolBinding(ctx, id, tool, true); err != nil {
-				return fmt.Errorf("bind tool %q: %w", tool, err)
+				bindErrTool, bindErr = tool, err
+				break
 			}
 		}
 		var mcpBindings []data.MCPBinding
@@ -425,8 +428,20 @@ func (s *AgentHTTP) Publish(c khttp.Context) error {
 		}
 		for _, binding := range mcpBindings {
 			if err := s.auth.SetAgentToolBinding(ctx, id, binding.Exposed, true); err != nil {
-				return fmt.Errorf("bind mcp tool %q: %w", binding.Exposed, err)
+				if bindErr == nil {
+					bindErrTool, bindErr = binding.Exposed, err
+				}
+				break
 			}
+		}
+		if bindErr != nil {
+			// Tool authorization is part of publishing: roll the version back
+			// instead of leaving a published agent whose tools all fail
+			// authorization. A concurrent newer publish aborts the rollback.
+			if rerr := s.store.RollbackPublish(ctx, id, version.Version); rerr != nil {
+				return fmt.Errorf("bind tool %q: %w (rollback failed: %v)", bindErrTool, bindErr, rerr)
+			}
+			return fmt.Errorf("bind tool %q: %w", bindErrTool, bindErr)
 		}
 		writeAgentJSON(w, http.StatusOK, versionView(version))
 		return nil
@@ -597,6 +612,94 @@ func (s *AgentHTTP) RunAction(c khttp.Context, action string) error {
 	})
 }
 
+// Delete removes an agent and its versions. Only the owner (or a manager)
+// can delete; the bot user is preserved as an inert account.
+func (s *AgentHTTP) Delete(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		id, err := parseAgentID(c)
+		if err != nil {
+			return err
+		}
+		if err := s.auth.CanManageAgent(ctx, extractUserIDFromContext(ctx), id); err != nil {
+			return authz.ErrDenied
+		}
+		if err := s.store.DeleteAgent(ctx, id); err != nil {
+			return err
+		}
+		writeAgentJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		return nil
+	})
+}
+
+// ApprovalDetail returns one approval for status display on cards. Only the
+// approver (or an agent manager) may read it.
+func (s *AgentHTTP) ApprovalDetail(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+		id, err := strconv.ParseUint(c.Vars().Get("id"), 10, 64)
+		if err != nil || id == 0 {
+			return invalidAgentInput("invalid approval id")
+		}
+		approval, err := s.store.GetApproval(ctx, id)
+		if err != nil {
+			return data.ErrAgentNotFound
+		}
+		run, err := s.store.GetRun(ctx, approval.RunID)
+		if err != nil {
+			return data.ErrAgentNotFound
+		}
+		uid := extractUserIDFromContext(ctx)
+		if uid != approval.ApproverID && s.auth.CanManageAgent(ctx, uid, run.AgentID) != nil {
+			return authz.ErrDenied
+		}
+		writeAgentJSON(w, http.StatusOK, approval)
+		return nil
+	})
+}
+
+// ApprovalAction resolves a pending agent tool approval. The approver is the
+// run's actor; the transition is one-shot and the run is requeued for the
+// agent worker to resume from its checkpoint.
+func (s *AgentHTTP) ApprovalAction(c khttp.Context, action string) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+		id, err := strconv.ParseUint(c.Vars().Get("id"), 10, 64)
+		if err != nil || id == 0 {
+			return invalidAgentInput("invalid approval id")
+		}
+		var to string
+		switch action {
+		case "approve":
+			to = "approved"
+		case "reject":
+			to = "rejected"
+		default:
+			return invalidAgentInput("invalid approval action")
+		}
+		approval, err := s.store.GetApproval(ctx, id)
+		if err != nil {
+			return data.ErrAgentNotFound
+		}
+		run, err := s.store.GetRun(ctx, approval.RunID)
+		if err != nil {
+			return data.ErrAgentNotFound
+		}
+		uid := extractUserIDFromContext(ctx)
+		// The first-version approver is the initiating actor; the agent must
+		// still be usable by them at decision time.
+		if uid != approval.ApproverID || s.auth.CanUseAgent(ctx, uid, run.AgentID) != nil {
+			return authz.ErrDenied
+		}
+		if err := s.store.TransitionApproval(ctx, id, "pending", to); err != nil {
+			return err
+		}
+		// Requeue the run; the worker claims waiting_approval -> queued runs.
+		if err := s.store.ClaimWaitingRun(ctx, run.ID); err != nil && !errors.Is(err, data.ErrRunState) {
+			return err
+		}
+		writeAgentJSON(w, http.StatusOK, map[string]string{"status": to})
+		return nil
+	})
+}
+
 func (s *AgentHTTP) VerifyBotSend(ctx context.Context, claims map[string]any) error {
 	agentID, ok1 := claims["agent_id"].(float64)
 	botID, ok2 := claims["user_id"].(float64)
@@ -605,7 +708,7 @@ func (s *AgentHTTP) VerifyBotSend(ctx context.Context, claims map[string]any) er
 		return authz.ErrDenied
 	}
 	row, err := s.store.GetAgent(ctx, int64(agentID))
-	if err != nil || row.BotUserID != int64(botID) || row.CurrentVersion <= 0 {
+	if err != nil || row.BotUserID != int64(botID) || row.CurrentVersion <= 0 || row.Status != "active" {
 		return authz.ErrDenied
 	}
 	if err := s.auth.CanAccessTopic(ctx, int64(botID), rawTopic); err != nil {

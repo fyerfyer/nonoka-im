@@ -7,6 +7,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -21,6 +22,13 @@ type RunContext struct {
 	EventID     string
 	Topic       string
 }
+
+// toolCallTimeout bounds a single tool execution so one stuck backend call
+// (e.g. a hung MCP request) cannot eat the whole run budget. When the run
+// context already carries an earlier deadline, context.WithTimeout keeps the
+// earlier one automatically, so no extra check is needed.
+const toolCallTimeout = 20 * time.Second
+
 type contextKey struct{}
 
 func WithRunContext(ctx context.Context, r RunContext) context.Context {
@@ -34,7 +42,24 @@ func GetRunContext(ctx context.Context) (RunContext, bool) {
 type SearchRequest struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit,omitempty"`
+	// Since filters to messages sent at or after this unix time (seconds).
+	// Zero means no time filter.
+	Since int64 `json:"since,omitempty"`
+	// SenderID filters to messages sent by this user ID. Zero means no
+	// sender filter.
+	SenderID int64 `json:"sender_id,omitempty"`
 }
+
+// SearchFilter carries the optional search_messages filters in parsed form.
+type SearchFilter struct {
+	Since    int64
+	SenderID int64
+}
+
+func (r SearchRequest) filter() SearchFilter {
+	return SearchFilter{Since: r.Since, SenderID: r.SenderID}
+}
+
 type ContextRequest struct {
 	Limit int `json:"limit,omitempty"`
 }
@@ -43,6 +68,9 @@ type SendRequest struct {
 }
 type ReadFileRequest struct {
 	FileID string `json:"file_id"`
+}
+type GroupMembersRequest struct {
+	GroupID string `json:"group_id"`
 }
 type SearchResult struct {
 	Results []string `json:"results"`
@@ -64,7 +92,7 @@ type ReadFileResult struct {
 // authorization for rc.ActorUserID on every call; the tool adapters only
 // validate argument shape and bound result size.
 type Backend interface {
-	SearchMessages(context.Context, RunContext, string, int) ([]string, error)
+	SearchMessages(context.Context, RunContext, string, int, SearchFilter) ([]string, error)
 	ConversationContext(context.Context, RunContext, int) ([]string, error)
 	SendMessage(context.Context, RunContext, string) error
 	// ReadFile returns the attachment content when the actor may read it.
@@ -73,6 +101,16 @@ type Backend interface {
 	// TopicInfo returns a human-readable description of the current
 	// conversation: type, group name and members, or the P2P peer.
 	TopicInfo(context.Context, RunContext) (string, error)
+	// MyInfo returns a human-readable description of the actor's own user
+	// profile. Implementations must only ever return rc.ActorUserID's data.
+	MyInfo(context.Context, RunContext) (string, error)
+	// MyGroups returns a human-readable, bounded list of the groups the
+	// actor belongs to (names, IDs and member counts).
+	MyGroups(context.Context, RunContext) (string, error)
+	// GroupMembers returns a human-readable member list of the given group.
+	// Implementations must deny (with an existence-ambiguous error) when the
+	// actor is not a member of that group.
+	GroupMembers(context.Context, RunContext, string) (string, error)
 }
 
 // Guard authorizes every tool call against the run context before it reaches
@@ -96,11 +134,15 @@ Use this tool when the user asks about something discussed earlier, wants you to
 
 Args:
 - query: keyword or phrase to search for (required).
-- limit: max results, 1-20 (default 10).`}, func(ctx context.Context, in SearchRequest) (SearchResult, error) {
+- limit: max results, 1-20 (default 10).
+- since: optional unix timestamp (seconds); only messages sent at or after this time are returned.
+- sender_id: optional user ID; only messages sent by this user are returned.`}, func(ctx context.Context, in SearchRequest) (SearchResult, error) {
 		r, ok := GetRunContext(ctx)
 		if !ok {
 			return SearchResult{}, fmt.Errorf("run context missing")
 		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
 		if in.Query == "" {
 			return SearchResult{}, fmt.Errorf("query is required")
 		}
@@ -110,7 +152,7 @@ Args:
 		if err := authorize(ctx, guard, r, "search_messages", "topic", ""); err != nil {
 			return SearchResult{}, err
 		}
-		v, e := backend.SearchMessages(ctx, r, in.Query, in.Limit)
+		v, e := backend.SearchMessages(ctx, r, in.Query, in.Limit, in.filter())
 		return SearchResult{Results: limitItems(v, resultBudgetTokens)}, e
 	})
 	conversation := utils.NewTool(&schema.ToolInfo{Name: "get_conversation_context", Desc: `Read the most recent messages of the current conversation, oldest first.
@@ -123,6 +165,8 @@ Args:
 		if !ok {
 			return ContextResult{}, fmt.Errorf("run context missing")
 		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
 		if in.Limit <= 0 || in.Limit > 50 {
 			in.Limit = 20
 		}
@@ -142,6 +186,8 @@ Args:
 		if !ok {
 			return SendResult{}, fmt.Errorf("run context missing")
 		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
 		if in.Content == "" {
 			return SendResult{}, fmt.Errorf("content is required")
 		}
@@ -161,6 +207,8 @@ Args:
 		if !ok {
 			return ReadFileResult{}, fmt.Errorf("run context missing")
 		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
 		if in.FileID == "" {
 			return ReadFileResult{}, fmt.Errorf("file_id is required")
 		}
@@ -187,12 +235,62 @@ Use this tool when you need to know who is in this conversation or what group th
 		if !ok {
 			return "", fmt.Errorf("run context missing")
 		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
 		if err := authorize(ctx, guard, r, "get_topic_info", "topic", ""); err != nil {
 			return "", err
 		}
 		return backend.TopicInfo(ctx, r)
 	})
-	return []tool.InvokableTool{search, conversation, send, readFile, topicInfo}
+	myInfo := utils.NewTool(&schema.ToolInfo{Name: "get_my_info", Desc: `Get the current user's own profile: user ID, username and account creation time.
+
+Use this tool when the user asks who they are, what their account is, or what their own user ID or username is. Returns only the profile of the user you are talking to. Takes no arguments.`}, func(ctx context.Context, _ struct{}) (string, error) {
+		r, ok := GetRunContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("run context missing")
+		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
+		if err := authorize(ctx, guard, r, "get_my_info", "external", ""); err != nil {
+			return "", err
+		}
+		return backend.MyInfo(ctx, r)
+	})
+	myGroups := utils.NewTool(&schema.ToolInfo{Name: "list_my_groups", Desc: `List the groups the current user has joined: group name, group ID and member count for each (up to 50 groups).
+
+Use this tool when the user asks which groups they are in, or before using get_group_members to find a group ID. Only returns groups the current user belongs to. Takes no arguments.`}, func(ctx context.Context, _ struct{}) (string, error) {
+		r, ok := GetRunContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("run context missing")
+		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
+		if err := authorize(ctx, guard, r, "list_my_groups", "external", ""); err != nil {
+			return "", err
+		}
+		return backend.MyGroups(ctx, r)
+	})
+	groupMembers := utils.NewTool(&schema.ToolInfo{Name: "get_group_members", Desc: `List the members of a group by its group ID: usernames and user IDs (up to 200 members).
+
+Use this tool when the user asks who is in a specific group. You can only look up groups the current user belongs to; for other group IDs the tool fails without revealing whether the group exists.
+
+Args:
+- group_id: the ID of the group (from list_my_groups or the current conversation) (required).`}, func(ctx context.Context, in GroupMembersRequest) (string, error) {
+		r, ok := GetRunContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("run context missing")
+		}
+		ctx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
+		if in.GroupID == "" {
+			return "", fmt.Errorf("group_id is required")
+		}
+		if err := authorize(ctx, guard, r, "get_group_members", "external", ""); err != nil {
+			return "", err
+		}
+		return backend.GroupMembers(ctx, r, in.GroupID)
+	})
+	return []tool.InvokableTool{search, conversation, send, readFile, topicInfo, myInfo, myGroups, groupMembers}
 }
 
 // authorize fails closed when no guard is configured, so a miswired worker

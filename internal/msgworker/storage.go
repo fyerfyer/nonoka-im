@@ -37,6 +37,17 @@ const (
 	CollectionDeliveryStatus = "delivery_status"    // message delivery tracking per user
 	CollectionAgentOutbox    = "agent_event_outbox" // transactional Agent trigger events
 
+	// agentEventMaxAttempts caps per-row publish attempts in the outbox relay.
+	// Rows exceeding it are parked with status "failed" (never deleted) so an
+	// operator can inspect and replay them manually.
+	agentEventMaxAttempts = 50
+	// agentEventPublishedRetention bounds how long published outbox rows are
+	// kept before the relay prunes them during normal operation.
+	agentEventPublishedRetention = 24 * time.Hour
+	// agentEventPruneLimit bounds a single prune pass so cleanup cannot stall
+	// the relay when a large backlog of published rows accumulates.
+	agentEventPruneLimit = 500
+
 	// senderCacheKeyPrefix is the Redis key prefix for message sender cache.
 	senderCacheKeyPrefix = "im:sender"
 	// senderCacheTTL is the time-to-live for sender cache entries.
@@ -293,6 +304,16 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 			}
 			return processed, err
 		}
+		if row.Attempts > agentEventMaxAttempts {
+			// The row exhausted its publish attempts. Park it as failed and
+			// keep it for manual inspection instead of retrying forever.
+			s.log.Errorf("agent outbox row %s exceeded %d attempts; marking failed for manual handling (topic=%s seq=%d last_error=%s)",
+				row.ID.Hex(), agentEventMaxAttempts, row.Topic, row.TopicSeq, row.LastError)
+			if err := s.abandonAgentEvent(ctx, row.ID); err != nil {
+				return processed, fmt.Errorf("abandon exhausted agent event %s: %w", row.ID.Hex(), err)
+			}
+			continue
+		}
 		var ev agevent.MessageEvent
 		if err := json.Unmarshal(row.Payload, &ev); err != nil {
 			_ = s.failAgentEvent(ctx, row.ID, err, retryBackoff)
@@ -307,6 +328,7 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 		if err := s.markAgentEventPublished(ctx, row.ID); err != nil {
 			return processed, err
 		}
+		s.prunePublishedAgentEvents(ctx)
 		processed++
 	}
 	return processed, nil
@@ -319,35 +341,57 @@ func (s *MessageStorage) claimAgentEvent(ctx context.Context) (*AgentEventOutbox
 		{"status": "processing", "locked_until": bson.M{"$lt": now}},
 	}}
 	update := bson.M{"$set": bson.M{"status": "processing", "locked_until": now.Add(time.Minute)}, "$inc": bson.M{"attempts": 1}}
-	rows, err := s.collection(CollectionAgentOutbox).Find(ctx, due, options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(1000))
-	if err != nil {
-		return nil, err
+	coll := s.collection(CollectionAgentOutbox)
+	// Pick the oldest due row that has no earlier unpublished sibling in the
+	// same topic, so per-topic agent events are relayed in topic_seq order.
+	// The self-lookup expresses this in a single aggregation instead of the
+	// previous per-candidate CountDocuments scan.
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: due}},
+		bson.D{{Key: "$lookup", Value: bson.M{
+			"from": CollectionAgentOutbox,
+			"let":  bson.M{"topic": "$topic", "seq": "$topic_seq"},
+			"pipeline": []bson.M{
+				{"$match": bson.M{"$expr": bson.M{"$and": []bson.M{
+					{"$eq": []any{"$topic", "$$topic"}},
+					{"$gt": []any{"$topic_seq", 0}},
+					{"$lt": []any{"$topic_seq", "$$seq"}},
+					{"$ne": []any{"$status", "published"}},
+				}}}},
+				{"$limit": 1},
+			},
+			"as": "older_unpublished",
+		}}},
+		bson.D{{Key: "$match", Value: bson.M{"older_unpublished": bson.M{"$size": 0}}}},
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: 1}}}},
+		bson.D{{Key: "$limit", Value: 1}},
 	}
-	defer rows.Close(ctx)
-	for rows.Next(ctx) {
-		var candidate AgentEventOutbox
-		if err := rows.Decode(&candidate); err != nil {
+	// A row selected by the aggregation can still be claimed by a concurrent
+	// relay before our FindOneAndUpdate; retry the pick a few times before
+	// reporting that nothing is claimable.
+	for attempt := 0; attempt < 3; attempt++ {
+		cursor, err := coll.Aggregate(ctx, pipeline)
+		if err != nil {
 			return nil, err
 		}
-		if candidate.TopicSeq > 0 {
-			older, err := s.collection(CollectionAgentOutbox).CountDocuments(ctx, bson.M{"topic": candidate.Topic, "topic_seq": bson.M{"$gt": 0, "$lt": candidate.TopicSeq}, "status": bson.M{"$ne": "published"}})
-			if err != nil {
-				return nil, err
-			}
-			if older > 0 {
-				continue
-			}
+		var candidates []AgentEventOutbox
+		err = cursor.All(ctx, &candidates)
+		_ = cursor.Close(ctx)
+		if err != nil {
+			return nil, err
 		}
+		if len(candidates) == 0 {
+			return nil, mongo.ErrNoDocuments
+		}
+		filter := bson.M{"_id": candidates[0].ID, "$or": due["$or"]}
 		var row AgentEventOutbox
-		filter := bson.M{"_id": candidate.ID, "$or": due["$or"]}
-		err := s.collection(CollectionAgentOutbox).FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&row)
-		if err == mongo.ErrNoDocuments {
-			continue
+		err = coll.FindOneAndUpdate(ctx, filter, update, options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&row)
+		if err == nil {
+			return &row, nil
 		}
-		return &row, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		if err != mongo.ErrNoDocuments {
+			return nil, err
+		}
 	}
 	return nil, mongo.ErrNoDocuments
 }
@@ -361,6 +405,44 @@ func (s *MessageStorage) markAgentEventPublished(ctx context.Context, id bson.Ob
 func (s *MessageStorage) failAgentEvent(ctx context.Context, id bson.ObjectID, eventErr error, backoff time.Duration) error {
 	_, err := s.collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"_id": id, "status": "processing"}, bson.M{"$set": bson.M{"status": "pending", "next_attempt_at": time.Now().Add(backoff), "last_error": eventErr.Error()}, "$unset": bson.M{"locked_until": ""}})
 	return err
+}
+
+// abandonAgentEvent parks an exhausted outbox row in a terminal "failed"
+// status. The row is intentionally kept (not deleted) for manual inspection
+// and replay; the due filter never matches "failed", so it is not retried.
+func (s *MessageStorage) abandonAgentEvent(ctx context.Context, id bson.ObjectID) error {
+	_, err := s.collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"_id": id, "status": "processing"}, bson.M{"$set": bson.M{"status": "failed", "last_error": "attempts exceeded"}, "$unset": bson.M{"locked_until": ""}})
+	return err
+}
+
+// prunePublishedAgentEvents deletes outbox rows that were published more than
+// agentEventPublishedRetention ago, capped at agentEventPruneLimit per call.
+// It is best-effort: failures are logged and never fail the relay.
+func (s *MessageStorage) prunePublishedAgentEvents(ctx context.Context) {
+	cutoff := time.Now().Add(-agentEventPublishedRetention)
+	coll := s.collection(CollectionAgentOutbox)
+	cursor, err := coll.Find(ctx, bson.M{"status": "published", "published_at": bson.M{"$lt": cutoff}}, options.Find().SetProjection(bson.M{"_id": 1}).SetLimit(agentEventPruneLimit))
+	if err != nil {
+		s.log.Warnf("prune published agent events: find: %v", err)
+		return
+	}
+	var rows []AgentEventOutbox
+	err = cursor.All(ctx, &rows)
+	_ = cursor.Close(ctx)
+	if err != nil {
+		s.log.Warnf("prune published agent events: decode: %v", err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	ids := make([]any, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	if _, err := coll.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": ids}}); err != nil {
+		s.log.Warnf("prune published agent events: delete: %v", err)
+	}
 }
 
 // incMongoOp increments the MongoDB operation counter if metrics is configured.
@@ -486,7 +568,7 @@ func (s *MessageStorage) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create agent outbox event index: %w", err)
 	}
 	if err := s.createIndex(ctx, CollectionAgentOutbox, "agent_outbox_due", mongo.IndexModel{
-		Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_attempt_at", Value: 1}},
+		Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_attempt_at", Value: 1}, {Key: "locked_until", Value: 1}},
 	}); err != nil {
 		return fmt.Errorf("create agent outbox due index: %w", err)
 	}

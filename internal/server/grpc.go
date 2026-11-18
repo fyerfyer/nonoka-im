@@ -7,13 +7,46 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/service"
 
+	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/middleware"
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
 	"github.com/go-kratos/kratos/v2/middleware/selector"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	jwt5 "github.com/golang-jwt/jwt/v5"
 )
+
+// userTokenScope is the only scope accepted on the gRPC API. Bot credentials
+// carry scope "agent:send" and are valid only for the HTTP message-send path.
+const userTokenScope = "user"
+
+// rejectNonUserScope refuses tokens that carry an explicit non-user scope
+// (e.g. agent bot credentials). User access tokens are issued without a scope
+// claim (see internal/biz), so a missing or non-string scope keeps the
+// previous behavior and is allowed through.
+func rejectNonUserScope(next middleware.Handler) middleware.Handler {
+	return func(ctx context.Context, req interface{}) (interface{}, error) {
+		claims, ok := jwtMiddleware.FromContext(ctx)
+		if !ok {
+			return next(ctx, req)
+		}
+		mapped, ok := claims.(jwt5.MapClaims)
+		if !ok {
+			return next(ctx, req)
+		}
+		raw, exists := mapped["scope"]
+		if !exists {
+			return next(ctx, req)
+		}
+		scope, ok := raw.(string)
+		if !ok || scope == userTokenScope {
+			// Unparseable scope keeps existing behavior; "user" is accepted.
+			return next(ctx, req)
+		}
+		return nil, kerrors.Forbidden("TOKEN_SCOPE", "token scope not permitted on gRPC")
+	}
+}
 
 // NewGRPCServer new a gRPC server.
 func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *service.PushService, authConf *conf.Auth, logger log.Logger) *grpc.Server {
@@ -39,6 +72,7 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 				}
 				return true
 			}).Build(),
+			rejectNonUserScope,
 		),
 	}
 	if c.Grpc.Network != "" {

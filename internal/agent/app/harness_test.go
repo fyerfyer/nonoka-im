@@ -91,9 +91,17 @@ func (f failingRuntime) Run(context.Context, runtime.Input) (runtime.Result, err
 	return runtime.Result{}, f.err
 }
 
+func (f failingRuntime) Resume(context.Context, runtime.ResumeInput) (runtime.Result, error) {
+	return runtime.Result{}, f.err
+}
+
 type stubRuntime struct{ result runtime.Result }
 
 func (s stubRuntime) Run(context.Context, runtime.Input) (runtime.Result, error) {
+	return s.result, nil
+}
+
+func (s stubRuntime) Resume(context.Context, runtime.ResumeInput) (runtime.Result, error) {
 	return s.result, nil
 }
 
@@ -202,6 +210,74 @@ func TestHandleResolvedCompletesRunAndTurn(t *testing.T) {
 	turns := turnsForRun(t, store, run.ID, agentID, actorID, topic)
 	if len(turns) != 1 || turns[0].Output != "hi there" || turns[0].ReplyMsgID != 5150 {
 		t.Fatalf("unexpected turns: %+v", turns)
+	}
+}
+
+// fakeRunStore stubs the harness persistence for retry tests: CompleteRun
+// fails completeFails times before succeeding and records committed turns.
+type fakeRunStore struct {
+	prepared      *data.PreparedRun
+	completeCalls int
+	completeFails int
+	turns         []data.AgentTurn
+}
+
+func (f *fakeRunStore) PrepareRun(context.Context, int64, int64, string, *data.AgentRun, uint64) (*data.PreparedRun, error) {
+	return f.prepared, nil
+}
+func (f *fakeRunStore) UpdateRun(context.Context, uint64, map[string]interface{}) error { return nil }
+func (f *fakeRunStore) CreateApproval(_ context.Context, row *data.AgentApproval) error {
+	row.ID = 1
+	return nil
+}
+func (f *fakeRunStore) CompleteRun(_ context.Context, _, _ int64, _ string, turn *data.AgentTurn, _ *data.AgentContextSnapshot, _ uint64, _ map[string]interface{}) error {
+	f.completeCalls++
+	if f.completeCalls <= f.completeFails {
+		return errors.New("transient commit failure")
+	}
+	if turn != nil {
+		f.turns = append(f.turns, *turn)
+	}
+	return nil
+}
+
+func TestHandleResolvedRetriesCompleteRun(t *testing.T) {
+	store := &fakeRunStore{
+		prepared:      &data.PreparedRun{Claimed: true, Run: &data.AgentRun{ID: 11}, Session: &data.AgentSession{ID: 22}},
+		completeFails: 2,
+	}
+	sender := &recordingSender{receiptID: 77}
+	h := &Harness{Store: store, Runtime: stubRuntime{result: runtime.Result{Text: "ok"}}, Authorizer: &authorizerStub{}, Sender: sender}
+	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: "evt-retry", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
+	if err := h.HandleResolved(context.Background(), ev, ResolvedAgent{ID: 7, BotID: 2, Version: 1}); err != nil {
+		t.Fatalf("transient CompleteRun failures must be retried: %v", err)
+	}
+	if store.completeCalls != 3 {
+		t.Fatalf("expected 3 CompleteRun attempts, got %d", store.completeCalls)
+	}
+	if len(store.turns) != 1 || store.turns[0].ReplyMsgID != 77 {
+		t.Fatalf("turn not committed after retries: %+v", store.turns)
+	}
+	if len(sender.sent) != 1 {
+		t.Fatalf("reply must be sent exactly once: %v", sender.sent)
+	}
+}
+
+func TestHandleResolvedCompleteRunExhaustsRetries(t *testing.T) {
+	store := &fakeRunStore{
+		prepared:      &data.PreparedRun{Claimed: true, Run: &data.AgentRun{ID: 11}, Session: &data.AgentSession{ID: 22}},
+		completeFails: 99,
+	}
+	h := &Harness{Store: store, Runtime: stubRuntime{result: runtime.Result{Text: "ok"}}, Authorizer: &authorizerStub{}, Sender: &recordingSender{}}
+	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: "evt-giveup", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
+	if err := h.HandleResolved(context.Background(), ev, ResolvedAgent{ID: 7, BotID: 2, Version: 1}); err == nil {
+		t.Fatal("expected error when CompleteRun keeps failing")
+	}
+	if store.completeCalls != 3 {
+		t.Fatalf("expected exactly 3 attempts, got %d", store.completeCalls)
+	}
+	if len(store.turns) != 0 {
+		t.Fatalf("no turn must be committed when CompleteRun never succeeds: %+v", store.turns)
 	}
 }
 

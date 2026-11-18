@@ -245,3 +245,230 @@ func TestTransactionalAgentOutbox(t *testing.T) {
 		t.Fatalf("expected one outbox row, count=%d err=%v", count, err)
 	}
 }
+
+// TestAgentOutboxDueIndexCoversLock verifies the due index sorts by
+// locked_until as well, so expired-lease scans stay index-only.
+func TestAgentOutboxDueIndexCoversLock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		t.Skipf("mongodb index setup unavailable: %v", err)
+	}
+	cursor, err := db.Collection(CollectionAgentOutbox).Indexes().List(ctx)
+	if err != nil {
+		t.Fatalf("list indexes: %v", err)
+	}
+	defer cursor.Close(ctx)
+	found := false
+	for cursor.Next(ctx) {
+		var idx struct {
+			Name string `bson:"name"`
+			Key  bson.M `bson:"key"`
+		}
+		if err := cursor.Decode(&idx); err != nil {
+			t.Fatalf("decode index: %v", err)
+		}
+		if idx.Name != "agent_outbox_due" {
+			continue
+		}
+		found = true
+		for _, k := range []string{"status", "next_attempt_at", "locked_until"} {
+			if _, ok := idx.Key[k]; !ok {
+				t.Fatalf("agent_outbox_due index missing key %q: %v", k, idx.Key)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("agent_outbox_due index not found")
+	}
+}
+
+// insertOutboxRow inserts an outbox row directly with a valid event payload.
+func insertOutboxRow(t *testing.T, ctx context.Context, db *mongo.Database, ev agevent.MessageEvent, status string, attempts int, nextAttemptAt time.Time) {
+	t.Helper()
+	payload, err := ev.Marshal()
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	_, err = db.Collection(CollectionAgentOutbox).InsertOne(ctx, AgentEventOutbox{
+		EventID: ev.EventID, Topic: ev.Topic, TopicSeq: ev.TopicSeq, Payload: payload,
+		Status: status, Attempts: attempts, NextAttemptAt: nextAttemptAt, CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("insert outbox row: %v", err)
+	}
+}
+
+// TestRelayAgentEventsAttemptsCap verifies that a row whose attempts exceed
+// agentEventMaxAttempts is parked as failed without another publish attempt.
+func TestRelayAgentEventsAttemptsCap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": "grp_attempts_cap"})
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+
+	ev := agevent.NewMessageEvent(9101, "grp_attempts_cap", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	insertOutboxRow(t, ctx, db, ev, "pending", agentEventMaxAttempts, time.Now().Add(-time.Second))
+
+	publisher := &recordingAgentPublisher{}
+	n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond)
+	if err != nil {
+		t.Fatalf("relay returned error: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected exhausted row to be skipped, processed=%d", n)
+	}
+	if len(publisher.calls) != 0 {
+		t.Fatalf("exhausted row must not be published, got %d calls", len(publisher.calls))
+	}
+	var row AgentEventOutbox
+	if err := db.Collection(CollectionAgentOutbox).FindOne(ctx, bson.M{"event_id": ev.EventID}).Decode(&row); err != nil {
+		t.Fatalf("outbox row vanished: %v", err)
+	}
+	if row.Status != "failed" {
+		t.Fatalf("expected row parked as failed, got status=%q", row.Status)
+	}
+	if row.Attempts != agentEventMaxAttempts+1 {
+		t.Fatalf("expected attempts=%d, got %d", agentEventMaxAttempts+1, row.Attempts)
+	}
+	// A second relay pass must not pick the failed row up again.
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 0 {
+		t.Fatalf("failed row must not be retried: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != 0 {
+		t.Fatalf("failed row must stay unpublished, got %d calls", len(publisher.calls))
+	}
+}
+
+// TestRelayAgentEventsPrunesPublished verifies the relay cleans up published
+// rows older than the retention window after a successful publish while
+// leaving recent published rows untouched.
+func TestRelayAgentEventsPrunesPublished(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": bson.M{"$in": []string{"grp_prune", "grp_prune_recent"}}})
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+
+	staleEv := agevent.NewMessageEvent(9201, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	insertOutboxRow(t, ctx, db, staleEv, "published", 1, time.Now().Add(-time.Hour))
+	if _, err := db.Collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"event_id": staleEv.EventID}, bson.M{"$set": bson.M{"published_at": time.Now().Add(-agentEventPublishedRetention - time.Hour)}}); err != nil {
+		t.Fatalf("backdate published_at: %v", err)
+	}
+	recentEv := agevent.NewMessageEvent(9202, "grp_prune_recent", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	insertOutboxRow(t, ctx, db, recentEv, "published", 1, time.Now().Add(-time.Hour))
+	if _, err := db.Collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"event_id": recentEv.EventID}, bson.M{"$set": bson.M{"published_at": time.Now().Add(-time.Hour)}}); err != nil {
+		t.Fatalf("set published_at: %v", err)
+	}
+	freshEv := agevent.NewMessageEvent(9203, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	insertOutboxRow(t, ctx, db, freshEv, "pending", 0, time.Now().Add(-time.Second))
+
+	publisher := &recordingAgentPublisher{}
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 1 {
+		t.Fatalf("relay fresh event failed: n=%d err=%v", n, err)
+	}
+	if count, err := db.Collection(CollectionAgentOutbox).CountDocuments(ctx, bson.M{"event_id": staleEv.EventID}); err != nil || count != 0 {
+		t.Fatalf("stale published row was not pruned: count=%d err=%v", count, err)
+	}
+	if count, err := db.Collection(CollectionAgentOutbox).CountDocuments(ctx, bson.M{"event_id": recentEv.EventID}); err != nil || count != 1 {
+		t.Fatalf("recent published row must be kept: count=%d err=%v", count, err)
+	}
+}
+
+// TestRelayAgentEventsTopicOrder verifies the claim picks the oldest due row
+// per topic and blocks a row while an earlier-seq sibling is still unpublished.
+func TestRelayAgentEventsTopicOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": bson.M{"$in": []string{"grp_relay_order", "grp_relay_block"}}})
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+
+	// Two due rows in the same topic: the lower topic_seq must be claimed first.
+	ev1 := agevent.NewMessageEvent(9301, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev1.TopicSeq = 1
+	insertOutboxRow(t, ctx, db, ev1, "pending", 0, time.Now().Add(-time.Second))
+	ev2 := agevent.NewMessageEvent(9302, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev2.TopicSeq = 2
+	insertOutboxRow(t, ctx, db, ev2, "pending", 0, time.Now().Add(-time.Second))
+
+	publisher := &recordingAgentPublisher{}
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 1 {
+		t.Fatalf("first relay failed: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != 1 || publisher.calls[0].TopicSeq != 1 {
+		t.Fatalf("expected topic_seq 1 first, got %+v", publisher.calls)
+	}
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 1 {
+		t.Fatalf("second relay failed: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != 2 || publisher.calls[1].TopicSeq != 2 {
+		t.Fatalf("expected topic_seq 2 second, got %+v", publisher.calls)
+	}
+
+	// seq 1 not yet due (backoff) blocks seq 2 even though seq 2 is due.
+	evB1 := agevent.NewMessageEvent(9303, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	evB1.TopicSeq = 1
+	insertOutboxRow(t, ctx, db, evB1, "pending", 0, time.Now().Add(time.Hour))
+	evB2 := agevent.NewMessageEvent(9304, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	evB2.TopicSeq = 2
+	insertOutboxRow(t, ctx, db, evB2, "pending", 0, time.Now().Add(-time.Second))
+	callsBefore := len(publisher.calls)
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 4, time.Nanosecond); err != nil || n != 0 {
+		t.Fatalf("blocked row must not be relayed: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != callsBefore {
+		t.Fatalf("blocked row was published: calls=%d", len(publisher.calls))
+	}
+	var blocked AgentEventOutbox
+	if err := db.Collection(CollectionAgentOutbox).FindOne(ctx, bson.M{"event_id": evB2.EventID}).Decode(&blocked); err != nil || blocked.Status != "pending" {
+		t.Fatalf("blocked row must stay pending: row=%+v err=%v", blocked, err)
+	}
+}

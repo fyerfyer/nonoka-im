@@ -3,6 +3,7 @@ package eino
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"slices"
@@ -32,6 +33,13 @@ type spanContextKey struct{}
 
 var ErrSummary = errors.New("summarization failed")
 
+func init() {
+	// Checkpoints gob-encode the interrupt payload and the resume decision;
+	// both cross interface boundaries inside the Eino runtime state.
+	gob.Register(approvalInterruptInfo{})
+	gob.Register(approvalDecision{})
+}
+
 type Runtime struct {
 	model                      model.ToolCallingChatModel
 	tools                      []tool.InvokableTool
@@ -43,6 +51,10 @@ type Runtime struct {
 	// skills bound to the agent version; nil disables skills.
 	mcpTools     func(ctx context.Context, bindings []runtime.MCPTool) ([]tool.BaseTool, error)
 	skillBackend func(bindings []runtime.SkillBinding) (skill.Backend, error)
+
+	// checkpoints persists Eino execution state across approval interrupts;
+	// nil disables interrupt/resume (tools that need approval then fail).
+	checkpoints adk.CheckPointStore
 
 	mu     sync.Mutex
 	models map[modelCacheKey]model.ToolCallingChatModel
@@ -91,6 +103,12 @@ func (r *Runtime) SetMCPToolProvider(p func(ctx context.Context, bindings []runt
 // backends from the skills bound to the agent version.
 func (r *Runtime) SetSkillBackendFactory(f func(bindings []runtime.SkillBinding) (skill.Backend, error)) {
 	r.skillBackend = f
+}
+
+// SetCheckPointStore installs the store used to persist execution state when
+// approval-requiring tools interrupt a run.
+func (r *Runtime) SetCheckPointStore(store adk.CheckPointStore) {
+	r.checkpoints = store
 }
 
 // chatModel resolves the model for a run. Agent-owned base URL / API key /
@@ -145,35 +163,90 @@ func (r *Runtime) chatModel(ctx context.Context, in runtime.Input) (model.ToolCa
 	return m, nil
 }
 
-func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, error) {
+// approvalInterruptInfo is the user-facing payload an approval-carrying tool
+// raises when it interrupts. It surfaces in the AgentEvent interrupt contexts
+// and lets the harness build the approval card without touching checkpoint
+// internals.
+type approvalInterruptInfo struct {
+	Tool    string `json:"tool"`
+	Summary string `json:"summary"`
+}
+
+// approvalDecision is handed back to the interrupted tool on resume.
+type approvalDecision struct {
+	Approved bool `json:"approved"`
+}
+
+// approvalTool wraps a tool whose calls require human confirmation. The first
+// execution interrupts with the call summary; the resume delivers the user's
+// decision, after which the wrapped tool either runs or reports a rejection.
+type approvalTool struct {
+	wrapped tool.InvokableTool
+}
+
+func (t *approvalTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return t.wrapped.Info(ctx)
+}
+
+func (t *approvalTool) InvokableRun(ctx context.Context, args string, opts ...tool.Option) (string, error) {
+	wasInterrupted, _, _ := tool.GetInterruptState[any](ctx)
+	if !wasInterrupted {
+		name := "tool"
+		if info, err := t.wrapped.Info(ctx); err == nil && info != nil {
+			name = info.Name
+		}
+		return "", tool.Interrupt(ctx, approvalInterruptInfo{Tool: name, Summary: summarizeArgs(args)})
+	}
+	isTarget, _, decision := tool.GetResumeContext[approvalDecision](ctx)
+	if !isTarget {
+		// A different interrupt point is being resumed; preserve our state.
+		return "", tool.Interrupt(ctx, nil)
+	}
+	if !decision.Approved {
+		return "The user rejected this tool call.", nil
+	}
+	return t.wrapped.InvokableRun(ctx, args, opts...)
+}
+
+// summarizeArgs renders tool arguments for the approval card. The raw
+// arguments stay inside the checkpoint only; the card never carries them.
+func summarizeArgs(args string) string {
+	const maxSummary = 300
+	compact := strings.Join(strings.Fields(args), " ")
+	if len(compact) > maxSummary {
+		compact = compact[:maxSummary] + "…"
+	}
+	return compact
+}
+
+// runState collects cross-phase outputs of one execution.
+type runState struct {
+	summary string
+	usage   runtime.Usage
+}
+
+// buildAgent assembles the ChatModelAgent for a run or resume. withSummary
+// enables the summarization middleware (fresh runs only; a resumed execution
+// restores its compacted state from the checkpoint).
+func (r *Runtime) buildAgent(ctx context.Context, in runtime.Input, withSummary bool) (adk.Agent, *runState, error) {
 	chatModel, err := r.chatModel(ctx, in)
 	if err != nil {
-		return runtime.Result{}, err
+		return nil, nil, err
 	}
-	msgs := make([]adk.Message, 0, len(in.History)*2+2)
-	if in.Summary != "" {
-		msgs = append(msgs, schema.UserMessage("Previous conversation summary:\n"+in.Summary))
-	}
-	for _, t := range in.History {
-		msgs = append(msgs, schema.UserMessage(t.Input), schema.AssistantMessage(t.Output, nil))
-	}
-	msgs = append(msgs, schema.UserMessage(in.Text))
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, EventID: in.EventID, Topic: in.Topic})
+	state := &runState{}
 	var handlers []adk.ChatModelAgentMiddleware
-	var summary string
-	var summaryGenFailed bool
-	var usage runtime.Usage
-	if in.NeedsSummary && !in.DisableSummary && len(in.History) > 0 {
+	if withSummary && in.NeedsSummary && !in.DisableSummary && len(in.History) > 0 {
 		trigger := in.TriggerTokens
 		if trigger <= 0 {
 			trigger = 38000
 		}
 		mw, err := summarization.New(toolCtx, &summarization.Config{
-			Model:                summaryTracker{model: chatModel, failed: &summaryGenFailed},
+			Model:                summaryTracker{model: chatModel},
 			PreserveUserMessages: &summarization.PreserveUserMessages{Enabled: false},
 			Trigger:              &summarization.TriggerCondition{ContextTokens: trigger},
 			TokenCounter: func(_ context.Context, input *summarization.TokenCounterInput) (int, error) {
-				if summary != "" {
+				if state.summary != "" {
 					return 0, nil
 				}
 				// Count the actually assembled messages (including the system
@@ -204,14 +277,14 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 					if len(msg.UserInputMultiContent) == 0 {
 						continue
 					}
-					summary = msg.UserInputMultiContent[0].Text
+					state.summary = msg.UserInputMultiContent[0].Text
 					break
 				}
 				return nil
 			},
 		})
 		if err != nil {
-			return runtime.Result{}, fmt.Errorf("create summarization middleware: %w", err)
+			return nil, nil, fmt.Errorf("create summarization middleware: %w", err)
 		}
 		handlers = append(handlers, mw)
 	}
@@ -222,24 +295,17 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 	if len(in.Skills) > 0 && r.skillBackend != nil {
 		backend, err := r.skillBackend(in.Skills)
 		if err != nil {
-			return runtime.Result{}, fmt.Errorf("load skills: %w", err)
+			return nil, nil, fmt.Errorf("load skills: %w", err)
 		}
 		mw, err := skill.NewMiddleware(toolCtx, &skill.Config{Backend: backend})
 		if err != nil {
-			return runtime.Result{}, fmt.Errorf("create skill middleware: %w", err)
+			return nil, nil, fmt.Errorf("create skill middleware: %w", err)
 		}
 		handlers = append(handlers, mw)
 	}
-	agentTools := allowedTools(toolCtx, r.tools, in.AllowedTools, in.RestrictTools)
-	if len(in.MCPTools) > 0 {
-		if r.mcpTools == nil {
-			return runtime.Result{}, fmt.Errorf("mcp tools not available")
-		}
-		extra, err := r.mcpTools(toolCtx, in.MCPTools)
-		if err != nil {
-			return runtime.Result{}, fmt.Errorf("resolve mcp tools: %w", err)
-		}
-		agentTools = append(agentTools, extra...)
+	agentTools, err := r.resolveTools(toolCtx, in)
+	if err != nil {
+		return nil, nil, err
 	}
 	agent, err := adk.NewChatModelAgent(toolCtx, &adk.ChatModelAgentConfig{
 		Name:          "nonoka-assistant",
@@ -251,10 +317,51 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: agentTools}},
 	})
 	if err != nil {
-		return runtime.Result{}, fmt.Errorf("create Eino agent: %w", err)
+		return nil, nil, fmt.Errorf("create Eino agent: %w", err)
 	}
-	runner := adk.NewRunner(toolCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: false})
-	iterator := runner.Run(toolCtx, msgs, adk.WithCallbacks(modelSpanHandler(&usage)))
+	return agent, state, nil
+}
+
+// resolveTools builds the tool list for a run: authorized local tools, the
+// run's MCP bindings, and approval wrappers around every tool that requires
+// human confirmation.
+func (r *Runtime) resolveTools(toolCtx context.Context, in runtime.Input) ([]tool.BaseTool, error) {
+	agentTools := allowedTools(toolCtx, r.tools, in.AllowedTools, in.RestrictTools)
+	if len(in.MCPTools) > 0 {
+		if r.mcpTools == nil {
+			return nil, fmt.Errorf("mcp tools not available")
+		}
+		extra, err := r.mcpTools(toolCtx, in.MCPTools)
+		if err != nil {
+			return nil, fmt.Errorf("resolve mcp tools: %w", err)
+		}
+		agentTools = append(agentTools, extra...)
+	}
+	if len(in.ApprovalTools) == 0 {
+		return agentTools, nil
+	}
+	approval := make(map[string]bool, len(in.ApprovalTools))
+	for _, name := range in.ApprovalTools {
+		approval[name] = true
+	}
+	wrapped := make([]tool.BaseTool, 0, len(agentTools))
+	for _, t := range agentTools {
+		info, err := t.Info(toolCtx)
+		if err == nil && info != nil && approval[info.Name] {
+			if inv, ok := t.(tool.InvokableTool); ok {
+				wrapped = append(wrapped, &approvalTool{wrapped: inv})
+				continue
+			}
+		}
+		wrapped = append(wrapped, t)
+	}
+	return wrapped, nil
+}
+
+// runLoop drains the runner event stream. An approval interrupt returns with
+// StatusInterrupted and the root-cause interrupt details; model and tool
+// errors propagate, with summary failures already tagged by summaryTracker.
+func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summaryThrough uint64) (runtime.Result, error) {
 	var final string
 	for {
 		event, ok := iterator.Next()
@@ -265,10 +372,17 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 			continue
 		}
 		if event.Err != nil {
-			if summaryGenFailed && summary == "" {
-				return runtime.Result{}, fmt.Errorf("%w: %v", ErrSummary, event.Err)
-			}
+			// Summary generation failures already wrap ErrSummary (see
+			// summaryTracker), so the harness can route them to the fallback
+			// via errors.Is; every other event error propagates as-is.
 			return runtime.Result{}, event.Err
+		}
+		if event.Action != nil && event.Action.Interrupted != nil {
+			root := rootInterruptContext(event.Action.Interrupted.InterruptContexts)
+			if root != nil {
+				info, _ := root.Info.(approvalInterruptInfo)
+				return runtime.Result{Status: runtime.StatusInterrupted, Interrupt: &runtime.InterruptInfo{ToolCallID: root.ID, Tool: info.Tool, Summary: info.Summary}, Summary: state.summary, SummaryThroughTurnID: summaryThrough, Usage: state.usage}, nil
+			}
 		}
 		if event.Output == nil || event.Output.MessageOutput == nil {
 			continue
@@ -284,32 +398,93 @@ func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, er
 	if strings.TrimSpace(final) == "" {
 		return runtime.Result{}, fmt.Errorf("empty model response")
 	}
-	return runtime.Result{Text: strings.TrimSpace(final), Summary: summary, SummaryThroughTurnID: in.SummaryThroughTurnID, Usage: usage}, nil
+	return runtime.Result{Text: strings.TrimSpace(final), Status: runtime.StatusCompleted, Summary: state.summary, SummaryThroughTurnID: summaryThrough, Usage: state.usage}, nil
+}
+
+func rootInterruptContext(contexts []*adk.InterruptCtx) *adk.InterruptCtx {
+	for _, c := range contexts {
+		if c != nil && c.IsRootCause {
+			return c
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) Run(ctx context.Context, in runtime.Input) (runtime.Result, error) {
+	agent, state, err := r.buildAgent(ctx, in, true)
+	if err != nil {
+		return runtime.Result{}, err
+	}
+	msgs := make([]adk.Message, 0, len(in.History)*2+2)
+	if in.Summary != "" {
+		msgs = append(msgs, schema.UserMessage("Previous conversation summary:\n"+in.Summary))
+	}
+	for _, t := range in.History {
+		msgs = append(msgs, schema.UserMessage(t.Input), schema.AssistantMessage(t.Output, nil))
+	}
+	msgs = append(msgs, schema.UserMessage(in.Text))
+	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, EventID: in.EventID, Topic: in.Topic})
+	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: false}
+	if r.checkpoints != nil && in.CheckPointID != "" {
+		runnerCfg.CheckPointStore = r.checkpoints
+	}
+	runner := adk.NewRunner(toolCtx, runnerCfg)
+	opts := []adk.AgentRunOption{adk.WithCallbacks(modelSpanHandler(&state.usage))}
+	if in.CheckPointID != "" {
+		opts = append(opts, adk.WithCheckPointID(in.CheckPointID))
+	}
+	return runLoop(runner.Run(toolCtx, msgs, opts...), state, in.SummaryThroughTurnID)
+}
+
+// Resume continues an interrupted run from its checkpoint. The agent is
+// rebuilt from the same frozen version snapshot so the resumed tool set
+// matches the interrupted execution; conversation state comes from the
+// checkpoint, not from history.
+func (r *Runtime) Resume(ctx context.Context, in runtime.ResumeInput) (runtime.Result, error) {
+	if in.CheckPointID == "" || in.InterruptID == "" {
+		return runtime.Result{}, fmt.Errorf("resume requires checkpoint and interrupt IDs")
+	}
+	agent, state, err := r.buildAgent(ctx, in.Input, false)
+	if err != nil {
+		return runtime.Result{}, err
+	}
+	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, EventID: in.EventID, Topic: in.Topic})
+	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: false}
+	if r.checkpoints != nil {
+		runnerCfg.CheckPointStore = r.checkpoints
+	}
+	runner := adk.NewRunner(toolCtx, runnerCfg)
+	iterator, err := runner.ResumeWithParams(toolCtx, in.CheckPointID, &adk.ResumeParams{
+		Targets: map[string]any{in.InterruptID: approvalDecision{Approved: in.Approved}},
+	}, adk.WithCallbacks(modelSpanHandler(&state.usage)))
+	if err != nil {
+		return runtime.Result{}, fmt.Errorf("resume run: %w", err)
+	}
+	return runLoop(iterator, state, in.SummaryThroughTurnID)
 }
 
 // summaryTracker wraps the model used by the summarization middleware and
-// records whether the summary generation call itself failed, so the run loop
-// only maps genuine summary failures to ErrSummary instead of every event
-// error that happens after a summary was attempted.
+// tags genuine summary generation failures by wrapping them in ErrSummary, so
+// the run loop and the harness can recognize them with errors.Is instead of a
+// global "did a summary fail" flag that would misattribute unrelated errors.
 type summaryTracker struct {
-	model  model.BaseChatModel
-	failed *bool
+	model model.BaseChatModel
 }
 
 func (t summaryTracker) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	msg, err := t.model.Generate(ctx, input, opts...)
 	if err != nil {
-		*t.failed = true
+		return msg, fmt.Errorf("%w: %v", ErrSummary, err)
 	}
-	return msg, err
+	return msg, nil
 }
 
 func (t summaryTracker) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	reader, err := t.model.Stream(ctx, input, opts...)
 	if err != nil {
-		*t.failed = true
+		return reader, fmt.Errorf("%w: %v", ErrSummary, err)
 	}
-	return reader, err
+	return reader, nil
 }
 
 // messageText extracts the textual content of a message, including multimodal

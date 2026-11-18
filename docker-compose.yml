@@ -152,6 +152,8 @@ services:
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       # Encrypts per-agent model API keys at rest; must match the agent worker.
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      # Platform admins for the MCP registry and skill publishing endpoints.
+      AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
     ports:
       - "${NONOKA_HTTP_PORT:-8000}:8000"
       - "${NONOKA_GRPC_PORT:-9002}:9002"
@@ -183,6 +185,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: nonoka_agent_worker
+    restart: unless-stopped
     depends_on:
       nonoka-im:
         condition: service_healthy
@@ -212,7 +215,16 @@ services:
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+      # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
+      AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
+      AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
     command: ["/app/agent-worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   web:
     build:
