@@ -37,38 +37,43 @@ export function NewGroupDialog({ open, onOpenChange }: NewGroupDialogProps) {
 
   useEffect(() => {
     if (!open) {
-      setName("");
-      setQuery("");
-      setResults([]);
-      setSelected([]);
+      const t = setTimeout(() => {
+        setName("");
+        setQuery("");
+        setResults([]);
+        setSelected([]);
+      }, 0);
+      return () => clearTimeout(t);
     }
   }, [open]);
 
   const search = useCallback(
-    async (q: string) => {
+    (q: string) => {
       if (!q.trim()) {
         setResults([]);
         return;
       }
       setLoading(true);
-      try {
-        const res = await userApi.searchUsers(q.trim());
-        setResults(
-          res.users.filter((u) => u.userId !== currentUser?.userId)
-        );
-      } catch (err) {
-        toast.error(
-          `Search failed: ${err instanceof Error ? err.message : "unknown"}`
-        );
-      } finally {
-        setLoading(false);
-      }
+      userApi
+        .searchUsers(q.trim())
+        .then((res) => {
+          setResults(
+            res.users.filter((u) => u.userId !== currentUser?.userId)
+          );
+        })
+        .catch((err) => {
+          toast.error(
+            `Search failed: ${err instanceof Error ? err.message : "unknown"}`
+          );
+        })
+        .finally(() => setLoading(false));
     },
     [currentUser?.userId]
   );
 
   useEffect(() => {
-    search(debouncedQuery);
+    const t = setTimeout(() => search(debouncedQuery), 0);
+    return () => clearTimeout(t);
   }, [debouncedQuery, search]);
 
   const toggleUser = (user: User) => {

@@ -9,6 +9,7 @@ export interface AgentName {
 
 let cachedNames: Map<number, AgentName> | null = null;
 let inflight: Promise<Map<number, AgentName>> | null = null;
+const listeners = new Set<() => void>();
 
 // loadAgentNames fetches the agent directory once per session and caches it
 // module-side so concurrently mounted components share a single request. On
@@ -31,11 +32,13 @@ function loadAgentNames(): Promise<Map<number, AgentName>> {
   return inflight;
 }
 
-// invalidateAgentNames drops the cached directory; called on logout so the
-// next user to log in on this tab fetches their own agents (logout navigates
-// client-side, which keeps the module cache alive across users).
+// invalidateAgentNames drops the cached directory and notifies live
+// subscribers so they re-render with fresh data; called on logout (the next
+// user on this tab must not see the previous user's agents) and after agent
+// create/delete on the Agents page.
 export function invalidateAgentNames(): void {
   cachedNames = null;
+  for (const listener of listeners) listener();
 }
 
 export function useAgentNames(): Map<number, AgentName> {
@@ -45,15 +48,20 @@ export function useAgentNames(): Map<number, AgentName> {
 
   useEffect(() => {
     let active = true;
-    loadAgentNames()
-      .then((map) => {
-        if (active) setNames(map);
-      })
-      .catch(() => {
-        // Degrade to the plain username rendering on API failure.
-      });
+    const reload = () => {
+      loadAgentNames()
+        .then((map) => {
+          if (active) setNames(map);
+        })
+        .catch(() => {
+          // Degrade to the plain username rendering on API failure.
+        });
+    };
+    reload();
+    listeners.add(reload);
     return () => {
       active = false;
+      listeners.delete(reload);
     };
   }, []);
 

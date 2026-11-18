@@ -34,10 +34,11 @@ export default function ChatDetailPage() {
   );
 
   useEffect(() => {
-    setMounted(true);
+    const t = setTimeout(() => setMounted(true), 0);
     if (!getToken()) {
       router.replace("/login");
     }
+    return () => clearTimeout(t);
   }, [router, token]);
 
   if (!mounted || !getToken() || !topic) {

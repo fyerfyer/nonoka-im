@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChatMessage, Conversation, User } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
+import { useAgentNames } from "@/hooks/useAgentNames";
 import { MentionMember } from "@/lib/mentions";
 
 const NEAR_BOTTOM_PX = 100;
+// Cap the "Agent is processing" hint so a silently-failed run never leaves
+// a permanent spinner in the conversation.
+const AGENT_PENDING_TIMEOUT_MS = 60_000;
 
 interface MessageListProps {
   conversation?: Conversation;
@@ -32,12 +36,41 @@ export function MessageList({
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const messages = conversation?.messages || [];
+  const messages = useMemo(
+    () => conversation?.messages || [],
+    [conversation?.messages]
+  );
   const memberNames = useChatStore((s) =>
     conversation?.type === "group"
       ? s.memberNames.get(conversation.topic)
       : undefined
   );
+  const agentNames = useAgentNames();
+
+  // After the user messages a bot, show a lightweight "working" hint until
+  // the bot replies or the cap elapses. The timeout flag is only mutated
+  // from timer callbacks to keep effects free of synchronous setState.
+  const lastMsg = messages[messages.length - 1];
+  const ownAwaitingReply =
+    !!conversation?.peerIsBot &&
+    !!currentUser &&
+    !!lastMsg &&
+    lastMsg.senderId === currentUser.userId &&
+    lastMsg.status !== "failed";
+  const [replyTimedOut, setReplyTimedOut] = useState(false);
+  useEffect(() => {
+    if (!ownAwaitingReply) return;
+    const reset = setTimeout(() => setReplyTimedOut(false), 0);
+    const expire = setTimeout(
+      () => setReplyTimedOut(true),
+      AGENT_PENDING_TIMEOUT_MS
+    );
+    return () => {
+      clearTimeout(reset);
+      clearTimeout(expire);
+    };
+  }, [ownAwaitingReply, lastMsg?.clientMsgId]);
+  const agentPending = ownAwaitingReply && !replyTimedOut;
 
   // Track whether the user is already near the bottom; only then do new
   // messages pull the view down.
@@ -152,17 +185,17 @@ export function MessageList({
                 conversation.type === "group" &&
                 !isMe &&
                 (!prev || prev.senderId !== msg.senderId);
+              const sender = showSender
+                ? resolveSender(msg.senderId, conversation, memberNames, agentNames)
+                : undefined;
               return (
                 <MessageBubble
                   key={msg.clientMsgId}
                   message={msg}
                   isMe={isMe}
                   showSender={showSender}
-                  senderName={
-                    showSender
-                      ? getSenderName(msg.senderId, conversation, memberNames)
-                      : undefined
-                  }
+                  senderName={sender?.name}
+                  senderIsAgent={sender?.isAgent}
                   members={members}
                   currentUserId={
                     currentUser ? Number(currentUser.userId) : undefined
@@ -174,6 +207,12 @@ export function MessageList({
             })}
           </div>
         ))}
+        {agentPending && (
+          <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Agent is processing…
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
     </ScrollArea>
@@ -192,17 +231,23 @@ function groupByDate(messages: ChatMessage[]): [string, ChatMessage[]][] {
   return Array.from(groups.entries());
 }
 
-function getSenderName(
+function resolveSender(
   senderId: number,
   conversation: Conversation,
-  memberNames: Map<number, string> | undefined
-): string {
+  memberNames: Map<number, string> | undefined,
+  agentNames: Map<number, { name: string }>
+): { name: string; isAgent: boolean } {
+  // Bot users resolve to their agent display name; member tables only carry
+  // the raw "agent_xxx" username.
+  const agent = agentNames.get(Number(senderId));
+  if (agent) return { name: agent.name, isAgent: true };
   if (conversation.type === "group") {
     // senderId may be a proto-JSON string at runtime; coerce for the lookup.
-    return memberNames?.get(Number(senderId)) || "Unknown";
+    const name = memberNames?.get(Number(senderId)) || "Unknown";
+    return { name, isAgent: false };
   }
   if (senderId === conversation.peerId) {
-    return conversation.peerUsername || "Unknown";
+    return { name: conversation.peerUsername || "Unknown", isAgent: false };
   }
-  return "Unknown";
+  return { name: "Unknown", isAgent: false };
 }

@@ -17,10 +17,11 @@ export default function ChatPage() {
   const router = useRouter();
 
   useEffect(() => {
-    setMounted(true);
+    const t = setTimeout(() => setMounted(true), 0);
     if (!getToken()) {
       router.replace("/login");
     }
+    return () => clearTimeout(t);
   }, [router, token]);
 
   if (!mounted || !getToken()) {

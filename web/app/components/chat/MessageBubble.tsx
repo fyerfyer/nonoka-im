@@ -4,8 +4,10 @@ import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { absoluteFileUrl, formatSize, parseMediaContent } from "@/lib/media";
 import { segmentMentions, MentionMember } from "@/lib/mentions";
+import { AgentApprovalCard, MSG_TYPE_AGENT_CARD } from "./AgentApprovalCard";
 import { toast } from "sonner";
 import {
+  Bot,
   Check,
   CheckCheck,
   Loader2,
@@ -23,6 +25,7 @@ interface MessageBubbleProps {
   isMe: boolean;
   showSender?: boolean;
   senderName?: string;
+  senderIsAgent?: boolean;
   members?: MentionMember[];
   currentUserId?: number;
   onRecall?: () => void;
@@ -34,6 +37,7 @@ export function MessageBubble({
   isMe,
   showSender,
   senderName,
+  senderIsAgent,
   members,
   currentUserId,
   onRecall,
@@ -43,7 +47,10 @@ export function MessageBubble({
 
   const canRecall = isMe && onRecall && message.status !== "recalled" && !message.recalled;
   const canCopy =
-    !message.recalled && message.msgType !== MSG_TYPE_IMAGE && message.msgType !== MSG_TYPE_FILE;
+    !message.recalled &&
+    message.msgType !== MSG_TYPE_IMAGE &&
+    message.msgType !== MSG_TYPE_FILE &&
+    message.msgType !== MSG_TYPE_AGENT_CARD;
 
   const copyText = async () => {
     try {
@@ -95,8 +102,14 @@ export function MessageBubble({
           </div>
         )}
         {showSender && senderName && (
-          <span className="text-muted-foreground mb-1 px-1 text-xs">
+          <span className="text-muted-foreground mb-1 flex items-center gap-1 px-1 text-xs">
+            {senderIsAgent && <Bot className="h-3 w-3 text-primary" />}
             {senderName}
+            {senderIsAgent && (
+              <span className="rounded bg-primary/10 px-1 text-[9px] font-medium text-primary">
+                AI
+              </span>
+            )}
           </span>
         )}
         <div
@@ -188,6 +201,10 @@ function MessageBody({
         </span>
       </a>
     );
+  }
+
+  if (message.msgType === MSG_TYPE_AGENT_CARD) {
+    return <AgentApprovalCard content={message.content} />;
   }
 
   // Text: highlight @mentions of known group members; mentions of the

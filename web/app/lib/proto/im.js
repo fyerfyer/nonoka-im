@@ -9318,6 +9318,7 @@ export const api = $root.api = (() => {
              * @property {number} MSG_TYPE_IMAGE=2 MSG_TYPE_IMAGE value
              * @property {number} MSG_TYPE_FILE=3 MSG_TYPE_FILE value
              * @property {number} MSG_TYPE_VOICE=4 MSG_TYPE_VOICE value
+             * @property {number} MSG_TYPE_AGENT_CARD=5 MSG_TYPE_AGENT_CARD value
              */
             v1.MsgType = (function() {
                 const valuesById = {}, values = $Object.create(valuesById);
@@ -9326,6 +9327,7 @@ export const api = $root.api = (() => {
                 values[valuesById[2] = "MSG_TYPE_IMAGE"] = 2;
                 values[valuesById[3] = "MSG_TYPE_FILE"] = 3;
                 values[valuesById[4] = "MSG_TYPE_VOICE"] = 4;
+                values[valuesById[5] = "MSG_TYPE_AGENT_CARD"] = 5;
                 return values;
             })();
 
@@ -9611,6 +9613,7 @@ export const api = $root.api = (() => {
                         case 2:
                         case 3:
                         case 4:
+                        case 5:
                             break;
                         }
                     if (message.content != null && $Object.hasOwnProperty.call(message, "content"))
@@ -9677,6 +9680,10 @@ export const api = $root.api = (() => {
                         case "MSG_TYPE_VOICE":
                         case 4:
                             message.msgType = 4;
+                            break;
+                        case "MSG_TYPE_AGENT_CARD":
+                        case 5:
+                            message.msgType = 5;
                             break;
                         }
                     if (object.content != null)

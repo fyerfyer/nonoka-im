@@ -2,15 +2,12 @@
 
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export function AuthInitializer() {
-  const initialized = useRef(false);
-
-  if (!initialized.current && typeof window !== "undefined") {
-    initialized.current = true;
+  useEffect(() => {
     useAuthStore.getState().restoreFromStorage();
-  }
+  }, []);
 
   useEffect(() => {
     return () => {

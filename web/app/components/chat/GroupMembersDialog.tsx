@@ -15,8 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, UserMinus, UserPlus } from "lucide-react";
+import { Loader2, UserMinus, UserPlus, Bot } from "lucide-react";
 import { toast } from "sonner";
+import { useAgentNames } from "@/hooks/useAgentNames";
 
 interface GroupMembersDialogProps {
   group: Group;
@@ -30,6 +31,7 @@ export function GroupMembersDialog({
   onOpenChange,
 }: GroupMembersDialogProps) {
   const currentUser = useAuthStore((s) => s.user);
+  const agentNames = useAgentNames();
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
@@ -53,20 +55,23 @@ export function GroupMembersDialog({
 
   useEffect(() => {
     if (open) {
-      setQuery("");
-      setCandidates([]);
-      void loadMembers();
+      const t = setTimeout(() => {
+        setQuery("");
+        setCandidates([]);
+        void loadMembers();
+      }, 0);
+      return () => clearTimeout(t);
     }
   }, [open, loadMembers]);
 
   // Debounced candidate search for adding members.
   useEffect(() => {
     if (!query.trim()) {
-      setCandidates([]);
-      return;
+      const t = setTimeout(() => setCandidates([]), 0);
+      return () => clearTimeout(t);
     }
-    setSearching(true);
     const timer = setTimeout(async () => {
+      setSearching(true);
       try {
         const reply = await userApi.searchUsers(query.trim(), 10);
         setCandidates(
@@ -150,15 +155,27 @@ export function GroupMembersDialog({
             </div>
           ) : (
             <ul className="divide-y">
-              {members.map((m) => (
+              {members.map((m) => {
+                const agent = agentNames.get(Number(m.userId));
+                return (
                 <li key={m.userId} className="flex items-center gap-3 py-2">
                   <Avatar className="h-8 w-8">
                     <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                      {m.username.slice(0, 2).toUpperCase()}
+                      {agent ? (
+                        <Bot className="h-4 w-4" />
+                      ) : (
+                        m.username.slice(0, 2).toUpperCase()
+                      )}
                     </AvatarFallback>
                   </Avatar>
                   <span className="flex-1 text-sm">
-                    {m.username}
+                    {agent ? agent.name : m.username}
+                    {agent && (
+                      <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                        <Bot className="h-2.5 w-2.5" />
+                        AI
+                      </span>
+                    )}
                     {m.userId === group.ownerId && (
                       <span className="ml-2 text-xs text-muted-foreground">
                         owner
@@ -186,7 +203,8 @@ export function GroupMembersDialog({
                     </Button>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </ScrollArea>

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Send, Smile, Paperclip, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAgentNames } from "@/hooks/useAgentNames";
 import {
   activeMentionQuery,
   filterMembers,
@@ -34,36 +35,39 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
+  // Caret position mirrored into state; reading textareaRef during render
+  // is a refs-during-render violation, so event handlers own the updates.
+  const [caret, setCaret] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const agentNames = useAgentNames();
 
   // Active "@query" completion state (group mentions only).
   const mentionState = useMemo(() => {
     if (!members || members.length === 0 || mentionDismissed) return null;
-    const el = textareaRef.current;
-    const caret = el?.selectionStart ?? text.length;
-    const active = activeMentionQuery(text, caret);
+    const active = activeMentionQuery(text, caret || text.length);
     if (!active) return null;
     const candidates = filterMembers(members, active.query);
     if (candidates.length === 0) return null;
     return { ...active, candidates };
-  }, [text, members, mentionDismissed]);
+  }, [text, caret, members, mentionDismissed]);
 
   const applyMention = (username: string) => {
     if (!mentionState) return;
     const el = textareaRef.current;
-    const caret = el?.selectionStart ?? text.length;
+    const caretPos = el?.selectionStart ?? text.length;
     const next =
       text.slice(0, mentionState.start) +
       `@${username} ` +
-      text.slice(caret);
+      text.slice(caretPos);
+    const pos = mentionState.start + username.length + 2;
     setMentionDismissed(false);
     setText(next);
+    setCaret(pos);
     setMentionIndex(0);
     requestAnimationFrame(() => {
       el?.focus();
-      const pos = mentionState.start + username.length + 2;
       el?.setSelectionRange(pos, pos);
     });
   };
@@ -72,6 +76,7 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
     if (!text.trim() || disabled) return;
     onSend(text);
     setText("");
+    setCaret(0);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -115,10 +120,11 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
     const start = el?.selectionStart ?? text.length;
     const end = el?.selectionEnd ?? text.length;
     const next = text.slice(0, start) + emoji + text.slice(end);
+    const pos = start + emoji.length;
     setText(next);
+    setCaret(pos);
     requestAnimationFrame(() => {
       el?.focus();
-      const pos = start + emoji.length;
       el?.setSelectionRange(pos, pos);
     });
   };
@@ -225,7 +231,9 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
             <div className="px-2 py-1 text-[10px] text-muted-foreground">
               Mention a member
             </div>
-            {mentionState.candidates.map((m, i) => (
+            {mentionState.candidates.map((m, i) => {
+              const agentName = agentNames.get(m.userId)?.name;
+              return (
               <button
                 key={m.userId}
                 type="button"
@@ -241,11 +249,17 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
                 }}
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
-                  {m.username.slice(0, 2).toUpperCase()}
+                  {(agentName ?? m.username).slice(0, 2).toUpperCase()}
                 </span>
-                <span className="truncate">{m.username}</span>
+                <span className="truncate">{agentName ?? m.username}</span>
+                {agentName && (
+                  <span className="ml-auto rounded bg-primary/10 px-1 text-[9px] font-medium text-primary">
+                    AI
+                  </span>
+                )}
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
         <textarea
@@ -253,8 +267,10 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
           value={text}
           onChange={(e) => {
             setMentionDismissed(false);
+            setCaret(e.target.selectionStart);
             setText(e.target.value);
           }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           disabled={disabled}

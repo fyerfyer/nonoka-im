@@ -2,7 +2,7 @@
 
 import { useChatStore } from "@/stores/chatStore";
 import { cn } from "@/lib/utils";
-import { Loader2, Wifi, WifiOff, AlertCircle } from "lucide-react";
+import { Loader2, WifiOff } from "lucide-react";
 
 export function ConnectionBar() {
   const state = useChatStore((s) => s.connectionState);

@@ -65,6 +65,7 @@ function previewForMessage(msg: ChatMessage): string {
   if (msg.recalled) return "This message was recalled";
   if (msg.msgType === 2) return "[Image]";
   if (msg.msgType === 3) return "[File]";
+  if (msg.msgType === 5) return "[Agent approval]";
   return msg.content;
 }
 

@@ -351,7 +351,15 @@ export const groupApi = {
     api.get<{ members: GroupMember[] }>(`/v1/groups/${groupId}/members`),
 };
 
-export type AgentTool = "search_messages" | "get_conversation_context" | "send_message" | "read_file" | "get_topic_info";
+export type AgentTool =
+  | "search_messages"
+  | "get_conversation_context"
+  | "send_message"
+  | "read_file"
+  | "get_topic_info"
+  | "get_my_info"
+  | "list_my_groups"
+  | "get_group_members";
 
 export interface AgentDraft {
   instruction: string;
@@ -414,15 +422,33 @@ export interface AgentShare {
 
 export interface AgentRun {
   ID: number;
+  EventID?: string;
   AgentID: number;
+  AgentVersion?: number;
+  SessionID?: number;
   ActorUserID: number;
   Topic: string;
+  MsgID?: number;
+  TopicSeq?: number;
   Status: string;
   ErrorCode: string;
+  Attempts?: number;
+  ReplyMsgID?: number;
+  CheckpointID?: string;
   InputTokens: number;
   OutputTokens: number;
   TotalTokens: number;
   CreatedAt: string;
+  StartedAt?: string | null;
+  FinishedAt?: string | null;
+}
+
+export interface MCPServerRegisterInput {
+  name: string;
+  url: string;
+  tools: string[];
+  risk: "read_only" | "write";
+  enabled?: boolean;
 }
 
 export interface AgentInput {
@@ -460,8 +486,24 @@ export const agentApi = {
   share: (id: number, kind: AgentShare["kind"], target: string, enabled: boolean) =>
     api.put<unknown>(`/v1/agents/${id}/shares`, { kind, target, enabled }),
   runs: (id: number) => api.get<{ runs: AgentRun[] }>(`/v1/agents/${id}/runs`),
+  runDetail: (id: number) => api.get<AgentRun>(`/v1/agent-runs/${id}`),
   runAction: (id: number, action: "retry" | "skip") =>
     api.post<unknown>(`/v1/agent-runs/${id}/${action}`, {}),
+  delete: (id: number) => api.del<{ status: string }>(`/v1/agents/${id}`),
+  approveApproval: (id: number) =>
+    api.post<{ status: string }>(`/v1/agent-approvals/${id}/approve`, {}),
+  rejectApproval: (id: number) =>
+    api.post<{ status: string }>(`/v1/agent-approvals/${id}/reject`, {}),
+  approvalDetail: (id: number) =>
+    api.get<{ ID: number; RunID: number; Tool: string; Status: string }>(
+      `/v1/agent-approvals/${id}`
+    ),
   listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
+  registerMCPServer: (input: MCPServerRegisterInput) =>
+    api.post<MCPServer>("/v1/mcp/servers", input),
+  setMCPServerStatus: (id: number, enabled: boolean) =>
+    api.post<{ id: number; enabled: boolean }>(`/v1/mcp/servers/${id}/status`, { enabled }),
   listSkills: () => api.get<{ skills: PublishedSkill[] }>("/v1/skills"),
+  publishSkill: (input: { name: string; version: number; content: string }) =>
+    api.post<{ id: number; name: string; version: number }>("/v1/skills", input),
 };

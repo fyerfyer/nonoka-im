@@ -3907,7 +3907,10 @@ export namespace api {
                 MSG_TYPE_FILE = 3,
 
                 /** MSG_TYPE_VOICE value */
-                MSG_TYPE_VOICE = 4
+                MSG_TYPE_VOICE = 4,
+
+                /** MSG_TYPE_AGENT_CARD value */
+                MSG_TYPE_AGENT_CARD = 5
             }
 
             /**
