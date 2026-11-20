@@ -414,6 +414,80 @@ func (a *OpenFGA) ListAgentShares(ctx context.Context, agentID int64) ([]AgentSh
 	}
 }
 
+// DeleteAgentTuples removes every authorization tuple that references the
+// agent: shares/owner (object=agent:<id>) and tool bindings
+// (user=agent:<id>). It is called after the agent row is deleted; a failed
+// cleanup leaves only inert tuples because the agent can no longer be loaded.
+func (a *OpenFGA) DeleteAgentTuples(ctx context.Context, agentID int64, tools []string) error {
+	id := agent(agentID)
+	seen := make(map[string]fgaclient.ClientTupleKeyWithoutCondition)
+	read := func(filter fgaclient.ClientReadRequest) ([]fgaclient.ClientTupleKeyWithoutCondition, error) {
+		var out []fgaclient.ClientTupleKeyWithoutCondition
+		var continuation string
+		for {
+			options := fgaclient.ClientReadOptions{PageSize: fga.PtrInt32(100)}
+			if continuation != "" {
+				options.ContinuationToken = &continuation
+			}
+			result, err := a.client.Read(ctx).Body(filter).Options(options).Execute()
+			if err != nil {
+				return nil, err
+			}
+			for _, tuple := range result.GetTuples() {
+				key := tuple.GetKey()
+				out = append(out, fgaclient.ClientTupleKeyWithoutCondition{
+					User: key.GetUser(), Relation: key.GetRelation(), Object: key.GetObject(),
+				})
+			}
+			continuation = result.GetContinuationToken()
+			if continuation == "" {
+				return out, nil
+			}
+		}
+	}
+	// Tuples where the agent is the object (owner, viewer, grants, shares).
+	objectTuples, err := read(fgaclient.ClientReadRequest{Object: &id})
+	if err != nil {
+		return err
+	}
+	for _, t := range objectTuples {
+		seen[t.User+"|"+t.Relation+"|"+t.Object] = t
+	}
+	// Tool bindings are keyed by agent_tool:<agentID>.<tool>; construct them
+	// directly instead of listing by subject (the Read API requires an object
+	// type when the subject filter is used).
+	for _, tool := range tools {
+		t := fgaclient.ClientTupleKeyWithoutCondition{
+			User: id, Relation: "bound", Object: "agent_tool:" + agentToolID(agentID, tool),
+		}
+		seen[t.User+"|"+t.Relation+"|"+t.Object] = t
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	deletes := make([]fgaclient.ClientTupleKeyWithoutCondition, 0, len(seen))
+	for _, t := range seen {
+		deletes = append(deletes, t)
+	}
+	const batch = 50
+	for start := 0; start < len(deletes); start += batch {
+		end := start + batch
+		if end > len(deletes) {
+			end = len(deletes)
+		}
+		body := fgaclient.ClientWriteRequest{Deletes: deletes[start:end]}
+		if _, err := a.client.Write(ctx).Body(body).Options(fgaclient.ClientWriteOptions{
+			Conflict: fgaclient.ClientWriteConflictOptions{
+				OnDuplicateWrites: fgaclient.CLIENT_WRITE_REQUEST_ON_DUPLICATE_WRITES_IGNORE,
+				OnMissingDeletes:  fgaclient.CLIENT_WRITE_REQUEST_ON_MISSING_DELETES_IGNORE,
+			},
+		}).Execute(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Model() (*fga.WriteAuthorizationModelRequest, error) {
 	b, err := modelFS.ReadFile("model.json")
 	if err != nil {

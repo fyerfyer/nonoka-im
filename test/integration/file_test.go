@@ -206,7 +206,7 @@ func TestFile_MediaMessageEndToEnd(t *testing.T) {
 		t.Fatalf("sender connect failed: %v", err)
 	}
 
-	meta := fmt.Sprintf(`{"url":"/v1/files/abc123","name":"pic.png","size":123,"mime":"image/png"}`)
+	meta := `{"url":"/v1/files/abc123","name":"pic.png","size":123,"mime":"image/png"}`
 	if _, err := sender.SendMessage(ctx, topic, v1.MsgType_MSG_TYPE_IMAGE, []byte(meta)); err != nil {
 		t.Fatalf("send image message failed: %v", err)
 	}

@@ -11,8 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"nonoka-im/internal/agent/adapters"
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/tools"
+	"nonoka-im/internal/messaging"
 )
 
 // TestAgentToolReadFileAuthorization verifies that the agent read_file tool
@@ -63,7 +65,7 @@ func TestAgentToolReadFileAuthorization(t *testing.T) {
 		t.Fatalf("decode upload reply failed: %v (%s)", err, body)
 	}
 
-	mt := &app.MessageTools{Files: ts.mongoDB, Authorizer: ts.openFGA}
+	mt := &app.MessageTools{Files: adapters.Files{Reader: messaging.NewFiles(ts.mongoDB)}, Authorizer: ts.openFGA}
 	rc := tools.RunContext{ActorUserID: userOwner, AgentID: 1, BotID: 2, Topic: "p2p_1_2", EventID: "evt-1"}
 
 	name, mime, content, truncated, err := mt.ReadFile(context.Background(), rc, uploaded.FileID, 1<<20)

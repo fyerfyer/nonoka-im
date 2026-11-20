@@ -12,7 +12,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/port"
 )
 
 type fakeModel struct {
@@ -45,10 +45,10 @@ func (f *fakeModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, e
 
 func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 	fake := &fakeModel{}
-	r := &Runtime{model: fake}
-	in := runtime.Input{
+	r := &Engine{model: fake}
+	in := port.Input{
 		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
-		History:      []runtime.Turn{{ID: 7, Input: "old question", Output: "old answer"}},
+		History:      []port.Turn{{ID: 7, Input: "old question", Output: "old answer"}},
 		NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 7,
 	}
 	result, err := r.Run(context.Background(), in)
@@ -67,7 +67,7 @@ func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 		}
 	}
 	fresh := &fakeModel{}
-	_, err = (&Runtime{model: fresh}).Run(context.Background(), runtime.Input{
+	_, err = (&Engine{model: fresh}).Run(context.Background(), port.Input{
 		Instruction: in.Instruction, Summary: result.Summary, Text: "CURRENT_INPUT_MARKER",
 	})
 	if err != nil {
@@ -80,9 +80,9 @@ func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 
 func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
 	fake := &fakeModel{failSummary: true}
-	r := &Runtime{model: fake}
-	in := runtime.Input{Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER", History: []runtime.Turn{{ID: 1, Input: "old", Output: "reply"}}, NeedsSummary: true, TriggerTokens: 1}
-	if _, err := r.Run(context.Background(), in); !errors.Is(err, ErrSummary) {
+	r := &Engine{model: fake}
+	in := port.Input{Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER", History: []port.Turn{{ID: 1, Input: "old", Output: "reply"}}, NeedsSummary: true, TriggerTokens: 1}
+	if _, err := r.Run(context.Background(), in); !errors.Is(err, port.ErrSummary) {
 		t.Fatalf("expected summary error, got %v", err)
 	}
 	in.DisableSummary = true
@@ -93,16 +93,16 @@ func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
 }
 
 // TestSummaryTrackerWrapsGenerationErrors pins the error contract: the tracker
-// must tag summary model failures by wrapping ErrSummary (keeping errors.Is
+// must tag summary model failures by wrapping port.ErrSummary (keeping errors.Is
 // working) so no global flag is needed to recognize them later.
 func TestSummaryTrackerWrapsGenerationErrors(t *testing.T) {
 	tr := summaryTracker{model: &fakeModel{failSummary: true}}
 	msgs := []*schema.Message{schema.UserMessage("summarize this")}
-	if _, err := tr.Generate(context.Background(), msgs); !errors.Is(err, ErrSummary) {
-		t.Fatalf("Generate error must wrap ErrSummary, got %v", err)
+	if _, err := tr.Generate(context.Background(), msgs); !errors.Is(err, port.ErrSummary) {
+		t.Fatalf("Generate error must wrap port.ErrSummary, got %v", err)
 	}
-	if _, err := tr.Stream(context.Background(), msgs); !errors.Is(err, ErrSummary) {
-		t.Fatalf("Stream error must wrap ErrSummary, got %v", err)
+	if _, err := tr.Stream(context.Background(), msgs); !errors.Is(err, port.ErrSummary) {
+		t.Fatalf("Stream error must wrap port.ErrSummary, got %v", err)
 	}
 }
 
@@ -133,13 +133,13 @@ func (f *failFinalModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatMod
 // heuristic this replaced: only errors raised by the summary model itself may
 // classify as ErrSummary; a later, unrelated model failure must surface as-is.
 func TestRunErrorAfterSuccessfulSummaryIsNotErrSummary(t *testing.T) {
-	r := &Runtime{model: &failFinalModel{}}
-	_, err := r.Run(context.Background(), runtime.Input{
+	r := &Engine{model: &failFinalModel{}}
+	_, err := r.Run(context.Background(), port.Input{
 		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
-		History:      []runtime.Turn{{ID: 1, Input: "old", Output: "reply"}},
+		History:      []port.Turn{{ID: 1, Input: "old", Output: "reply"}},
 		NeedsSummary: true, TriggerTokens: 1,
 	})
-	if err == nil || errors.Is(err, ErrSummary) {
+	if err == nil || errors.Is(err, port.ErrSummary) {
 		t.Fatalf("answer failure must not be reported as ErrSummary: %v", err)
 	}
 }
@@ -170,7 +170,7 @@ func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	res, err := rt.Run(context.Background(), runtime.Input{
+	res, err := rt.Run(context.Background(), port.Input{
 		Instruction: "hi", Text: "hello",
 		Model: "fixture-model", BaseURL: srv.URL + "/v1", APIKey: "agent-own-key", MaxTokens: 512,
 	})

@@ -5,7 +5,7 @@ import (
 
 	pb "nonoka-im/api/im/v1"
 	"nonoka-im/internal/authz"
-	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 
 	"github.com/go-kratos/kratos/v2/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -28,7 +28,7 @@ func (s *GroupService) groupMemberIDs(ctx context.Context, groupID string) (map[
 	return ids, nil
 }
 
-func (s *GroupService) requireMember(ctx context.Context, groupID string, userID int64) (*data.Group, error) {
+func (s *GroupService) requireMember(ctx context.Context, groupID string, userID int64) (*imdata.Group, error) {
 	group, err := s.repo.GetGroup(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -53,16 +53,16 @@ func (s *GroupService) requireMember(ctx context.Context, groupID string, userID
 type GroupService struct {
 	pb.UnimplementedGroupServiceServer
 
-	repo       data.GroupRepo
+	repo       imdata.GroupRepo
 	authorizer *authz.OpenFGA
 }
 
 // NewGroupService creates a new GroupService.
-func NewGroupService(repo data.GroupRepo) *GroupService {
+func NewGroupService(repo imdata.GroupRepo) *GroupService {
 	return &GroupService{repo: repo}
 }
 
-func NewGroupServiceWithAuthorizer(repo data.GroupRepo, authorizer *authz.OpenFGA) *GroupService {
+func NewGroupServiceWithAuthorizer(repo imdata.GroupRepo, authorizer *authz.OpenFGA) *GroupService {
 	return &GroupService{repo: repo, authorizer: authorizer}
 }
 

@@ -127,6 +127,7 @@ type DeliveryStatus struct {
 type AgentEventOutbox struct {
 	ID            bson.ObjectID `bson:"_id,omitempty"`
 	EventID       string        `bson:"event_id"`
+	MsgID         int64         `bson:"msg_id"`
 	Topic         string        `bson:"topic"`
 	TopicSeq      uint64        `bson:"topic_seq"`
 	Payload       []byte        `bson:"payload"`
@@ -138,6 +139,13 @@ type AgentEventOutbox struct {
 	CreatedAt     time.Time     `bson:"created_at"`
 	PublishedAt   time.Time     `bson:"published_at,omitempty"`
 }
+
+// Sentinels used inside the message+outbox transaction. DuplicateKeyError from
+// MongoDB aborts a transaction on the server; swallowing it makes the later
+// commit fail with NoSuchTransaction and the driver retries the callback until
+// its deadline. Returning this sentinel lets WithTransaction abort cleanly with
+// a deterministic duplicate outcome.
+var errAgentEventDuplicate = errors.New("agent event already recorded")
 
 // MessageStorage handles MongoDB persistence for messages.
 type MessageStorage struct {
@@ -228,6 +236,12 @@ func (s *MessageStorage) SaveP2PMessageWithAgentEvent(ctx context.Context, msg *
 	if errors.Is(err, errTransactionalDuplicate) {
 		return recipients, true, nil
 	}
+	if errors.Is(err, errAgentEventDuplicate) {
+		// The event is the idempotency boundary for message+trigger. Roll the
+		// whole message back and report a duplicate instead of leaving a new
+		// message without its agent trigger.
+		return recipients, true, nil
+	}
 	if err != nil {
 		return nil, false, fmt.Errorf("persist p2p message and agent event: %w", err)
 	}
@@ -259,6 +273,9 @@ func (s *MessageStorage) SaveGroupMessageWithAgentEvent(ctx context.Context, msg
 	if errors.Is(err, errTransactionalDuplicate) {
 		return true, nil
 	}
+	if errors.Is(err, errAgentEventDuplicate) {
+		return true, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("persist group message and agent event: %w", err)
 	}
@@ -269,17 +286,46 @@ func (s *MessageStorage) enqueueAgentEvent(ctx context.Context, ev agevent.Messa
 	if strings.TrimSpace(ev.EventID) == "" {
 		return fmt.Errorf("agent event id is required")
 	}
+	coll := s.collection(CollectionAgentOutbox)
+	// Check first so an idempotent replay never triggers a duplicate-key error
+	// inside the surrounding MongoDB transaction. A duplicate-key error aborts
+	// the transaction on the server even when Go swallows it, and the later
+	// commit is then retried by the driver as NoSuchTransaction.
+	var existing AgentEventOutbox
+	err := coll.FindOne(ctx, bson.M{"event_id": ev.EventID}).Decode(&existing)
+	switch {
+	case err == nil:
+		// The event is the idempotency boundary for message+trigger. Treat any
+		// existing row as a duplicate, even if the caller passed a mismatched
+		// msg_id; the surrounding transaction rolls the new message back too.
+		if existing.MsgID != ev.MsgID {
+			s.log.Warnf("agent outbox event %s belongs to message %d, got %d; treating as duplicate", ev.EventID, existing.MsgID, ev.MsgID)
+		}
+		s.incAgentOutboxDuplicate()
+		return errAgentEventDuplicate
+	case errors.Is(err, mongo.ErrNoDocuments):
+		// Continue with the insert.
+	default:
+		return err
+	}
 	now := time.Now()
-	_, err := s.collection(CollectionAgentOutbox).InsertOne(ctx, AgentEventOutbox{
-		EventID: ev.EventID, Topic: ev.Topic, TopicSeq: ev.TopicSeq, Payload: payload, Status: "pending", NextAttemptAt: now, CreatedAt: now,
+	_, err = coll.InsertOne(ctx, AgentEventOutbox{
+		EventID: ev.EventID, MsgID: ev.MsgID, Topic: ev.Topic, TopicSeq: ev.TopicSeq,
+		Payload: payload, Status: "pending", NextAttemptAt: now, CreatedAt: now,
 	})
-	if err != nil && mongo.IsDuplicateKeyError(err) {
-		// A transaction retry or an earlier successful delivery may already have
-		// recorded this event. Keeping the existing row preserves at-least-once
-		// delivery without creating a second trigger.
-		return nil
+	if mongo.IsDuplicateKeyError(err) {
+		// A concurrent transaction inserted the same event between our check
+		// and insert. Abort cleanly; the caller treats it as a duplicate.
+		s.incAgentOutboxDuplicate()
+		return errAgentEventDuplicate
 	}
 	return err
+}
+
+func (s *MessageStorage) incAgentOutboxDuplicate() {
+	if s.metrics != nil {
+		s.metrics.IncAgentOutboxDuplicate()
+	}
 }
 
 // RelayAgentEvents claims due outbox rows, publishes them, and marks them
@@ -309,6 +355,9 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 			// keep it for manual inspection instead of retrying forever.
 			s.log.Errorf("agent outbox row %s exceeded %d attempts; marking failed for manual handling (topic=%s seq=%d last_error=%s)",
 				row.ID.Hex(), agentEventMaxAttempts, row.Topic, row.TopicSeq, row.LastError)
+			if s.metrics != nil {
+				s.metrics.IncAgentOutboxPublishFailure()
+			}
 			if err := s.abandonAgentEvent(ctx, row.ID); err != nil {
 				return processed, fmt.Errorf("abandon exhausted agent event %s: %w", row.ID.Hex(), err)
 			}
@@ -316,11 +365,14 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 		}
 		var ev agevent.MessageEvent
 		if err := json.Unmarshal(row.Payload, &ev); err != nil {
-			_ = s.failAgentEvent(ctx, row.ID, err, retryBackoff)
+			_ = s.failAgentEvent(ctx, row.ID, err, agentEventBackoff(retryBackoff, row.Attempts))
 			return processed, fmt.Errorf("decode agent outbox event: %w", err)
 		}
 		if err := publisher.Publish(ctx, ev); err != nil {
-			if releaseErr := s.failAgentEvent(ctx, row.ID, err, retryBackoff); releaseErr != nil {
+			if s.metrics != nil {
+				s.metrics.IncAgentOutboxPublishFailure()
+			}
+			if releaseErr := s.failAgentEvent(ctx, row.ID, err, agentEventBackoff(retryBackoff, row.Attempts)); releaseErr != nil {
 				return processed, fmt.Errorf("publish agent event: %w (release: %v)", err, releaseErr)
 			}
 			return processed, err
@@ -332,6 +384,22 @@ func (s *MessageStorage) RelayAgentEvents(ctx context.Context, publisher agevent
 		processed++
 	}
 	return processed, nil
+}
+
+// agentEventBackoff grows the retry delay exponentially from the configured
+// base, capped at 5 minutes, so a persistent broker problem does not hammer it.
+func agentEventBackoff(base time.Duration, attempts int) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if attempts < 1 {
+		attempts = 1
+	}
+	delay := base * time.Duration(1<<min(attempts-1, 8))
+	if delay > 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return delay
 }
 
 func (s *MessageStorage) claimAgentEvent(ctx context.Context) (*AgentEventOutbox, error) {
@@ -356,7 +424,7 @@ func (s *MessageStorage) claimAgentEvent(ctx context.Context) (*AgentEventOutbox
 					{"$eq": []any{"$topic", "$$topic"}},
 					{"$gt": []any{"$topic_seq", 0}},
 					{"$lt": []any{"$topic_seq", "$$seq"}},
-					{"$ne": []any{"$status", "published"}},
+					{"$not": bson.M{"$in": []any{"$status", []string{"published", "failed"}}}},
 				}}}},
 				{"$limit": 1},
 			},
@@ -443,6 +511,60 @@ func (s *MessageStorage) prunePublishedAgentEvents(ctx context.Context) {
 	if _, err := coll.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": ids}}); err != nil {
 		s.log.Warnf("prune published agent events: delete: %v", err)
 	}
+}
+
+// AgentOutboxStats returns the pending/failed depth and the age of the oldest
+// due row. The relay loop publishes them as gauges.
+func (s *MessageStorage) AgentOutboxStats(ctx context.Context) (pending, failed int64, oldestAge time.Duration, err error) {
+	coll := s.collection(CollectionAgentOutbox)
+	pending, err = coll.CountDocuments(ctx, bson.M{"status": bson.M{"$in": []string{"pending", "processing"}}})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	failed, err = coll.CountDocuments(ctx, bson.M{"status": "failed"})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var oldest AgentEventOutbox
+	err = coll.FindOne(ctx, bson.M{"status": bson.M{"$in": []string{"pending", "processing"}}}, options.FindOne().SetSort(bson.D{{Key: "created_at", Value: 1}})).Decode(&oldest)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return pending, failed, 0, nil
+	}
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return pending, failed, time.Since(oldest.CreatedAt), nil
+}
+
+// ListFailedAgentEvents returns terminal outbox rows for the admin DLQ view.
+func (s *MessageStorage) ListFailedAgentEvents(ctx context.Context, limit int) ([]AgentEventOutbox, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	cursor, err := s.collection(CollectionAgentOutbox).Find(ctx, bson.M{"status": "failed"}, options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(int64(limit)))
+	if err != nil {
+		return nil, err
+	}
+	var rows []AgentEventOutbox
+	err = cursor.All(ctx, &rows)
+	_ = cursor.Close(ctx)
+	return rows, err
+}
+
+// ReplayAgentEvent moves a failed row back to pending with a fresh attempt
+// budget. Replaying is safe because the agent consumer deduplicates by event_id.
+func (s *MessageStorage) ReplayAgentEvent(ctx context.Context, id bson.ObjectID) error {
+	result := s.collection(CollectionAgentOutbox).FindOneAndUpdate(ctx,
+		bson.M{"_id": id, "status": "failed"},
+		bson.M{"$set": bson.M{"status": "pending", "attempts": 0, "next_attempt_at": time.Now(), "last_error": ""}, "$unset": bson.M{"locked_until": ""}},
+		options.FindOneAndUpdate().SetReturnDocument(options.After))
+	if err := result.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return fmt.Errorf("failed agent outbox row %s not found", id.Hex())
+		}
+		return err
+	}
+	return nil
 }
 
 // incMongoOp increments the MongoDB operation counter if metrics is configured.
@@ -618,24 +740,24 @@ func (s *MessageStorage) createIndex(ctx context.Context, collection, indexName 
 
 // isIndexAlreadyExistsError checks if the error indicates the index already exists.
 func isIndexAlreadyExistsError(err error) bool {
-	if err == nil {
-		return false
+	var cmdErr mongo.CommandError
+	if errors.As(err, &cmdErr) {
+		// 68 = IndexAlreadyExists. A duplicate-key error while building a
+		// unique index (11000) is NOT "already exists": the index was not
+		// created and callers must see the failure.
+		return cmdErr.Code == 68
 	}
-	errStr := err.Error()
-	// MongoDB error messages for existing indexes vary by version.
-	return strings.Contains(errStr, "already exists") ||
-		strings.Contains(errStr, "IndexAlreadyExists") ||
-		strings.Contains(errStr, "duplicate key")
+	return strings.Contains(err.Error(), "IndexAlreadyExists")
 }
 
 // isIndexKeySpecsConflictError checks if the error indicates an index name
 // conflict where the existing index has a different key specification.
 func isIndexKeySpecsConflictError(err error) bool {
-	if err == nil {
-		return false
+	var cmdErr mongo.CommandError
+	if errors.As(err, &cmdErr) {
+		return cmdErr.Code == 85 || cmdErr.Code == 86
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "IndexKeySpecsConflict")
+	return strings.Contains(err.Error(), "IndexKeySpecsConflict")
 }
 
 // TopicType determines the type of a topic.

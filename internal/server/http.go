@@ -11,6 +11,7 @@ import (
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/service"
 
@@ -27,9 +28,10 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, outbox *service.OutboxAdminHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
+		httpapi.RequestIDMiddleware(),
 	}
 	if rateLimiter != nil {
 		middlewares = append(middlewares, selector.Server(
@@ -110,7 +112,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	if gatewayConf != nil && len(gatewayConf.CorsOrigins) > 0 {
 		corsOpts := cors.Options{
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Request-Id"},
 			AllowCredentials: true,
 			MaxAge:           86400,
 		}
@@ -169,12 +171,18 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
 		r.POST("/v1/agent-approvals/{id}/approve", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "approve") })
 		r.POST("/v1/agent-approvals/{id}/reject", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "reject") })
+		r.GET("/v1/agent-approvals", agents.ListApprovals)
 		r.GET("/v1/agent-approvals/{id}", agents.ApprovalDetail)
 		r.POST("/v1/mcp/servers", agents.RegisterMCPServer)
 		r.GET("/v1/mcp/servers", agents.ListMCPServers)
 		r.POST("/v1/mcp/servers/{id}/status", agents.SetMCPServerStatus)
 		r.POST("/v1/skills", agents.PublishSkill)
 		r.GET("/v1/skills", agents.ListSkills)
+	}
+	if outbox != nil {
+		r := srv.Route("/")
+		r.GET("/v1/admin/agent-outbox/failed", outbox.ListFailed)
+		r.POST("/v1/admin/agent-outbox/{id}/replay", outbox.Replay)
 	}
 
 	// Register WebSocket handler

@@ -389,7 +389,7 @@ func listContainsAgent(t *testing.T, token string, agentID int64) bool {
 	var listing struct {
 		Agents []struct {
 			ID int64 `json:"id"`
-		} `json:"agents"`
+		} `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil {
 		t.Fatalf("decode agent listing failed: %v", err)

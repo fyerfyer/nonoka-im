@@ -12,30 +12,30 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/cloudwego/eino/adk/middlewares/skill"
+	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/eino"
 	agentmcp "nonoka-im/internal/agent/mcp"
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/port"
 	agentskills "nonoka-im/internal/agent/skills"
-	"nonoka-im/internal/data"
 )
 
 // liveStore fakes the MCP/skill registries for the live suite.
 type liveStore struct {
-	server *data.MCPServer
-	skills map[string]*data.Skill
+	server *domain.MCPServer
+	skills map[string]*domain.Skill
 }
 
-func (f *liveStore) GetServer(_ context.Context, name string) (*data.MCPServer, error) {
+func (f *liveStore) GetServer(_ context.Context, name string) (*domain.MCPServer, error) {
 	if f.server == nil || f.server.Name != name {
-		return nil, data.ErrMCPNotFound
+		return nil, domain.ErrMCPNotFound
 	}
 	return f.server, nil
 }
 
-func (f *liveStore) GetSkill(_ context.Context, name string, version int64) (*data.Skill, error) {
+func (f *liveStore) GetSkill(_ context.Context, name string, version int64) (*domain.Skill, error) {
 	row, ok := f.skills[name]
 	if !ok || row.Version != version {
-		return nil, data.ErrMCPNotFound
+		return nil, domain.ErrMCPNotFound
 	}
 	return row, nil
 }
@@ -70,24 +70,23 @@ func TestDeepSeekMCPToolUse(t *testing.T) {
 	key, base, model := liveConfig(t)
 	srv := startEchoFixture(t)
 	raw, _ := json.Marshal([]string{"echo"})
-	store := &liveStore{server: &data.MCPServer{Name: "live", Transport: "http", URL: srv.URL, AllowedTools: string(raw), Enabled: true}}
+	store := &liveStore{server: &domain.MCPServer{Name: "live", Transport: "http", URL: srv.URL, AllowedTools: string(raw), Enabled: true}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	rt, err := eino.NewRuntime(ctx, key, base, model)
+	provider := &agentmcp.Provider{Store: store, Guard: allowAllGuard{}, Timeout: 10 * time.Second}
+	rt, err := eino.New(ctx, eino.Deps{APIKey: key, BaseURL: base, Model: model, MCPToolProvider: provider.Tools})
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &agentmcp.Provider{Store: store, Guard: allowAllGuard{}, Timeout: 10 * time.Second}
-	rt.SetMCPToolProvider(provider.Tools)
 
 	// Discovery sanity: only the allowlisted tool is exposed, under its
 	// exposed name, and the guard fires per call.
-	resolved, err := provider.Tools(ctx, []runtime.MCPTool{{Server: "live", Tool: "echo"}})
+	resolved, err := provider.Tools(ctx, []port.MCPTool{{Server: "live", Tool: "echo"}})
 	if err != nil || len(resolved) != 1 {
 		t.Fatalf("resolve mcp tools: %v, %v", resolved, err)
 	}
-	if _, err := provider.Tools(ctx, []runtime.MCPTool{{Server: "live", Tool: "hidden"}}); err == nil {
+	if _, err := provider.Tools(ctx, []port.MCPTool{{Server: "live", Tool: "hidden"}}); err == nil {
 		t.Fatalf("unlisted mcp tool exposed")
 	}
 	echoTool := resolved[0]
@@ -96,10 +95,10 @@ func TestDeepSeekMCPToolUse(t *testing.T) {
 		t.Fatalf("unexpected exposed name %q", info.Name)
 	}
 
-	in := runtime.Input{
+	in := port.Input{
 		Instruction: "You can use the tool mcp_live_echo to echo text. Use it exactly once, then answer with the tool output.",
 		Text:        "Please echo the word marigold-bot and tell me the exact tool output.",
-		MCPTools:    []runtime.MCPTool{{Server: "live", Tool: "echo"}},
+		MCPTools:    []port.MCPTool{{Server: "live", Tool: "echo"}},
 	}
 	res, err := rt.Run(ctx, in)
 	if err != nil {
@@ -115,7 +114,7 @@ func TestDeepSeekMCPToolUse(t *testing.T) {
 // on demand and applies its instruction.
 func TestDeepSeekSkillUse(t *testing.T) {
 	key, base, model := liveConfig(t)
-	store := &liveStore{skills: map[string]*data.Skill{
+	store := &liveStore{skills: map[string]*domain.Skill{
 		"codeword-format": {
 			Name:      "codeword-format",
 			Version:   1,
@@ -126,18 +125,20 @@ func TestDeepSeekSkillUse(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	rt, err := eino.NewRuntime(ctx, key, base, model)
+	rt, err := eino.New(ctx, eino.Deps{
+		APIKey: key, BaseURL: base, Model: model,
+		SkillBackendFactory: func(bindings []port.SkillBinding) (skill.Backend, error) {
+			return agentskills.NewBackend(store, bindings), nil
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt.SetSkillBackendFactory(func(bindings []runtime.SkillBinding) (skill.Backend, error) {
-		return agentskills.NewBackend(store, bindings), nil
-	})
 
-	in := runtime.Input{
+	in := port.Input{
 		Instruction: "Follow the codeword-format skill when the user asks for the codeword.",
 		Text:        "The codeword is marigold-9. What is the codeword?",
-		Skills:      []runtime.SkillBinding{{Name: "codeword-format", Version: 1}},
+		Skills:      []port.SkillBinding{{Name: "codeword-format", Version: 1}},
 	}
 	res, err := rt.Run(ctx, in)
 	if err != nil {

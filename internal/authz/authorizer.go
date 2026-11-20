@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"nonoka-im/internal/data"
 	"nonoka-im/internal/topic"
 )
 
@@ -20,11 +19,17 @@ type Authorizer interface {
 	CanExecuteTool(ctx context.Context, actorID, agentID int64, tool, currentTopic, resourceType, resourceRef string) error
 }
 
-// TopicAuthorizer uses the authoritative PostgreSQL group repository. File
-// ownership is checked by FileService, which supplies the stored owner ID.
-type TopicAuthorizer struct{ groups data.GroupRepo }
+// GroupMembership is the narrow authorization dependency: the authz module
+// must not depend on the concrete PostgreSQL repository.
+type GroupMembership interface {
+	IsGroupMember(ctx context.Context, groupID string, userID int64) (bool, error)
+}
 
-func NewTopicAuthorizer(groups data.GroupRepo) *TopicAuthorizer {
+// TopicAuthorizer uses the authoritative group membership store. File
+// ownership is checked by FileService, which supplies the stored owner ID.
+type TopicAuthorizer struct{ groups GroupMembership }
+
+func NewTopicAuthorizer(groups GroupMembership) *TopicAuthorizer {
 	return &TopicAuthorizer{groups: groups}
 }
 
@@ -53,18 +58,11 @@ func (a *TopicAuthorizer) CanAccessTopic(ctx context.Context, userID int64, raw 
 		if a.groups == nil {
 			return fmt.Errorf("group authorization unavailable")
 		}
-		members, err := a.groups.ListMembers(ctx, gid)
+		member, err := a.groups.IsGroupMember(ctx, gid, userID)
 		if err != nil {
 			return fmt.Errorf("check group membership: %w", err)
 		}
-		found := false
-		for _, m := range members {
-			if m != nil && m.UserId == userID {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !member {
 			return fmt.Errorf("topic access denied")
 		}
 	case topic.TypeSystem:

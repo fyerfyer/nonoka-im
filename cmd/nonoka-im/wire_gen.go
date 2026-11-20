@@ -14,11 +14,14 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"gorm.io/gorm"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	"nonoka-im/internal/data/im"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/messaging"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
@@ -40,10 +43,11 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	if err != nil {
 		return nil, nil, err
 	}
-	authRepo := data.NewAuthRepo(dataData, logger)
+	db := provideGormDB(dataData)
+	universalClient := provideRedisClient(dataData)
+	authRepo := imdata.NewAuthRepo(db, universalClient, logger)
 	authUsecase := biz.NewAuthUsecase(authRepo, auth)
 	authService := service.NewAuthService(authUsecase)
-	universalClient := provideRedisClient(dataData)
 	dispatchService := service.NewDispatchService(universalClient, dispatch, logger)
 	database, cleanup2, err := provideMongoDB(confData)
 	if err != nil {
@@ -70,22 +74,24 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
 	userService := provideUserService(authUsecase, sessionManager, gatewayRegistryConfig)
-	conversationRepo := data.NewConversationRepo(dataData, logger)
+	conversationRepo := imdata.NewConversationRepo(db, logger)
 	conversationService := service.NewConversationService(conversationRepo)
 	v := provideMetricsSlice(metrics)
 	manager := gateway.NewManager(logger, v...)
 	pushService := service.NewPushService(manager, logger)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, messageService, userService, conversationService, pushService, auth, logger)
-	groupRepo := data.NewGroupRepo(dataData, logger)
+	groupRepo := imdata.NewGroupRepo(db, logger)
 	groupService := service.NewGroupServiceWithAuthorizer(groupRepo, openFGA)
 	fileService := service.NewFileServiceWithAuthorizer(database, openFGA, logger)
 	agentHTTP := service.NewAgentHTTP(dataData, openFGA, groupRepo)
+	outboxAdmin := provideOutboxAdmin(messageStorage)
+	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, openFGA, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, fileService, agentHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, fileService, agentHTTP, outboxAdminHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	mainNodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
@@ -267,6 +273,11 @@ func provideRedisClient(d *data.Data) redis.UniversalClient {
 	return d.Redis
 }
 
+// provideGormDB exposes the shared PostgreSQL handle to data subpackages.
+func provideGormDB(d *data.Data) *gorm.DB {
+	return d.DB()
+}
+
 // provideMongoDB creates a MongoDB client and returns the database.
 func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 	if c == nil || c.Mongodb == nil || c.Mongodb.Uri == "" {
@@ -296,6 +307,11 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Met
 	return storage, nil
 }
 
+// provideOutboxAdmin exposes the failed agent outbox rows to the admin API.
+func provideOutboxAdmin(storage *msgworker.MessageStorage) *messaging.OutboxAdmin {
+	return messaging.NewOutboxAdmin(storage)
+}
+
 // provideMetrics creates a Prometheus metrics collector.
 func provideMetrics() *metrics.Metrics {
 	return metrics.NewMetrics()
@@ -317,7 +333,7 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups data.GroupRepo, authorizer authz.Authorizer, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, authorizer authz.Authorizer, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
 	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
 	h.SetAuthorizer(authorizer)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {

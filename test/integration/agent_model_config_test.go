@@ -36,7 +36,7 @@ func TestAgentModelConfigLifecycle(t *testing.T) {
 		"name":        "model-agent",
 		"instruction": "you are a fixture-backed agent",
 		"model":       "fixture-model",
-		"base_url":    "https://api.example.com/v1",
+		"base_url":    "https://example.com/v1",
 		"api_key":     "sk-test-secret-123",
 		"max_tokens":  1024,
 	})
@@ -61,7 +61,7 @@ func TestAgentModelConfigLifecycle(t *testing.T) {
 	if err := json.Unmarshal(body, &created); err != nil || created.ID == 0 {
 		t.Fatalf("decode created agent failed: %v", err)
 	}
-	if !created.Draft.HasAPIKey || created.Draft.BaseURL != "https://api.example.com/v1" || created.Draft.MaxTokens != 1024 || created.Draft.Model != "fixture-model" {
+	if !created.Draft.HasAPIKey || created.Draft.BaseURL != "https://example.com/v1" || created.Draft.MaxTokens != 1024 || created.Draft.Model != "fixture-model" {
 		t.Fatalf("draft config mismatch: %+v", created.Draft)
 	}
 
@@ -85,7 +85,7 @@ func TestAgentModelConfigLifecycle(t *testing.T) {
 	if err := json.Unmarshal(pubBody, &version); err != nil {
 		t.Fatalf("decode version failed: %v", err)
 	}
-	if version.Version != 1 || !version.HasAPIKey || version.BaseURL != "https://api.example.com/v1" || version.MaxTokens != 1024 {
+	if version.Version != 1 || !version.HasAPIKey || version.BaseURL != "https://example.com/v1" || version.MaxTokens != 1024 {
 		t.Fatalf("version config mismatch: %+v", version)
 	}
 
@@ -102,7 +102,7 @@ func TestAgentModelConfigLifecycle(t *testing.T) {
 		"name":        "model-agent",
 		"instruction": "you are a fixture-backed agent v2",
 		"model":       "fixture-model",
-		"base_url":    "https://api.example.com/v1",
+		"base_url":    "https://example.com/v1",
 		"max_tokens":  2048,
 		"revision":    created.Draft.Revision,
 	})

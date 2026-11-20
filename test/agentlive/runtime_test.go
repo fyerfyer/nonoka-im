@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/eino"
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/port"
 )
 
 func liveConfig(t *testing.T) (string, string, string) {
@@ -57,7 +57,7 @@ func TestDeepSeekTwoTurnsAndSummaryAcrossRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	instruction := "Answer in one short sentence. When asked for the codeword, repeat it exactly."
-	first, err := firstRuntime.Run(ctx, runtime.Input{Instruction: instruction, Text: "The codeword for this chat is marigold. Acknowledge it briefly."})
+	first, err := firstRuntime.Run(ctx, port.Input{Instruction: instruction, Text: "The codeword for this chat is marigold. Acknowledge it briefly."})
 	if err != nil || strings.TrimSpace(first.Text) == "" {
 		t.Fatalf("first DeepSeek turn: text empty=%t err=%v", first.Text == "", err)
 	}
@@ -65,11 +65,11 @@ func TestDeepSeekTwoTurnsAndSummaryAcrossRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := secondRuntime.Run(ctx, runtime.Input{Instruction: instruction, History: []runtime.Turn{{ID: 1, Input: "The codeword for this chat is marigold. Acknowledge it briefly.", Output: first.Text}}, Text: "What is this chat's codeword?"})
+	second, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold. Acknowledge it briefly.", Output: first.Text}}, Text: "What is this chat's codeword?"})
 	if err != nil || !strings.Contains(strings.ToLower(second.Text), "marigold") {
 		t.Fatalf("second DeepSeek turn did not cite history: text=%q err=%v", second.Text, err)
 	}
-	withSummary, err := secondRuntime.Run(ctx, runtime.Input{Instruction: instruction, Text: "What is the codeword?", History: []runtime.Turn{{ID: 1, Input: "The codeword for this chat is marigold.", Output: first.Text}}, NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 1})
+	withSummary, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, Text: "What is the codeword?", History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold.", Output: first.Text}}, NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 1})
 	if err != nil || strings.TrimSpace(withSummary.Summary) == "" || withSummary.SummaryThroughTurnID != 1 {
 		t.Fatalf("DeepSeek summary unavailable: summary empty=%t err=%v", withSummary.Summary == "", err)
 	}
@@ -77,7 +77,7 @@ func TestDeepSeekTwoTurnsAndSummaryAcrossRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	last, err := restartedRuntime.Run(ctx, runtime.Input{Instruction: instruction, Summary: withSummary.Summary, Text: "What is this chat's codeword?"})
+	last, err := restartedRuntime.Run(ctx, port.Input{Instruction: instruction, Summary: withSummary.Summary, Text: "What is this chat's codeword?"})
 	if err != nil || !strings.Contains(strings.ToLower(last.Text), "marigold") {
 		t.Fatalf("summary not usable after runtime restart: text=%q err=%v", last.Text, err)
 	}

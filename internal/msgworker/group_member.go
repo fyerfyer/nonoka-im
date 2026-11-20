@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/redis/go-redis/v9"
-	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 )
 
 // GroupMemberService provides group membership information.
@@ -26,13 +26,13 @@ type GroupMemberService interface {
 // both layers when Redis is available; reads prefer the cache and fall back
 // to the database on cache miss.
 type PersistentGroupMemberService struct {
-	repo  data.GroupMemberRepo
+	repo  imdata.GroupMemberRepo
 	redis redis.UniversalClient
 	log   *log.Helper
 }
 
 // NewPersistentGroupMemberService creates a new PersistentGroupMemberService.
-func NewPersistentGroupMemberService(repo data.GroupMemberRepo, redis redis.UniversalClient, logger log.Logger) *PersistentGroupMemberService {
+func NewPersistentGroupMemberService(repo imdata.GroupMemberRepo, redis redis.UniversalClient, logger log.Logger) *PersistentGroupMemberService {
 	return &PersistentGroupMemberService{
 		repo:  repo,
 		redis: redis,

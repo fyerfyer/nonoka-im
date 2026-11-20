@@ -7,16 +7,20 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"nonoka-im/internal/data"
 )
 
+// CheckpointStore is the persistence surface for Eino execution state.
+type CheckpointStore interface {
+	GetCheckpoint(ctx context.Context, checkpointID string) ([]byte, bool, error)
+	SaveCheckpoint(ctx context.Context, runID uint64, checkpointID string, state []byte, ttl time.Duration) error
+}
+
 // CheckPoints implements adk.CheckPointStore (Get/Set of opaque state bytes)
-// on top of *data.AgentStore. The Eino checkpoint ID carries the run ID
+// on top of the agent repository. The Eino checkpoint ID carries the run ID
 // ("agent-run-<id>"), which is parsed back on Set because the interface only
 // passes the checkpoint ID.
 type CheckPoints struct {
-	Store *data.AgentStore
+	Store CheckpointStore
 	TTL   time.Duration // checkpoint retention; zero defaults to 24h
 }
 

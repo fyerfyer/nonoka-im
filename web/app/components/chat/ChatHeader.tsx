@@ -61,6 +61,7 @@ export function ChatHeader({
   );
   const isPeerOnline =
     conversation?.type === "p2p" &&
+    !conversation.peerIsBot &&
     connectionState === "authed" &&
     peerOnline === true;
 
@@ -184,11 +185,13 @@ export function ChatHeader({
                   isPeerOnline ? "text-emerald-600" : "text-muted-foreground"
                 )}
               >
-                {connectionState === "authed"
-                  ? isPeerOnline
-                    ? "Online"
-                    : "Offline"
-                  : getConnectionLabel(connectionState)}
+                {conversation?.peerIsBot
+                  ? "AI / Ready"
+                  : connectionState === "authed"
+                    ? isPeerOnline
+                      ? "Online"
+                      : "Offline"
+                    : getConnectionLabel(connectionState)}
               </p>
             </div>
           </div>
@@ -210,6 +213,7 @@ function getSubtitle(
       ? `${memberCount} member${memberCount === 1 ? "" : "s"}`
       : "Group conversation";
   }
+  if (conversation?.peerIsBot) return "AI / Ready";
   if (peerOnline === undefined) return "Checking status...";
   return peerOnline ? "Online" : "Offline";
 }

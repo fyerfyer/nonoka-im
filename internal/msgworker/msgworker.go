@@ -13,6 +13,7 @@ import (
 	pb "nonoka-im/api/im/v1"
 	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/metrics"
+	"nonoka-im/internal/realtime"
 )
 
 // ConversationRepo mirrors the subset of conversation operations required by
@@ -21,16 +22,8 @@ type ConversationRepo interface {
 	UpsertConversation(ctx context.Context, userID int64, msg *pb.UpstreamMessage, topicSeq uint64) error
 }
 
-// Pusher pushes messages and receipts to online users via Gateway.
-// It is implemented by GatewayPusher and can be mocked in tests.
-type Pusher interface {
-	PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error)
-	BatchPushToUsers(ctx context.Context, userIDs []int64, msg *pb.MessagePush) (int32, []int64, error)
-	PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error)
-	BatchPushReceiptToUsers(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error)
-	BatchPushReceiptsToUsers(ctx context.Context, items []*pb.ReceiptBatchItem) (int32, []*pb.ReceiptBatchItem, error)
-	Close() error
-}
+// Pusher is implemented by realtime.GatewayPusher.
+type Pusher = realtime.Pusher
 
 // receiptBatcher aggregates send receipts per user and flushes them in batches
 // to reduce gRPC round-trips between MsgWorker and Gateway.
@@ -557,6 +550,11 @@ func (w *MsgWorker) agentOutboxLoop(ctx context.Context) {
 			if _, err := w.storage.RelayAgentEvents(ctx, w.agentPublisher, 32, time.Second); err != nil {
 				w.log.Warnf("relay agent outbox failed: %v", err)
 			}
+			if w.metrics != nil {
+				if pending, failed, age, err := w.storage.AgentOutboxStats(ctx); err == nil {
+					w.metrics.SetAgentOutboxStats(pending, failed, age.Seconds())
+				}
+			}
 		}
 	}
 }
@@ -702,7 +700,7 @@ func (w *MsgWorker) HandleMessage(ctx context.Context, key, value []byte, header
 			agentEnabled = w.messageCanTriggerAgent(ctx, &upstream)
 		}
 		if agentEnabled {
-			agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds())
+			agentEvent = agevent.NewMessageEvent(msgID, upstream.GetTopic(), upstream.GetSenderId(), upstream.GetMsgType(), upstream.GetTimestamp(), upstream.GetMentionedUserIds(), upstream.GetClientMsgId())
 			agentEvent.TopicSeq = topicSeq
 			// Propagate the W3C trace context so the agent worker can link its
 			// spans to the message-processing trace that produced the event.
@@ -841,6 +839,7 @@ func (w *MsgWorker) deliverP2POrSystemMessage(ctx context.Context, upstream *pb.
 				recipients = append(recipients, id)
 			}
 		}
+		recipients = w.humanRecipients(ctx, recipients)
 		if len(recipients) > 0 {
 			_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
 			if err != nil {
@@ -860,9 +859,11 @@ func (w *MsgWorker) deliverP2POrSystemMessage(ctx context.Context, upstream *pb.
 func (w *MsgWorker) deliverGroupMessage(ctx context.Context, upstream *pb.UpstreamMessage, msgID int64, topicSeq uint64) {
 	pushMsg := w.buildMessagePush(msgID, topicSeq, upstream)
 
-	// Push @mention notifications to online users.
-	if len(upstream.GetMentionedUserIds()) > 0 && w.pusher != nil {
-		_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, upstream.GetMentionedUserIds(), pushMsg)
+	// Push @mention notifications to online users. Bot mentions are triggers,
+	// not push targets: agents have no presence and an online session.
+	mentions := w.humanRecipients(ctx, upstream.GetMentionedUserIds())
+	if len(mentions) > 0 && w.pusher != nil {
+		_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, mentions, pushMsg)
 		if err != nil {
 			w.log.Warnf("push mentions to online users failed: %v", err)
 		} else {
@@ -901,6 +902,7 @@ func (w *MsgWorker) deliverGroupMessage(ctx context.Context, upstream *pb.Upstre
 			}
 			recipients = append(recipients, id)
 		}
+		recipients = w.humanRecipients(ctx, recipients)
 		if len(recipients) > 0 {
 			_, failedIDs, err := w.pusher.BatchPushToUsers(ctx, recipients, pushMsg)
 			if err != nil {
@@ -992,6 +994,24 @@ func (w *MsgWorker) buildMessagePush(msgID int64, topicSeq uint64, upstream *pb.
 		ClientMsgId:      upstream.GetClientMsgId(),
 		MentionedUserIds: upstream.GetMentionedUserIds(),
 	}
+}
+
+// humanRecipients drops bot users from a push target list. Agents have no
+// WebSocket session; pushing to them only fills the retry queue with
+// deliveries that can never succeed. Until the index has completed its first
+// load, keep the original list to avoid dropping real users at startup.
+func (w *MsgWorker) humanRecipients(ctx context.Context, ids []int64) []int64 {
+	if w.botIndex == nil || !w.botIndex.Ready() || len(ids) == 0 {
+		return ids
+	}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		bot, err := w.botIndex.IsBot(ctx, id)
+		if err != nil || !bot {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // handleFailedPushes records failed push deliveries for retry.

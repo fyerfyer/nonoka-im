@@ -4,40 +4,34 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/data"
 )
 
-type groupRepoStub struct {
-	members []*pb.GroupMember
+type membershipStub struct {
+	members map[string]map[int64]bool
 	err     error
 }
 
-func (s groupRepoStub) CreateGroup(context.Context, string, int64, []int64) (*data.Group, error) {
-	return nil, nil
-}
-func (s groupRepoStub) ListMyGroups(context.Context, int64) ([]*data.Group, error) { return nil, nil }
-func (s groupRepoStub) GetGroup(context.Context, string) (*data.Group, error)      { return nil, nil }
-func (s groupRepoStub) AddMember(context.Context, string, int64) error             { return nil }
-func (s groupRepoStub) RemoveMember(context.Context, string, int64) error          { return nil }
-func (s groupRepoStub) ListMembers(context.Context, string) ([]*pb.GroupMember, error) {
-	return s.members, s.err
+func (s membershipStub) IsGroupMember(_ context.Context, groupID string, userID int64) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.members[groupID][userID], nil
 }
 
 func TestTopicAuthorizer(t *testing.T) {
+	group := membershipStub{members: map[string]map[int64]bool{"g": {2: true}}}
 	tests := []struct {
 		name    string
-		repo    groupRepoStub
+		repo    membershipStub
 		uid     int64
 		topic   string
 		wantErr bool
 	}{
 		{name: "p2p participant", uid: 1, topic: "p2p_2_1"},
 		{name: "p2p outsider", uid: 3, topic: "p2p_1_2", wantErr: true},
-		{name: "group member", uid: 2, topic: "grp_g", repo: groupRepoStub{members: []*pb.GroupMember{{UserId: 2}}}},
-		{name: "group outsider", uid: 3, topic: "grp_g", repo: groupRepoStub{members: []*pb.GroupMember{{UserId: 2}}}, wantErr: true},
-		{name: "group lookup failure", uid: 2, topic: "grp_g", repo: groupRepoStub{err: errors.New("database unavailable")}, wantErr: true},
+		{name: "group member", uid: 2, topic: "grp_g", repo: group},
+		{name: "group outsider", uid: 3, topic: "grp_g", repo: group, wantErr: true},
+		{name: "group lookup failure", uid: 2, topic: "grp_g", repo: membershipStub{err: errors.New("database unavailable")}, wantErr: true},
 		{name: "system owner", uid: 4, topic: "sys_4"},
 		{name: "malformed system topic", uid: 4, topic: "sys_4suffix", wantErr: true},
 	}

@@ -14,17 +14,18 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/credential"
-	"nonoka-im/internal/data"
+	"nonoka-im/internal/agent/domain"
+	agentdata "nonoka-im/internal/data/agent"
 )
 
 // newWaitingApprovalRun seeds a run stuck at waiting_approval plus its pending
 // approval directly through the data layer: reaching this state through HTTP
 // requires a real agent execution interrupted by a tool-approval request,
 // which only the worker with a live LLM can produce.
-func newWaitingApprovalRun(t *testing.T, store *data.AgentStore, agentID, actorID int64, topic, eventID string) (*data.AgentRun, *data.AgentApproval) {
+func newWaitingApprovalRun(t *testing.T, store *agentdata.Store, agentID, actorID int64, topic, eventID string) (*domain.AgentRun, *domain.AgentApproval) {
 	t.Helper()
 	ctx := context.Background()
-	run := &data.AgentRun{
+	run := &domain.AgentRun{
 		EventID:      eventID,
 		AgentID:      agentID,
 		AgentVersion: 1,
@@ -33,11 +34,11 @@ func newWaitingApprovalRun(t *testing.T, store *data.AgentStore, agentID, actorI
 		MsgID:        1,
 		Status:       "waiting_approval",
 	}
-	queued, err := store.QueueRun(ctx, run)
-	if err != nil || !queued {
-		t.Fatalf("seed waiting_approval run: queued=%v err=%v", queued, err)
+	created, err := store.EnqueueRun(ctx, run)
+	if err != nil || !created {
+		t.Fatalf("seed waiting_approval run: created=%v err=%v", created, err)
 	}
-	approval := &data.AgentApproval{
+	approval := &domain.AgentApproval{
 		RunID:       run.ID,
 		ToolCallID:  "agent:A;node:n;tool:1",
 		Tool:        "send_message",
@@ -74,7 +75,7 @@ func runStatus(t *testing.T, token string, runID uint64) string {
 		t.Fatalf("get run %d: status %d", runID, resp.StatusCode)
 	}
 	var run struct {
-		Status string `json:"Status"`
+		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
 		t.Fatalf("decode run: %v", err)
@@ -95,7 +96,7 @@ func TestAgentApprovalLifecycle(t *testing.T) {
 	tokenOther, _ := registerAndLogin(t, "approval-other", "123456")
 
 	agentID := createPublishedAgent(t, tokenOwner, "approval-agent", "test agent", nil)
-	store := data.NewAgentStore(ts.data)
+	store := agentdata.NewStore(ts.data.DB())
 
 	// Approve: pending approval flips to approved and the run is requeued.
 	run, approval := newWaitingApprovalRun(t, store, agentID, userOwner, "p2p_1_2", "evt-approval-approve")
@@ -112,7 +113,7 @@ func TestAgentApprovalLifecycle(t *testing.T) {
 	}
 	// A second approve on the same approval conflicts (one-shot transition).
 	code, body = approvalAct(t, approval.ID, "approve", tokenOwner)
-	if code != http.StatusConflict || body["code"] != "RUN_STATE" {
+	if code != http.StatusConflict || body["code"] != "APPROVAL_NOT_PENDING" {
 		t.Fatalf("double approve: code=%d body=%v", code, body)
 	}
 
@@ -126,7 +127,7 @@ func TestAgentApprovalLifecycle(t *testing.T) {
 		t.Fatalf("run after reject: status=%q, want queued", status)
 	}
 	code, body = approvalAct(t, approval.ID, "reject", tokenOwner)
-	if code != http.StatusConflict || body["code"] != "RUN_STATE" {
+	if code != http.StatusConflict || body["code"] != "APPROVAL_NOT_PENDING" {
 		t.Fatalf("double reject: code=%d body=%v", code, body)
 	}
 
@@ -172,7 +173,7 @@ func TestAgentApprovalConcurrentOneShot(t *testing.T) {
 
 	tokenOwner, userOwner := registerAndLogin(t, "approval-conc-owner", "123456")
 	agentID := createPublishedAgent(t, tokenOwner, "approval-conc-agent", "test agent", nil)
-	store := data.NewAgentStore(ts.data)
+	store := agentdata.NewStore(ts.data.DB())
 
 	run, approval := newWaitingApprovalRun(t, store, agentID, userOwner, "p2p_1_2", "evt-approval-concurrent")
 
@@ -208,7 +209,7 @@ func TestAgentApprovalConcurrentOneShot(t *testing.T) {
 	}
 	// The waiting-run claim is one-shot as well: re-claiming the requeued run
 	// conflicts instead of corrupting its state.
-	if err := store.ClaimWaitingRun(ctx, run.ID); !errors.Is(err, data.ErrRunState) {
+	if err := store.ClaimWaitingRun(ctx, run.ID); !errors.Is(err, domain.ErrRunState) {
 		t.Fatalf("second ClaimWaitingRun: err=%v, want ErrRunState", err)
 	}
 	if got, err := store.GetRun(ctx, run.ID); err != nil || got.Status != "queued" {
@@ -217,7 +218,7 @@ func TestAgentApprovalConcurrentOneShot(t *testing.T) {
 }
 
 // TestAgentDelete verifies owner-only agent deletion, that detail turns 404,
-// and that unfinished runs of the deleted agent are cancelled.
+// and that run/session-scoped data is removed.
 func TestAgentDelete(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
@@ -227,7 +228,7 @@ func TestAgentDelete(t *testing.T) {
 	tokenOther, _ := registerAndLogin(t, "agent-del-other", "123456")
 
 	agentID := createPublishedAgent(t, tokenOwner, "agent-del", "test agent", nil)
-	store := data.NewAgentStore(ts.data)
+	store := agentdata.NewStore(ts.data.DB())
 	run, _ := newWaitingApprovalRun(t, store, agentID, userOwner, "p2p_1_2", "evt-agent-del")
 
 	// Non-owner deletion is refused.
@@ -250,9 +251,20 @@ func TestAgentDelete(t *testing.T) {
 		t.Fatalf("detail after delete: %d, want 404", resp.StatusCode)
 	}
 
-	// The waiting run was cancelled instead of left dangling.
-	if got, err := store.GetRun(ctx, run.ID); err != nil || got.Status != "cancelled" {
-		t.Fatalf("run after delete: status=%q err=%v, want cancelled", got.Status, err)
+	// Hard delete removes the run, its approval and the session-scoped state;
+	// IM messages and the bot account are intentionally preserved.
+	if _, err := store.GetRun(ctx, run.ID); err == nil {
+		t.Fatalf("run %d survived agent delete", run.ID)
+	}
+	if _, err := store.ApprovalForRun(ctx, run.ID); err != nil {
+		t.Fatalf("approval lookup after delete: %v", err)
+	}
+	var sessions int64
+	if err := ts.data.DB().Model(&domain.AgentSession{}).Where("agent_id = ?", agentID).Count(&sessions).Error; err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if sessions != 0 {
+		t.Fatalf("agent sessions survived delete: %d", sessions)
 	}
 }
 

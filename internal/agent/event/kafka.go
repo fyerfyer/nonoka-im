@@ -3,31 +3,34 @@ package event
 import (
 	"context"
 
+	kafkax "nonoka-im/internal/kafka"
+
 	"github.com/segmentio/kafka-go"
 )
 
 const Topic = "agent-events"
 
-type KafkaPublisher struct{ writer *kafka.Writer }
+type KafkaPublisher struct{ publisher *kafkax.Publisher }
 
 func NewKafkaPublisher(brokers []string, topic string) *KafkaPublisher {
 	if topic == "" {
 		topic = Topic
 	}
-	return &KafkaPublisher{writer: &kafka.Writer{Addr: kafka.TCP(brokers...), Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireOne, Async: false}}
+	return &KafkaPublisher{publisher: kafkax.NewPublisher(brokers, topic)}
 }
+
 func (p *KafkaPublisher) Publish(ctx context.Context, e MessageEvent) error {
 	b, err := e.Marshal()
 	if err != nil {
 		return err
 	}
-	return p.writer.WriteMessages(ctx, kafka.Message{Key: []byte(e.Topic), Value: b, Headers: []kafka.Header{{Key: "content-type", Value: []byte("application/json")}}})
-}
-func (p *KafkaPublisher) Close() error {
-	if p == nil || p.writer == nil {
-		return nil
+	headers := []kafka.Header{{Key: "content-type", Value: []byte("application/json")}}
+	if traceparent := kafkax.TraceParent(ctx); traceparent != "" {
+		headers = append(headers, kafka.Header{Key: kafkax.TraceParentHeader, Value: []byte(traceparent)})
 	}
-	return p.writer.Close()
+	return p.publisher.Publish(ctx, []byte(e.Topic), b, headers...)
 }
+
+func (p *KafkaPublisher) Close() error { return p.publisher.Close() }
 
 var _ Publisher = (*KafkaPublisher)(nil)

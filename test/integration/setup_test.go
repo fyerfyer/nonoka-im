@@ -17,6 +17,7 @@ import (
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
@@ -137,7 +138,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	}
 
 	// 5. Biz layer
-	authRepo := data.NewAuthRepo(d, testLogger)
+	authRepo := imdata.NewAuthRepo(d.DB(), d.Redis, testLogger)
 	authUC := biz.NewAuthUsecase(authRepo, authConf)
 
 	// 6. Service layer
@@ -194,9 +195,9 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	// 7. Message service (with producer for HTTP fallback)
 	msgSvc := service.NewMessageServiceWithAuthorizer(storage, msgProducer, fgaAuthorizer, testLogger)
 	userSvc := service.NewUserService(authUC)
-	conversationSvc := service.NewConversationService(data.NewConversationRepo(d, testLogger))
-	groupSvc := service.NewGroupServiceWithAuthorizer(data.NewGroupRepo(d, testLogger), fgaAuthorizer)
-	agentSvc := service.NewAgentHTTP(d, fgaAuthorizer, data.NewGroupRepo(d, testLogger))
+	conversationSvc := service.NewConversationService(imdata.NewConversationRepo(d.DB(), testLogger))
+	groupSvc := service.NewGroupServiceWithAuthorizer(imdata.NewGroupRepo(d.DB(), testLogger), fgaAuthorizer)
+	agentSvc := service.NewAgentHTTP(d, fgaAuthorizer, imdata.NewGroupRepo(d.DB(), testLogger))
 
 	// 7.5 Start msgworker and gRPC push server when using Kafka
 	var worker *msgworker.MsgWorker
@@ -226,12 +227,12 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		worker = msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, pusher, testLogger)
 
 		// Use PostgreSQL-backed group membership with Redis cache.
-		groupMemberRepo := data.NewGroupMemberRepo(d, testLogger)
+		groupMemberRepo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 		groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, d.Redis, testLogger)
 		worker.SetGroupMemberService(groupMemberSvc)
 
 		// Wire conversation summary repository for tests.
-		worker.SetConversationRepo(data.NewConversationRepo(d, testLogger))
+		worker.SetConversationRepo(imdata.NewConversationRepo(d.DB(), testLogger))
 
 		consumer.SetHandler(worker.HandleMessage)
 
@@ -255,7 +256,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	// tests deliberately hammer login/register and rapid WS publishes. The
 	// limiter logic itself is covered by unit tests.
 	fileSvc := service.NewFileServiceWithAuthorizer(mongoDB, fgaAuthorizer, testLogger)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, nil, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	// 8. Start HTTP server in background
 	go func() {
 		if err := hs.Start(ctx); err != nil {

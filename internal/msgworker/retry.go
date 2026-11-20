@@ -215,13 +215,14 @@ func (q *PushRetryQueue) processRetries(ctx context.Context) {
 		}()
 	}
 
+sendLoop:
 	for _, t := range tasks {
 		select {
 		case taskCh <- t:
 		case <-ctx.Done():
-			break
+			break sendLoop
 		case <-q.stopCh:
-			break
+			break sendLoop
 		}
 	}
 	close(taskCh)

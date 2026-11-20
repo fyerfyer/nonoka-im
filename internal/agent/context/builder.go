@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"nonoka-im/internal/agent/runtime"
-	"nonoka-im/internal/data"
+	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/port"
 )
 
 var ErrInputTooLarge = errors.New("agent input exceeds model budget")
@@ -29,7 +29,7 @@ func DefaultBuilder() Builder {
 	return Builder{Count: EstimateTokens, ContextWindow: 65536, OutputReserve: 4096, ToolReserve: 8192, SafetyReserve: 4096, TriggerTokens: 38000}
 }
 
-func (b Builder) Build(instruction, current string, snapshot *data.AgentContextSnapshot, turns []data.AgentTurn) (runtime.Input, error) {
+func (b Builder) Build(instruction, current string, snapshot *domain.AgentContextSnapshot, turns []domain.AgentTurn) (port.Input, error) {
 	if b.Count == nil {
 		b.Count = EstimateTokens
 	}
@@ -39,9 +39,9 @@ func (b Builder) Build(instruction, current string, snapshot *data.AgentContextS
 	budget := b.ContextWindow - b.OutputReserve - b.ToolReserve - b.SafetyReserve
 	currentCost := b.Count(current) + b.Count(instruction)
 	if strings.TrimSpace(current) == "" || currentCost >= budget {
-		return runtime.Input{}, ErrInputTooLarge
+		return port.Input{}, ErrInputTooLarge
 	}
-	out := runtime.Input{Text: current, Instruction: instruction, TokenBudget: budget, OutputTokenBudget: b.OutputReserve, ToolResultTokenBudget: b.ToolReserve, TriggerTokens: b.TriggerTokens}
+	out := port.Input{Text: current, Instruction: instruction, TokenBudget: budget, OutputTokenBudget: b.OutputReserve, ToolResultTokenBudget: b.ToolReserve, TriggerTokens: b.TriggerTokens}
 	used := currentCost
 	needsSummary := false
 	if snapshot != nil && snapshot.Summary != "" {
@@ -57,7 +57,7 @@ func (b Builder) Build(instruction, current string, snapshot *data.AgentContextS
 			needsSummary = true
 			continue
 		}
-		out.History = append(out.History, runtime.Turn{ID: t.ID, Input: t.Input, Output: t.Output})
+		out.History = append(out.History, port.Turn{ID: t.ID, Input: t.Input, Output: t.Output})
 		used += cost
 	}
 	for i, j := 0, len(out.History)-1; i < j; i, j = i+1, j-1 {
@@ -66,9 +66,9 @@ func (b Builder) Build(instruction, current string, snapshot *data.AgentContextS
 	if needsSummary {
 		// Give Eino the complete retained history so its summarizer can preserve
 		// facts from turns that do not fit the normal recent-turn budget.
-		out.History = make([]runtime.Turn, 0, len(turns))
+		out.History = make([]port.Turn, 0, len(turns))
 		for _, t := range turns {
-			out.History = append(out.History, runtime.Turn{ID: t.ID, Input: t.Input, Output: t.Output})
+			out.History = append(out.History, port.Turn{ID: t.ID, Input: t.Input, Output: t.Output})
 		}
 		out.NeedsSummary = true
 	}
@@ -81,7 +81,7 @@ func (b Builder) Build(instruction, current string, snapshot *data.AgentContextS
 	return out, nil
 }
 
-func (b Builder) Fallback(in runtime.Input) runtime.Input {
+func (b Builder) Fallback(in port.Input) port.Input {
 	if b.Count == nil {
 		b.Count = EstimateTokens
 	}

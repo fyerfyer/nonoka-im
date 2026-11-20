@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"nonoka-im/internal/agent/tools"
-	"nonoka-im/internal/msgworker"
 )
 
 type idRecordingSender struct{ ids []string }
@@ -16,6 +15,14 @@ type idRecordingSender struct{ ids []string }
 func (r *idRecordingSender) Send(_ context.Context, _, _ string, clientID string) error {
 	r.ids = append(r.ids, clientID)
 	return nil
+}
+
+func (r *idRecordingSender) SendWithReceipt(ctx context.Context, topic, content, clientID string) (int64, error) {
+	return 0, r.Send(ctx, topic, content, clientID)
+}
+
+func (r *idRecordingSender) SendCard(context.Context, string, string, string) (int64, error) {
+	return 0, nil
 }
 
 // TestSendMessageDistinctIDsForIdenticalContent verifies that the model
@@ -27,12 +34,15 @@ func TestSendMessageDistinctIDsForIdenticalContent(t *testing.T) {
 	rc := tools.RunContext{EventID: "evt-dup", Topic: "p2p_1_2", ActorUserID: 1, BotID: 2}
 	ctx := context.Background()
 
+	rc.ToolCallID = "call-1"
 	if err := b.SendMessage(ctx, rc, "same content"); err != nil {
 		t.Fatal(err)
 	}
+	rc.ToolCallID = "call-2"
 	if err := b.SendMessage(ctx, rc, "same content"); err != nil {
 		t.Fatal(err)
 	}
+	rc.ToolCallID = "call-3"
 	if err := b.SendMessage(ctx, rc, "different content"); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +219,7 @@ func TestGroupMembersCapsAtTwoHundred(t *testing.T) {
 }
 
 func TestSearchInboxRowsFiltersSenderAndTime(t *testing.T) {
-	rows := []*msgworker.InboxMessage{
+	rows := []Message{
 		{SenderID: 1, Timestamp: 100, Content: []byte("hello world")},
 		{SenderID: 2, Timestamp: 200, Content: []byte("hello again")},
 		{SenderID: 1, Timestamp: 300, Content: []byte("goodbye")},

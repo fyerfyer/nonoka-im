@@ -8,6 +8,7 @@ import (
 
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 	"nonoka-im/internal/msgworker"
 )
 
@@ -67,7 +68,7 @@ func TestPersistentGroupMemberService_BasicCRUDAndCache(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	repo := data.NewGroupMemberRepo(d, testLogger)
+	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
 
 	groupID := "persistent_group_test"
@@ -137,7 +138,7 @@ func TestPersistentGroupMemberService_CacheMissFallsBackToPostgres(t *testing.T)
 	defer cleanup()
 	ctx := context.Background()
 
-	repo := data.NewGroupMemberRepo(d, testLogger)
+	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
 
 	groupID := "cache_miss_test"
@@ -179,7 +180,7 @@ func TestPersistentGroupMemberService_NoRedisFallsBackToPostgres(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	repo := data.NewGroupMemberRepo(d, testLogger)
+	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	// Pass nil redis: service must still work by reading from PostgreSQL.
 	svc := msgworker.NewPersistentGroupMemberService(repo, nil, testLogger)
 
@@ -204,7 +205,7 @@ func TestPersistentGroupMemberService_ConcurrentReadsAreConsistent(t *testing.T)
 	defer cleanup()
 	ctx := context.Background()
 
-	repo := data.NewGroupMemberRepo(d, testLogger)
+	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
 
 	groupID := "concurrent_test"

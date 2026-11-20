@@ -5,18 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"unicode/utf8"
 
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/authz"
-	"nonoka-im/internal/filestore"
-	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/topic"
-
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // Directory resolves display metadata (usernames, group names and members)
@@ -52,26 +46,19 @@ type GroupRef struct {
 	MemberCount int
 }
 
-// MessageTools is a narrow read/write adapter over the existing IM storage and
-// send API. Every call checks the triggering user's authorization; bot access
-// is checked where the bot acts on the topic.
+// MessageTools is a narrow read/write adapter over the IM read model and send
+// API. Every call checks the triggering user's authorization; bot access is
+// checked where the bot acts on the topic.
 type MessageTools struct {
-	Storage    *msgworker.MessageStorage
+	Reader     MessageReader
 	Authorizer authz.Authorizer
 	Sender     ReplySender
-	Files      *mongo.Database
+	Files      FileReader
 	Directory  Directory
-
-	// sendSeq numbers send_message calls process-wide so two identical
-	// contents in one run get distinct client_msg_id values: the IM layer
-	// dedupes client_msg_id only against network retries, while the model may
-	// legitimately post the same text twice. Cross-retry determinism is not
-	// needed because a rerun of the run uses a fresh EventID.
-	sendSeq atomic.Uint64
 }
 
-func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit int) ([]*msgworker.InboxMessage, error) {
-	if b.Storage == nil || b.Authorizer == nil {
+func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit int) ([]Message, error) {
+	if b.Reader == nil || b.Authorizer == nil {
 		return nil, fmt.Errorf("message tools unavailable")
 	}
 	if err := b.Authorizer.CanAccessTopic(ctx, rc.ActorUserID, rc.Topic); err != nil {
@@ -80,7 +67,7 @@ func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit 
 	if err := b.Authorizer.CanAccessTopic(ctx, rc.BotID, rc.Topic); err != nil {
 		return nil, fmt.Errorf("bot topic access denied")
 	}
-	return b.Storage.GetRecentMessages(ctx, rc.ActorUserID, rc.Topic, limit)
+	return b.Reader.RecentMessages(ctx, rc.ActorUserID, rc.Topic, limit)
 }
 
 func (b *MessageTools) SearchMessages(ctx context.Context, rc tools.RunContext, query string, limit int, filter tools.SearchFilter) ([]string, error) {
@@ -95,7 +82,7 @@ func (b *MessageTools) SearchMessages(ctx context.Context, rc tools.RunContext, 
 // match the query and the optional sender/time filters. A zero filter field
 // disables that condition, so callers that pass an empty filter get exactly
 // the previous search behavior.
-func searchInboxRows(rows []*msgworker.InboxMessage, query string, limit int, filter tools.SearchFilter) []string {
+func searchInboxRows(rows []Message, query string, limit int, filter tools.SearchFilter) []string {
 	query = strings.ToLower(strings.TrimSpace(query))
 	result := make([]string, 0, limit)
 	for i := len(rows) - 1; i >= 0 && len(result) < limit; i-- {
@@ -139,11 +126,16 @@ func (b *MessageTools) SendMessage(ctx context.Context, rc tools.RunContext, con
 	if len(content) > 64*1024 {
 		return fmt.Errorf("message too large")
 	}
-	// The per-process sequence disambiguates repeated identical contents
-	// within one run; client_msg_id uniqueness, not content hashing, is what
-	// prevents the IM dedup layer from dropping the second message.
-	seq := b.sendSeq.Add(1)
-	h := sha256.Sum256([]byte(rc.EventID + "\x00tool\x00" + strconv.FormatUint(seq, 10) + "\x00" + content))
+	// The client_msg_id is derived from the stable tool call identity, not a
+	// process-local counter: a resume or worker restart replays the same call
+	// with the same ID, while two distinct model tool calls get distinct IDs.
+	// A missing ID means the tool was invoked outside the Eino tool node, which
+	// is a wiring bug; fail closed instead of sending a possibly duplicate
+	// message.
+	if rc.ToolCallID == "" {
+		return fmt.Errorf("tool call id missing")
+	}
+	h := sha256.Sum256([]byte(rc.EventID + "\x00tool\x00" + rc.ToolCallID + "\x00" + content))
 	return b.Sender.Send(ctx, rc.Topic, content, "agent-tool-"+hex.EncodeToString(h[:16]))
 }
 
@@ -159,7 +151,7 @@ func (b *MessageTools) ReadFile(ctx context.Context, rc tools.RunContext, fileID
 	if err := b.Authorizer.CanReadFile(ctx, rc.ActorUserID, fileID); err != nil {
 		return "", "", nil, false, fmt.Errorf("file access denied")
 	}
-	doc, err := filestore.Read(ctx, b.Files, fileID)
+	doc, err := b.Files.ReadFile(ctx, fileID)
 	if err != nil {
 		return "", "", nil, false, fmt.Errorf("file unavailable")
 	}
@@ -320,18 +312,5 @@ func formatToolMessage(senderID, timestamp int64, content string) string {
 }
 
 func boundToolResults(values []string, maxChars int) []string {
-	result := make([]string, 0, len(values))
-	used := 0
-	for _, value := range values {
-		remaining := maxChars - used
-		if remaining <= 0 {
-			break
-		}
-		if len(value) > remaining {
-			value = value[:remaining]
-		}
-		result = append(result, value)
-		used += len(value)
-	}
-	return result
+	return tools.BoundStrings(values, maxChars)
 }

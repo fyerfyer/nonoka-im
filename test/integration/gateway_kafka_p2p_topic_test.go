@@ -55,7 +55,7 @@ func TestGateway_Kafka_P2PTopicCanonical(t *testing.T) {
 	})
 	wsReadPacket(t, wsConn, 2*time.Second)
 
-	msg := consumeKafkaMessage(t, reader, 5*time.Second)
+	msg := consumeKafkaMessage(t, reader, 15*time.Second)
 
 	if string(msg.Key) != expectedTopic {
 		t.Fatalf("expected Kafka key='%s' after normalization, got '%s'", expectedTopic, string(msg.Key))

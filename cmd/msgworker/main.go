@@ -15,6 +15,7 @@ import (
 	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/msgworker"
 
@@ -217,12 +218,12 @@ func main() {
 	}
 
 	// Initialize group member service (PostgreSQL-backed with Redis cache)
-	groupMemberRepo := data.NewGroupMemberRepo(dataLayer, logger)
+	groupMemberRepo := imdata.NewGroupMemberRepo(dataLayer.DB(), logger)
 	groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, redisClient, logger)
 	worker.SetGroupMemberService(groupMemberSvc)
 
 	// Wire conversation summary repository so MsgWorker upserts conversation rows.
-	conversationRepo := data.NewConversationRepo(dataLayer, logger)
+	conversationRepo := imdata.NewConversationRepo(dataLayer.DB(), logger)
 	worker.SetConversationRepo(conversationRepo)
 	// Agent events are recorded in MongoDB's transactional outbox together with
 	// the message. MsgWorker relays pending rows to Kafka and retries failures.

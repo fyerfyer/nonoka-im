@@ -23,11 +23,11 @@ type SendReceiptHandler func(clientMsgID string, msgID int64, topic string, topi
 type MessageStatus int
 
 const (
-	MessageStatusSending MessageStatus = iota // 发送中（转圈）
-	MessageStatusSent                         // 服务器已确认（收到 ACK）
-	MessageStatusDelivered                    // 对方已收到（推送到达其设备）
-	MessageStatusRead                         // 对方已读
-	MessageStatusFailed                       // 发送失败
+	MessageStatusSending   MessageStatus = iota // 发送中（转圈）
+	MessageStatusSent                           // 服务器已确认（收到 ACK）
+	MessageStatusDelivered                      // 对方已收到（推送到达其设备）
+	MessageStatusRead                           // 对方已读
+	MessageStatusFailed                         // 发送失败
 )
 
 // String returns a human-readable status string.

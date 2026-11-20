@@ -421,26 +421,50 @@ export interface AgentShare {
 }
 
 export interface AgentRun {
-  ID: number;
-  EventID?: string;
-  AgentID: number;
-  AgentVersion?: number;
-  SessionID?: number;
-  ActorUserID: number;
-  Topic: string;
-  MsgID?: number;
-  TopicSeq?: number;
-  Status: string;
-  ErrorCode: string;
-  Attempts?: number;
-  ReplyMsgID?: number;
-  CheckpointID?: string;
-  InputTokens: number;
-  OutputTokens: number;
-  TotalTokens: number;
-  CreatedAt: string;
-  StartedAt?: string | null;
-  FinishedAt?: string | null;
+  id: number;
+  eventId?: string;
+  agentId: number;
+  agentVersion?: number;
+  sessionId?: number;
+  actorUserId: number;
+  topic: string;
+  msgId?: number;
+  topicSeq?: number;
+  status: string;
+  errorCode?: string;
+  errorClass?: string;
+  attempts?: number;
+  replyMsgId?: number;
+  checkpointId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export interface AgentApproval {
+  id: number;
+  runId: number;
+  toolCallId: string;
+  tool: string;
+  argsSummary: string;
+  argsHash: string;
+  approverId: number;
+  status: string;
+  expiresAt: string;
+  decidedAt?: string | null;
+  decidedBy?: number;
+  consumedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  nextCursor?: string;
+  hasMore: boolean;
 }
 
 export interface MCPServerRegisterInput {
@@ -464,12 +488,7 @@ export interface AgentInput {
   skills?: { name: string; version: number }[];
 }
 
-export interface ListAgentsReply {
-  agents: ManagedAgent[];
-  // Pagination may be added server-side; the array shape stays stable.
-  total?: number;
-  hasMore?: boolean;
-}
+export type ListAgentsReply = Page<ManagedAgent>;
 
 export const agentApi = {
   list: () => api.get<ListAgentsReply>("/v1/agents"),
@@ -485,7 +504,7 @@ export const agentApi = {
     api.get<{ shares: AgentShare[] }>(`/v1/agents/${id}/shares`),
   share: (id: number, kind: AgentShare["kind"], target: string, enabled: boolean) =>
     api.put<unknown>(`/v1/agents/${id}/shares`, { kind, target, enabled }),
-  runs: (id: number) => api.get<{ runs: AgentRun[] }>(`/v1/agents/${id}/runs`),
+  runs: (id: number) => api.get<Page<AgentRun>>(`/v1/agents/${id}/runs`),
   runDetail: (id: number) => api.get<AgentRun>(`/v1/agent-runs/${id}`),
   runAction: (id: number, action: "retry" | "skip") =>
     api.post<unknown>(`/v1/agent-runs/${id}/${action}`, {}),
@@ -495,9 +514,9 @@ export const agentApi = {
   rejectApproval: (id: number) =>
     api.post<{ status: string }>(`/v1/agent-approvals/${id}/reject`, {}),
   approvalDetail: (id: number) =>
-    api.get<{ ID: number; RunID: number; Tool: string; Status: string }>(
-      `/v1/agent-approvals/${id}`
-    ),
+    api.get<AgentApproval>(`/v1/agent-approvals/${id}`),
+  approvals: (status = "pending") =>
+    api.get<Page<AgentApproval>>(`/v1/agent-approvals?status=${status}`),
   listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
   registerMCPServer: (input: MCPServerRegisterInput) =>
     api.post<MCPServer>("/v1/mcp/servers", input),

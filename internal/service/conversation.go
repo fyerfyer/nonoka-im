@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/data"
+	imdata "nonoka-im/internal/data/im"
 	"nonoka-im/internal/msgworker"
 
 	"github.com/go-kratos/kratos/v2/errors"
@@ -16,11 +16,11 @@ import (
 type ConversationService struct {
 	pb.UnimplementedConversationServiceServer
 
-	repo data.ConversationRepo
+	repo imdata.ConversationRepo
 }
 
 // NewConversationService creates a new ConversationService.
-func NewConversationService(repo data.ConversationRepo) *ConversationService {
+func NewConversationService(repo imdata.ConversationRepo) *ConversationService {
 	return &ConversationService{repo: repo}
 }
 

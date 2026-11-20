@@ -6,16 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"nonoka-im/internal/agent/credential"
+	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/tools"
+	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/data"
+	agentdata "nonoka-im/internal/data/agent"
+	imdata "nonoka-im/internal/data/im"
+	platformdata "nonoka-im/internal/data/platform"
+	"nonoka-im/internal/httpapi"
 
 	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
@@ -23,15 +32,20 @@ import (
 )
 
 type AgentHTTP struct {
-	store  *data.AgentStore
-	ext    *data.MCPStore
+	store  *agentdata.Store
+	ext    *platformdata.Store
 	auth   *authz.OpenFGA
-	groups data.GroupRepo
+	groups imdata.GroupRepo
 	users  biz.AuthRepo
+	idem   *httpapi.Idempotency
 }
 
-func NewAgentHTTP(d *data.Data, auth *authz.OpenFGA, groups data.GroupRepo) *AgentHTTP {
-	return &AgentHTTP{store: data.NewAgentStore(d), ext: data.NewMCPStore(d), auth: auth, groups: groups, users: data.NewAuthRepo(d, log.DefaultLogger)}
+func NewAgentHTTP(d *data.Data, auth *authz.OpenFGA, groups imdata.GroupRepo) *AgentHTTP {
+	return &AgentHTTP{
+		store: agentdata.NewStore(d.DB()), ext: platformdata.NewStore(d.DB()),
+		auth: auth, groups: groups, users: imdata.NewAuthRepo(d.DB(), d.Redis, log.DefaultLogger),
+		idem: &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second},
+	}
 }
 
 type agentRequest struct {
@@ -67,7 +81,7 @@ func invalidAgentInput(format string, args ...any) error {
 // validateExtensions checks MCP and skill bindings against the registries and
 // returns their frozen JSON representation for the draft/version snapshot.
 func (s *AgentHTTP) validateExtensions(ctx context.Context, v *agentRequest) (string, string, error) {
-	mcpBindings := make([]data.MCPBinding, 0, len(v.MCPBindings))
+	mcpBindings := make([]domain.MCPBinding, 0, len(v.MCPBindings))
 	seen := map[string]bool{}
 	for _, binding := range v.MCPBindings {
 		if binding.Server == "" || binding.Tool == "" || strings.ContainsAny(binding.Server+binding.Tool, " \t\n") {
@@ -96,9 +110,12 @@ func (s *AgentHTTP) validateExtensions(ctx context.Context, v *agentRequest) (st
 		if !found {
 			return "", "", invalidAgentInput("tool %q is not allowed on mcp server %q", binding.Tool, binding.Server)
 		}
-		mcpBindings = append(mcpBindings, data.MCPBinding{Server: binding.Server, Tool: binding.Tool, Exposed: "mcp_" + binding.Server + "_" + binding.Tool})
+		mcpBindings = append(mcpBindings, domain.MCPBinding{
+			Server: binding.Server, Tool: binding.Tool,
+			Exposed: tools.ExposedMCPName(binding.Server, binding.Tool),
+		})
 	}
-	skillBindings := make([]data.SkillBinding, 0, len(v.Skills))
+	skillBindings := make([]domain.SkillBinding, 0, len(v.Skills))
 	seenSkill := map[string]bool{}
 	for _, binding := range v.Skills {
 		if binding.Name == "" || binding.Version <= 0 {
@@ -112,7 +129,7 @@ func (s *AgentHTTP) validateExtensions(ctx context.Context, v *agentRequest) (st
 		if err != nil || !row.Published {
 			return "", "", invalidAgentInput("skill %q version %d is not published", binding.Name, binding.Version)
 		}
-		skillBindings = append(skillBindings, data.SkillBinding{Name: binding.Name, Version: binding.Version})
+		skillBindings = append(skillBindings, domain.SkillBinding{Name: binding.Name, Version: binding.Version})
 	}
 	mcpJSON, _ := json.Marshal(mcpBindings)
 	skillsJSON, _ := json.Marshal(skillBindings)
@@ -145,12 +162,8 @@ func validateAgentRequest(v *agentRequest) error {
 	}
 	v.BaseURL = strings.TrimSpace(v.BaseURL)
 	if v.BaseURL != "" {
-		if len(v.BaseURL) > 200 {
-			return invalidAgentInput("invalid base_url")
-		}
-		u, err := url.Parse(v.BaseURL)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return invalidAgentInput("base_url must be an http(s) URL")
+		if err := validateModelBaseURL(v.BaseURL); err != nil {
+			return invalidAgentInput("%v", err)
 		}
 	}
 	if len(v.APIKey) > 512 {
@@ -159,7 +172,10 @@ func validateAgentRequest(v *agentRequest) error {
 	if v.MaxTokens < 0 || v.MaxTokens > 128000 {
 		return invalidAgentInput("invalid max_tokens")
 	}
-	allowed := map[string]bool{"search_messages": true, "get_conversation_context": true, "send_message": true, "read_file": true, "get_topic_info": true, "get_my_info": true, "list_my_groups": true, "get_group_members": true}
+	allowed := make(map[string]bool)
+	for _, def := range catalog.BuiltinDefinitions() {
+		allowed[def.Name] = true
+	}
 	seen := map[string]bool{}
 	for _, name := range v.Tools {
 		if !allowed[name] || seen[name] {
@@ -187,6 +203,67 @@ func sealAgentKey(apiKey string) (enc string, updateKey bool, err error) {
 	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
+// validateModelBaseURL is the transitional SSRF guard for agent-owned model
+// endpoints. Shared agents must eventually use the platform Model Service; in
+// the meantime this rejects private/link-local targets and enforces HTTPS plus
+// an optional host allowlist (AGENT_MODEL_ALLOWED_HOSTS).
+func validateModelBaseURL(raw string) error {
+	if len(raw) > 200 {
+		return fmt.Errorf("invalid base_url")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return fmt.Errorf("base_url must be an http(s) URL")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return fmt.Errorf("base_url must include a host")
+	}
+	if u.Scheme == "http" && host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return fmt.Errorf("base_url must use https")
+	}
+	if allow := strings.TrimSpace(os.Getenv("AGENT_MODEL_ALLOWED_HOSTS")); allow != "" {
+		allowed := false
+		for _, entry := range strings.Split(allow, ",") {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if entry == "" {
+				continue
+			}
+			if host == entry || strings.HasSuffix(host, "."+entry) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("base_url host %q is not allowed", host)
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("base_url must not target a private or loopback address")
+		}
+		return nil
+	}
+	// Resolve hostnames so a public-looking name cannot point at internal
+	// metadata or a private network. Resolution failures are rejected: a host
+	// that cannot be resolved is not a usable model endpoint.
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return fmt.Errorf("base_url host %q could not be resolved", host)
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("base_url must not target a private or loopback address")
+		}
+	}
+	return nil
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast()
+}
+
 func parseAgentID(c khttp.Context) (int64, error) {
 	id, err := strconv.ParseInt(c.Vars().Get("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -201,34 +278,47 @@ func writeAgentJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func agentError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	code := "AGENT_ERROR"
+func agentHTTPError(err error) *httpapi.Error {
 	var inputErr agentInputError
 	switch {
 	case errors.As(err, &inputErr):
-		status, code = http.StatusBadRequest, "INVALID_ARGUMENT"
+		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
 	case errors.Is(err, authz.ErrDenied):
-		status, code = http.StatusForbidden, "FORBIDDEN"
-	case errors.Is(err, data.ErrDraftConflict):
-		status, code = http.StatusConflict, "DRAFT_CONFLICT"
-	case errors.Is(err, data.ErrRunState):
-		status, code = http.StatusConflict, "RUN_STATE"
-	case errors.Is(err, data.ErrAgentNotFound):
-		status, code = http.StatusNotFound, "NOT_FOUND"
+		return httpapi.Forbidden("access denied")
+	case errors.Is(err, domain.ErrDraftConflict):
+		return httpapi.Conflict("DRAFT_CONFLICT", err.Error())
+	case errors.Is(err, domain.ErrRunState):
+		return httpapi.Conflict("RUN_STATE", err.Error())
+	case errors.Is(err, domain.ErrApprovalExpired):
+		return httpapi.Conflict("APPROVAL_EXPIRED", err.Error())
+	case errors.Is(err, domain.ErrApprovalGone):
+		return httpapi.Conflict("APPROVAL_NOT_PENDING", err.Error())
+	case errors.Is(err, domain.ErrSideEffectCommitted):
+		return httpapi.Conflict("SIDE_EFFECT_COMMITTED", "run already committed a side effect; retry requires acknowledgeSideEffect=true")
+	case errors.Is(err, domain.ErrMCPConflict):
+		return httpapi.Conflict("MCP_EXISTS", err.Error())
+	case errors.Is(err, domain.ErrAgentNotFound), errors.Is(err, domain.ErrVersionNotFound),
+		errors.Is(err, domain.ErrRunNotFound), errors.Is(err, domain.ErrApprovalNotFound),
+		errors.Is(err, domain.ErrSkillNotFound):
+		return httpapi.NotFound(err.Error())
+	default:
+		return httpapi.Internal(err)
 	}
-	writeAgentJSON(w, status, map[string]any{"code": code, "message": err.Error()})
 }
 
 func (s *AgentHTTP) handle(c khttp.Context, fn func(context.Context, http.ResponseWriter, *http.Request) error) error {
 	h := c.Middleware(func(ctx context.Context, _ interface{}) (interface{}, error) {
 		if uid := extractUserIDFromContext(ctx); uid <= 0 {
-			writeAgentJSON(c.Response(), http.StatusUnauthorized, map[string]string{"code": "UNAUTHORIZED", "message": "authentication required"})
+			httpapi.Write(c.Response(), ctx, &httpapi.Error{Status: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "authentication required"})
 			return nil, nil
 		}
-		if err := fn(ctx, c.Response(), c.Request()); err != nil {
-			agentError(c.Response(), err)
-		}
+		uid := extractUserIDFromContext(ctx)
+		s.idem.Execute(ctx, c.Response(), c.Request(), uid, func(w http.ResponseWriter) error {
+			if err := fn(ctx, w, c.Request()); err != nil {
+				return agentHTTPError(err)
+			}
+			return nil
+		})
 		return nil, nil
 	})
 	_, err := h(c, nil)
@@ -247,38 +337,49 @@ func decodeAgent(r *http.Request, dst *agentRequest) error {
 func (s *AgentHTTP) List(c khttp.Context) error {
 	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		uid := extractUserIDFromContext(ctx)
-		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
-		if err != nil || limit <= 0 {
-			limit = 100
-		}
-		if limit > 200 {
-			limit = 200
-		}
-		offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
-		if err != nil || offset < 0 {
-			offset = 0
-		}
-		rows, total, err := s.store.ListAgents(ctx, limit, offset)
+		limit := httpapi.Limit(r, 50, 200)
+		offset, err := httpapi.Offset(r.URL.Query().Get("cursor"))
 		if err != nil {
-			return err
+			return invalidAgentInput("invalid cursor")
 		}
-		visible := make([]map[string]any, 0)
-		for _, row := range rows {
-			if s.auth.CanViewAgent(ctx, uid, row.ID) == nil {
-				visible = append(visible, agentView(&row, row.OwnerUserID == uid))
+		// Visibility is decided by OpenFGA after the DB read, so scan until the
+		// page is full or the table is exhausted. Returning a raw hasMore flag
+		// here would advertise invisible rows and produce empty pages.
+		visible := make([]AgentView, 0, limit)
+		scanned := offset
+		for len(visible) < limit {
+			rows, total, err := s.store.ListAgents(ctx, limit-len(visible), scanned)
+			if err != nil {
+				return err
+			}
+			if len(rows) == 0 {
+				scanned = int(total)
+				break
+			}
+			for i := range rows {
+				scanned++
+				if s.auth.CanViewAgent(ctx, uid, rows[i].ID) == nil {
+					visible = append(visible, agentView(&rows[i], rows[i].OwnerUserID == uid))
+					if len(visible) == limit {
+						break
+					}
+				}
+			}
+			if int64(scanned) >= total {
+				break
 			}
 		}
-		writeAgentJSON(w, http.StatusOK, map[string]any{"agents": visible, "total": total})
+		var total int64
+		if _, total, err = s.store.ListAgents(ctx, 1, 0); err != nil {
+			return err
+		}
+		page := httpapi.Page[AgentView]{Items: visible, HasMore: int64(scanned) < total}
+		if page.HasMore {
+			page.NextCursor = httpapi.EncodeCursor(scanned)
+		}
+		writeAgentJSON(w, http.StatusOK, page)
 		return nil
 	})
-}
-
-func agentView(row *data.Agent, manager bool) map[string]any {
-	view := map[string]any{"id": row.ID, "botUserId": row.BotUserID, "ownerUserId": row.OwnerUserID, "name": row.Name, "description": row.Description, "status": row.Status, "currentVersion": row.CurrentVersion, "canManage": manager}
-	if manager {
-		view["draft"] = map[string]any{"instruction": row.DraftInstruction, "model": row.DraftModel, "tools": json.RawMessage(row.DraftTools), "baseUrl": row.DraftBaseURL, "hasApiKey": row.DraftAPIKeyEnc != "", "maxTokens": row.DraftMaxTokens, "mcpBindings": rawJSON(row.DraftMCPBindings), "skills": rawJSON(row.DraftSkills), "revision": row.DraftRevision}
-	}
-	return view
 }
 
 // rawJSON renders an empty snapshot column as an empty JSON array instead of
@@ -290,11 +391,6 @@ func rawJSON(s string) json.RawMessage {
 	return json.RawMessage(s)
 }
 
-// versionView exposes a published version without the sealed API key.
-func versionView(v *data.AgentVersion) map[string]any {
-	return map[string]any{"id": v.ID, "agentId": v.AgentID, "version": v.Version, "instruction": v.Instruction, "model": v.Model, "tools": json.RawMessage(v.Tools), "baseUrl": v.BaseURL, "hasApiKey": v.APIKeyEnc != "", "maxTokens": v.MaxTokens, "mcpBindings": rawJSON(v.MCPBindings), "skills": rawJSON(v.Skills), "createdAt": v.CreatedAt}
-}
-
 func (s *AgentHTTP) Detail(c khttp.Context) error {
 	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
 		id, err := parseAgentID(c)
@@ -302,21 +398,25 @@ func (s *AgentHTTP) Detail(c khttp.Context) error {
 			return err
 		}
 		uid := extractUserIDFromContext(ctx)
+		row, err := s.store.GetAgent(ctx, id)
+		if err != nil {
+			return domain.ErrAgentNotFound
+		}
 		if err := s.auth.CanViewAgent(ctx, uid, id); err != nil {
 			return authz.ErrDenied
 		}
-		row, err := s.store.GetAgent(ctx, id)
-		if err != nil {
-			return data.ErrAgentNotFound
-		}
 		manager := s.auth.CanManageAgent(ctx, uid, id) == nil
 		view := agentView(row, manager)
-		if row.CurrentVersion > 0 {
+		// Only a manager may read the published instruction/model endpoint.
+		// A viewer sees the current version number in the base view, never the
+		// prompt or the model base URL.
+		if manager && row.CurrentVersion > 0 {
 			version, err := s.store.GetVersion(ctx, id, row.CurrentVersion)
 			if err != nil {
 				return err
 			}
-			view["published"] = versionView(version)
+			published := versionView(version)
+			view.Published = &published
 		}
 		writeAgentJSON(w, http.StatusOK, view)
 		return nil
@@ -342,7 +442,7 @@ func (s *AgentHTTP) Create(c khttp.Context) error {
 			return err
 		}
 		uid := extractUserIDFromContext(ctx)
-		spec := data.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
+		spec := domain.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
 		row, err := s.store.CreateAgent(ctx, uid, spec, func(ctx context.Context, id int64) error { return s.auth.SetAgentOwner(ctx, id, uid) })
 		if err != nil {
 			return err
@@ -377,7 +477,7 @@ func (s *AgentHTTP) Draft(c khttp.Context) error {
 		if err != nil {
 			return err
 		}
-		spec := data.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
+		spec := domain.AgentSpec{Name: input.Name, Description: input.Description, Instruction: input.Instruction, Model: input.Model, Tools: string(tools), BaseURL: input.BaseURL, APIKeyEnc: apiKeyEnc, MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON}
 		row, err := s.store.UpdateDraft(ctx, id, input.Revision, spec, updateKey)
 		if err != nil {
 			return err
@@ -420,7 +520,7 @@ func (s *AgentHTTP) Publish(c khttp.Context) error {
 				break
 			}
 		}
-		var mcpBindings []data.MCPBinding
+		var mcpBindings []domain.MCPBinding
 		if version.MCPBindings != "" {
 			if err := json.Unmarshal([]byte(version.MCPBindings), &mcpBindings); err != nil {
 				return err
@@ -503,7 +603,7 @@ func (s *AgentHTTP) Share(c khttp.Context) error {
 		}
 		row, err := s.store.GetAgent(ctx, id)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return domain.ErrAgentNotFound
 		}
 		if input.Kind == "group" {
 			if err := s.auth.CanManageGroup(ctx, extractUserIDFromContext(ctx), input.Target); err != nil {
@@ -554,7 +654,7 @@ func (s *AgentHTTP) Shares(c khttp.Context) error {
 }
 
 func (s *AgentHTTP) Runs(c khttp.Context) error {
-	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		id, err := parseAgentID(c)
 		if err != nil {
 			return err
@@ -562,11 +662,43 @@ func (s *AgentHTTP) Runs(c khttp.Context) error {
 		if err := s.auth.CanManageAgent(ctx, extractUserIDFromContext(ctx), id); err != nil {
 			return authz.ErrDenied
 		}
-		runs, err := s.store.ListRuns(ctx, id, 50)
+		limit := httpapi.Limit(r, 50, 200)
+		offset, err := httpapi.Offset(r.URL.Query().Get("cursor"))
+		if err != nil {
+			return invalidAgentInput("invalid cursor")
+		}
+		runs, total, err := s.store.ListRunsPage(ctx, id, limit, offset)
 		if err != nil {
 			return err
 		}
-		writeAgentJSON(w, http.StatusOK, map[string]any{"runs": runs})
+		hasMore := int64(offset+len(runs)) < total
+		writeAgentJSON(w, http.StatusOK, httpapi.NewPage(runViews(runs), offset, limit, hasMore))
+		return nil
+	})
+}
+
+// ListApprovals returns the caller's approvals (default: pending), used by the
+// approval inbox and multi-device status refresh.
+func (s *AgentHTTP) ListApprovals(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		uid := extractUserIDFromContext(ctx)
+		status := r.URL.Query().Get("status")
+		switch status {
+		case "", domain.ApprovalPending, domain.ApprovalApproved, domain.ApprovalRejected, domain.ApprovalExpired, domain.ApprovalConsumed:
+		default:
+			return invalidAgentInput("invalid approval status")
+		}
+		limit := httpapi.Limit(r, 50, 200)
+		offset, err := httpapi.Offset(r.URL.Query().Get("cursor"))
+		if err != nil {
+			return invalidAgentInput("invalid cursor")
+		}
+		rows, total, err := s.store.ListApprovals(ctx, uid, status, limit, offset)
+		if err != nil {
+			return err
+		}
+		hasMore := int64(offset+len(rows)) < total
+		writeAgentJSON(w, http.StatusOK, httpapi.NewPage(approvalViews(rows), offset, limit, hasMore))
 		return nil
 	})
 }
@@ -579,32 +711,33 @@ func (s *AgentHTTP) RunDetail(c khttp.Context) error {
 		}
 		run, err := s.store.GetRun(ctx, id)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
 		}
 		uid := extractUserIDFromContext(ctx)
 		if uid != run.ActorUserID && s.auth.CanManageAgent(ctx, uid, run.AgentID) != nil {
 			return authz.ErrDenied
 		}
-		writeAgentJSON(w, http.StatusOK, run)
+		writeAgentJSON(w, http.StatusOK, runView(run))
 		return nil
 	})
 }
 
 func (s *AgentHTTP) RunAction(c khttp.Context, action string) error {
-	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 		id, err := strconv.ParseUint(c.Vars().Get("id"), 10, 64)
 		if err != nil || id == 0 {
 			return invalidAgentInput("invalid run id")
 		}
 		run, err := s.store.GetRun(ctx, id)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
 		}
 		uid := extractUserIDFromContext(ctx)
 		if uid != run.ActorUserID && s.auth.CanManageAgent(ctx, uid, run.AgentID) != nil {
 			return authz.ErrDenied
 		}
-		if err := s.store.SetRunAction(ctx, id, action); err != nil {
+		acknowledge := strings.EqualFold(r.URL.Query().Get("acknowledgeSideEffect"), "true")
+		if err := s.store.SetRunAction(ctx, id, action, acknowledge); err != nil {
 			return err
 		}
 		writeAgentJSON(w, http.StatusOK, map[string]string{"action": action})
@@ -623,8 +756,14 @@ func (s *AgentHTTP) Delete(c khttp.Context) error {
 		if err := s.auth.CanManageAgent(ctx, extractUserIDFromContext(ctx), id); err != nil {
 			return authz.ErrDenied
 		}
-		if err := s.store.DeleteAgent(ctx, id); err != nil {
+		tools, err := s.store.DeleteAgent(ctx, id)
+		if err != nil {
 			return err
+		}
+		// The agent row is already gone, so a stale tuple cannot authorize a
+		// live agent; still reconcile OpenFGA and report the cleanup failure.
+		if err := s.auth.DeleteAgentTuples(ctx, id, tools); err != nil {
+			log.DefaultLogger.Log(log.LevelWarn, "msg", "delete agent FGA tuples", "agent_id", id, "error", err)
 		}
 		writeAgentJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 		return nil
@@ -641,17 +780,17 @@ func (s *AgentHTTP) ApprovalDetail(c khttp.Context) error {
 		}
 		approval, err := s.store.GetApproval(ctx, id)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
 		}
 		run, err := s.store.GetRun(ctx, approval.RunID)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
 		}
 		uid := extractUserIDFromContext(ctx)
 		if uid != approval.ApproverID && s.auth.CanManageAgent(ctx, uid, run.AgentID) != nil {
 			return authz.ErrDenied
 		}
-		writeAgentJSON(w, http.StatusOK, approval)
+		writeAgentJSON(w, http.StatusOK, approvalView(approval))
 		return nil
 	})
 }
@@ -676,11 +815,17 @@ func (s *AgentHTTP) ApprovalAction(c khttp.Context, action string) error {
 		}
 		approval, err := s.store.GetApproval(ctx, id)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
+		}
+		if approval.Status != domain.ApprovalPending {
+			return domain.ErrApprovalGone
 		}
 		run, err := s.store.GetRun(ctx, approval.RunID)
 		if err != nil {
-			return data.ErrAgentNotFound
+			return err
+		}
+		if run.Status != domain.RunWaitingApproval {
+			return domain.ErrRunState
 		}
 		uid := extractUserIDFromContext(ctx)
 		// The first-version approver is the initiating actor; the agent must
@@ -688,11 +833,9 @@ func (s *AgentHTTP) ApprovalAction(c khttp.Context, action string) error {
 		if uid != approval.ApproverID || s.auth.CanUseAgent(ctx, uid, run.AgentID) != nil {
 			return authz.ErrDenied
 		}
-		if err := s.store.TransitionApproval(ctx, id, "pending", to); err != nil {
-			return err
-		}
-		// Requeue the run; the worker claims waiting_approval -> queued runs.
-		if err := s.store.ClaimWaitingRun(ctx, run.ID); err != nil && !errors.Is(err, data.ErrRunState) {
+		// Decision and requeue are one transaction: a crash can no longer leave
+		// an approved approval attached to a permanently parked run.
+		if err := s.store.DecideAndRequeue(ctx, id, to, uid); err != nil {
 			return err
 		}
 		writeAgentJSON(w, http.StatusOK, map[string]string{"status": to})

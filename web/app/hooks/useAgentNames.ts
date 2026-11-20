@@ -21,7 +21,7 @@ function loadAgentNames(): Promise<Map<number, AgentName>> {
   inflight = (async () => {
     const reply = await agentApi.list();
     const map = new Map<number, AgentName>();
-    for (const agent of reply.agents) {
+    for (const agent of reply.items) {
       map.set(Number(agent.botUserId), { name: agent.name });
     }
     cachedNames = map;

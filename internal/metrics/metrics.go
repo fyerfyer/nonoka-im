@@ -39,6 +39,13 @@ type Metrics struct {
 	PushFailedTotal   prometheus.Counter
 	PushRetryTotal    prometheus.Counter
 	GrpcPushLatency   prometheus.Histogram
+
+	// Agent outbox metrics.
+	AgentOutboxPending       prometheus.Gauge
+	AgentOutboxFailed        prometheus.Gauge
+	AgentOutboxOldestAge     prometheus.Gauge
+	AgentOutboxPublishFailed prometheus.Counter
+	AgentOutboxDuplicate     prometheus.Counter
 }
 
 // NewMetrics creates a new Metrics instance with a dedicated registry.
@@ -141,6 +148,26 @@ func NewMetrics() *Metrics {
 			Help:      "Latency of gRPC push from msgworker to gateway.",
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}),
+		AgentOutboxPending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "pending",
+			Help: "Agent trigger outbox rows waiting to be published.",
+		}),
+		AgentOutboxFailed: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "failed",
+			Help: "Agent trigger outbox rows parked as failed.",
+		}),
+		AgentOutboxOldestAge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "oldest_pending_age_seconds",
+			Help: "Age of the oldest unpublished agent trigger event.",
+		}),
+		AgentOutboxPublishFailed: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "publish_failures_total",
+			Help: "Total failed agent outbox publish attempts.",
+		}),
+		AgentOutboxDuplicate: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "duplicate_events_total",
+			Help: "Agent trigger events rejected as duplicates by event_id.",
+		}),
 	}
 
 	registry.MustRegister(
@@ -159,6 +186,11 @@ func NewMetrics() *Metrics {
 		m.PushFailedTotal,
 		m.PushRetryTotal,
 		m.GrpcPushLatency,
+		m.AgentOutboxPending,
+		m.AgentOutboxFailed,
+		m.AgentOutboxOldestAge,
+		m.AgentOutboxPublishFailed,
+		m.AgentOutboxDuplicate,
 	)
 
 	return m
@@ -285,5 +317,31 @@ func (m *Metrics) IncPushRetry() {
 func (m *Metrics) ObserveGrpcPushLatency(v float64) {
 	if m != nil && m.GrpcPushLatency != nil {
 		m.GrpcPushLatency.Observe(v)
+	}
+}
+
+// SetAgentOutboxStats updates the outbox depth/age gauges if metrics is non-nil.
+func (m *Metrics) SetAgentOutboxStats(pending, failed int64, oldestAgeSeconds float64) {
+	if m == nil {
+		return
+	}
+	m.AgentOutboxPending.Set(float64(pending))
+	m.AgentOutboxFailed.Set(float64(failed))
+	m.AgentOutboxOldestAge.Set(oldestAgeSeconds)
+}
+
+// IncAgentOutboxPublishFailure increments the outbox publish failure counter.
+func (m *Metrics) IncAgentOutboxPublishFailure() {
+	if m != nil {
+		m.AgentOutboxPublishFailed.Inc()
+	}
+}
+
+// IncAgentOutboxDuplicate increments the duplicate-event counter. A duplicate
+// means the message+outbox transaction rolled back idempotently; it is not an
+// error but a high rate usually indicates an upstream replay loop.
+func (m *Metrics) IncAgentOutboxDuplicate() {
+	if m != nil {
+		m.AgentOutboxDuplicate.Inc()
 	}
 }

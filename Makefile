@@ -81,9 +81,23 @@ test-gateway-concurrent:
 test-kafka:
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s
 
+.PHONY: test-unit
+# run unit tests (still uses real test infrastructure where a test requires it)
+test-unit:
+	@echo "\n========================================"
+	@echo "=== Running Unit Tests               ==="
+	@echo "========================================"
+	@go test -p 1 ./internal/... ./pkg/... -count=1 -timeout 300s
+
+.PHONY: test-reliability
+# run the Phase 0 reliability scenarios (claim races, approvals, deletion, bot push)
+test-reliability:
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestAgentApproval_|TestMsgWorker_BotRecipients|TestAgentDelete' -count=1 -timeout 120s
+
 .PHONY: test
 # run all integration tests (start deps, run tests by group, cleanup)
 test: test-deps-up
+	@$(MAKE) test-unit || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Auth Tests               ==="
 	@echo "========================================"
@@ -104,6 +118,10 @@ test: test-deps-up
 	@echo "=== Running Agent Tests              ==="
 	@echo "========================================"
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgent' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running Reliability Tests        ==="
+	@echo "========================================"
+	@$(MAKE) test-reliability || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"
@@ -132,6 +150,11 @@ demo-scale:
 demo-down:
 	-docker compose -f docker-compose.scale.yml down -v --remove-orphans
 	docker compose -f docker-compose.yml down -v --remove-orphans
+
+.PHONY: migrate
+# apply versioned PostgreSQL migrations explicitly (embedded goose SQL)
+migrate:
+	@go run ./cmd/nonoka-migrate -dsn "$${POSTGRES_DSN:-host=127.0.0.1 user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable}"
 
 .PHONY: generate
 # generate

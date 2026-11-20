@@ -76,7 +76,7 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
     try {
       const res = await agentApi.list();
       setAgents(
-        res.agents.filter((a) => a.status === "active" && a.currentVersion > 0)
+        res.items.filter((a) => a.status === "active" && a.currentVersion > 0)
       );
     } catch (err) {
       toast.error(

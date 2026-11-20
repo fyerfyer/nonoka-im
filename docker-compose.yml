@@ -219,6 +219,8 @@ services:
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
     command: ["/app/agent-worker"]
+    volumes:
+      - ./configs/agent-worker.yaml:/app/configs/agent-worker.yaml:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz > /dev/null"]
       interval: 10s

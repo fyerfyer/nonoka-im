@@ -4,13 +4,13 @@ import (
 	"errors"
 	"testing"
 
-	"nonoka-im/internal/data"
+	"nonoka-im/internal/agent/domain"
 )
 
 func TestBuildBudgetAndSessionSnapshot(t *testing.T) {
 	b := Builder{Count: func(s string) int { return len(s) }, ContextWindow: 80, OutputReserve: 10, ToolReserve: 10, SafetyReserve: 10, TriggerTokens: 20}
-	turns := []data.AgentTurn{{ID: 1, Input: "older", Output: "reply"}, {ID: 2, Input: "recent", Output: "answer"}}
-	in, err := b.Build("system", "current", &data.AgentContextSnapshot{Summary: "prior fact"}, turns)
+	turns := []domain.AgentTurn{{ID: 1, Input: "older", Output: "reply"}, {ID: 2, Input: "recent", Output: "answer"}}
+	in, err := b.Build("system", "current", &domain.AgentContextSnapshot{Summary: "prior fact"}, turns)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestBuildBudgetAndSessionSnapshot(t *testing.T) {
 
 func TestFallbackKeepsCurrentInputWithinBudget(t *testing.T) {
 	b := Builder{Count: func(s string) int { return len(s) }}
-	in, err := (Builder{Count: b.Count, ContextWindow: 50, OutputReserve: 10, ToolReserve: 10, SafetyReserve: 5, TriggerTokens: 5}).Build("sys", "current", nil, []data.AgentTurn{{ID: 1, Input: "older", Output: "reply"}, {ID: 2, Input: "recent", Output: "answer"}})
+	in, err := (Builder{Count: b.Count, ContextWindow: 50, OutputReserve: 10, ToolReserve: 10, SafetyReserve: 5, TriggerTokens: 5}).Build("sys", "current", nil, []domain.AgentTurn{{ID: 1, Input: "older", Output: "reply"}, {ID: 2, Input: "recent", Output: "answer"}})
 	if err != nil {
 		t.Fatal(err)
 	}

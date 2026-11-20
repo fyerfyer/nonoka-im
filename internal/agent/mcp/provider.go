@@ -19,14 +19,15 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
-	"nonoka-im/internal/data"
+	"nonoka-im/internal/authz"
 )
 
 // ServerStore resolves registry entries; data.MCPStore implements it.
 type ServerStore interface {
-	GetServer(ctx context.Context, name string) (*data.MCPServer, error)
+	GetServer(ctx context.Context, name string) (*domain.MCPServer, error)
 }
 
 // Provider builds guarded Eino tools for the MCP bindings of one agent run.
@@ -35,25 +36,30 @@ type Provider struct {
 	Store   ServerStore
 	Guard   tools.Guard
 	Timeout time.Duration
+	// IdleTTL closes MCP clients that have not been used for this long.
+	IdleTTL time.Duration
+	// MaxClients bounds the number of cached server connections.
+	MaxClients int
 
 	mu      sync.Mutex
 	clients map[string]*clientEntry // server name → cached client + tools
 }
 
 type clientEntry struct {
-	client *mcpc.Client
-	tools  map[string]tool.BaseTool // keyed by exposed name
-	server *data.MCPServer
+	client   *mcpc.Client
+	tools    map[string]tool.BaseTool // keyed by exposed name
+	server   *domain.MCPServer
+	lastUsed time.Time
 }
 
 // ExposedName is the runtime tool name for one MCP tool.
 func ExposedName(server, toolName string) string {
-	return "mcp_" + server + "_" + toolName
+	return tools.ExposedMCPName(server, toolName)
 }
 
 // Tools resolves every binding to a guarded tool. Bindings pointing at
 // unknown, disabled or unlisted tools fail instead of silently dropping.
-func (p *Provider) Tools(ctx context.Context, bindings []runtime.MCPTool) ([]tool.BaseTool, error) {
+func (p *Provider) Tools(ctx context.Context, bindings []port.MCPTool) ([]tool.BaseTool, error) {
 	result := make([]tool.BaseTool, 0, len(bindings))
 	for _, binding := range bindings {
 		t, err := p.tool(ctx, binding.Server, binding.Tool)
@@ -84,7 +90,7 @@ func (p *Provider) tool(ctx context.Context, serverName, toolName string) (tool.
 func (p *Provider) entry(ctx context.Context, serverName string) (*clientEntry, error) {
 	server, err := p.Store.GetServer(ctx, serverName)
 	if err != nil {
-		if errors.Is(err, data.ErrMCPNotFound) {
+		if errors.Is(err, domain.ErrMCPNotFound) {
 			p.evict(serverName)
 		}
 		return nil, err
@@ -95,6 +101,7 @@ func (p *Provider) entry(ctx context.Context, serverName string) (*clientEntry, 
 	}
 	p.mu.Lock()
 	if cached, ok := p.clients[serverName]; ok && sameServerConfig(cached.server, server) {
+		cached.lastUsed = time.Now()
 		p.mu.Unlock()
 		return cached, nil
 	}
@@ -106,14 +113,33 @@ func (p *Provider) entry(ctx context.Context, serverName string) (*clientEntry, 
 	}
 	// Concurrent misses may both connect; the last write wins and the
 	// displaced client is closed. Close happens outside the lock.
+	var toClose []*clientEntry
 	p.mu.Lock()
 	if p.clients == nil {
 		p.clients = make(map[string]*clientEntry)
 	}
-	old := p.clients[serverName]
+	if old := p.clients[serverName]; old != nil && old != entry {
+		toClose = append(toClose, old)
+	}
+	if p.MaxClients > 0 && len(p.clients) >= p.MaxClients {
+		var oldestName string
+		var oldest time.Time
+		for name, cached := range p.clients {
+			if name == serverName {
+				continue
+			}
+			if oldestName == "" || cached.lastUsed.Before(oldest) {
+				oldestName, oldest = name, cached.lastUsed
+			}
+		}
+		if oldestName != "" {
+			toClose = append(toClose, p.clients[oldestName])
+			delete(p.clients, oldestName)
+		}
+	}
 	p.clients[serverName] = entry
 	p.mu.Unlock()
-	if old != nil && old != entry {
+	for _, old := range toClose {
 		old.client.Close()
 	}
 	return entry, nil
@@ -131,10 +157,66 @@ func (p *Provider) evict(serverName string) {
 	}
 }
 
+// EvictIdle closes clients unused for longer than IdleTTL. It returns the
+// number of evicted connections.
+func (p *Provider) EvictIdle(now time.Time) int {
+	if p.IdleTTL <= 0 {
+		return 0
+	}
+	p.mu.Lock()
+	var stale []*clientEntry
+	for name, entry := range p.clients {
+		if now.Sub(entry.lastUsed) > p.IdleTTL {
+			stale = append(stale, entry)
+			delete(p.clients, name)
+		}
+	}
+	p.mu.Unlock()
+	for _, entry := range stale {
+		entry.client.Close()
+	}
+	return len(stale)
+}
+
+// StartJanitor runs idle eviction until ctx is canceled. Call it in a
+// goroutine from the composition root.
+func (p *Provider) StartJanitor(ctx context.Context, interval time.Duration) {
+	if p.IdleTTL <= 0 {
+		return
+	}
+	if interval <= 0 {
+		interval = max(p.IdleTTL/2, time.Minute)
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			p.EvictIdle(now)
+		}
+	}
+}
+
+// Close closes every cached MCP client. It is safe to call at shutdown.
+func (p *Provider) Close() {
+	p.mu.Lock()
+	entries := make([]*clientEntry, 0, len(p.clients))
+	for name, entry := range p.clients {
+		entries = append(entries, entry)
+		delete(p.clients, name)
+	}
+	p.mu.Unlock()
+	for _, entry := range entries {
+		entry.client.Close()
+	}
+}
+
 // sameServerConfig reports whether the freshly read registry record still
 // matches the snapshot the cached client was built from. A drift in any
 // connection-shaping field invalidates the cache.
-func sameServerConfig(snapshot, fresh *data.MCPServer) bool {
+func sameServerConfig(snapshot, fresh *domain.MCPServer) bool {
 	return snapshot.Transport == fresh.Transport &&
 		snapshot.URL == fresh.URL &&
 		snapshot.AllowedTools == fresh.AllowedTools &&
@@ -143,7 +225,7 @@ func sameServerConfig(snapshot, fresh *data.MCPServer) bool {
 
 // connect builds a fresh client + tool table for a validated registry record.
 // It performs network I/O and must be called without p.mu held.
-func (p *Provider) connect(ctx context.Context, serverName string, server *data.MCPServer) (*clientEntry, error) {
+func (p *Provider) connect(ctx context.Context, serverName string, server *domain.MCPServer) (*clientEntry, error) {
 	var allowed []string
 	if err := json.Unmarshal([]byte(server.AllowedTools), &allowed); err != nil {
 		return nil, fmt.Errorf("mcp server %q has invalid tool list", serverName)
@@ -176,7 +258,7 @@ func (p *Provider) connect(ctx context.Context, serverName string, server *data.
 	if err != nil {
 		return nil, fmt.Errorf("discover mcp server %q tools: %w", serverName, err)
 	}
-	entry := &clientEntry{client: cli, tools: make(map[string]tool.BaseTool, len(rawTools)), server: server}
+	entry := &clientEntry{client: cli, tools: make(map[string]tool.BaseTool, len(rawTools)), server: server, lastUsed: time.Now()}
 	for _, t := range rawTools {
 		info, err := t.Info(ctx)
 		if err != nil {
@@ -253,7 +335,10 @@ func (g *guardedTool) InvokableRun(ctx context.Context, argumentsInJSON string, 
 		return "", fmt.Errorf("tool authorization unavailable")
 	}
 	if err := g.guard.CanExecuteTool(ctx, rc.ActorUserID, rc.AgentID, g.exposed, rc.Topic, "external", ""); err != nil {
-		return "", fmt.Errorf("tool %s not authorized", g.exposed)
+		if errors.Is(err, authz.ErrDenied) {
+			return "", fmt.Errorf("tool %s not authorized", g.exposed)
+		}
+		return "", &port.Error{Class: port.ClassTransientInfra, Err: err}
 	}
 	inner, ok := g.inner.(tool.InvokableTool)
 	if !ok {

@@ -24,25 +24,23 @@ import (
 )
 
 var (
-	baseURL   = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
-	wsURL     = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
-	gateways  = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
-	users     = flag.Int("users", 100, "Number of concurrent users")
-	duration  = flag.Duration("duration", 30*time.Second, "Load test duration")
-	msgRate   = flag.Float64("msg-rate", 1.0, "Messages per second per user")
-	msgSize   = flag.Int("msg-size", 128, "Message content size in bytes")
-	pairs     = flag.Int("pairs", 0, "Number of P2P pairs; 0 means users send to user+1")
-	timeout   = flag.Duration("timeout", 10*time.Second, "Request timeout")
-	warmup    = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
-	outFile   = flag.String("out", "", "Optional JSON report output file")
-	keepAlive = flag.Bool("keep-alive", true, "Keep connections alive after warmup")
+	baseURL  = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
+	wsURL    = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
+	gateways = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
+	users    = flag.Int("users", 100, "Number of concurrent users")
+	duration = flag.Duration("duration", 30*time.Second, "Load test duration")
+	msgRate  = flag.Float64("msg-rate", 1.0, "Messages per second per user")
+	msgSize  = flag.Int("msg-size", 128, "Message content size in bytes")
+	timeout  = flag.Duration("timeout", 10*time.Second, "Request timeout")
+	warmup   = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
+	outFile  = flag.String("out", "", "Optional JSON report output file")
 )
 
 type client struct {
-	userID int64
-	token  string
-	conn   *websocket.Conn
-	seq    uint64
+	userID  int64
+	token   string
+	conn    *websocket.Conn
+	seq     uint64
 	writeMu sync.Mutex
 
 	// publishStarted tracks when each message was sent.
@@ -525,13 +523,6 @@ func (c *client) recordAck(sec float64) {
 	c.ackLatencies = append(c.ackLatencies, sec*1000)
 }
 
-func (c *client) recordPush(sec float64) {
-	if sec <= 0 {
-		return
-	}
-	c.pushLatencies = append(c.pushLatencies, sec*1000)
-}
-
 func (c *client) recordReceipt(sec float64) {
 	c.receiptLatencies = append(c.receiptLatencies, sec*1000)
 }
@@ -574,7 +565,7 @@ func percentile(sorted []float64, p float64) float64 {
 	if len(sorted) == 0 {
 		return 0
 	}
-	idx := int(math.Ceil(p*float64(len(sorted)-1)))
+	idx := int(math.Ceil(p * float64(len(sorted)-1)))
 	if idx < 0 {
 		idx = 0
 	}

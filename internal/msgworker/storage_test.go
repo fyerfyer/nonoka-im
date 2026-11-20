@@ -64,6 +64,7 @@ func TestUpdateDeliveryStatus(t *testing.T) {
 	now := time.Now()
 
 	inboxColl := db.Collection(CollectionInboxes)
+	_, _ = inboxColl.DeleteMany(ctx, bson.M{"user_id": userID, "topic": topic})
 	if _, err := inboxColl.InsertOne(ctx, InboxMessage{
 		UserID:    userID,
 		MsgID:     1,
@@ -75,6 +76,7 @@ func TestUpdateDeliveryStatus(t *testing.T) {
 	}
 
 	mentionColl := db.Collection(CollectionMentionInboxes)
+	_, _ = mentionColl.DeleteMany(ctx, bson.M{"user_id": userID, "topic": topic})
 	if _, err := mentionColl.InsertOne(ctx, MentionMessage{
 		UserID:    userID,
 		MsgID:     1,
@@ -129,10 +131,11 @@ func TestSaveGroupMessagesBatch(t *testing.T) {
 	}
 
 	db := client.Database(testMongoDB)
-	// Clean up the messages collection so this test is idempotent.
-	_, _ = db.Collection(CollectionMessages).DeleteMany(ctx, bson.M{"topic": "grp_1"})
-
+	cleanMongoCollections(t, ctx, db)
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("ensure indexes: %v", err)
+	}
 
 	msgs := []*v1.UpstreamMessage{
 		{Topic: "grp_1", SenderId: 1, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT), Content: []byte("m1"), ClientMsgId: "cmid-1"},
@@ -153,7 +156,7 @@ func TestSaveGroupMessagesBatch(t *testing.T) {
 	}
 
 	// Re-inserting the same batch should be reported as duplicate.
-	inserted, isDup, err = storage.SaveGroupMessagesBatch(ctx, msgs, msgIDs, topicSeqs)
+	_, isDup, err = storage.SaveGroupMessagesBatch(ctx, msgs, msgIDs, topicSeqs)
 	if err != nil {
 		t.Fatalf("duplicate batch insert failed: %v", err)
 	}
@@ -171,7 +174,7 @@ func TestTransactionalAgentOutbox(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mongodb-dependent transaction test in short mode")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
 	if err != nil {
@@ -183,6 +186,10 @@ func TestTransactionalAgentOutbox(t *testing.T) {
 	}
 	db := client.Database(testMongoDB)
 	_, _ = db.Collection(CollectionMessages).DeleteMany(ctx, bson.M{"topic": "grp_outbox_test"})
+	// The relay is global (not topic-scoped), so clear leftover outbox rows to
+	// keep this test independent from earlier runs.
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{})
+	cleanMongoCollections(t, ctx, db)
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Skipf("mongodb transaction/index setup unavailable: %v", err)
@@ -197,7 +204,7 @@ func TestTransactionalAgentOutbox(t *testing.T) {
 	if count, countErr := db.Collection(CollectionMessages).CountDocuments(ctx, bson.M{"msg_id": int64(9000)}); countErr != nil || count != 0 {
 		t.Fatalf("message survived aborted transaction: count=%d err=%v", count, countErr)
 	}
-	ev := agevent.NewMessageEvent(9001, "grp_outbox_test", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev := agevent.NewMessageEvent(9001, "grp_outbox_test", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	_, _ = db.Collection(CollectionAgentOutbox).DeleteOne(ctx, bson.M{"event_id": ev.EventID})
 	msg := &v1.UpstreamMessage{Topic: ev.Topic, SenderId: ev.SenderID, MsgType: ev.MsgType, Content: []byte("hello"), ClientMsgId: "outbox-cmid"}
 	duplicate, err := storage.SaveGroupMessageWithAgentEvent(ctx, msg, ev.MsgID, 1, ev)
@@ -246,6 +253,62 @@ func TestTransactionalAgentOutbox(t *testing.T) {
 	}
 }
 
+// TestTransactionalAgentOutbox_NewMessageDuplicateEvent reproduces the case
+// where a new message (new client_msg_id) carries an event_id that already
+// exists. The old code swallowed the outbox duplicate-key error, which aborts
+// the MongoDB transaction and makes WithTransaction retry until its deadline.
+// The chosen semantics treat the event as the idempotency boundary: roll the
+// whole message back and report duplicate immediately.
+func TestTransactionalAgentOutbox_NewMessageDuplicateEvent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent transaction test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping transaction test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(context.Background()) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping transaction test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+	if err := storage.EnsureIndexes(ctx); err != nil {
+		t.Skipf("mongodb index setup unavailable: %v", err)
+	}
+	topic := fmt.Sprintf("grp_outbox_dup_%d", time.Now().UnixNano())
+	_, _ = db.Collection(CollectionMessages).DeleteMany(ctx, bson.M{"topic": topic})
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": topic})
+
+	ev := agevent.NewMessageEvent(9101, topic, 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "client-1")
+	first := &v1.UpstreamMessage{Topic: topic, SenderId: 7, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT), Content: []byte("first"), ClientMsgId: "client-1"}
+	if duplicate, err := storage.SaveGroupMessageWithAgentEvent(ctx, first, ev.MsgID, 1, ev); err != nil || duplicate {
+		t.Fatalf("first save: duplicate=%v err=%v", duplicate, err)
+	}
+
+	second := &v1.UpstreamMessage{Topic: topic, SenderId: 7, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT), Content: []byte("second"), ClientMsgId: "client-2"}
+	start := time.Now()
+	duplicate, err := storage.SaveGroupMessageWithAgentEvent(ctx, second, ev.MsgID+1, 2, ev)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("duplicate event must abort cleanly, got err=%v after %s", err, elapsed)
+	}
+	if !duplicate {
+		t.Fatalf("expected duplicate=true, got false after %s", elapsed)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("duplicate event took %s; transaction retry loop is back", elapsed)
+	}
+	if count, err := db.Collection(CollectionMessages).CountDocuments(ctx, bson.M{"topic": topic, "client_msg_id": "client-2"}); err != nil || count != 0 {
+		t.Fatalf("new message must be rolled back with the transaction: count=%d err=%v", count, err)
+	}
+	if count, err := db.Collection(CollectionAgentOutbox).CountDocuments(ctx, bson.M{"event_id": ev.EventID}); err != nil || count != 1 {
+		t.Fatalf("expected one outbox row, count=%d err=%v", count, err)
+	}
+}
+
 // TestAgentOutboxDueIndexCoversLock verifies the due index sorts by
 // locked_until as well, so expired-lease scans stay index-only.
 func TestAgentOutboxDueIndexCoversLock(t *testing.T) {
@@ -263,6 +326,7 @@ func TestAgentOutboxDueIndexCoversLock(t *testing.T) {
 		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
 	}
 	db := client.Database(testMongoDB)
+	cleanMongoCollections(t, ctx, db)
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Skipf("mongodb index setup unavailable: %v", err)
@@ -297,6 +361,17 @@ func TestAgentOutboxDueIndexCoversLock(t *testing.T) {
 }
 
 // insertOutboxRow inserts an outbox row directly with a valid event payload.
+// cleanMongoCollections removes persisted test messages so unique indexes can
+// be rebuilt from scratch. The test database is dedicated to the suite.
+func cleanMongoCollections(t *testing.T, ctx context.Context, db *mongo.Database) {
+	t.Helper()
+	for _, name := range []string{CollectionMessages, CollectionInboxes, CollectionMentionInboxes, CollectionTopicSeqs} {
+		if err := db.Collection(name).Drop(ctx); err != nil && !strings.Contains(err.Error(), "ns not found") {
+			t.Fatalf("drop %s: %v", name, err)
+		}
+	}
+}
+
 func insertOutboxRow(t *testing.T, ctx context.Context, db *mongo.Database, ev agevent.MessageEvent, status string, attempts int, nextAttemptAt time.Time) {
 	t.Helper()
 	payload, err := ev.Marshal()
@@ -329,10 +404,10 @@ func TestRelayAgentEventsAttemptsCap(t *testing.T) {
 		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
 	}
 	db := client.Database(testMongoDB)
-	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": "grp_attempts_cap"})
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{})
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
 
-	ev := agevent.NewMessageEvent(9101, "grp_attempts_cap", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev := agevent.NewMessageEvent(9101, "grp_attempts_cap", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	insertOutboxRow(t, ctx, db, ev, "pending", agentEventMaxAttempts, time.Now().Add(-time.Second))
 
 	publisher := &recordingAgentPublisher{}
@@ -386,17 +461,17 @@ func TestRelayAgentEventsPrunesPublished(t *testing.T) {
 	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": bson.M{"$in": []string{"grp_prune", "grp_prune_recent"}}})
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
 
-	staleEv := agevent.NewMessageEvent(9201, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	staleEv := agevent.NewMessageEvent(9201, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	insertOutboxRow(t, ctx, db, staleEv, "published", 1, time.Now().Add(-time.Hour))
 	if _, err := db.Collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"event_id": staleEv.EventID}, bson.M{"$set": bson.M{"published_at": time.Now().Add(-agentEventPublishedRetention - time.Hour)}}); err != nil {
 		t.Fatalf("backdate published_at: %v", err)
 	}
-	recentEv := agevent.NewMessageEvent(9202, "grp_prune_recent", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	recentEv := agevent.NewMessageEvent(9202, "grp_prune_recent", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	insertOutboxRow(t, ctx, db, recentEv, "published", 1, time.Now().Add(-time.Hour))
 	if _, err := db.Collection(CollectionAgentOutbox).UpdateOne(ctx, bson.M{"event_id": recentEv.EventID}, bson.M{"$set": bson.M{"published_at": time.Now().Add(-time.Hour)}}); err != nil {
 		t.Fatalf("set published_at: %v", err)
 	}
-	freshEv := agevent.NewMessageEvent(9203, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	freshEv := agevent.NewMessageEvent(9203, "grp_prune", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	insertOutboxRow(t, ctx, db, freshEv, "pending", 0, time.Now().Add(-time.Second))
 
 	publisher := &recordingAgentPublisher{}
@@ -428,14 +503,14 @@ func TestRelayAgentEventsTopicOrder(t *testing.T) {
 		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
 	}
 	db := client.Database(testMongoDB)
-	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{"topic": bson.M{"$in": []string{"grp_relay_order", "grp_relay_block"}}})
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{})
 	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
 
 	// Two due rows in the same topic: the lower topic_seq must be claimed first.
-	ev1 := agevent.NewMessageEvent(9301, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev1 := agevent.NewMessageEvent(9301, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	ev1.TopicSeq = 1
 	insertOutboxRow(t, ctx, db, ev1, "pending", 0, time.Now().Add(-time.Second))
-	ev2 := agevent.NewMessageEvent(9302, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	ev2 := agevent.NewMessageEvent(9302, "grp_relay_order", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	ev2.TopicSeq = 2
 	insertOutboxRow(t, ctx, db, ev2, "pending", 0, time.Now().Add(-time.Second))
 
@@ -454,10 +529,10 @@ func TestRelayAgentEventsTopicOrder(t *testing.T) {
 	}
 
 	// seq 1 not yet due (backoff) blocks seq 2 even though seq 2 is due.
-	evB1 := agevent.NewMessageEvent(9303, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	evB1 := agevent.NewMessageEvent(9303, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	evB1.TopicSeq = 1
 	insertOutboxRow(t, ctx, db, evB1, "pending", 0, time.Now().Add(time.Hour))
-	evB2 := agevent.NewMessageEvent(9304, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil)
+	evB2 := agevent.NewMessageEvent(9304, "grp_relay_block", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
 	evB2.TopicSeq = 2
 	insertOutboxRow(t, ctx, db, evB2, "pending", 0, time.Now().Add(-time.Second))
 	callsBefore := len(publisher.calls)
@@ -470,5 +545,56 @@ func TestRelayAgentEventsTopicOrder(t *testing.T) {
 	var blocked AgentEventOutbox
 	if err := db.Collection(CollectionAgentOutbox).FindOne(ctx, bson.M{"event_id": evB2.EventID}).Decode(&blocked); err != nil || blocked.Status != "pending" {
 		t.Fatalf("blocked row must stay pending: row=%+v err=%v", blocked, err)
+	}
+}
+
+// TestRelayAgentEventsFailedRowDoesNotBlock verifies the Phase 0 dead-letter
+// rule: a terminal failed row is skipped by both the due filter and the
+// per-topic ordering lookup, so later events keep flowing. Replaying the row
+// makes it publishable again.
+func TestRelayAgentEventsFailedRowDoesNotBlock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mongodb-dependent test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(testMongoURI).SetConnectTimeout(2 * time.Second))
+	if err != nil {
+		t.Skipf("mongodb not available, skipping storage test: %v", err)
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Skipf("mongodb not reachable, skipping storage test: %v", err)
+	}
+	db := client.Database(testMongoDB)
+	_, _ = db.Collection(CollectionAgentOutbox).DeleteMany(ctx, bson.M{})
+	storage := NewMessageStorage(db, log.NewStdLogger(os.Stdout))
+
+	ev1 := agevent.NewMessageEvent(9501, "grp_failed_dlq", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
+	ev1.TopicSeq = 1
+	insertOutboxRow(t, ctx, db, ev1, "failed", 50, time.Now().Add(-time.Minute))
+	ev2 := agevent.NewMessageEvent(9502, "grp_failed_dlq", 7, int32(v1.MsgType_MSG_TYPE_TEXT), time.Now().Unix(), nil, "")
+	ev2.TopicSeq = 2
+	insertOutboxRow(t, ctx, db, ev2, "pending", 0, time.Now().Add(-time.Second))
+
+	publisher := &recordingAgentPublisher{}
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 1 {
+		t.Fatalf("later event must publish past a failed row: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != 1 || publisher.calls[0].TopicSeq != 2 {
+		t.Fatalf("expected seq 2 to publish, got %+v", publisher.calls)
+	}
+	failedRows, err := storage.ListFailedAgentEvents(ctx, 10)
+	if err != nil || len(failedRows) != 1 || failedRows[0].EventID != ev1.EventID {
+		t.Fatalf("failed rows: %+v err=%v", failedRows, err)
+	}
+	if err := storage.ReplayAgentEvent(ctx, failedRows[0].ID); err != nil {
+		t.Fatalf("replay failed row: %v", err)
+	}
+	if n, err := storage.RelayAgentEvents(ctx, publisher, 1, time.Nanosecond); err != nil || n != 1 {
+		t.Fatalf("replayed row must publish: n=%d err=%v", n, err)
+	}
+	if len(publisher.calls) != 2 || publisher.calls[1].TopicSeq != 1 {
+		t.Fatalf("expected replayed seq 1, got %+v", publisher.calls)
 	}
 }

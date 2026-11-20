@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	v1 "nonoka-im/api/im/v1"
 	"google.golang.org/protobuf/proto"
+	v1 "nonoka-im/api/im/v1"
 )
 
 // ReadReceiptHandler is called when a read receipt is received.
@@ -54,10 +54,10 @@ type RealtimeClient struct {
 	userID atomic.Int64
 
 	// Gateway URL management for multi-gateway deployments
-	gatewayURLs   []string
-	gatewayIndex  int
+	gatewayURLs    []string
+	gatewayIndex   int
 	connectAttempt int
-	urlMu         sync.Mutex
+	urlMu          sync.Mutex
 
 	// Write protection for wsConn
 	writeMu sync.Mutex
@@ -80,20 +80,16 @@ type RealtimeClient struct {
 	seenSeqs   map[string]uint64 // topic -> last seen seq
 	seenSeqsMu sync.RWMutex
 
-	// Sending messages tracking (clientMsgID -> send result channel)
-	sendingMsgs map[string]chan *SendResult
-	sendingMu   sync.RWMutex
-
 	// Reconnect callback (for Application layer to pull offline messages)
 	onReconnect func()
 }
 
 const (
-	rtStateDisconnected  int32 = 0
-	rtStateConnecting    int32 = 1
-	rtStateConnected     int32 = 2
-	rtStateAuthed        int32 = 3
-	rtStateReconnecting  int32 = 4
+	rtStateDisconnected int32 = 0
+	rtStateConnecting   int32 = 1
+	rtStateConnected    int32 = 2
+	rtStateAuthed       int32 = 3
+	rtStateReconnecting int32 = 4
 )
 
 // ConnectionState represents the current connection state as a string.
@@ -158,7 +154,6 @@ func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
 		gatewayURLs: urls,
 		pending:     make(map[uint64]chan *v1.Packet),
 		seenSeqs:    make(map[string]uint64),
-		sendingMsgs: make(map[string]chan *SendResult),
 		stopCh:      make(chan struct{}),
 	}
 }

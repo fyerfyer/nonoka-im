@@ -12,18 +12,18 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	einotool "github.com/cloudwego/eino/components/tool"
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
-	"nonoka-im/internal/data"
 )
 
-type fakeStore struct{ server *data.MCPServer }
+type fakeStore struct{ server *domain.MCPServer }
 
 // GetServer returns a copy so tests exercise the provider re-reading the
 // registry instead of observing mutations through a shared pointer.
-func (f *fakeStore) GetServer(_ context.Context, name string) (*data.MCPServer, error) {
+func (f *fakeStore) GetServer(_ context.Context, name string) (*domain.MCPServer, error) {
 	if f.server == nil || f.server.Name != name {
-		return nil, data.ErrMCPNotFound
+		return nil, domain.ErrMCPNotFound
 	}
 	snap := *f.server
 	return &snap, nil
@@ -63,10 +63,10 @@ func newFixtureServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func registryEntry(t *testing.T, srv *httptest.Server, tools ...string) *data.MCPServer {
+func registryEntry(t *testing.T, srv *httptest.Server, tools ...string) *domain.MCPServer {
 	t.Helper()
 	raw, _ := json.Marshal(tools)
-	return &data.MCPServer{Name: "fixture", Transport: "http", URL: srv.URL, AllowedTools: string(raw), RiskClass: "read_only", Enabled: true}
+	return &domain.MCPServer{Name: "fixture", Transport: "http", URL: srv.URL, AllowedTools: string(raw), RiskClass: "read_only", Enabled: true}
 }
 
 func TestProviderExposesOnlyBoundTools(t *testing.T) {
@@ -74,7 +74,7 @@ func TestProviderExposesOnlyBoundTools(t *testing.T) {
 	store := &fakeStore{server: registryEntry(t, srv, "echo")}
 	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second}
 
-	ts, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}})
+	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("tools: %v, %v", ts, err)
 	}
@@ -84,16 +84,16 @@ func TestProviderExposesOnlyBoundTools(t *testing.T) {
 	}
 
 	// "hidden" is not in the registry allowlist, so binding it must fail.
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "hidden"}}); err == nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "hidden"}}); err == nil {
 		t.Fatalf("unlisted tool exposed")
 	}
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "missing"}}); err == nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "missing"}}); err == nil {
 		t.Fatalf("unknown tool exposed")
 	}
 
 	// A disabled server refuses tool resolution.
 	store.server.Enabled = false
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
 		t.Fatalf("disabled server still serves tools")
 	}
 }
@@ -107,13 +107,13 @@ func TestProviderInvalidatesCachedClient(t *testing.T) {
 	store := &fakeStore{server: registryEntry(t, srv, "echo")}
 	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second}
 
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Disable after a successful resolution: the stale cache must not serve.
 	store.server.Enabled = false
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
 		t.Fatal("disabled server still serves cached tools")
 	}
 
@@ -121,16 +121,41 @@ func TestProviderInvalidatesCachedClient(t *testing.T) {
 	// newly allowed tool becomes resolvable.
 	store.server.Enabled = true
 	store.server.AllowedTools = `["echo","hidden"]`
-	ts, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "hidden"}})
+	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "hidden"}})
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("config change did not rebuild tools: %v, %v", ts, err)
 	}
 
 	// Delete the server: cached tools must fail closed.
 	store.server = nil
-	if _, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
 		t.Fatal("deleted server still serves cached tools")
 	}
+}
+
+func TestProviderEvictsIdleClients(t *testing.T) {
+	srv := newFixtureServer(t)
+	store := &fakeStore{server: registryEntry(t, srv, "echo")}
+	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second, IdleTTL: time.Minute}
+	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	before := len(p.clients)
+	p.mu.Unlock()
+	if before != 1 {
+		t.Fatalf("expected one cached client, got %d", before)
+	}
+	if evicted := p.EvictIdle(time.Now().Add(2 * time.Minute)); evicted != 1 {
+		t.Fatalf("expected one idle eviction, got %d", evicted)
+	}
+	p.mu.Lock()
+	after := len(p.clients)
+	p.mu.Unlock()
+	if after != 0 {
+		t.Fatalf("idle client not evicted: %d", after)
+	}
+	p.Close()
 }
 
 func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
@@ -138,7 +163,7 @@ func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
 	store := &fakeStore{server: registryEntry(t, srv, "echo")}
 	guard := &guardRecorder{}
 	p := &Provider{Store: store, Guard: guard, Timeout: 5 * time.Second}
-	ts, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}})
+	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +194,7 @@ func TestProviderFailsWithoutGuard(t *testing.T) {
 	srv := newFixtureServer(t)
 	store := &fakeStore{server: registryEntry(t, srv, "echo")}
 	p := &Provider{Store: store, Timeout: 5 * time.Second}
-	ts, err := p.Tools(context.Background(), []runtime.MCPTool{{Server: "fixture", Tool: "echo"}})
+	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
 	if err != nil {
 		t.Fatal(err)
 	}

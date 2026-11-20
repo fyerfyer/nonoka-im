@@ -10,24 +10,25 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/adk/middlewares/skill"
+	"gopkg.in/yaml.v3"
 
-	"nonoka-im/internal/agent/runtime"
-	"nonoka-im/internal/data"
+	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/port"
 )
 
 // Store is the subset of data.MCPStore used here (kept as an interface for
 // deterministic tests).
 type Store interface {
-	GetSkill(ctx context.Context, name string, version int64) (*data.Skill, error)
+	GetSkill(ctx context.Context, name string, version int64) (*domain.Skill, error)
 }
 
 // Backend lists and reads only the skills bound to one agent version.
 type Backend struct {
 	store    Store
-	bindings []runtime.SkillBinding
+	bindings []port.SkillBinding
 }
 
-func NewBackend(store Store, bindings []runtime.SkillBinding) *Backend {
+func NewBackend(store Store, bindings []port.SkillBinding) *Backend {
 	return &Backend{store: store, bindings: bindings}
 }
 
@@ -40,10 +41,7 @@ func (b *Backend) List(ctx context.Context) ([]skill.FrontMatter, error) {
 			// offers what still exists.
 			continue
 		}
-		fm, _ := ParseFrontMatter(row.Content)
-		if fm.Name == "" {
-			fm.Name = row.Name
-		}
+		fm, _ := parseBoundSkill(row.Content, row.Name)
 		result = append(result, fm)
 	}
 	return result, nil
@@ -61,48 +59,57 @@ func (b *Backend) Get(ctx context.Context, name string) (skill.Skill, error) {
 		if !row.Published {
 			return skill.Skill{}, errors.New("skill is not published")
 		}
-		fm, content := ParseFrontMatter(row.Content)
-		if fm.Name == "" {
-			fm.Name = row.Name
-		}
-		// Only inline context mode is supported: fork modes would need
-		// sub-agent permission inheritance which is deliberately out of scope.
-		fm.Context = ""
-		fm.Agent = ""
-		fm.Model = ""
+		fm, content := parseBoundSkill(row.Content, row.Name)
 		return skill.Skill{FrontMatter: fm, Content: content}, nil
 	}
 	return skill.Skill{}, errors.New("skill not bound to this agent")
 }
 
 // ParseFrontMatter extracts the YAML front matter of a SKILL.md document and
-// returns the parsed front matter plus the remaining body.
+// returns the parsed front matter plus the remaining body. Parsing with
+// yaml.v3 (the same way Eino's skill filesystem backend does) handles quoted
+// values, colons inside descriptions and multiline strings; a hand-rolled
+// "key: value" split does not.
 func ParseFrontMatter(content string) (skill.FrontMatter, string) {
 	var fm skill.FrontMatter
 	rest := strings.TrimSpace(content)
 	if !strings.HasPrefix(rest, "---") {
 		return fm, rest
 	}
-	end := strings.Index(rest[3:], "\n---")
+	after := rest[3:]
+	if after != "" && !strings.HasPrefix(after, "\n") && !strings.HasPrefix(after, "\r\n") {
+		// A body beginning with "---" (e.g. a horizontal rule) is not front
+		// matter; leave it untouched.
+		return fm, rest
+	}
+	end := strings.Index(after, "\n---")
 	if end < 0 {
 		return fm, rest
 	}
-	header := rest[3 : 3+end]
-	body := strings.TrimSpace(rest[3+end+4:])
-	// Minimal yaml subset: parse simple "key: value" lines so we do not need
-	// to export yaml parsing behavior into the runtime contract.
-	for _, line := range strings.Split(header, "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		switch strings.TrimSpace(key) {
-		case "name":
-			fm.Name = value
-		case "description":
-			fm.Description = value
-		}
+	header := strings.TrimSpace(after[:end])
+	body := strings.TrimSpace(after[end+4:])
+	if err := yaml.Unmarshal([]byte(header), &fm); err != nil {
+		// Keep the body usable; callers fall back to the skill name when the
+		// front matter is malformed.
+		return skill.FrontMatter{}, body
 	}
-	return fm, body
+	return sanitizeFrontMatter(fm), body
+}
+
+// parseBoundSkill parses a stored SKILL.md and applies the platform policy:
+// only inline context mode is supported, because fork modes would need
+// sub-agent permission inheritance which is deliberately out of scope.
+func parseBoundSkill(content, fallbackName string) (skill.FrontMatter, string) {
+	fm, body := ParseFrontMatter(content)
+	if fm.Name == "" {
+		fm.Name = fallbackName
+	}
+	return sanitizeFrontMatter(fm), body
+}
+
+func sanitizeFrontMatter(fm skill.FrontMatter) skill.FrontMatter {
+	fm.Context = ""
+	fm.Agent = ""
+	fm.Model = ""
+	return fm
 }

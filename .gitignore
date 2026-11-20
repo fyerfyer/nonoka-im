@@ -51,8 +51,6 @@ cmd/nonoka-im/nonoka-im
 # Self files 
 self-files/
 docs/*
-!docs/agent-architecture.md
-!docs/agent-implementation-plan.md
 .claude/
 /DESIGN.md
 .codegraph/

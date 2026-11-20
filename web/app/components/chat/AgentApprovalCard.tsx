@@ -84,8 +84,8 @@ export function AgentApprovalCard({ content }: { content: string }) {
     agentApi
       .approvalDetail(card.approval_id)
       .then((detail) => {
-        if (active && detail.Status && detail.Status !== "pending") {
-          setServerStatus(detail.Status);
+        if (active && detail.status && detail.status !== "pending") {
+          setServerStatus(detail.status);
         }
       })
       .catch(() => {

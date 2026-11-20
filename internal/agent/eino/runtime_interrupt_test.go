@@ -3,14 +3,29 @@ package eino
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"nonoka-im/internal/agent/runtime"
+	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
+	"nonoka-im/internal/agent/tools/builtin"
+	"nonoka-im/internal/agent/tools/catalog"
 )
+
+type staticCatalog struct{ defs []catalog.Definition }
+
+func (c staticCatalog) Definition(name string) (catalog.Definition, bool) {
+	for _, def := range c.defs {
+		if def.Name == name {
+			return def, true
+		}
+	}
+	return catalog.Definition{}, false
+}
+func (c staticCatalog) Definitions() []catalog.Definition { return c.defs }
 
 // interruptBackend counts side effects so tests can assert the wrapped tool
 // only executed after approval.
@@ -105,14 +120,16 @@ func (m *memCheckPoints) Set(_ context.Context, id string, b []byte) error {
 	return nil
 }
 
-func approvalRuntime(backend *interruptBackend) *Runtime {
-	r := &Runtime{model: &approvalModel{}, checkpoints: &memCheckPoints{}}
-	r.tools = tools.New(backend, allowGuard{}, 8192)
+func approvalRuntime(backend *interruptBackend) *Engine {
+	r := &Engine{model: &approvalModel{}, checkpoints: &memCheckPoints{}, toolCatalog: staticCatalog{defs: catalog.BuiltinDefinitions()}}
+	for _, t := range builtin.New(backend, allowGuard{}, 8192) {
+		r.tools = append(r.tools, t)
+	}
 	return r
 }
 
-func approvalInput() runtime.Input {
-	return runtime.Input{
+func approvalInput() port.Input {
+	return port.Input{
 		Text:          "send a greeting",
 		Instruction:   "test",
 		AgentID:       7,
@@ -135,7 +152,7 @@ func TestRunInterruptsForApprovalAndResumeExecutesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != runtime.StatusInterrupted {
+	if res.Status != port.StatusInterrupted {
 		t.Fatalf("expected interrupted run, got %+v", res)
 	}
 	if res.Interrupt == nil || res.Interrupt.Tool != "send_message" {
@@ -147,16 +164,25 @@ func TestRunInterruptsForApprovalAndResumeExecutesOnce(t *testing.T) {
 	if res.Interrupt.Summary == "" {
 		t.Fatal("interrupt summary missing")
 	}
+	if strings.Contains(res.Interrupt.Summary, "hello") {
+		t.Fatalf("approval summary leaked raw argument: %q", res.Interrupt.Summary)
+	}
+	if !strings.Contains(res.Interrupt.Summary, "send a message") {
+		t.Fatalf("catalog summarizer was not used: %q", res.Interrupt.Summary)
+	}
+	if res.Interrupt.ArgsHash == "" {
+		t.Fatal("interrupt args hash missing")
+	}
 	if backend.sendCount() != 0 {
 		t.Fatalf("tool executed before approval: %d", backend.sendCount())
 	}
 
-	resume := runtime.ResumeInput{Input: approvalInput(), InterruptID: res.Interrupt.ToolCallID, Approved: true}
+	resume := port.ResumeInput{Input: approvalInput(), InterruptID: res.Interrupt.ToolCallID, Approved: true}
 	res, err = r.Resume(context.Background(), resume)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != runtime.StatusCompleted || res.Text != "final answer after approval" {
+	if res.Status != port.StatusCompleted || res.Text != "final answer after approval" {
 		t.Fatalf("unexpected resume result: %+v", res)
 	}
 	if backend.sendCount() != 1 {
@@ -172,12 +198,12 @@ func TestResumeRejectionSkipsToolExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resume := runtime.ResumeInput{Input: approvalInput(), InterruptID: res.Interrupt.ToolCallID, Approved: false}
+	resume := port.ResumeInput{Input: approvalInput(), InterruptID: res.Interrupt.ToolCallID, Approved: false}
 	res, err = r.Resume(context.Background(), resume)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != runtime.StatusCompleted || res.Text == "" {
+	if res.Status != port.StatusCompleted || res.Text == "" {
 		t.Fatalf("unexpected resume result: %+v", res)
 	}
 	if backend.sendCount() != 0 {
@@ -195,7 +221,7 @@ func TestRunWithoutApprovalToolsExecutesDirectly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != runtime.StatusCompleted {
+	if res.Status != port.StatusCompleted {
 		t.Fatalf("expected completed run, got %+v", res)
 	}
 	if backend.sendCount() != 1 {
