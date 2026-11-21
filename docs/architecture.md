@@ -106,8 +106,9 @@ Agent tools depend on `messaging.Reader`, `messaging.FileReader` and
 
 ## 7. Migration state
 
-- Phase 0.5 completed: `internal/msgworker` removed, service/gateway converged on
-  app usecases, agent management moved to `agent/app/admin`, messaging seam
-  completed, job lifecycle/config unified, architecture tests added.
+- Phase 0.5 completed and reviewed (2026-11-21): `internal/msgworker` removed,
+  service/gateway converged on app usecases, agent management moved to
+  `agent/app/admin`, messaging seam completed, job lifecycle/config unified,
+  architecture tests added.
 - Phase 1 will add the Model Service and Tool Registry. New API/storage must
   follow the rules above; do not reintroduce transport -> storage shortcuts.
