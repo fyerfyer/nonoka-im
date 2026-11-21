@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	"nonoka-im/internal/conf"
@@ -48,11 +49,6 @@ type AuthUsecase struct {
 	bcryptCost int
 }
 
-// Repo returns the underlying AuthRepo for user queries.
-func (uc *AuthUsecase) Repo() AuthRepo {
-	return uc.repo
-}
-
 func NewAuthUsecase(repo AuthRepo, authConf *conf.Auth) *AuthUsecase {
 	ttl := 7 * 24 * time.Hour
 	refreshTTL := 30 * 24 * time.Hour
@@ -73,6 +69,20 @@ func NewAuthUsecase(repo AuthRepo, authConf *conf.Auth) *AuthUsecase {
 		refreshTTL: refreshTTL,
 		bcryptCost: bcryptCost,
 	}
+}
+
+// SearchUsers returns users whose username starts with prefix. An empty
+// prefix is treated as "no query" and yields an empty result. The limit is
+// bounded to 1..100 with a default of 20.
+func (uc *AuthUsecase) SearchUsers(ctx context.Context, prefix string, limit int32) ([]*User, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return []*User{}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return uc.repo.SearchUsersByPrefix(ctx, prefix, limit)
 }
 
 func (uc *AuthUsecase) Register(ctx context.Context, username, password string) (*User, error) {

@@ -49,17 +49,7 @@ func (s *UserService) GetUserPresence(ctx context.Context, req *pb.GetUserPresen
 
 // SearchUsers searches users by username prefix. Authentication is required.
 func (s *UserService) SearchUsers(ctx context.Context, req *pb.SearchUsersRequest) (*pb.SearchUsersReply, error) {
-	prefix := req.GetUsername()
-	if prefix == "" {
-		return &pb.SearchUsersReply{Users: []*pb.User{}}, nil
-	}
-
-	limit := req.GetLimit()
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-
-	users, err := s.uc.Repo().SearchUsersByPrefix(ctx, prefix, limit)
+	users, err := s.uc.SearchUsers(ctx, req.GetUsername(), req.GetLimit())
 	if err != nil {
 		return nil, err
 	}
