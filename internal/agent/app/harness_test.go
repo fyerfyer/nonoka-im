@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/domain"
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	agentdata "nonoka-im/internal/data/agent"
+	"nonoka-im/internal/messaging"
 )
 
 type authorizerStub struct {
@@ -39,7 +39,7 @@ func TestHandleResolvedBotAuthorization(t *testing.T) {
 	t.Run("bot message ignored", func(t *testing.T) {
 		az := &authorizerStub{}
 		h := &Harness{Authorizer: az}
-		err := h.HandleResolved(context.Background(), agevent.MessageEvent{SenderID: 99, Topic: "p2p_1_99"}, ResolvedAgent{ID: 7, BotID: 99}, nil, nil, nil, nil)
+		err := h.HandleResolved(context.Background(), messaging.MessageEvent{SenderID: 99, Topic: "p2p_1_99"}, ResolvedAgent{ID: 7, BotID: 99}, nil, nil, nil, nil)
 		if err != nil || len(az.calls) != 0 {
 			t.Fatalf("err=%v auth calls=%v", err, az.calls)
 		}
@@ -47,7 +47,7 @@ func TestHandleResolvedBotAuthorization(t *testing.T) {
 	t.Run("group topic requires actor and bot access", func(t *testing.T) {
 		az := &authorizerStub{denied: 99}
 		h := &Harness{Authorizer: az}
-		err := h.HandleResolved(context.Background(), agevent.MessageEvent{SenderID: 1, Topic: "grp_group", MentionedAgentIDs: []int64{99}}, ResolvedAgent{ID: 7, BotID: 99}, nil, nil, nil, nil)
+		err := h.HandleResolved(context.Background(), messaging.MessageEvent{SenderID: 1, Topic: "grp_group", MentionedAgentIDs: []int64{99}}, ResolvedAgent{ID: 7, BotID: 99}, nil, nil, nil, nil)
 		if err == nil {
 			t.Fatal("expected bot membership denial")
 		}
@@ -57,7 +57,7 @@ func TestHandleResolvedBotAuthorization(t *testing.T) {
 	})
 	t.Run("missing dependencies reported", func(t *testing.T) {
 		h := &Harness{Authorizer: &authorizerStub{}}
-		err := h.HandleResolved(context.Background(), agevent.MessageEvent{SenderID: 1, Topic: "p2p_1_99"}, ResolvedAgent{ID: 7, BotID: 99}, &domain.AgentRun{ID: 1, AttemptID: "attempt"}, &domain.AgentSession{}, nil, nil)
+		err := h.HandleResolved(context.Background(), messaging.MessageEvent{SenderID: 1, Topic: "p2p_1_99"}, ResolvedAgent{ID: 7, BotID: 99}, &domain.AgentRun{ID: 1, AttemptID: "attempt"}, &domain.AgentSession{}, nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "agent harness dependencies unavailable") {
 			t.Fatalf("unexpected err: %v", err)
 		}
@@ -195,7 +195,7 @@ func TestHandleResolvedPhaseBFailureMarksRunFailed(t *testing.T) {
 		Sender:      &recordingSender{receiptID: 4242},
 		MaxAttempts: 1,
 	}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: eventID, MsgID: 1001, TopicSeq: 100, Topic: topic, SenderID: actorID, Content: "hello agent"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 1001, TopicSeq: 100, Topic: topic, SenderID: actorID, Content: "hello agent"}
 	err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: "deepseek-chat"}, run, session, snapshot, turns)
 	if err == nil || err.Error() != "model exploded" {
 		t.Fatalf("expected original runtime error, got %v", err)
@@ -235,7 +235,7 @@ func TestHandleResolvedAuthDeniedMarksRunTerminal(t *testing.T) {
 		Authorizer: authzDeniedStub{err: authz.ErrDenied}, Sender: &recordingSender{},
 		MaxAttempts: 1,
 	}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: eventID, MsgID: 1002, TopicSeq: 101, Topic: topic, SenderID: actorID, Content: "hello"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 1002, TopicSeq: 101, Topic: topic, SenderID: actorID, Content: "hello"}
 	if err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1}, run, session, snapshot, turns); err == nil {
 		t.Fatal("expected authorization denial")
 	}
@@ -260,7 +260,7 @@ func TestHandleResolvedAuthOutageIsRetryable(t *testing.T) {
 		Authorizer: authzDeniedStub{err: errors.New("openfga unavailable")}, Sender: &recordingSender{},
 		MaxAttempts: 5,
 	}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: eventID, MsgID: 1003, TopicSeq: 102, Topic: topic, SenderID: actorID, Content: "hello"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 1003, TopicSeq: 102, Topic: topic, SenderID: actorID, Content: "hello"}
 	if err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1}, run, session, snapshot, turns); err == nil {
 		t.Fatal("expected authorization outage error")
 	}
@@ -291,7 +291,7 @@ func TestHandleResolvedCompletesRunAndTurn(t *testing.T) {
 		Authorizer: &authorizerStub{},
 		Sender:     sender,
 	}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: eventID, MsgID: 2002, TopicSeq: 1, Topic: topic, SenderID: actorID, Content: "hello agent"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 2002, TopicSeq: 1, Topic: topic, SenderID: actorID, Content: "hello agent"}
 	if err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: "deepseek-chat"}, run, session, snapshot, turns); err != nil {
 		t.Fatalf("HandleResolved: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestHandleResolvedRetriesCompleteRun(t *testing.T) {
 	store := &fakeRunStore{completeFails: 2}
 	sender := &recordingSender{receiptID: 77}
 	h := &Harness{Store: store, Runtime: stubRuntime{result: port.Result{Text: "ok"}}, Authorizer: &authorizerStub{}, Sender: sender}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: "evt-retry", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: "evt-retry", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
 	run := &domain.AgentRun{ID: 11, AttemptID: "attempt-1", SessionID: 22, EventID: "evt-retry", ActorUserID: 1, Topic: "p2p_1_2"}
 	if err := h.HandleResolved(context.Background(), ev, ResolvedAgent{ID: 7, BotID: 2, Version: 1}, run, &domain.AgentSession{ID: 22}, nil, nil); err != nil {
 		t.Fatalf("transient CompleteRun failures must be retried: %v", err)
@@ -366,7 +366,7 @@ func TestHandleResolvedRetriesCompleteRun(t *testing.T) {
 func TestHandleResolvedCompleteRunExhaustsRetries(t *testing.T) {
 	store := &fakeRunStore{completeFails: 99}
 	h := &Harness{Store: store, Runtime: stubRuntime{result: port.Result{Text: "ok"}}, Authorizer: &authorizerStub{}, Sender: &recordingSender{}}
-	ev := agevent.MessageEvent{SchemaVersion: agevent.SchemaVersion, EventID: "evt-giveup", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
+	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: "evt-giveup", MsgID: 1, Topic: "p2p_1_2", SenderID: 1, Content: "hi"}
 	run := &domain.AgentRun{ID: 11, AttemptID: "attempt-1", SessionID: 22, EventID: "evt-giveup", ActorUserID: 1, Topic: "p2p_1_2"}
 	if err := h.HandleResolved(context.Background(), ev, ResolvedAgent{ID: 7, BotID: 2, Version: 1}, run, &domain.AgentSession{ID: 22}, nil, nil); err == nil {
 		t.Fatal("expected error when CompleteRun keeps failing")

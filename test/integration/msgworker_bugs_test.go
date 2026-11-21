@@ -10,7 +10,8 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/msgworker"
+	mongostore "nonoka-im/internal/im/storage/mongo"
+	kafkax "nonoka-im/internal/kafka"
 
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -48,7 +49,7 @@ func TestMsgWorker_KafkaConsumer_ParallelWorkers(t *testing.T) {
 		_ = db.Collection(coll).Drop(ctx)
 	}
 
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestMsgWorker_KafkaConsumer_ParallelWorkers(t *testing.T) {
 		return nil
 	}
 
-	kafkaCfg := msgworker.KafkaConsumerConfig{
+	kafkaCfg := kafkax.ConsumerConfig{
 		Brokers:     []string{testKafkaBroker},
 		Topic:       topic,
 		GroupID:     fmt.Sprintf("msgworker-parallel-group-%d", time.Now().UnixNano()),
@@ -67,7 +68,7 @@ func TestMsgWorker_KafkaConsumer_ParallelWorkers(t *testing.T) {
 		WorkerCount: 4,
 	}
 
-	consumer := msgworker.NewKafkaConsumer(kafkaCfg, handler, testLogger)
+	consumer := kafkax.NewConsumer(kafkaCfg, handler, testLogger)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -127,8 +128,8 @@ func TestMsgWorker_DuplicateMessage_DoesNotAdvanceMaxSeq(t *testing.T) {
 		t.Fatalf("handle first message failed: %v", err)
 	}
 
-	seqColl := db.Collection(msgworker.CollectionTopicSeqs)
-	var backup msgworker.TopicSeqBackup
+	seqColl := db.Collection(mongostore.CollectionTopicSeqs)
+	var backup mongostore.TopicSeqBackup
 	if err := seqColl.FindOne(ctx, bson.M{"topic": topic}).Decode(&backup); err != nil {
 		t.Fatalf("find topic seq backup failed: %v", err)
 	}

@@ -5,44 +5,40 @@
 # never written here.
 
 data:
-  postgres_dsn: "host=127.0.0.1 user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable"
-  mongodb_uri: "mongodb://127.0.0.1:27017"
-  mongodb_database: "nonoka_im"
+  database:
+    source: "host=127.0.0.1 user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable"
+  mongodb:
+    uri: "mongodb://127.0.0.1:27017"
+    database: "nonoka_im"
+  kafka:
+    brokers:
+      - "127.0.0.1:9092"
+    topic: "agent-events"
+    consumer_group: "nonoka-agent-worker"
+    dlq_topic: "agent-events-dlq"
+    worker_count: 4
+    max_retries: 2
+    max_wait: 10s
+    commit_batch_size: 100
+    commit_flush_interval: 1s
 
-kafka:
-  brokers:
-    - "127.0.0.1:9092"
-  events_topic: "agent-events"
-  events_group: "nonoka-agent-worker"
-  dlq_topic: "agent-events-dlq"
-  consumer_workers: 4
-  max_retries: 2
-  dispatch_timeout: "10s"
-  commit_batch_size: 100
-  commit_flush_period: "1s"
-
-worker:
+agent_worker:
   run_workers: 8
-  run_timeout: "2m"
-  lease: "3m"
-  heartbeat: "45s"
-  queued_poll: "1s"
-  sweep_interval: "30s"
+  run_timeout: 120s
+  lease: 180s
+  heartbeat: 45s
+  queued_poll: 1s
+  sweep_interval: 30s
   max_attempts: 5
-
-im:
-  http_url: "http://127.0.0.1:8000"
-
-agent:
-  id: 1
-  bot_id: 0
+  dispatch_timeout: 10s
+  im_http_url: "http://127.0.0.1:8000"
+  bootstrap_agent_id: 1
+  bootstrap_bot_id: 0
   bootstrap_owner_id: 0
   bootstrap_name: "Nonoka Assistant"
   bootstrap_instruction: "You are the Nonoka IM assistant. Use concise, helpful answers."
-
-model:
-  base_url: "https://api.deepseek.com/v1"
-  name: ""
+  model_base_url: "https://api.deepseek.com/v1"
+  model_name: ""
 
 observability:
   health_addr: ":8090"

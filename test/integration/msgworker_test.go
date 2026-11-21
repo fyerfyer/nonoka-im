@@ -9,7 +9,10 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/msgworker"
+	imconsumer "nonoka-im/internal/im/consumer"
+	"nonoka-im/internal/im/seq"
+	mongostore "nonoka-im/internal/im/storage/mongo"
+	kafkax "nonoka-im/internal/kafka"
 
 	"github.com/segmentio/kafka-go"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -18,7 +21,7 @@ import (
 )
 
 // setupMsgWorker creates a MsgWorker with real dependencies for testing.
-func setupMsgWorker(t *testing.T) (*msgworker.MsgWorker, *mongo.Database, func()) {
+func setupMsgWorker(t *testing.T) (*imconsumer.Worker, *mongo.Database, func()) {
 	db := setupMongoDB(t)
 	redisClient := setupTestRedis(t)
 
@@ -28,15 +31,14 @@ func setupMsgWorker(t *testing.T) (*msgworker.MsgWorker, *mongo.Database, func()
 		t.Logf("warning: failed to clean redis keys: %v", err)
 	}
 
-	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	seqGen := seq.New(redisClient, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, storage, nil, testLogger)
+	worker := newTestIMWorker(seqGen, storage, nil, nil, nil, nil)
 
 	cleanup := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -75,13 +77,13 @@ func TestMsgWorker_P2PMessage_WriteSpread(t *testing.T) {
 		t.Fatalf("handle message failed: %v", err)
 	}
 
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	count := countMongoDocs(t, inboxColl, bson.M{"user_id": receiverID})
 	if count != 1 {
 		t.Fatalf("expected 1 inbox message for receiver %d, got %d", receiverID, count)
 	}
 
-	var inbox msgworker.InboxMessage
+	var inbox mongostore.InboxMessage
 	if err := inboxColl.FindOne(ctx, bson.M{"user_id": receiverID}).Decode(&inbox); err != nil {
 		t.Fatalf("failed to find inbox message: %v", err)
 	}
@@ -132,13 +134,13 @@ func TestMsgWorker_GroupMessage_ReadSpread(t *testing.T) {
 		t.Fatalf("handle message failed: %v", err)
 	}
 
-	msgColl := db.Collection(msgworker.CollectionMessages)
+	msgColl := db.Collection(mongostore.CollectionMessages)
 	count := countMongoDocs(t, msgColl, bson.M{"topic": topic})
 	if count != 1 {
 		t.Fatalf("expected 1 group message, got %d", count)
 	}
 
-	var stored msgworker.StoredMessage
+	var stored mongostore.StoredMessage
 	if err := msgColl.FindOne(ctx, bson.M{"topic": topic}).Decode(&stored); err != nil {
 		t.Fatalf("failed to find group message: %v", err)
 	}
@@ -155,7 +157,7 @@ func TestMsgWorker_GroupMessage_ReadSpread(t *testing.T) {
 		t.Fatalf("expected client_msg_id='grp-msg-001', got %s", stored.ClientMsgID)
 	}
 
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	inboxCount := countMongoDocs(t, inboxColl, bson.M{})
 	if inboxCount != 0 {
 		t.Fatalf("expected 0 inbox messages for group message, got %d", inboxCount)
@@ -184,13 +186,13 @@ func TestMsgWorker_SystemMessage(t *testing.T) {
 		t.Fatalf("handle message failed: %v", err)
 	}
 
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	count := countMongoDocs(t, inboxColl, bson.M{"user_id": targetUID})
 	if count != 1 {
 		t.Fatalf("expected 1 system inbox message for user %d, got %d", targetUID, count)
 	}
 
-	var inbox msgworker.InboxMessage
+	var inbox mongostore.InboxMessage
 	if err := inboxColl.FindOne(ctx, bson.M{"user_id": targetUID}).Decode(&inbox); err != nil {
 		t.Fatalf("failed to find system inbox message: %v", err)
 	}
@@ -235,7 +237,7 @@ func TestMsgWorker_ConcurrentMessages(t *testing.T) {
 	wg.Wait()
 
 	expectedCount := concurrency * msgsPerGoroutine
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	cursor, err := inboxColl.Find(ctx, bson.M{"topic": topic, "user_id": int64(2)})
 	if err != nil {
 		t.Fatalf("failed to find messages: %v", err)
@@ -244,7 +246,7 @@ func TestMsgWorker_ConcurrentMessages(t *testing.T) {
 
 	seqSet := make(map[uint64]bool)
 	for cursor.Next(ctx) {
-		var inbox msgworker.InboxMessage
+		var inbox mongostore.InboxMessage
 		if err := cursor.Decode(&inbox); err != nil {
 			t.Fatalf("failed to decode inbox: %v", err)
 		}
@@ -264,8 +266,8 @@ func TestMsgWorker_ConcurrentMessages(t *testing.T) {
 		}
 	}
 
-	seqColl := db.Collection(msgworker.CollectionTopicSeqs)
-	var backup msgworker.TopicSeqBackup
+	seqColl := db.Collection(mongostore.CollectionTopicSeqs)
+	var backup mongostore.TopicSeqBackup
 	if err := seqColl.FindOne(ctx, bson.M{"topic": topic}).Decode(&backup); err != nil {
 		t.Fatalf("failed to find topic seq backup: %v", err)
 	}
@@ -305,23 +307,21 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 		_ = db.Collection(coll).Drop(ctx)
 	}
 
-	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	seqGen := seq.New(redisClient, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	kafkaCfg := msgworker.KafkaConsumerConfig{
+	kafkaCfg := kafkax.ConsumerConfig{
 		Brokers:     []string{testKafkaBroker},
 		Topic:       topic,
 		GroupID:     fmt.Sprintf("msgworker-e2e-group-%d", time.Now().UnixNano()),
 		StartOffset: kafka.FirstOffset,
 	}
 
-	consumer := msgworker.NewKafkaConsumer(kafkaCfg, nil, testLogger)
-	worker := msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, nil, testLogger)
-	consumer.SetHandler(worker.HandleMessage)
+	consumer := kafkax.NewConsumer(kafkaCfg, nil, testLogger)
+	worker := newTestIMWorker(seqGen, storage, nil, nil, nil, nil, consumer)
 
 	var workerErr error
 	var workerDone sync.WaitGroup
@@ -363,7 +363,7 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer verifyCancel()
 
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	count := countMongoDocs(t, inboxColl, bson.M{"topic": "p2p_1_2", "user_id": int64(2)})
 	if count != messageCount {
 		t.Fatalf("expected %d inbox messages for receiver, got %d", messageCount, count)
@@ -377,7 +377,7 @@ func TestMsgWorker_E2E_KafkaToMongoDB(t *testing.T) {
 
 	seqSet := make(map[uint64]bool)
 	for cursor.Next(verifyCtx) {
-		var inbox msgworker.InboxMessage
+		var inbox mongostore.InboxMessage
 		if err := cursor.Decode(&inbox); err != nil {
 			t.Fatalf("failed to decode inbox: %v", err)
 		}
@@ -413,18 +413,17 @@ func TestMsgWorker_KafkaConsumer_GracefulShutdown(t *testing.T) {
 	db := setupMongoDB(t)
 	redisClient := setupTestRedis(t)
 
-	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	seqGen := seq.New(redisClient, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 
-	kafkaCfg := msgworker.KafkaConsumerConfig{
+	kafkaCfg := kafkax.ConsumerConfig{
 		Brokers: []string{testKafkaBroker},
 		Topic:   topic,
 		GroupID: fmt.Sprintf("msgworker-shutdown-group-%d", time.Now().UnixNano()),
 	}
 
-	consumer := msgworker.NewKafkaConsumer(kafkaCfg, nil, testLogger)
-	worker := msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, nil, testLogger)
+	consumer := kafkax.NewConsumer(kafkaCfg, nil, testLogger)
+	worker := newTestIMWorker(seqGen, storage, nil, nil, nil, nil, consumer)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -440,7 +439,7 @@ func TestMsgWorker_KafkaConsumer_GracefulShutdown(t *testing.T) {
 	cancel()
 	wg.Wait()
 
-	if err := worker.Stop(); err != nil {
+	if err := worker.Stop(context.Background()); err != nil {
 		t.Fatalf("stop worker failed: %v", err)
 	}
 }
@@ -473,7 +472,7 @@ func TestMsgWorker_GroupMention_SameUser_Duplicate(t *testing.T) {
 		t.Fatalf("second handle failed: %v", err)
 	}
 
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	count := countMongoDocs(t, mentionColl, bson.M{"user_id": mentionedUser, "topic": topic})
 	if count != 1 {
 		t.Fatalf("expected 1 mention inbox after duplicate, got %d", count)

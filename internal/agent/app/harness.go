@@ -15,10 +15,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	agentcontext "nonoka-im/internal/agent/context"
 	"nonoka-im/internal/agent/domain"
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/authz"
+	"nonoka-im/internal/messaging"
 )
 
 // RunStore is the persistence surface the harness needs. agentdata.Store
@@ -80,7 +80,7 @@ type cardPayload struct {
 // HandleResolved executes an already-claimed run. The caller (the worker
 // executor) owns the lease and passes the state loaded after ClaimRun, so the
 // harness never claims a run itself and never sees a duplicate event.
-func (h *Harness) HandleResolved(ctx context.Context, ev agevent.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, session *domain.AgentSession, snapshot *domain.AgentContextSnapshot, turns []domain.AgentTurn) error {
+func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, session *domain.AgentSession, snapshot *domain.AgentContextSnapshot, turns []domain.AgentTurn) error {
 	ctx, span := otel.Tracer("nonoka-im/agent/harness").Start(ctx, "agent.handle_event",
 		trace.WithAttributes(
 			attribute.Int64("agent.id", agent.ID),
@@ -149,7 +149,7 @@ func (h *Harness) HandleResolved(ctx context.Context, ev agevent.MessageEvent, a
 // moves the run to waiting_approval in one transaction. The transaction keeps
 // the approval row and the run state consistent; the card is sent only after
 // the commit and uses the approval's stable ID.
-func (h *Harness) parkForApproval(parent context.Context, ev agevent.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, interrupt *port.InterruptInfo) error {
+func (h *Harness) parkForApproval(parent context.Context, ev messaging.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, interrupt *port.InterruptInfo) error {
 	if h.Store == nil {
 		return h.failRun(parent, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("agent harness store unavailable")})
 	}
@@ -188,7 +188,7 @@ func (h *Harness) parkForApproval(parent context.Context, ev agevent.MessageEven
 // been consumed by the executor, so a duplicate delivery cannot execute the
 // interrupted side effect twice. decision is the consumed status:
 // approved/rejected/expired; expired behaves as a rejection.
-func (h *Harness) HandleResume(ctx context.Context, ev agevent.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, approval *domain.AgentApproval, decision string) error {
+func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, approval *domain.AgentApproval, decision string) error {
 	if run == nil {
 		return fmt.Errorf("resume mismatch: run %d approval %v", 0, approval)
 	}
@@ -335,7 +335,7 @@ func (h *Harness) cancelRun(ctx context.Context, run *domain.AgentRun, code stri
 // finalize submits the model reply and commits the turn, snapshot and terminal
 // run state with the attempt fence. All post-reply store writes use a detached
 // context: the handler context may already be expired after a long model call.
-func (h *Harness) finalize(ctx context.Context, ev agevent.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, res port.Result) error {
+func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent ResolvedAgent, run *domain.AgentRun, res port.Result) error {
 	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer finishCancel()
 	clientID := stableClientID(ev.EventID, agent.ID)

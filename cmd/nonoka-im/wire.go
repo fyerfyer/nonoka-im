@@ -7,20 +7,28 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"nonoka-im/internal/agent/app/admin"
+	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	agentdata "nonoka-im/internal/data/agent"
 	imdata "nonoka-im/internal/data/im"
+	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/httpapi"
+	imapp "nonoka-im/internal/im/app"
+	mongostore "nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/internal/messaging"
+	messagingim "nonoka-im/internal/messaging/im"
 	"nonoka-im/internal/metrics"
-	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -226,8 +234,8 @@ func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 }
 
 // provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
-func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*msgworker.MessageStorage, error) {
-	storage := msgworker.NewMessageStorage(db, logger, m)
+func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*mongostore.Store, error) {
+	storage := mongostore.NewStore(db, logger, m)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := storage.EnsureIndexes(ctx); err != nil {
@@ -236,9 +244,84 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Met
 	return storage, nil
 }
 
-// provideOutboxAdmin exposes the failed agent outbox rows to the admin API.
-func provideOutboxAdmin(storage *msgworker.MessageStorage) *messaging.OutboxAdmin {
-	return messaging.NewOutboxAdmin(storage)
+func provideFileStore(db *mongo.Database) *mongostore.FileStore {
+	return mongostore.NewFileStore(db)
+}
+
+func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.Authorizer, attachments *imapp.FileService, logger log.Logger, m *metrics.Metrics) *imapp.MessageService {
+	return &imapp.MessageService{
+		Producer: producer, Authorizer: authorizer, Attachments: attachments,
+		Metrics: m, Log: log.NewHelper(logger),
+	}
+}
+
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, logger log.Logger) *imapp.QueryService {
+	return &imapp.QueryService{Reader: storage, Authorizer: authorizer, Log: log.NewHelper(logger)}
+}
+
+func provideIMConversationService(repo imdata.ConversationRepo) *imapp.ConversationService {
+	return &imapp.ConversationService{Repo: repo}
+}
+
+func provideIMGroupService(repo imdata.GroupRepo, authorizer *authz.OpenFGA) *imapp.GroupService {
+	return &imapp.GroupService{Repo: repo, Authorizer: authorizer}
+}
+
+func provideIMFileService(store *mongostore.FileStore, authorizer *authz.OpenFGA) *imapp.FileService {
+	return &imapp.FileService{Store: store, Authorizer: authorizer, MaxUpload: service.DefaultMaxUploadBytes}
+}
+
+func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *imapp.OutboxService {
+	return &imapp.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+}
+
+func provideOutboxAdmin(outbox *imapp.OutboxService) messaging.OutboxAdmin {
+	return messagingim.NewOutboxAdmin(outbox)
+}
+
+func provideIdempotency(d *data.Data) *httpapi.Idempotency {
+	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
+}
+
+func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, logger log.Logger) *admin.AgentService {
+	return admin.NewAgentService(store, platform, az, groups, userDirectory{repo: users}, apiKeySealer{}, logger)
+}
+
+func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA) *admin.RunService {
+	return admin.NewRunService(store, az)
+}
+
+func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA) *admin.ApprovalService {
+	return admin.NewApprovalService(store, az)
+}
+
+func provideAgentMCPService(platform *platformdata.Store) *admin.MCPService {
+	return admin.NewMCPService(platform)
+}
+
+func provideAgentSkillService(platform *platformdata.Store) *admin.SkillService {
+	return admin.NewSkillService(platform)
+}
+
+type userDirectory struct{ repo biz.AuthRepo }
+
+func (u userDirectory) UserExists(ctx context.Context, userID int64) (bool, error) {
+	_, err := u.repo.GetUserByID(ctx, userID)
+	return err == nil, nil
+}
+
+type apiKeySealer struct{}
+
+func (apiKeySealer) Seal(apiKey string) (string, bool, error) {
+	key, err := credential.SealKeyFromEnv()
+	if err != nil {
+		return "", false, err
+	}
+	sealed, err := credential.Seal(key, []byte(apiKey))
+	if err != nil {
+		return "", false, err
+	}
+	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
 // provideMetrics creates a Prometheus metrics collector.
@@ -262,9 +345,8 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, authorizer authz.Authorizer, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
-	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
-	h.SetAuthorizer(authorizer)
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *imapp.MessageService, query *imapp.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+	h := gateway.NewHandler(manager, sessions, messages, query, jwtSecret, hb, logger, m)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
 	}
@@ -278,7 +360,7 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 		}
 		ids := make([]int64, 0, len(members))
 		for _, member := range members {
-			ids = append(ids, member.UserId)
+			ids = append(ids, member.UserID)
 		}
 		return ids, nil
 	})
@@ -338,7 +420,23 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideKafkaConfig,
 		provideMongoDB,
 		provideMessageStorage,
+		gateway.NewDomainProducer,
+		provideFileStore,
+		provideIMMessageService,
+		provideIMQueryService,
+		provideIMConversationService,
+		provideIMGroupService,
+		provideIMFileService,
+		provideIMOutboxService,
 		provideOutboxAdmin,
+		provideIdempotency,
+		provideAgentAdminService,
+		provideAgentRunService,
+		provideAgentApprovalService,
+		provideAgentMCPService,
+		provideAgentSkillService,
+		agentdata.NewStore,
+		platformdata.NewStore,
 		provideMetrics,
 		provideMetricsSlice,
 		authz.NewOpenFGAFromEnv,

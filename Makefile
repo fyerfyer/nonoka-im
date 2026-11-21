@@ -81,6 +81,11 @@ test-gateway-concurrent:
 test-kafka:
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 180s
 
+.PHONY: test-arch
+# run package-boundary architecture tests
+test-arch:
+	@go test ./test/architecture/... -count=1
+
 .PHONY: test-unit
 # run unit tests (still uses real test infrastructure where a test requires it)
 test-unit:
@@ -97,6 +102,7 @@ test-reliability:
 .PHONY: test
 # run all integration tests (start deps, run tests by group, cleanup)
 test: test-deps-up
+	@$(MAKE) test-arch || { $(MAKE) test-deps-down; exit 1; }
 	@$(MAKE) test-unit || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Auth Tests               ==="

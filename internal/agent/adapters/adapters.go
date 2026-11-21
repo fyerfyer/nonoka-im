@@ -14,10 +14,11 @@ import (
 	"nonoka-im/internal/biz"
 	imdata "nonoka-im/internal/data/im"
 	"nonoka-im/internal/messaging"
+	"nonoka-im/internal/messaging/httpclient"
 )
 
 // Messages adapts messaging.Reader to app.MessageReader.
-type Messages struct{ Reader *messaging.Reader }
+type Messages struct{ Reader messaging.Reader }
 
 func (m Messages) RecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]app.Message, error) {
 	rows, err := m.Reader.RecentMessages(ctx, userID, topic, limit)
@@ -42,8 +43,8 @@ func (m Messages) MessageForUser(ctx context.Context, userID int64, topic string
 	return app.Message{ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp, Content: row.Content}, nil
 }
 
-// Files adapts messaging.Files to app.FileReader.
-type Files struct{ Reader *messaging.Files }
+// Files adapts messaging.FileReader to app.FileReader.
+type Files struct{ Reader messaging.FileReader }
 
 func (f Files) ReadFile(ctx context.Context, fileID string) (app.File, error) {
 	doc, err := f.Reader.ReadFile(ctx, fileID)
@@ -53,10 +54,10 @@ func (f Files) ReadFile(ctx context.Context, fileID string) (app.File, error) {
 	return app.File{Name: doc.Name, Mime: doc.Mime, Data: doc.Data}, nil
 }
 
-// Sender adapts messaging.Client to app.ReplySender. It supplies the bot
-// credential for the current run context.
+// Sender adapts the internal HTTP client to app.ReplySender. It supplies the
+// bot credential for the current run context.
 type Sender struct {
-	Client      *messaging.Client
+	Client      *httpclient.Client
 	TokenIssuer func(agentID, botID int64, topic string) (string, error)
 }
 
@@ -72,22 +73,22 @@ func (s *Sender) token(ctx context.Context, topic string) (string, error) {
 }
 
 func (s *Sender) Send(ctx context.Context, topic, content, clientID string) error {
-	_, err := s.send(ctx, topic, content, clientID, messaging.MsgTypeText)
+	_, err := s.send(ctx, topic, content, clientID, httpclient.MsgTypeText)
 	return err
 }
 
 func (s *Sender) SendWithReceipt(ctx context.Context, topic, content, clientID string) (int64, error) {
-	return s.send(ctx, topic, content, clientID, messaging.MsgTypeText)
+	return s.send(ctx, topic, content, clientID, httpclient.MsgTypeText)
 }
 
 func (s *Sender) SendCard(ctx context.Context, topic, content, clientID string) (int64, error) {
-	return s.send(ctx, topic, content, clientID, messaging.MsgTypeAgentCard)
+	return s.send(ctx, topic, content, clientID, httpclient.MsgTypeAgentCard)
 }
 
 func (s *Sender) send(ctx context.Context, topic, content, clientID string, msgType int32) (int64, error) {
 	client := *s.Client
 	client.Token = func(ctx context.Context) (string, error) { return s.token(ctx, topic) }
-	if msgType == messaging.MsgTypeAgentCard {
+	if msgType == httpclient.MsgTypeAgentCard {
 		return client.SendCard(ctx, topic, content, clientID)
 	}
 	return client.SendWithReceipt(ctx, topic, content, clientID)
@@ -122,7 +123,7 @@ func (d *Directory) GroupMemberIDs(ctx context.Context, groupID string) ([]int64
 	}
 	ids := make([]int64, 0, len(members))
 	for _, member := range members {
-		ids = append(ids, member.UserId)
+		ids = append(ids, member.UserID)
 	}
 	return ids, nil
 }

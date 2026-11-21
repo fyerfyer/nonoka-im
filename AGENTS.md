@@ -12,19 +12,19 @@ nonoka-im 是一个 Go 实现的即时通讯（IM）系统，基于 Kratos v2 �
 
 - `cmd/nonoka-im` — 网关主服务：gRPC + HTTP server、WebSocket server、Redis 心跳节点注册，wire 依赖注入。
 - `cmd/msgworker` — Kafka 消费者：消费 `im-messages` → 生成 topic_seq / msg_id → MongoDB 落库 → 推回在线客户端。
-- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（OpenAI 兼容 API，默认 DeepSeek）执行 agent，OpenFGA 鉴权后经 HTTP 把回复发回 IM。**纯环境变量驱动**。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；可选探针端点 `AGENT_HEALTH_ADDR`（/healthz）与 `AGENT_METRICS_ADDR`（/metrics）。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 可在管理 API 中自配 `base_url`/`api_key`（api_key 用 `AGENT_SECRET_KEY` AES-GCM 加密落库，发布版本冻结副本）；MCP server 登记与 Skill 发布由 `AGENT_ADMIN_USER_IDS` 配置的平台管理员通过 `/v1/mcp/servers`、`/v1/skills` 管理。
+- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（OpenAI 兼容 API，默认 DeepSeek）执行 agent，经 OpenFGA 鉴权后通过内部 HTTP 把回复发回 IM。使用 `-conf configs/agent-worker.yaml` + Kratos `internal/conf`，环境变量只做覆盖与 secret 注入。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；探针端点由 `internal/server.ProbeServer` 提供 `/healthz`、`/readyz`、`/metrics`。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 可在管理 API 中自配 `base_url`/`api_key`（api_key 用 `AGENT_SECRET_KEY` AES-GCM 加密落库，发布版本冻结副本）；MCP server 登记与 Skill 发布由 `AGENT_ADMIN_USER_IDS` 配置的平台管理员通过 `/v1/mcp/servers`、`/v1/skills` 管理。
 - `cmd/authz-migrate` — 一次性工具：向 OpenFGA 写授权模型 / 历史数据回填。
 
 ### 核心包（internal/）
 
 - `gateway/` — WebSocket 连接/会话管理、上行消息 Kafka producer、节点注册表。
-- `service/` — Kratos transport 层：auth、message、group、user、conversation、dispatch、push、file、agent_http。**目标：只做 DTO ↔ domain/app 转换，不直接依赖 `data` 或 `msgworker`；当前仍有历史耦合，新增代码必须走 app/biz。**
-- `biz/` — IM 核心域的业务逻辑层。当前较薄，重构方向是把 `service`/`msgworker` 里的 usecase 收敛到这里（或 `internal/im/app`）。
+- `service/` — Kratos transport 层：auth、message、group、user、conversation、dispatch、push、file，以及按资源拆分的 agent/run/approval/mcp/skill handler。**只做 DTO ↔ domain/app 转换，不直接依赖 `data` 或存储实现。**
+- `biz/` — 认证等共享 usecase 与消费侧 repository 接口；IM 业务用例在 `internal/im/app`。
 - `data/` — 数据访问：PostgreSQL repos（gorm）、Redis、MongoDB 装配；按 `im` / `agent` / `platform` 子域组织。repository 接口由消费侧定义，data 只做实现和 domain↔row 映射。
-- `msgworker/` — **过渡期 IM job 包**：consumer、MongoDB storage、gRPC pusher、网关路由、seq 生成、重试队列。目标拆到 `internal/im/{domain,app,storage,consumer,push,seq}`；新增 IM 代码不要再堆进这里。
+- `im/` — IM bounded context：`domain`（纯实体）、`app`（Message/Query/Push/Outbox/Conversation/Group/File usecase + ports）、`storage/mongo`（Mongo repository/索引/附件）、`consumer`（Kafka adapter + Kratos worker）、`push`（realtime 适配器 + 重试队列）、`seq`、`group`。`internal/msgworker` 已删除。
 - `agent/` — Agent 平台，已按 ports & adapters 组织：`domain`（纯实体/值对象）、`port`（Runtime 端口 + Run/Resume DTO + 错误分类）、`app`（Harness/审批/finalize）、`eino`（Eino 适配器）、`tools/catalog`（工具元数据/风险/默认策略/脱敏摘要）、`tools/builtin`（内置工具实现）、`mcp`（受控 MCP 连接与工具装配）、`skills`（Skill middleware Backend）、`store`（Eino CheckPointStore 的 PostgreSQL 适配）、`worker/executor/sweeper`（job runtime）、`event`（Kafka event/outbox 类型）、`credential`（JWT/api_key 加密）、`metrics`。内置工具 8 个：search_messages、get_conversation_context、send_message、read_file、get_topic_info、get_my_info、list_my_groups、get_group_members。
 - `realtime/` — 共享 Gateway 路由 / Pusher / RunStream 契约；连接与推送适配器。
-- `messaging/` — IM 内部读写/文件/outbox 共享接缝。目标：接口 + `messaging/msgworker` / `messaging/mongo` 适配器，agent 不传递依赖 `msgworker`。
+- `messaging/` — IM 集成契约：根包只放 DTO/接口；`messaging/im`、`messaging/mongo`、`messaging/httpclient`、`messaging/kafka` 放适配器。agent 不传递依赖 IM storage。
 - `kafka/` — 共享 Kafka consumer/publisher、trace、DLQ 约定。
 - `authz/` — OpenFGA 封装（`model.json` 为授权模型）。
 - `server/` — Kratos server 装配、限流中间件；`conf/` — proto 定义的配置 schema；`metrics/` — Prometheus；`topic/` — topic 命名（`p2p_` / `grp_` / `sys_`）。
@@ -57,7 +57,7 @@ nonoka-im 是 **模块化单体 + 异步 job worker**，不追求网络微服务
 client -> DTO -> service -> DO -> biz/app -> DO -> data -> PO -> storage
 ```
 
-- `internal/service`：只做 transport 适配与 DTO ↔ domain/app 转换；**不得 import `internal/data/*` 或 `internal/msgworker`**。
+- `internal/service`：只做 transport 适配与 DTO ↔ domain/app 转换；**不得 import `internal/data/*`、`internal/msgworker`、`internal/im/storage`**。
 - `internal/biz` / `internal/agent/app` / `internal/im/app`：usecase、领域对象、repository 接口、业务错误；不依赖 transport 或 storage 实现。
 - `internal/agent/domain`：纯实体/值对象；**不得 import gorm、mongo、eino、net/http**。
 - `internal/agent/port`：应用拥有的端口（Runtime 接口 + Run/Resume DTO + 错误分类）；不得 import `eino`/`data`。
@@ -70,7 +70,7 @@ client -> DTO -> service -> DO -> biz/app -> DO -> data -> PO -> storage
 - `agent/app` 不 import `agent/eino`、`data/*`、`msgworker`、`filestore`。
 - `service` 不 import `data/*`、`msgworker`；需要数据时通过 biz/app 接口。
 - `data/im`、`data/agent`、`data/platform` 之间不要互相 import 具体 Store；跨子域通过 domain/port。
-- 新增 job 代码：`internal/<domain>/app` + `internal/<domain>/consumer`；不要再把逻辑堆进 `cmd/*/main.go` 或旧 `internal/msgworker`。
+- 新增 job 代码：`internal/<domain>/app` + `internal/<domain>/consumer`；不要再把逻辑堆进 `cmd/*/main.go`。
 
 ### 新功能落点
 
@@ -97,7 +97,7 @@ app := kratos.New(
 ```
 
 - 不要给 Kafka job 注册 registry；consumer group 本身就是发现/负载均衡。
-- `msgworker` / `agent-worker` 应复用 `internal/conf`、`internal/metrics`、Kratos log/lifecycle；自定义 env/YAML 只作为过渡。
+- `msgworker` / `agent-worker` 复用 `internal/conf`、`internal/metrics`、Kratos log/lifecycle；环境变量只做覆盖与 secret 注入。
 - HTTP/gRPC 的 auth/rate-limit/recovery/tracing 用 Kratos middleware；WebSocket 握手单独认证。
 
 ### 架构测试
@@ -112,9 +112,9 @@ app := kratos.New(
 ### 当前迁移状态
 
 - Agent 子域已按 `domain/port/app/eino/tools/{catalog,builtin}` 分层；新增 Agent 代码遵循此结构。
-- `internal/msgworker` 是待拆的 IM job 包；新增 IM 代码优先放 `internal/im/...`，不要继续扩大 `msgworker`。
-- `internal/messaging` 仍在过渡期；目标是接口 + 适配器，agent 不传递依赖 `msgworker`/`filestore`。
-- 详细阶段规划见 `REFACTOR.md` 的 Phase 0.5。
+- Phase 0.5 已完成：`internal/msgworker`、`internal/filestore` 已删除；IM 代码在 `internal/im/...`，messaging 接缝为接口 + 适配器，job 应用统一使用 `kratos.App` + probe server。
+- 架构约束由 `test/architecture/architecture_test.go` 自动检查（`make test-arch`）；详细说明见 `docs/architecture.md`。
+- 详细阶段规划见 `REFACTOR.md`。
 
 ## 工具链与常用命令
 
@@ -146,7 +146,7 @@ make test-auth / test-gateway / test-gateway-concurrent / test-kafka   # 分组�
 make test-deps-down  # 清理
 ```
 
-集成测试代码在 `test/integration/`（约 22 个文件，含 auth / gateway / kafka / msgworker / offline_sync / dispatch / sdk_* 等）。新增功能应在该目录补充对应的集成测试。
+集成测试代码在 `test/integration/`（含 auth / gateway / kafka / IM consumer / offline_sync / dispatch / sdk_* 等）。新增功能应在该目录补充对应的集成测试。
 
 ### AI / agent 相关测试
 
@@ -174,7 +174,7 @@ agent 相关功能使用真实 LLM 测试：API Key 从项目根目录 `.env` �
 - 提交前：`go vet ./...` 通过、gofmt 干净、相关集成测试通过。
 - 改 `api/im/v1/*.proto` 后：`make api`；前端用到的话再跑 `web/app` 的 `pnpm proto:gen`。
 - 改依赖注入后：`make generate` 重新生成 wire 代码。
-- 目录边界：service 只做协议适配，业务进 `biz`/`app`，存储进 `data`；IM 新代码优先放 `internal/im/...`，不再扩大 `internal/msgworker`。完整规则见上文“架构规范”。
+- 目录边界：service 只做协议适配，业务进 `biz`/`app`，IM 存储在 `internal/im/storage/mongo`，平台存储进 `data`。完整规则见上文“架构规范”和 `docs/architecture.md`。
 - 文档（docs/）多为历史设计稿，与代码冲突时以代码为准。
 
 <!-- CODEGRAPH_START -->

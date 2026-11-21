@@ -14,9 +14,9 @@ import (
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/authz"
+	"nonoka-im/internal/messaging"
 
 	"github.com/go-kratos/kratos/v2/log"
 )
@@ -126,8 +126,8 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassTransientInfra, "message_unavailable", err, true, false)
 	}
-	ev := agevent.MessageEvent{
-		SchemaVersion: agevent.SchemaVersion,
+	ev := messaging.MessageEvent{
+		SchemaVersion: messaging.SchemaVersion,
 		EventID:       run.EventID,
 		MsgID:         run.MsgID,
 		TopicSeq:      run.TopicSeq,
@@ -202,7 +202,7 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 // resume consumes the approval exactly once, then continues the interrupted
 // runtime from its checkpoint. A second delivery sees a consumed approval and
 // fails the run instead of executing the side effect twice.
-func (e *Executor) resume(ctx context.Context, ev agevent.MessageEvent, run *domain.AgentRun, agent app.ResolvedAgent) error {
+func (e *Executor) resume(ctx context.Context, ev messaging.MessageEvent, run *domain.AgentRun, agent app.ResolvedAgent) error {
 	approval, err := e.Store.ApprovalForRun(ctx, run.ID)
 	if err != nil {
 		return e.fail(ctx, run, port.ClassTransientInfra, "approval_unavailable", err, true, true)

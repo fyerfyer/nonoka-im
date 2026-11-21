@@ -6,16 +6,17 @@ import (
 	"strings"
 	"time"
 
-	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/topic"
+	"nonoka-im/internal/im/domain"
 
 	"github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
 	"gorm.io/gorm"
 )
 
-// Conversation is the per-user conversation summary stored in PostgreSQL.
-type Conversation struct {
+// ConversationRow is the per-user conversation summary stored in PostgreSQL.
+func (ConversationRow) TableName() string { return "conversations" }
+
+type ConversationRow struct {
 	ID             int64  `gorm:"primaryKey;autoIncrement"`
 	UserID         int64  `gorm:"index:idx_conversations_user_updated,priority:1;index:idx_conversations_user_topic,unique,priority:1;not null"`
 	Topic          string `gorm:"index:idx_conversations_user_topic,unique,priority:2;size:64;not null"`
@@ -33,8 +34,8 @@ type Conversation struct {
 
 // ConversationRepo provides persistent conversation summary operations.
 type ConversationRepo interface {
-	UpsertConversation(ctx context.Context, userID int64, msg *pb.UpstreamMessage, topicSeq uint64) error
-	ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*Conversation, error)
+	UpsertConversation(ctx context.Context, userID int64, msg *domain.Message, topicSeq uint64) error
+	ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*domain.Conversation, error)
 	MarkRead(ctx context.Context, userID int64, topic string, upToSeq uint64) error
 }
 
@@ -43,34 +44,25 @@ type conversationRepo struct {
 	log *log.Helper
 }
 
-// NewConversationRepo creates a new ConversationRepo backed by PostgreSQL.
 func NewConversationRepo(db *gorm.DB, logger log.Logger) ConversationRepo {
-	return &conversationRepo{
-		db:  db,
-		log: log.NewHelper(logger),
-	}
+	return &conversationRepo{db: db, log: log.NewHelper(logger)}
 }
 
-// UpsertConversation updates or creates a conversation summary for a user
-// when a new message is persisted. The sender's copy is considered read,
-// while the recipient's unread count is incremented.
-func (r *conversationRepo) UpsertConversation(ctx context.Context, userID int64, msg *pb.UpstreamMessage, topicSeq uint64) error {
+func (r *conversationRepo) UpsertConversation(ctx context.Context, userID int64, msg *domain.Message, topicSeq uint64) error {
 	if msg == nil || msg.Topic == "" {
 		return nil
 	}
-
-	topicType := topic.ParseType(msg.Topic)
-	if topicType != topic.TypeP2P && topicType != topic.TypeGroup {
+	topicType := domain.ParseTopicType(msg.Topic)
+	if topicType != domain.TopicTypeP2P && topicType != domain.TopicTypeGroup {
 		return nil
 	}
-
 	preview := previewForMessage(msg)
 	now := time.Now()
 
 	var peerID int64
 	var peerUsername string
-	if topicType == topic.TypeP2P {
-		uid1, uid2, err := topic.ExtractUserIDsFromP2PTopic(msg.Topic)
+	if topicType == domain.TopicTypeP2P {
+		uid1, uid2, err := domain.ExtractUserIDsFromP2PTopic(msg.Topic)
 		if err != nil {
 			return fmt.Errorf("extract p2p user ids: %w", err)
 		}
@@ -86,100 +78,66 @@ func (r *conversationRepo) UpsertConversation(ctx context.Context, userID int64,
 			r.log.Warnf("failed to load peer username: peer_id=%d err=%v", peerID, err)
 		}
 	}
-
 	convType := topicTypeString(topicType)
 
-	// Update existing row first to avoid double-incrementing unread_count on insert+update races.
 	var rowsAffected int64
-	if userID == msg.SenderId {
-		res := r.db.WithContext(ctx).Model(&Conversation{}).
+	if userID == msg.SenderID {
+		res := r.db.WithContext(ctx).Model(&ConversationRow{}).
 			Where("user_id = ? AND topic = ?", userID, msg.Topic).
 			Updates(map[string]interface{}{
-				"last_msg_preview": preview,
-				"last_msg_at":      msg.Timestamp,
-				"last_seq":         topicSeq,
-				"last_read_seq":    topicSeq,
-				"unread_count":     0,
-				"updated_at":       now,
-				"type":             convType,
-				"peer_id":          peerID,
-				"peer_username":    peerUsername,
+				"last_msg_preview": preview, "last_msg_at": msg.Timestamp, "last_seq": topicSeq,
+				"last_read_seq": topicSeq, "unread_count": 0, "updated_at": now,
+				"type": convType, "peer_id": peerID, "peer_username": peerUsername,
 			})
 		rowsAffected = res.RowsAffected
 		if res.Error != nil {
 			return fmt.Errorf("update sender conversation: %w", res.Error)
 		}
 	} else {
-		res := r.db.WithContext(ctx).Model(&Conversation{}).
+		res := r.db.WithContext(ctx).Model(&ConversationRow{}).
 			Where("user_id = ? AND topic = ?", userID, msg.Topic).
 			Updates(map[string]interface{}{
-				"last_msg_preview": preview,
-				"last_msg_at":      msg.Timestamp,
-				"last_seq":         topicSeq,
-				"unread_count":     gorm.Expr("unread_count + 1"),
-				"updated_at":       now,
-				"type":             convType,
-				"peer_id":          peerID,
-				"peer_username":    peerUsername,
+				"last_msg_preview": preview, "last_msg_at": msg.Timestamp, "last_seq": topicSeq,
+				"unread_count": gorm.Expr("unread_count + 1"), "updated_at": now,
+				"type": convType, "peer_id": peerID, "peer_username": peerUsername,
 			})
 		rowsAffected = res.RowsAffected
 		if res.Error != nil {
 			return fmt.Errorf("update recipient conversation: %w", res.Error)
 		}
 	}
-
-	// No existing row: insert a new one.
 	if rowsAffected == 0 {
-		conv := &Conversation{
-			UserID:         userID,
-			Topic:          msg.Topic,
-			Type:           convType,
-			PeerID:         peerID,
-			PeerUsername:   peerUsername,
-			LastMsgPreview: preview,
-			LastMsgAt:      msg.Timestamp,
-			LastSeq:        topicSeq,
-			UpdatedAt:      now,
+		conv := &ConversationRow{
+			UserID: userID, Topic: msg.Topic, Type: convType, PeerID: peerID, PeerUsername: peerUsername,
+			LastMsgPreview: preview, LastMsgAt: msg.Timestamp, LastSeq: topicSeq, UpdatedAt: now,
 		}
-		if userID == msg.SenderId {
+		if userID == msg.SenderID {
 			conv.LastReadSeq = topicSeq
-			conv.UnreadCount = 0
 		} else {
 			conv.UnreadCount = 1
 		}
 		if err := r.db.WithContext(ctx).Create(conv).Error; err != nil {
-			// Ignore duplicate key races: another insert won.
 			if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(err.Error(), "duplicate key") {
 				return nil
 			}
 			return fmt.Errorf("insert conversation: %w", err)
 		}
 	}
-
 	return nil
 }
 
-// ListConversations returns conversation summaries for a user ordered by updated_at DESC.
-func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*Conversation, error) {
+func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*domain.Conversation, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-
-	var rows []*Conversation
-	result := r.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("updated_at DESC").
-		Limit(int(limit)).
-		Offset(int(offset)).
-		Find(&rows)
+	var rows []*ConversationRow
+	result := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("updated_at DESC").Limit(int(limit)).Offset(int(offset)).Find(&rows)
 	if result.Error != nil {
 		return nil, fmt.Errorf("list conversations: %w", result.Error)
 	}
-
-	// Backfill missing peer usernames for P2P conversations.
 	for _, row := range rows {
 		if row.Type == "p2p" && row.PeerUsername == "" && row.PeerID > 0 {
 			var peer User
@@ -188,33 +146,40 @@ func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, 
 			}
 		}
 	}
-	return rows, nil
+	out := make([]*domain.Conversation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainConversation(row))
+	}
+	return out, nil
 }
 
-// MarkRead marks all messages up to the current last_seq as read for the user's conversation.
 func (r *conversationRepo) MarkRead(ctx context.Context, userID int64, topic string, upToSeq uint64) error {
-	update := map[string]interface{}{
-		"unread_count": 0,
-	}
+	update := map[string]interface{}{"unread_count": 0}
 	if upToSeq > 0 {
 		update["last_read_seq"] = upToSeq
 	} else {
 		update["last_read_seq"] = gorm.Expr("last_seq")
 	}
-	result := r.db.WithContext(ctx).Model(&Conversation{}).
-		Where("user_id = ? AND topic = ?", userID, topic).
-		Updates(update)
-	if result.Error != nil {
-		return fmt.Errorf("mark conversation read: %w", result.Error)
+	if err := r.db.WithContext(ctx).Model(&ConversationRow{}).Where("user_id = ? AND topic = ?", userID, topic).Updates(update).Error; err != nil {
+		return fmt.Errorf("mark conversation read: %w", err)
 	}
 	return nil
 }
 
-func topicTypeString(t topic.Type) string {
+func toDomainConversation(row *ConversationRow) *domain.Conversation {
+	return &domain.Conversation{
+		ID: row.ID, UserID: row.UserID, Topic: row.Topic, Type: row.Type, PeerID: row.PeerID,
+		PeerUsername: row.PeerUsername, LastMsgPreview: row.LastMsgPreview, LastMsgAt: row.LastMsgAt,
+		LastSeq: row.LastSeq, LastReadSeq: row.LastReadSeq, UnreadCount: row.UnreadCount,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func topicTypeString(t domain.TopicType) string {
 	switch t {
-	case topic.TypeP2P:
+	case domain.TopicTypeP2P:
 		return "p2p"
-	case topic.TypeGroup:
+	case domain.TopicTypeGroup:
 		return "group"
 	default:
 		return "unknown"
@@ -228,18 +193,15 @@ func truncatePreview(s string, max int) string {
 	return s[:max] + "..."
 }
 
-// previewForMessage renders the conversation-list preview for a message.
-// Media messages carry JSON metadata in content, which must not be shown raw.
-func previewForMessage(msg *pb.UpstreamMessage) string {
-	switch pb.MsgType(msg.MsgType) {
-	case pb.MsgType_MSG_TYPE_IMAGE:
+func previewForMessage(msg *domain.Message) string {
+	switch msg.Type {
+	case domain.MessageTypeImage:
 		return "[图片]"
-	case pb.MsgType_MSG_TYPE_FILE:
+	case domain.MessageTypeFile:
 		return "[文件]"
 	default:
 		return truncatePreview(string(msg.Content), 120)
 	}
 }
 
-// ensure interface compliance
 var _ ConversationRepo = (*conversationRepo)(nil)

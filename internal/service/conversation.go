@@ -2,11 +2,10 @@ package service
 
 import (
 	"context"
-	"fmt"
+	stderrors "errors"
 
 	pb "nonoka-im/api/im/v1"
-	imdata "nonoka-im/internal/data/im"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/im/app"
 
 	"github.com/go-kratos/kratos/v2/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -15,79 +14,49 @@ import (
 // ConversationService provides conversation-related HTTP APIs.
 type ConversationService struct {
 	pb.UnimplementedConversationServiceServer
-
-	repo imdata.ConversationRepo
+	uc *app.ConversationService
 }
 
-// NewConversationService creates a new ConversationService.
-func NewConversationService(repo imdata.ConversationRepo) *ConversationService {
-	return &ConversationService{repo: repo}
+func NewConversationService(uc *app.ConversationService) *ConversationService {
+	return &ConversationService{uc: uc}
 }
 
-// ListConversations returns the authenticated user's conversation list.
 func (s *ConversationService) ListConversations(ctx context.Context, req *pb.ListConversationsRequest) (*pb.ListConversationsReply, error) {
 	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	limit := req.GetLimit()
-	offset := req.GetOffset()
-
-	rows, err := s.repo.ListConversations(ctx, userID, limit, offset)
+	rows, err := s.uc.List(ctx, userID, req.GetLimit(), req.GetOffset())
 	if err != nil {
-		return nil, errors.InternalServer("DB_ERROR", fmt.Sprintf("list conversations failed: %v", err))
+		if stderrors.Is(err, app.ErrAuthRequired) {
+			return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
+		}
+		return nil, errors.InternalServer("DB_ERROR", "list conversations failed")
 	}
-
 	conversations := make([]*pb.Conversation, len(rows))
-	for i, r := range rows {
+	for i, row := range rows {
 		conversations[i] = &pb.Conversation{
-			Topic:          r.Topic,
-			Type:           r.Type,
-			PeerId:         r.PeerID,
-			PeerUsername:   r.PeerUsername,
-			LastMsgPreview: r.LastMsgPreview,
-			LastMsgAt:      r.LastMsgAt,
-			LastSeq:        r.LastSeq,
-			LastReadSeq:    r.LastReadSeq,
-			UnreadCount:    r.UnreadCount,
+			Topic: row.Topic, Type: row.Type, PeerId: row.PeerID, PeerUsername: row.PeerUsername,
+			LastMsgPreview: row.LastMsgPreview, LastMsgAt: row.LastMsgAt, LastSeq: row.LastSeq,
+			LastReadSeq: row.LastReadSeq, UnreadCount: row.UnreadCount,
 		}
 	}
-
 	return &pb.ListConversationsReply{
 		Conversations: conversations,
-		HasMore:       len(rows) >= int(limit) && limit > 0,
+		HasMore:       len(rows) >= int(req.GetLimit()) && req.GetLimit() > 0,
 	}, nil
 }
 
-// MarkConversationRead marks a conversation as read up to its current last_seq.
 func (s *ConversationService) MarkConversationRead(ctx context.Context, req *pb.MarkConversationReadRequest) (*emptypb.Empty, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	topic := req.GetTopic()
-	if topic == "" {
+	if req.GetTopic() == "" {
 		return nil, errors.BadRequest("TOPIC_REQUIRED", "topic is required")
 	}
-
-	topicType := msgworker.ParseTopicType(topic)
-	if topicType == msgworker.TopicTypeUnknown {
-		return nil, errors.BadRequest("INVALID_TOPIC", "invalid topic format")
-	}
-
-	// Normalize P2P topics so both sides use the same conversation key.
-	if topicType == msgworker.TopicTypeP2P {
-		normalized, err := msgworker.NormalizeTopic(topic)
-		if err != nil {
-			return nil, errors.BadRequest("INVALID_TOPIC", err.Error())
+	if err := s.uc.MarkRead(ctx, extractUserIDFromContext(ctx), req.GetTopic(), 0); err != nil {
+		switch {
+		case stderrors.Is(err, app.ErrAuthRequired):
+			return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
+		case stderrors.Is(err, app.ErrInvalidTopic):
+			return nil, errors.BadRequest("INVALID_TOPIC", "invalid topic format")
+		default:
+			return nil, errors.InternalServer("DB_ERROR", "mark read failed")
 		}
-		topic = normalized
-	}
-
-	if err := s.repo.MarkRead(ctx, userID, topic, 0); err != nil {
-		return nil, errors.InternalServer("DB_ERROR", fmt.Sprintf("mark read failed: %v", err))
 	}
 	return &emptypb.Empty{}, nil
 }
