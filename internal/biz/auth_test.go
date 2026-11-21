@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,7 +74,19 @@ func (r *fakeAuthRepo) GetUserByID(_ context.Context, id int64) (*User, error) {
 }
 
 func (r *fakeAuthRepo) SearchUsersByPrefix(_ context.Context, prefix string, limit int32) ([]*User, error) {
-	return nil, nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*User, 0)
+	for username, user := range r.users {
+		if strings.HasPrefix(username, prefix) {
+			out = append(out, user)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
+	if limit > 0 && int32(len(out)) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (r *fakeAuthRepo) SaveRefreshTokenHash(_ context.Context, userID int64, deviceID, hash string, ttl time.Duration) error {
@@ -123,6 +137,30 @@ func mustRegister(t *testing.T, uc *AuthUsecase, username, password string) *Use
 		t.Fatalf("Register failed: %v", err)
 	}
 	return user
+}
+
+func TestAuthSearchUsers(t *testing.T) {
+	repo := newFakeAuthRepo()
+	uc := newTestAuthUsecase(repo)
+	mustRegister(t, uc, "alice", "password")
+	mustRegister(t, uc, "alina", "password")
+	mustRegister(t, uc, "bob", "password")
+
+	users, err := uc.SearchUsers(context.Background(), "  ali  ", 0)
+	if err != nil {
+		t.Fatalf("SearchUsers failed: %v", err)
+	}
+	if len(users) != 2 || users[0].Username != "alice" || users[1].Username != "alina" {
+		t.Fatalf("unexpected users: %+v", users)
+	}
+	users, err = uc.SearchUsers(context.Background(), "", 10)
+	if err != nil || len(users) != 0 {
+		t.Fatalf("empty prefix must return no users: users=%v err=%v", users, err)
+	}
+	users, err = uc.SearchUsers(context.Background(), "a", 1)
+	if err != nil || len(users) != 1 {
+		t.Fatalf("limit not applied: users=%v err=%v", users, err)
+	}
 }
 
 func TestAuthLogin_IssuesRefreshToken(t *testing.T) {
