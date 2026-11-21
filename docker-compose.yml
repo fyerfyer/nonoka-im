@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: nonoka_redis
     ports:
-      - "6379:6379"
+      - "${NONOKA_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -218,7 +218,7 @@ services:
       # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
-    command: ["/app/agent-worker"]
+    command: ["/app/agent-worker", "-conf", "/app/configs/agent-worker.yaml"]
     volumes:
       - ./configs/agent-worker.yaml:/app/configs/agent-worker.yaml:ro
     healthcheck:

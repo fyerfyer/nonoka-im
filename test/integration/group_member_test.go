@@ -9,7 +9,7 @@ import (
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	imdata "nonoka-im/internal/data/im"
-	"nonoka-im/internal/msgworker"
+	imgroup "nonoka-im/internal/im/group"
 )
 
 func setupGroupMemberTest(t *testing.T) (*data.Data, func()) {
@@ -69,7 +69,7 @@ func TestPersistentGroupMemberService_BasicCRUDAndCache(t *testing.T) {
 	ctx := context.Background()
 
 	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
-	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
+	svc := imgroup.NewService(repo, d.Redis, testLogger)
 
 	groupID := "persistent_group_test"
 	cacheKey := "im:group:members:" + groupID
@@ -139,7 +139,7 @@ func TestPersistentGroupMemberService_CacheMissFallsBackToPostgres(t *testing.T)
 	ctx := context.Background()
 
 	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
-	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
+	svc := imgroup.NewService(repo, d.Redis, testLogger)
 
 	groupID := "cache_miss_test"
 	cacheKey := "im:group:members:" + groupID
@@ -182,7 +182,7 @@ func TestPersistentGroupMemberService_NoRedisFallsBackToPostgres(t *testing.T) {
 
 	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	// Pass nil redis: service must still work by reading from PostgreSQL.
-	svc := msgworker.NewPersistentGroupMemberService(repo, nil, testLogger)
+	svc := imgroup.NewService(repo, nil, testLogger)
 
 	groupID := "no_redis_test"
 	for _, uid := range []int64{1, 2, 3} {
@@ -206,7 +206,7 @@ func TestPersistentGroupMemberService_ConcurrentReadsAreConsistent(t *testing.T)
 	ctx := context.Background()
 
 	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
-	svc := msgworker.NewPersistentGroupMemberService(repo, d.Redis, testLogger)
+	svc := imgroup.NewService(repo, d.Redis, testLogger)
 
 	groupID := "concurrent_test"
 	for _, uid := range []int64{1000, 2000, 3000} {

@@ -4,21 +4,26 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	imdata "nonoka-im/internal/data/im"
+	"nonoka-im/internal/im/app"
+	imconsumer "nonoka-im/internal/im/consumer"
+	imgroup "nonoka-im/internal/im/group"
+	impush "nonoka-im/internal/im/push"
+	"nonoka-im/internal/im/seq"
+	mongostore "nonoka-im/internal/im/storage/mongo"
+	kafkax "nonoka-im/internal/kafka"
+	messagingkafka "nonoka-im/internal/messaging/kafka"
 	"nonoka-im/internal/metrics"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/realtime"
+	"nonoka-im/internal/server"
 
+	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/config"
 	"github.com/go-kratos/kratos/v2/config/file"
 	"github.com/go-kratos/kratos/v2/log"
@@ -35,7 +40,6 @@ func init() {
 
 func main() {
 	flag.Parse()
-
 	logger := log.With(log.NewStdLogger(os.Stdout),
 		"ts", log.DefaultTimestamp,
 		"caller", log.DefaultCaller,
@@ -44,96 +48,50 @@ func main() {
 		"trace.id", tracing.TraceID(),
 		"span.id", tracing.SpanID(),
 	)
-
-	c := config.New(
-		config.WithSource(
-			file.NewSource(flagconf),
-		),
-	)
+	c := config.New(config.WithSource(file.NewSource(flagconf)))
 	defer c.Close()
-
 	if err := c.Load(); err != nil {
 		panic(err)
 	}
-
 	var bc conf.Bootstrap
 	if err := c.Scan(&bc); err != nil {
 		panic(err)
+	}
+	if bc.Data == nil {
+		logger.Log(log.LevelFatal, "msg", "data config is required")
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize data layer (PostgreSQL + Redis)
-	if bc.Data == nil {
-		logger.Log(log.LevelFatal, "msg", "data config is required")
-		os.Exit(1)
-	}
 	dataLayer, dataCleanup, err := data.NewData(bc.Data)
 	if err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("init data layer: %v", err))
 		os.Exit(1)
 	}
 	defer dataCleanup()
-
 	redisClient := dataLayer.Redis
 	if redisClient == nil {
 		logger.Log(log.LevelFatal, "msg", "redis config is required")
 		os.Exit(1)
 	}
 
-	// Initialize MongoDB
-	if bc.Data.Mongodb == nil || bc.Data.Mongodb.Uri == "" {
-		logger.Log(log.LevelFatal, "msg", "mongodb config is required")
-		os.Exit(1)
-	}
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI(bc.Data.Mongodb.Uri))
+	mongoClient, err := connectMongo(ctx, bc.Data)
 	if err != nil {
-		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("connect mongodb: %v", err))
+		logger.Log(log.LevelFatal, "msg", err.Error())
 		os.Exit(1)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = mongoClient.Disconnect(ctx)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = mongoClient.Disconnect(shutdownCtx)
 	}()
-
-	// Verify MongoDB connectivity early.
-	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
-	if err := mongoClient.Ping(pingCtx, nil); err != nil {
-		pingCancel()
-		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ping mongodb: %v", err))
-		os.Exit(1)
-	}
-	pingCancel()
-
 	mongoDB := mongoClient.Database(bc.Data.Mongodb.Database)
 
-	// Initialize Kafka config from protobuf settings.
-	kafkaCfg := msgworkerConfigFromProto(bc.Data.Kafka)
-	if kafkaCfg.Topic == "" {
-		kafkaCfg.Topic = "im-messages"
-	}
-	if kafkaCfg.GroupID == "" {
-		kafkaCfg.GroupID = "msgworker-group"
-	}
-
-	// Gateway address priority: 1) GATEWAY_GRPC_ADDR env 2) server.grpc.addr from config 3) default
-	gatewayAddr := os.Getenv("GATEWAY_GRPC_ADDR")
-	if gatewayAddr == "" && bc.Server != nil && bc.Server.Grpc != nil && bc.Server.Grpc.Addr != "" {
-		gatewayAddr = bc.Server.Grpc.Addr
-	}
-	if gatewayAddr == "" {
-		gatewayAddr = "127.0.0.1:19000"
-	}
-
-	// Build dependencies
 	m := metrics.NewMetrics()
-	seqGen := msgworker.NewSeqGenerator(redisClient, logger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(mongoDB, logger, m)
-	storage.SetRedis(redisClient)
-	if bc.Data != nil && bc.Data.Mongodb != nil && bc.Data.Mongodb.WriteConcern != "" {
+	storage := mongostore.NewStore(mongoDB, logger, m)
+	if bc.Data.Mongodb.WriteConcern != "" {
 		storage.SetWriteConcern(bc.Data.Mongodb.WriteConcern)
 	}
 	if err := storage.EnsureIndexes(ctx); err != nil {
@@ -141,173 +99,145 @@ func main() {
 		os.Exit(1)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher([]string{gatewayAddr}, logger, m)
+	gatewayAddr := os.Getenv("GATEWAY_GRPC_ADDR")
+	if gatewayAddr == "" && bc.Server != nil && bc.Server.Grpc != nil {
+		gatewayAddr = bc.Server.Grpc.Addr
+	}
+	if gatewayAddr == "" {
+		gatewayAddr = "127.0.0.1:19000"
+	}
+	rawPusher, err := realtime.NewGatewayPusher([]string{gatewayAddr}, logger, m)
 	if err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
 		os.Exit(1)
 	}
-
-	// Configure dynamic gateway routing so pushes go only to nodes that host
-	// the target user's sessions, instead of broadcasting to all gateways.
 	nodeTTL := 30 * time.Second
 	if bc.Dispatch != nil && bc.Dispatch.NodeTtl != nil {
 		nodeTTL = bc.Dispatch.NodeTtl.AsDuration()
 	}
-	if pusher != nil {
-		router := msgworker.NewGatewayRouter(redisClient, nodeTTL, logger)
-		if bc.Msgworker != nil && bc.Msgworker.SessionCacheTtl != nil {
-			router.SetSessionCacheTTL(bc.Msgworker.SessionCacheTtl.AsDuration())
-		}
-		if err := router.Start(ctx); err != nil {
-			logger.Log(log.LevelFatal, "msg", fmt.Sprintf("router start: %v", err))
-			os.Exit(1)
-		}
-		pusher.SetRouter(router)
+	router := realtime.NewGatewayRouter(redisClient, nodeTTL, logger)
+	if bc.Msgworker != nil && bc.Msgworker.SessionCacheTtl != nil {
+		router.SetSessionCacheTTL(bc.Msgworker.SessionCacheTtl.AsDuration())
 	}
+	if err := router.Start(ctx); err != nil {
+		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("router start: %v", err))
+		os.Exit(1)
+	}
+	rawPusher.SetRouter(router)
+	pusher := impush.NewPusher(rawPusher)
 
-	// Create consumer with handler wired to worker
-	consumer := msgworker.NewKafkaConsumer(kafkaCfg, nil, logger)
-	worker := msgworker.NewMsgWorker(
-		consumer,
-		seqGen,
-		snowflake,
-		storage,
-		pusher,
-		logger,
-		m,
-	)
+	seqGen := seq.New(redisClient, logger)
+	ids := seq.NewIDs(1)
+	conversations := imdata.NewConversationRepo(dataLayer.DB(), logger)
+	groupMembers := imgroup.NewService(imdata.NewGroupMemberRepo(dataLayer.DB(), logger), redisClient, logger)
+	botIndex := imgroup.NewBotIndexWithQuery(dataLayer.ListBotUserIDs, dataLayer.IsBotUser, logger)
 
+	messages := &app.MessageService{
+		Writer: storage, IDs: ids, Seqs: seqGen, Conversations: conversations,
+		GroupMembers: groupMembers, Bots: botIndex, AgentEvents: true,
+		Metrics: m, Log: log.NewHelper(logger),
+	}
+	retryQueue := impush.NewRetryQueue(redisClient, pusher, logger)
+	push := &app.PushService{
+		Pusher: pusher, RetryQueue: retryQueue, GroupMembers: groupMembers, Bots: botIndex,
+		Metrics: m, Log: log.NewHelper(logger),
+	}
 	if bc.Msgworker != nil {
-		if bc.Msgworker.ReceiptBatchSize > 0 || bc.Msgworker.ReceiptBatchTimeout != nil {
-			worker.SetReceiptBatcherConfig(
-				int(bc.Msgworker.ReceiptBatchSize),
-				bc.Msgworker.ReceiptBatchTimeout.AsDuration(),
-			)
-		}
-		if bc.Msgworker.GroupBatchSize > 0 || bc.Msgworker.GroupBatchTimeout != nil {
-			worker.SetGroupBatcherConfig(
-				int(bc.Msgworker.GroupBatchSize),
-				bc.Msgworker.GroupBatchTimeout.AsDuration(),
-			)
-		}
+		push.ConfigureReceipts(int(bc.Msgworker.ReceiptBatchSize), bc.Msgworker.GetReceiptBatchTimeout().AsDuration())
 	}
 
-	// Start a small HTTP server for Prometheus metrics and pprof.
-	metricsAddr := os.Getenv("METRICS_ADDR")
-	if metricsAddr == "" {
-		metricsAddr = "0.0.0.0:18001"
-	}
-	metricsSrv := &http.Server{Addr: metricsAddr, Handler: nil}
-	http.Handle("/metrics", m.Handler())
-	go func() {
-		logger.Log(log.LevelInfo, "msg", fmt.Sprintf("msgworker metrics server listening on %s", metricsAddr))
-		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("metrics server error: %v", err))
-		}
-	}()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = metricsSrv.Shutdown(shutdownCtx)
-	}()
-
-	// Wire push retry queue so failed online pushes are retried asynchronously.
-	if pusher != nil {
-		retryQueue := msgworker.NewPushRetryQueue(redisClient, pusher, logger)
-		worker.SetRetryQueue(retryQueue)
-	}
-
-	// Initialize group member service (PostgreSQL-backed with Redis cache)
-	groupMemberRepo := imdata.NewGroupMemberRepo(dataLayer.DB(), logger)
-	groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, redisClient, logger)
-	worker.SetGroupMemberService(groupMemberSvc)
-
-	// Wire conversation summary repository so MsgWorker upserts conversation rows.
-	conversationRepo := imdata.NewConversationRepo(dataLayer.DB(), logger)
-	worker.SetConversationRepo(conversationRepo)
-	// Agent events are recorded in MongoDB's transactional outbox together with
-	// the message. MsgWorker relays pending rows to Kafka and retries failures.
-	eventBrokers := kafkaCfg.Brokers
-	if raw := os.Getenv("KAFKA_BROKERS"); raw != "" {
-		if parsed := parseBrokerList(raw); len(parsed) > 0 {
-			eventBrokers = parsed
-		}
-	}
-	agentPublisher := agevent.NewKafkaPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
-	worker.SetAgentEventPublisher(agentPublisher)
+	eventBrokers := kafkaBrokers(bc.Data)
+	agentPublisher := messagingkafka.NewPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
 	defer agentPublisher.Close()
-	// Only write agent outbox rows for messages that can actually trigger an
-	// agent (bot peer in P2P, bot mention in groups). The index refreshes from
-	// PostgreSQL and additionally queries on miss, so a freshly created bot
-	// triggers immediately instead of after the next refresh; if the initial
-	// load fails the worker keeps the legacy write-everything behavior until
-	// the first successful refresh.
-	botIndex := msgworker.NewBotIndexWithQuery(dataLayer.ListBotUserIDs, dataLayer.IsBotUser, logger)
-	botIndex.Start(ctx, 30*time.Second)
-	worker.SetBotIndex(botIndex)
+	outbox := &app.OutboxService{Repo: storage, Publisher: agentPublisher, Metrics: m, Log: log.NewHelper(logger)}
 
-	// Wire handler after worker is created
-	consumer.SetHandler(worker.HandleMessage)
-
-	// Ensure graceful shutdown: close consumer, retry queue, and pusher.
-	defer func() {
-		if err := worker.Stop(); err != nil {
-			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("worker stop error: %v", err))
+	consumerCfg := kafkaConsumerConfig(bc.Data.Kafka)
+	consumer := kafkax.NewConsumer(consumerCfg, nil, logger)
+	worker := imconsumer.NewWorker(consumer, messages, push, outbox, logger, m)
+	worker.Background = []func(context.Context){
+		func(runCtx context.Context) { botIndex.Start(runCtx, 30*time.Second) },
+		func(runCtx context.Context) { retryQueue.Start(runCtx) },
+	}
+	probeAddr := os.Getenv("METRICS_ADDR")
+	if probeAddr == "" && bc.Observability != nil {
+		probeAddr = bc.Observability.MetricsAddr
+	}
+	if probeAddr == "" {
+		probeAddr = "0.0.0.0:18001"
+	}
+	probe := server.NewProbeServer("msgworker", probeAddr, m.Handler(), func(ctx context.Context) error {
+		if !worker.Ready() {
+			return fmt.Errorf("kafka consumer not ready")
 		}
-	}()
+		if sqlDB, err := dataLayer.DB().DB(); err == nil {
+			if err := sqlDB.PingContext(ctx); err != nil {
+				return fmt.Errorf("postgres not ready: %w", err)
+			}
+		}
+		if err := mongoClient.Ping(ctx, nil); err != nil {
+			return fmt.Errorf("mongodb not ready: %w", err)
+		}
+		return nil
+	}, logger)
 
-	// Handle shutdown gracefully
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigCh
-		logger.Log(log.LevelInfo, "msg", "shutdown signal received")
-		cancel()
-	}()
-
-	logger.Log(log.LevelInfo, "msg", "msgworker starting...")
-	if err := worker.Start(ctx); err != nil && err != context.Canceled {
+	application := kratos.New(
+		kratos.Name("msgworker"),
+		kratos.Logger(logger),
+		kratos.Server(worker, probe),
+	)
+	if err := application.Run(); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("msgworker error: %v", err))
 		os.Exit(1)
 	}
 }
 
-func mustHostname() string {
-	h, _ := os.Hostname()
-	if h == "" {
-		return "msgworker-0"
+func connectMongo(ctx context.Context, c *conf.Data) (*mongo.Client, error) {
+	if c == nil || c.Mongodb == nil || c.Mongodb.Uri == "" {
+		return nil, fmt.Errorf("mongodb config is required")
 	}
-	return h
+	client, err := mongo.Connect(options.Client().ApplyURI(c.Mongodb.Uri))
+	if err != nil {
+		return nil, fmt.Errorf("connect mongodb: %w", err)
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.Ping(pingCtx, nil); err != nil {
+		_ = client.Disconnect(context.Background())
+		return nil, fmt.Errorf("ping mongodb: %w", err)
+	}
+	return client, nil
 }
 
-// parseBrokerList splits a comma-separated broker list, trimming whitespace
-// and dropping empty entries.
+func kafkaBrokers(c *conf.Data) []string {
+	if raw := os.Getenv("KAFKA_BROKERS"); raw != "" {
+		if parsed := parseBrokerList(raw); len(parsed) > 0 {
+			return parsed
+		}
+	}
+	if c != nil && c.Kafka != nil && len(c.Kafka.Brokers) > 0 {
+		return c.Kafka.Brokers
+	}
+	return []string{"127.0.0.1:9092"}
+}
+
 func parseBrokerList(raw string) []string {
 	var out []string
-	for _, b := range strings.Split(raw, ",") {
-		if b = strings.TrimSpace(b); b != "" {
-			out = append(out, b)
+	for _, broker := range strings.Split(raw, ",") {
+		if broker = strings.TrimSpace(broker); broker != "" {
+			out = append(out, broker)
 		}
 	}
 	return out
 }
 
-// msgworkerConfigFromProto builds a msgworker.KafkaConsumerConfig from the
-// protobuf Kafka config. Defaults are applied by NewKafkaConsumer.
-func msgworkerConfigFromProto(kc *conf.Data_Kafka) msgworker.KafkaConsumerConfig {
+func kafkaConsumerConfig(kc *conf.Data_Kafka) kafkax.ConsumerConfig {
 	if kc == nil {
-		return msgworker.KafkaConsumerConfig{}
+		return kafkax.ConsumerConfig{}
 	}
-	cfg := msgworker.KafkaConsumerConfig{
-		Brokers:     kc.GetBrokers(),
-		Topic:       kc.GetTopic(),
-		GroupID:     kc.GetConsumerGroup(),
-		WorkerCount: int(kc.GetWorkerCount()),
-		MinBytes:    int(kc.GetMinBytes()),
-		MaxBytes:    int(kc.GetMaxBytes()),
-		MaxRetries:  int(kc.GetMaxRetries()),
-		DLQTopic:    kc.GetDlqTopic(),
+	cfg := kafkax.ConsumerConfig{
+		Brokers: kc.GetBrokers(), Topic: kc.GetTopic(), GroupID: kc.GetConsumerGroup(),
+		WorkerCount: int(kc.GetWorkerCount()), MinBytes: int(kc.GetMinBytes()), MaxBytes: int(kc.GetMaxBytes()),
+		MaxRetries: int(kc.GetMaxRetries()), DLQTopic: kc.GetDlqTopic(),
 	}
 	if kc.GetMaxWait() != nil {
 		cfg.MaxWait = kc.GetMaxWait().AsDuration()
@@ -324,5 +254,19 @@ func msgworkerConfigFromProto(kc *conf.Data_Kafka) msgworker.KafkaConsumerConfig
 	if kc.GetCommitFlushInterval() != nil {
 		cfg.CommitFlushInterval = kc.GetCommitFlushInterval().AsDuration()
 	}
+	if cfg.Topic == "" {
+		cfg.Topic = "im-messages"
+	}
+	if cfg.GroupID == "" {
+		cfg.GroupID = "msgworker-group"
+	}
 	return cfg
+}
+
+func mustHostname() string {
+	h, _ := os.Hostname()
+	if h == "" {
+		return "msgworker-0"
+	}
+	return h
 }

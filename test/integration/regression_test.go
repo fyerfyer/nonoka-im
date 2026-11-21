@@ -7,7 +7,7 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/msgworker"
+	mongostore "nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/pkg/sdk"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -41,7 +41,7 @@ func TestMsgWorker_SaveMentionInbox_PartialDuplicate(t *testing.T) {
 		t.Fatalf("first handle failed: %v", err)
 	}
 
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	if count := countMongoDocs(t, mentionColl, bson.M{"topic": topic}); count != 3 {
 		t.Fatalf("expected 3 mention inbox entries after first handle, got %d", count)
 	}
@@ -73,19 +73,12 @@ func TestMsgWorker_SaveP2PMessage_PartialDuplicate(t *testing.T) {
 	clientMsgID := "partial-p2p-001"
 
 	// Pre-insert the receiver's inbox entry to simulate a previous partial write.
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
-	_, err := inboxColl.InsertOne(ctx, msgworker.InboxMessage{
-		UserID:      receiverID,
-		MsgID:       1,
-		Topic:       topic,
-		SenderID:    senderID,
-		MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-		Content:     []byte("hello"),
-		Timestamp:   time.Now().UnixMilli(),
-		TopicSeq:    1,
-		ClientMsgID: clientMsgID,
-		Read:        false,
-		CreatedAt:   time.Now(),
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
+	_, err := inboxColl.InsertOne(ctx, bson.M{
+		"user_id": receiverID, "msg_id": 1, "topic": topic, "sender_id": senderID,
+		"msg_type": int32(v1.MsgType_MSG_TYPE_TEXT), "content": []byte("hello"),
+		"timestamp": time.Now().UnixMilli(), "topic_seq": 1, "client_msg_id": clientMsgID,
+		"read": false, "created_at": time.Now(),
 	})
 	if err != nil {
 		t.Fatalf("pre-insert receiver inbox failed: %v", err)
@@ -163,7 +156,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 	}
 
 	// Wait until all three messages have been persisted to the receiver's inbox.
-	inboxColl := ts.mongoDB.Collection(msgworker.CollectionInboxes)
+	inboxColl := ts.mongoDB.Collection(mongostore.CollectionInboxes)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		count, err := inboxColl.CountDocuments(ctx, bson.M{"user_id": user2, "topic": canonicalTopic})

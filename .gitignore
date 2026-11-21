@@ -50,7 +50,7 @@ cmd/nonoka-im/nonoka-im
 
 # Self files 
 self-files/
-docs/*
+docs/
 .claude/
 /DESIGN.md
 .codegraph/
@@ -63,3 +63,6 @@ web/app/.env*.local
 
 # Locally built binary at repo root (build output goes to bin/)
 /agent-worker
+
+# Locally built job binaries at repo root
+/msgworker

@@ -2,17 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"sort"
-	"strings"
-	"time"
 
 	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/authz"
-	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/domain"
 
 	kerrors "github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
@@ -20,277 +14,84 @@ import (
 	jwt5 "github.com/golang-jwt/jwt/v5"
 )
 
-// MessageService provides message-related HTTP APIs including pull fallback.
+// MessageService exposes the HTTP message fallback. All business logic lives
+// in internal/im/app so the WebSocket gateway and HTTP API cannot drift.
 type MessageService struct {
 	v1.UnimplementedMessageServiceServer
-	storage    *msgworker.MessageStorage
-	producer   gateway.MessageProducer
-	log        *log.Helper
-	authorizer authz.Authorizer
+
+	sender *app.MessageService
+	query  *app.QueryService
+	log    *log.Helper
 }
 
-// NewMessageService creates a new MessageService.
-func NewMessageService(storage *msgworker.MessageStorage, producer gateway.MessageProducer, logger log.Logger) *MessageService {
-	return NewMessageServiceWithAuthorizer(storage, producer, nil, logger)
+func NewMessageService(sender *app.MessageService, query *app.QueryService, logger log.Logger) *MessageService {
+	return &MessageService{sender: sender, query: query, log: log.NewHelper(logger)}
 }
 
-func NewMessageServiceWithAuthorizer(storage *msgworker.MessageStorage, producer gateway.MessageProducer, authorizer authz.Authorizer, logger log.Logger) *MessageService {
-	return &MessageService{
-		storage:    storage,
-		producer:   producer,
-		log:        log.NewHelper(logger),
-		authorizer: authorizer,
-	}
-}
-
-// SendMessage forwards send requests to Kafka for asynchronous processing.
-// This enables HTTP-based message sending when WebSocket is unavailable.
 func (s *MessageService) SendMessage(ctx context.Context, req *v1.SendMessageRequest) (*v1.SendMessageReply, error) {
 	if req.Topic == "" {
-		return nil, errors.New("topic is required")
+		return nil, kerrors.BadRequest("TOPIC_REQUIRED", "topic is required")
 	}
 	if req.ClientMsgId == "" {
-		return nil, errors.New("client_msg_id is required")
+		return nil, kerrors.BadRequest("CLIENT_MSG_ID_REQUIRED", "client_msg_id is required")
 	}
-
 	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.New("authentication required")
-	}
-
-	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
-	if err != nil {
-		return nil, fmt.Errorf("invalid topic: %w", err)
-	}
-	if s.authorizer == nil {
-		return nil, errors.New("topic authorization unavailable")
-	}
-	if initializer, ok := s.authorizer.(interface {
-		EnsureTopicForSend(context.Context, int64, string) error
-	}); ok {
-		if err := initializer.EnsureTopicForSend(ctx, userID, normalizedTopic); err != nil {
-			if errors.Is(err, authz.ErrDenied) {
-				return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
-			}
-			return nil, fmt.Errorf("topic access denied")
-		}
-	}
-	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
-		if errors.Is(err, authz.ErrDenied) {
-			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
-		}
-		return nil, fmt.Errorf("topic access denied")
-	}
-
-	// Enforce the same message size limit as the WebSocket gateway.
-	const maxContentSize = 64 * 1024
-	if len(req.Content) > maxContentSize {
-		return nil, errors.New("message too large")
-	}
-
-	upstream := &v1.UpstreamMessage{
-		SenderId:         userID,
-		Topic:            normalizedTopic,
-		MsgType:          int32(req.MsgType),
-		Content:          req.Content,
-		ClientMsgId:      req.ClientMsgId,
-		Timestamp:        time.Now().Unix(),
-		MentionedUserIds: req.MentionedUserIds,
-	}
-
-	if err := s.producer.Produce(ctx, upstream); err != nil {
-		s.log.Errorf("produce to kafka failed: user_id=%d, client_msg_id=%s, err=%v",
-			userID, req.ClientMsgId, err)
-		return nil, errors.New("message delivery failed")
-	}
-
-	s.log.Debugf("message forwarded to kafka: user_id=%d, topic=%s, client_msg_id=%s",
-		userID, req.Topic, req.ClientMsgId)
-
-	// Grants take effect last: a failed share write must not block the send,
-	// it only leaves the attachment readable by the owner until the write
-	// succeeds (uploads already established owner readability).
-	s.shareAttachmentToTopic(ctx, userID, int32(req.MsgType), req.Content, normalizedTopic)
-
-	return &v1.SendMessageReply{
-		ClientMsgId: req.ClientMsgId,
-		Timestamp:   upstream.Timestamp,
-	}, nil
-}
-
-// shareAttachmentToTopic grants topic participants read access to the
-// attachment referenced by an image/file message.
-func (s *MessageService) shareAttachmentToTopic(ctx context.Context, userID int64, msgType int32, content []byte, normalizedTopic string) {
-	if msgType != 2 && msgType != 3 { // MSG_TYPE_IMAGE / MSG_TYPE_FILE
-		return
-	}
-	var meta struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(content, &meta); err != nil || meta.URL == "" {
-		return
-	}
-	fileID := strings.TrimPrefix(meta.URL, "/v1/files/")
-	if fileID == meta.URL || strings.ContainsAny(fileID, "/?#") {
-		return
-	}
-	sharer, ok := s.authorizer.(interface {
-		SetFileSharedTopic(context.Context, string, string, bool) error
+	result, err := s.sender.Send(ctx, app.SendRequest{
+		ActorID: userID, Topic: req.Topic, Type: domain.MessageType(req.MsgType),
+		Content: req.Content, ClientMsgID: req.ClientMsgId, MentionedIDs: req.MentionedUserIds,
 	})
-	if !ok {
-		return
+	if err != nil {
+		return nil, messageError(err)
 	}
-	if err := sharer.SetFileSharedTopic(ctx, fileID, normalizedTopic, true); err != nil {
-		s.log.Errorf("file share write failed: file_id=%s, topic=%s, err=%v", fileID, normalizedTopic, err)
-	}
+	return &v1.SendMessageReply{ClientMsgId: result.ClientMsgID, Timestamp: result.Timestamp}, nil
 }
 
-// PullMessages retrieves offline messages via HTTP fallback.
-// It handles both P2P/system (inbox) and group (read扩散) topics.
 func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) (*v1.PullReply, error) {
 	if req.Topic == "" {
 		return &v1.PullReply{}, nil
 	}
-
-	// Extract user_id from context (set by JWT middleware)
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.New("authentication required")
-	}
-	normalizedTopic, err := msgworker.NormalizeTopic(req.Topic)
+	result, err := s.query.Pull(ctx, app.PullRequest{
+		UserID: extractUserIDFromContext(ctx), Topic: req.Topic,
+		LastSeq: req.LastSeq, EndSeq: req.EndSeq, Limit: int(req.Limit),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("invalid topic: %w", err)
-	}
-	if s.authorizer == nil {
-		return nil, errors.New("topic authorization unavailable")
-	}
-	if err := s.authorizer.CanAccessTopic(ctx, userID, normalizedTopic); err != nil {
-		if errors.Is(err, authz.ErrDenied) {
+		if errors.Is(err, app.ErrAuthRequired) {
+			return nil, kerrors.Unauthorized("AUTH_REQUIRED", "authentication required")
+		}
+		if errors.Is(err, app.ErrTopicDenied) || errors.Is(err, app.ErrInvalidTopic) {
 			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
 		}
-		return nil, fmt.Errorf("topic access denied")
+		s.log.Warnf("pull messages failed: user_id=%d topic=%s err=%v", extractUserIDFromContext(ctx), req.Topic, err)
+		return &v1.PullReply{}, nil
 	}
-	req.Topic = normalizedTopic
-
-	limit := int(req.Limit)
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-
-	topicType := msgworker.ParseTopicType(req.Topic)
-	var messages []*v1.PullMessage
-	var hasMore bool
-
-	// Backward history page: end_seq > 0 (page before end_seq), or the
-	// initial load (both zero) which anchors on the latest messages.
-	// Forward incremental pull requires last_seq > 0 with end_seq == 0.
-	if req.EndSeq > 0 || req.LastSeq == 0 {
-		msgs, more, err := s.storage.GetHistoryMessages(ctx, userID, req.Topic, req.EndSeq, limit)
-		if err != nil {
-			s.log.Warnf("get history messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
-			return &v1.PullReply{}, nil
-		}
-		messages = inboxToPullMessages(msgs)
-		hasMore = more
-	} else {
-		switch topicType {
-		case msgworker.TopicTypeP2P, msgworker.TopicTypeSystem:
-			msgs, err := s.storage.GetOfflineMessages(ctx, userID, req.Topic, req.LastSeq, limit)
-			if err != nil {
-				s.log.Warnf("get offline messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
-				return &v1.PullReply{}, nil
-			}
-			messages = inboxToPullMessages(msgs)
-			hasMore = len(msgs) >= limit && limit > 0
-
-		case msgworker.TopicTypeGroup:
-			groupMsgs, err := s.storage.GetGroupMessages(ctx, req.Topic, req.LastSeq, limit)
-			if err != nil {
-				s.log.Warnf("get group messages failed: user_id=%d, topic=%s, err=%v", userID, req.Topic, err)
-				return &v1.PullReply{}, nil
-			}
-			mentionMsgs, err := s.storage.GetMentionMessages(ctx, userID, req.Topic, req.LastSeq, limit)
-			if err != nil {
-				mentionMsgs = nil // Non-fatal
-			}
-			messages = mergeAndSortMessages(groupMsgs, mentionMsgs)
-			if len(messages) > limit && limit > 0 {
-				messages = messages[:limit]
-			}
-			hasMore = len(messages) >= limit && limit > 0
-
-		default:
-			s.log.Warnf("invalid topic type for pull: topic=%s", req.Topic)
-			return &v1.PullReply{}, nil
+	messages := make([]*v1.PullMessage, len(result.Messages))
+	for i, msg := range result.Messages {
+		messages[i] = &v1.PullMessage{
+			MsgId: msg.ID, Topic: msg.Topic, SenderId: msg.SenderID, MsgType: int32(msg.Type),
+			Content: msg.Content, Timestamp: msg.Timestamp, TopicSeq: msg.TopicSeq,
+			ClientMsgId: msg.ClientMsgID, Recalled: msg.Recalled,
 		}
 	}
-
-	// Forward mode: next_seq = last returned seq + 1. Backward mode: oldest
-	// returned seq, suitable as the next end_seq for paging further back.
-	var nextSeq uint64
-	if len(messages) > 0 {
-		if req.EndSeq > 0 || req.LastSeq == 0 {
-			nextSeq = messages[0].TopicSeq
-		} else {
-			nextSeq = messages[len(messages)-1].TopicSeq + 1
-		}
-	}
-
-	return &v1.PullReply{
-		Messages: messages,
-		HasMore:  hasMore,
-		NextSeq:  nextSeq,
-	}, nil
+	return &v1.PullReply{Messages: messages, HasMore: result.HasMore, NextSeq: result.NextSeq}, nil
 }
 
-func inboxToPullMessages(msgs []*msgworker.InboxMessage) []*v1.PullMessage {
-	result := make([]*v1.PullMessage, len(msgs))
-	for i, m := range msgs {
-		result[i] = &v1.PullMessage{
-			MsgId:     m.MsgID,
-			Topic:     m.Topic,
-			SenderId:  m.SenderID,
-			MsgType:   m.MsgType,
-			Content:   m.Content,
-			Timestamp: m.Timestamp,
-			TopicSeq:  m.TopicSeq,
-			Recalled:  m.Recalled,
-		}
+func messageError(err error) error {
+	switch {
+	case errors.Is(err, app.ErrAuthRequired):
+		return kerrors.Unauthorized("AUTH_REQUIRED", "authentication required")
+	case errors.Is(err, app.ErrClientMsgIDReq):
+		return kerrors.BadRequest("CLIENT_MSG_ID_REQUIRED", "client_msg_id is required")
+	case errors.Is(err, app.ErrInvalidTopic):
+		return kerrors.BadRequest("INVALID_TOPIC", "invalid topic")
+	case errors.Is(err, app.ErrTopicDenied):
+		return kerrors.Forbidden("FORBIDDEN", "topic access denied")
+	case errors.Is(err, app.ErrMessageTooLarge):
+		return kerrors.BadRequest("MESSAGE_TOO_LARGE", "message too large")
+	case errors.Is(err, app.ErrDeliveryFailed):
+		return kerrors.InternalServer("DELIVERY_FAILED", "message delivery failed")
+	default:
+		return kerrors.InternalServer("INTERNAL", err.Error())
 	}
-	return result
-}
-
-func mergeAndSortMessages(groupMsgs []*msgworker.StoredMessage, mentionMsgs []*msgworker.MentionMessage) []*v1.PullMessage {
-	total := len(groupMsgs) + len(mentionMsgs)
-	result := make([]*v1.PullMessage, 0, total)
-	for _, m := range groupMsgs {
-		result = append(result, &v1.PullMessage{
-			MsgId:     m.MsgID,
-			Topic:     m.Topic,
-			SenderId:  m.SenderID,
-			MsgType:   m.MsgType,
-			Content:   m.Content,
-			Timestamp: m.Timestamp,
-			TopicSeq:  m.TopicSeq,
-			Recalled:  m.Recalled,
-		})
-	}
-	for _, m := range mentionMsgs {
-		result = append(result, &v1.PullMessage{
-			MsgId:     m.MsgID,
-			Topic:     m.Topic,
-			SenderId:  m.SenderID,
-			MsgType:   m.MsgType,
-			Content:   m.Content,
-			Timestamp: m.Timestamp,
-			TopicSeq:  m.TopicSeq,
-			Recalled:  m.Recalled,
-		})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].TopicSeq < result[j].TopicSeq
-	})
-	return result
 }
 
 // extractUserIDFromContext extracts user_id from JWT claims in context.
@@ -299,7 +100,6 @@ func extractUserIDFromContext(ctx context.Context) int64 {
 	if !ok {
 		return 0
 	}
-	// Try MapClaims first (used by AuthService)
 	if mapClaims, ok := claims.(jwt5.MapClaims); ok {
 		if uid, ok := mapClaims["user_id"].(float64); ok {
 			return int64(uid)

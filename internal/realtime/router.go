@@ -13,8 +13,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Redis keys used by the gateway registry. They are duplicated here to avoid an
-// import cycle between internal/msgworker and internal/gateway.
+// Redis keys used by the gateway registry. They live in the shared realtime
+// adapter so job workers and the gateway agree on the routing index.
 const (
 	gatewayNodesKey      = "im:gateway:nodes"
 	gatewayNodeKey       = "im:gateway:%s"

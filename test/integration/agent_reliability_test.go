@@ -17,7 +17,9 @@ import (
 	agentdata "nonoka-im/internal/data/agent"
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
-	"nonoka-im/internal/msgworker"
+	imgroup "nonoka-im/internal/im/group"
+	"nonoka-im/internal/im/seq"
+	mongostore "nonoka-im/internal/im/storage/mongo"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -504,22 +506,20 @@ func TestMsgWorker_BotRecipientsNotPushed(t *testing.T) {
 	}
 
 	pusher := &recordingPusher{}
-	seqGen := msgworker.NewSeqGenerator(ts.redis, testLogger)
-	storage := msgworker.NewMessageStorage(ts.mongoDB, testLogger)
+	seqGen := seq.New(ts.redis, testLogger)
+	storage := mongostore.NewStore(ts.mongoDB, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("ensure indexes: %v", err)
 	}
-	worker := msgworker.NewMsgWorker(nil, seqGen, msgworker.NewSnowflake(1), storage, pusher, testLogger)
-	worker.SetGroupMemberService(msgworker.NewPersistentGroupMemberService(imdata.NewGroupMemberRepo(ts.data.DB(), testLogger), ts.redis, testLogger))
-	botIndex := msgworker.NewBotIndexWithQuery(ts.data.ListBotUserIDs, ts.data.IsBotUser, testLogger)
+	botIndex := imgroup.NewBotIndexWithQuery(ts.data.ListBotUserIDs, ts.data.IsBotUser, testLogger)
 	if err := botIndex.Refresh(ctx); err != nil {
 		t.Fatalf("refresh bot index: %v", err)
 	}
-	worker.SetBotIndex(botIndex)
+	worker := newTestIMWorker(seqGen, storage, pusher, imdata.NewConversationRepo(ts.data.DB(), testLogger), imgroup.NewService(imdata.NewGroupMemberRepo(ts.data.DB(), testLogger), ts.redis, testLogger), botIndex)
 	if err := worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer worker.Stop()
+	defer worker.Stop(context.Background())
 
 	upstream := &v1.UpstreamMessage{
 		Topic: group.Topic, SenderId: ownerID, MsgType: int32(v1.MsgType_MSG_TYPE_TEXT),

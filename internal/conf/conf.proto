@@ -12,6 +12,8 @@ message Bootstrap {
   Dispatch dispatch = 4;
   GatewayConfig gateway = 5;
   MsgworkerConfig msgworker = 6;
+  AgentWorker agent_worker = 7;
+  Observability observability = 8;
 }
 
 message Server {
@@ -162,4 +164,32 @@ message MsgworkerConfig {
   int32 group_batch_size = 4;
   // Max time to wait before flushing group message batch.
   google.protobuf.Duration group_batch_timeout = 5;
+}
+
+// Observability configures optional process probes.
+message Observability {
+  string health_addr = 1;
+  string metrics_addr = 2;
+  string otlp_traces_endpoint = 3;
+}
+
+// AgentWorker configures the agent job application. Kafka and Data sections
+// are reused; secrets stay environment-only.
+message AgentWorker {
+  int32 run_workers = 1;
+  google.protobuf.Duration run_timeout = 2;
+  google.protobuf.Duration lease = 3;
+  google.protobuf.Duration heartbeat = 4;
+  google.protobuf.Duration queued_poll = 5;
+  google.protobuf.Duration sweep_interval = 6;
+  int32 max_attempts = 7;
+  string im_http_url = 8;
+  int64 bootstrap_agent_id = 9;
+  int64 bootstrap_bot_id = 10;
+  int64 bootstrap_owner_id = 11;
+  string bootstrap_name = 12;
+  string bootstrap_instruction = 13;
+  string model_base_url = 14;
+  string model_name = 15;
+  google.protobuf.Duration dispatch_timeout = 16;
 }

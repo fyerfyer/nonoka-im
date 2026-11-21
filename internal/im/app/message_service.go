@@ -1,0 +1,302 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"nonoka-im/internal/authz"
+	"nonoka-im/internal/im/domain"
+	"nonoka-im/internal/messaging"
+	"nonoka-im/internal/metrics"
+
+	"github.com/go-kratos/kratos/v2/log"
+	"go.opentelemetry.io/otel/trace"
+)
+
+const maxContentSize = 64 * 1024
+
+// SendRequest is the transport-neutral input for sending a client message.
+type SendRequest struct {
+	ActorID      int64
+	Topic        string
+	Type         domain.MessageType
+	Content      []byte
+	ClientMsgID  string
+	Timestamp    int64
+	MentionedIDs []int64
+}
+
+// SendResult is returned after Kafka accepted the message.
+type SendResult struct {
+	ClientMsgID string
+	Timestamp   int64
+}
+
+// HandleResult describes one persisted Kafka message.
+type HandleResult struct {
+	Message      domain.Message
+	RecipientIDs []int64
+	IsGroup      bool
+	Duplicate    bool
+}
+
+// MessageService owns the write side of the IM bounded context: validation,
+// topic sequencing, durable persistence and conversation fan-out.
+type MessageService struct {
+	Writer        MessageWriter
+	IDs           IDGenerator
+	Seqs          SeqGenerator
+	Conversations ConversationRepository
+	GroupMembers  GroupMemberReader
+	Bots          BotDirectory
+	Authorizer    authz.Authorizer
+	Producer      MessageProducer
+	Attachments   AttachmentSharer
+	AgentEvents   bool
+	Metrics       *metrics.Metrics
+	Log           *log.Helper
+}
+
+func (s *MessageService) log() *log.Helper {
+	if s.Log != nil {
+		return s.Log
+	}
+	return log.NewHelper(log.DefaultLogger)
+}
+
+// Send validates and forwards a client message to Kafka. Both the WebSocket
+// gateway and the HTTP fallback call this method so their behavior cannot drift.
+func (s *MessageService) Send(ctx context.Context, req SendRequest) (SendResult, error) {
+	if req.ActorID <= 0 {
+		return SendResult{}, ErrAuthRequired
+	}
+	if req.ClientMsgID == "" {
+		return SendResult{}, ErrClientMsgIDReq
+	}
+	normalized, err := domain.NormalizeTopic(req.Topic)
+	if err != nil {
+		return SendResult{}, fmt.Errorf("%w: %v", ErrInvalidTopic, err)
+	}
+	if len(req.Content) > maxContentSize {
+		return SendResult{}, ErrMessageTooLarge
+	}
+	if s.Authorizer == nil {
+		return SendResult{}, fmt.Errorf("%w: authorization unavailable", ErrTopicDenied)
+	}
+	if initializer, ok := s.Authorizer.(interface {
+		EnsureTopicForSend(context.Context, int64, string) error
+	}); ok {
+		if err := initializer.EnsureTopicForSend(ctx, req.ActorID, normalized); err != nil {
+			return SendResult{}, mapAuthzError(err)
+		}
+	}
+	if err := s.Authorizer.CanAccessTopic(ctx, req.ActorID, normalized); err != nil {
+		return SendResult{}, mapAuthzError(err)
+	}
+
+	now := req.Timestamp
+	if now == 0 {
+		now = time.Now().Unix()
+	}
+	msg := &domain.Message{
+		Topic: normalized, SenderID: req.ActorID, Type: req.Type,
+		Content: req.Content, ClientMsgID: req.ClientMsgID, Timestamp: now,
+		MentionedUserIDs: req.MentionedIDs,
+	}
+	if s.Producer == nil {
+		return SendResult{}, ErrDeliveryFailed
+	}
+	if err := s.Producer.Produce(ctx, msg); err != nil {
+		s.log().Errorf("produce to kafka failed: user_id=%d client_msg_id=%s err=%v", req.ActorID, req.ClientMsgID, err)
+		return SendResult{}, fmt.Errorf("%w: %v", ErrDeliveryFailed, err)
+	}
+	if s.Attachments != nil {
+		s.Attachments.ShareToTopic(ctx, req.ActorID, req.Type, req.Content, normalized)
+	}
+	return SendResult{ClientMsgID: req.ClientMsgID, Timestamp: now}, nil
+}
+
+func mapAuthzError(err error) error {
+	if errors.Is(err, authz.ErrDenied) {
+		return ErrTopicDenied
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %v", ErrTopicDenied, err)
+	}
+	return fmt.Errorf("%w: %v", ErrTopicDenied, err)
+}
+
+// HandleIncoming persists one message consumed from Kafka and returns the
+// delivery task for the async push pipeline.
+func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) (HandleResult, error) {
+	start := time.Now()
+	if s.Metrics != nil {
+		s.Metrics.IncMessagesConsumed()
+	}
+	if s.IDs == nil || s.Seqs == nil || s.Writer == nil {
+		return HandleResult{}, fmt.Errorf("message service dependencies unavailable")
+	}
+
+	msgID := s.IDs.NextID()
+	topicSeq, err := s.Seqs.NextSeq(ctx, in.Topic)
+	if err != nil {
+		return HandleResult{}, fmt.Errorf("generate topic seq: %w", err)
+	}
+	in.ID = msgID
+	in.TopicSeq = topicSeq
+	if in.CreatedAt.IsZero() {
+		in.CreatedAt = time.Now()
+	}
+
+	outbox, err := s.agentOutbox(ctx, &in)
+	if err != nil {
+		return HandleResult{}, err
+	}
+
+	topicType := domain.ParseTopicType(in.Topic)
+	var recipients []int64
+	var duplicate bool
+	result := HandleResult{IsGroup: topicType == domain.TopicTypeGroup}
+	switch topicType {
+	case domain.TopicTypeP2P:
+		recipients, duplicate, err = s.Writer.SaveP2P(ctx, &in, outbox)
+		if err != nil {
+			return HandleResult{}, fmt.Errorf("save p2p message: %w", err)
+		}
+	case domain.TopicTypeGroup:
+		duplicate, err = s.Writer.SaveGroup(ctx, &in, outbox)
+		if err != nil {
+			return HandleResult{}, fmt.Errorf("save group message: %w", err)
+		}
+		if len(in.MentionedUserIDs) > 0 {
+			if err := s.Writer.SaveMentionInbox(ctx, &in, in.MentionedUserIDs); err != nil {
+				s.log().Warnf("save mention inbox failed: %v", err)
+			}
+		}
+	case domain.TopicTypeSystem:
+		recipients, duplicate, err = s.Writer.SaveSystem(ctx, &in)
+		if err != nil {
+			return HandleResult{}, fmt.Errorf("save system message: %w", err)
+		}
+	default:
+		return HandleResult{}, fmt.Errorf("unknown topic type: %s", in.Topic)
+	}
+
+	if duplicate {
+		if s.Metrics != nil {
+			s.Metrics.IncMessagesDuplicate()
+			s.Metrics.ObserveProcessingLatency(time.Since(start).Seconds())
+		}
+		result.Message = in
+		result.RecipientIDs = recipients
+		result.Duplicate = true
+		return result, nil
+	}
+
+	if err := s.Writer.BackupTopicSeq(ctx, in.Topic, topicSeq); err != nil {
+		s.log().Warnf("backup topic seq failed: %v", err)
+	}
+	s.upsertConversations(ctx, &in, recipients, topicType == domain.TopicTypeGroup)
+	if s.Metrics != nil {
+		s.Metrics.IncMessagesProcessed()
+		s.Metrics.ObserveProcessingLatency(time.Since(start).Seconds())
+	}
+	result.Message = in
+	result.RecipientIDs = recipients
+	return result, nil
+}
+
+// agentOutbox decides whether this message can trigger an agent and builds the
+// transactional outbox row with the shared messaging event contract.
+func (s *MessageService) agentOutbox(ctx context.Context, msg *domain.Message) (*domain.OutboxEvent, error) {
+	if !s.AgentEvents {
+		return nil, nil
+	}
+	if s.Bots != nil && s.Bots.Ready() {
+		trigger, err := s.messageCanTriggerAgent(ctx, msg)
+		if err != nil {
+			s.log().Warnf("bot lookup failed (topic=%s): %v", msg.Topic, err)
+			trigger = true // fail open; the agent worker still re-checks authorization
+		}
+		if !trigger {
+			return nil, nil
+		}
+	}
+	ev := messaging.NewMessageEvent(msg.ID, msg.Topic, msg.SenderID, int32(msg.Type), msg.Timestamp, msg.MentionedUserIDs, msg.ClientMsgID)
+	ev.TopicSeq = msg.TopicSeq
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		ev.TraceParent = fmt.Sprintf("00-%s-%s-%s", sc.TraceID(), sc.SpanID(), sc.TraceFlags())
+	}
+	payload, err := ev.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent event: %w", err)
+	}
+	return &domain.OutboxEvent{
+		EventID: ev.EventID, MsgID: msg.ID, Topic: msg.Topic, TopicSeq: msg.TopicSeq,
+		Payload: payload, Status: domain.OutboxPending, NextAttemptAt: time.Now(), CreatedAt: time.Now(),
+	}, nil
+}
+
+func (s *MessageService) messageCanTriggerAgent(ctx context.Context, msg *domain.Message) (bool, error) {
+	switch domain.ParseTopicType(msg.Topic) {
+	case domain.TopicTypeP2P:
+		uid1, uid2, err := domain.ExtractUserIDsFromP2PTopic(msg.Topic)
+		if err != nil {
+			return false, nil
+		}
+		peer := uid1
+		if msg.SenderID == uid1 {
+			peer = uid2
+		} else if msg.SenderID != uid2 {
+			return false, nil
+		}
+		senderBot, err := s.Bots.IsBot(ctx, msg.SenderID)
+		if err != nil {
+			return false, err
+		}
+		if senderBot {
+			return false, nil
+		}
+		return s.Bots.IsBot(ctx, peer)
+	case domain.TopicTypeGroup:
+		return s.Bots.AnyBot(ctx, msg.MentionedUserIDs)
+	default:
+		return false, nil
+	}
+}
+
+func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Message, recipientIDs []int64, isGroup bool) {
+	if s.Conversations == nil {
+		return
+	}
+	var userIDs []int64
+	if isGroup {
+		groupID, err := domain.ExtractGroupID(msg.Topic)
+		if err != nil {
+			s.log().Warnf("extract group id for conversation upsert failed: %v", err)
+			return
+		}
+		if s.GroupMembers != nil {
+			members, err := s.GroupMembers.GetGroupMembers(ctx, groupID)
+			if err != nil {
+				s.log().Warnf("get group members for conversation upsert failed: %v", err)
+				return
+			}
+			userIDs = append(userIDs, members...)
+		}
+	} else {
+		userIDs = append(userIDs, msg.SenderID)
+		for _, id := range recipientIDs {
+			if id != msg.SenderID {
+				userIDs = append(userIDs, id)
+			}
+		}
+	}
+	for _, uid := range userIDs {
+		if err := s.Conversations.UpsertConversation(ctx, uid, msg, msg.TopicSeq); err != nil {
+			s.log().Warnf("upsert conversation failed: user_id=%d topic=%s err=%v", uid, msg.Topic, err)
+		}
+	}
+}

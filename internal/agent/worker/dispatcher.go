@@ -8,8 +8,8 @@ import (
 
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/domain"
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/authz"
+	"nonoka-im/internal/messaging"
 	"nonoka-im/internal/topic"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -20,12 +20,12 @@ import (
 // before any model work starts.
 type Dispatcher struct {
 	Store      DispatcherStore
-	Authorizer *authz.OpenFGA
+	Authorizer DispatcherAuthorizer
 	Reader     app.MessageReader
 	Log        *log.Helper
 }
 
-func (d *Dispatcher) Dispatch(ctx context.Context, ev agevent.MessageEvent) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, ev messaging.MessageEvent) error {
 	if ev.SenderID <= 0 || ev.Topic == "" {
 		return fmt.Errorf("invalid agent event: sender and topic required")
 	}

@@ -44,6 +44,7 @@ type Consumer struct {
 	stopOnce  sync.Once
 	started   atomic.Bool
 	stopped   atomic.Bool
+	ready     atomic.Bool
 
 	// workerCount controls the number of concurrent message processors.
 	// Messages from the same partition are always handled by the same worker,
@@ -218,6 +219,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 			continue
 		}
 
+		c.ready.Store(true)
 		c.log.Debugf("consumed message: topic=%s partition=%d offset=%d key=%s",
 			msg.Topic, msg.Partition, msg.Offset, string(msg.Key))
 
@@ -235,6 +237,12 @@ func (c *Consumer) Start(ctx context.Context) error {
 // workerLoop processes messages from a single work channel sequentially.
 // Assigning the same partition to the same worker preserves ordering.
 // Offsets are committed in batches to reduce Kafka round-trips.
+// Started reports whether Start has been called.
+func (c *Consumer) Started() bool { return c.started.Load() }
+
+// Ready reports whether at least one message has been read successfully.
+func (c *Consumer) Ready() bool { return c.ready.Load() }
+
 func (c *Consumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 	defer func() {
 		if r := recover(); r != nil {

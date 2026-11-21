@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"
@@ -15,15 +16,22 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"gorm.io/gorm"
+	"nonoka-im/internal/agent/app/admin"
+	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	"nonoka-im/internal/data/agent"
 	"nonoka-im/internal/data/im"
+	"nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/httpapi"
+	"nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/internal/messaging"
+	"nonoka-im/internal/messaging/im"
 	"nonoka-im/internal/metrics"
-	"nonoka-im/internal/msgworker"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 	"os"
@@ -49,49 +57,64 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	authUsecase := biz.NewAuthUsecase(authRepo, auth)
 	authService := service.NewAuthService(authUsecase)
 	dispatchService := service.NewDispatchService(universalClient, dispatch, logger)
+	kafkaConfig := provideKafkaConfig(confData)
+	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
+	domainProducer := gateway.NewDomainProducer(kafkaProducer)
+	openFGA, err := authz.NewOpenFGAFromEnv()
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
 	database, cleanup2, err := provideMongoDB(confData)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
+	fileStore := provideFileStore(database)
+	fileService := provideIMFileService(fileStore, openFGA)
 	metrics := provideMetrics()
-	messageStorage, err := provideMessageStorage(database, logger, metrics)
+	messageService := provideIMMessageService(domainProducer, openFGA, fileService, logger, metrics)
+	store, err := provideMessageStorage(database, logger, metrics)
 	if err != nil {
 		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	kafkaConfig := provideKafkaConfig(confData)
-	kafkaProducer := gateway.NewKafkaProducer(kafkaConfig, logger)
-	openFGA, err := authz.NewOpenFGAFromEnv()
-	if err != nil {
-		cleanup2()
-		cleanup()
-		return nil, nil, err
-	}
-	messageService := service.NewMessageServiceWithAuthorizer(messageStorage, kafkaProducer, openFGA, logger)
+	queryService := provideIMQueryService(store, openFGA, logger)
+	serviceMessageService := service.NewMessageService(messageService, queryService, logger)
 	string2 := provideNodeIDString()
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
 	gatewayRegistryConfig := provideGatewayRegistryConfig(dispatch)
 	userService := provideUserService(authUsecase, sessionManager, gatewayRegistryConfig)
 	conversationRepo := imdata.NewConversationRepo(db, logger)
-	conversationService := service.NewConversationService(conversationRepo)
+	conversationService := provideIMConversationService(conversationRepo)
+	serviceConversationService := service.NewConversationService(conversationService)
 	v := provideMetricsSlice(metrics)
 	manager := gateway.NewManager(logger, v...)
 	pushService := service.NewPushService(manager, logger)
-	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, messageService, userService, conversationService, pushService, auth, logger)
+	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, auth, logger)
 	groupRepo := imdata.NewGroupRepo(db, logger)
-	groupService := service.NewGroupServiceWithAuthorizer(groupRepo, openFGA)
-	fileService := service.NewFileServiceWithAuthorizer(database, openFGA, logger)
-	agentHTTP := service.NewAgentHTTP(dataData, openFGA, groupRepo)
-	outboxAdmin := provideOutboxAdmin(messageStorage)
+	groupService := provideIMGroupService(groupRepo, openFGA)
+	serviceGroupService := service.NewGroupService(groupService)
+	serviceFileService := service.NewFileService(fileService, logger)
+	agentdataStore := agentdata.NewStore(db)
+	platformdataStore := platformdata.NewStore(db)
+	agentService := provideAgentAdminService(agentdataStore, platformdataStore, openFGA, groupRepo, authRepo, logger)
+	runService := provideAgentRunService(agentdataStore, openFGA)
+	approvalService := provideAgentApprovalService(agentdataStore, openFGA)
+	mcpService := provideAgentMCPService(platformdataStore)
+	skillService := provideAgentSkillService(platformdataStore)
+	idempotency := provideIdempotency(dataData)
+	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, idempotency)
+	outboxService := provideIMOutboxService(store, logger)
+	outboxAdmin := provideOutboxAdmin(outboxService)
 	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := provideHandler(manager, sessionManager, kafkaProducer, messageStorage, v2, heartbeatConfig, gatewayConfig, groupRepo, openFGA, logger, metrics)
+	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, messageService, userService, conversationService, groupService, fileService, agentHTTP, outboxAdminHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, outboxAdminHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	mainNodeID := provideNodeID()
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
@@ -297,8 +320,8 @@ func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 }
 
 // provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
-func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*msgworker.MessageStorage, error) {
-	storage := msgworker.NewMessageStorage(db, logger, m)
+func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*mongostore.Store, error) {
+	storage := mongostore.NewStore(db, logger, m)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := storage.EnsureIndexes(ctx); err != nil {
@@ -307,9 +330,84 @@ func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Met
 	return storage, nil
 }
 
-// provideOutboxAdmin exposes the failed agent outbox rows to the admin API.
-func provideOutboxAdmin(storage *msgworker.MessageStorage) *messaging.OutboxAdmin {
-	return messaging.NewOutboxAdmin(storage)
+func provideFileStore(db *mongo.Database) *mongostore.FileStore {
+	return mongostore.NewFileStore(db)
+}
+
+func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.Authorizer, attachments *app.FileService, logger log.Logger, m *metrics.Metrics) *app.MessageService {
+	return &app.MessageService{
+		Producer: producer, Authorizer: authorizer, Attachments: attachments,
+		Metrics: m, Log: log.NewHelper(logger),
+	}
+}
+
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, logger log.Logger) *app.QueryService {
+	return &app.QueryService{Reader: storage, Authorizer: authorizer, Log: log.NewHelper(logger)}
+}
+
+func provideIMConversationService(repo imdata.ConversationRepo) *app.ConversationService {
+	return &app.ConversationService{Repo: repo}
+}
+
+func provideIMGroupService(repo imdata.GroupRepo, authorizer *authz.OpenFGA) *app.GroupService {
+	return &app.GroupService{Repo: repo, Authorizer: authorizer}
+}
+
+func provideIMFileService(store *mongostore.FileStore, authorizer *authz.OpenFGA) *app.FileService {
+	return &app.FileService{Store: store, Authorizer: authorizer, MaxUpload: service.DefaultMaxUploadBytes}
+}
+
+func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *app.OutboxService {
+	return &app.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+}
+
+func provideOutboxAdmin(outbox *app.OutboxService) messaging.OutboxAdmin {
+	return im.NewOutboxAdmin(outbox)
+}
+
+func provideIdempotency(d *data.Data) *httpapi.Idempotency {
+	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
+}
+
+func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, logger log.Logger) *admin.AgentService {
+	return admin.NewAgentService(store, platform, az, groups, userDirectory{repo: users}, apiKeySealer{}, logger)
+}
+
+func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA) *admin.RunService {
+	return admin.NewRunService(store, az)
+}
+
+func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA) *admin.ApprovalService {
+	return admin.NewApprovalService(store, az)
+}
+
+func provideAgentMCPService(platform *platformdata.Store) *admin.MCPService {
+	return admin.NewMCPService(platform)
+}
+
+func provideAgentSkillService(platform *platformdata.Store) *admin.SkillService {
+	return admin.NewSkillService(platform)
+}
+
+type userDirectory struct{ repo biz.AuthRepo }
+
+func (u userDirectory) UserExists(ctx context.Context, userID int64) (bool, error) {
+	_, err := u.repo.GetUserByID(ctx, userID)
+	return err == nil, nil
+}
+
+type apiKeySealer struct{}
+
+func (apiKeySealer) Seal(apiKey string) (string, bool, error) {
+	key, err := credential.SealKeyFromEnv()
+	if err != nil {
+		return "", false, err
+	}
+	sealed, err := credential.Seal(key, []byte(apiKey))
+	if err != nil {
+		return "", false, err
+	}
+	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
 // provideMetrics creates a Prometheus metrics collector.
@@ -333,9 +431,8 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, producer gateway.MessageProducer, storage *msgworker.MessageStorage, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, authorizer authz.Authorizer, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
-	h := gateway.NewHandler(manager, sessions, producer, storage, jwtSecret, hb, logger, m)
-	h.SetAuthorizer(authorizer)
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *app.MessageService, query *app.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+	h := gateway.NewHandler(manager, sessions, messages, query, jwtSecret, hb, logger, m)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
 	}
@@ -349,7 +446,7 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 		}
 		ids := make([]int64, 0, len(members))
 		for _, member := range members {
-			ids = append(ids, member.UserId)
+			ids = append(ids, member.UserID)
 		}
 		return ids, nil
 	})

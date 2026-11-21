@@ -2,18 +2,16 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"nonoka-im/internal/agent/adapters"
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/bootstrap"
-	"nonoka-im/internal/agent/config"
 	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/eino"
@@ -33,52 +31,82 @@ import (
 	agentdata "nonoka-im/internal/data/agent"
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
+	imapp "nonoka-im/internal/im/app"
+	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
-	"nonoka-im/internal/messaging"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/messaging/httpclient"
+	messagingim "nonoka-im/internal/messaging/im"
+	messagingmongo "nonoka-im/internal/messaging/mongo"
+	"nonoka-im/internal/server"
 
 	"github.com/cloudwego/eino/adk/middlewares/skill"
+	"github.com/go-kratos/kratos/v2"
+	"github.com/go-kratos/kratos/v2/config"
+	"github.com/go-kratos/kratos/v2/config/file"
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/transport"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+var flagconf string
+
+func init() {
+	flag.StringVar(&flagconf, "conf", "../../configs", "config path, eg: -conf config.yaml")
+}
+
 func main() {
+	flag.Parse()
 	loadDotEnv(".env")
 	logger := log.NewStdLogger(os.Stdout)
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg, err := config.Load(configPath())
-	if err != nil {
+	c := config.New(config.WithSource(file.NewSource(flagconf)))
+	defer c.Close()
+	if err := c.Load(); err != nil {
 		panic(err)
 	}
-	shutdownTelemetry, err := bootstrap.InitTracer(ctx, cfg.Observability)
+	var bc conf.Bootstrap
+	if err := c.Scan(&bc); err != nil {
+		panic(err)
+	}
+	secrets := bootstrap.ApplyEnv(&bc)
+	if err := bootstrap.Normalize(&bc, secrets); err != nil {
+		panic(err)
+	}
+	aw := bc.AgentWorker
+
+	shutdownTelemetry, err := bootstrap.InitTracer(ctx, bc.Observability.OtlpTracesEndpoint)
 	if err != nil {
 		panic(err)
 	}
 	defer shutdownTelemetry()
 
 	agentMetrics := agentmetrics.New()
-	shutdownProbes := bootstrap.StartHealthAndMetrics(cfg.Observability, agentMetrics, logger)
-	defer shutdownProbes()
-
-	dataLayer, cleanup, err := data.NewData(&conf.Data{Database: &conf.Data_Database{Source: cfg.Data.PostgresDSN}})
+	dataLayer, cleanup, err := data.NewData(bc.Data)
 	if err != nil {
 		panic(err)
 	}
 	defer cleanup()
 
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.Data.MongoDBURI))
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(bc.Data.Mongodb.Uri))
 	if err != nil {
 		panic(fmt.Errorf("connect mongo: %w", err))
 	}
-	defer func() { _ = mongoClient.Disconnect(context.Background()) }()
-	if err := mongoClient.Ping(ctx, nil); err != nil {
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		_ = mongoClient.Disconnect(shutdownCtx)
+	}()
+	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := mongoClient.Ping(pingCtx, nil); err != nil {
+		pingCancel()
 		panic(fmt.Errorf("ping mongo: %w", err))
 	}
-	mongoDB := mongoClient.Database(cfg.Data.MongoDBDatabase)
-	messageStorage := msgworker.NewMessageStorage(mongoDB, logger)
+	pingCancel()
+	mongoDB := mongoClient.Database(bc.Data.Mongodb.Database)
 
 	az, err := authz.NewOpenFGAFromEnv()
 	if err != nil {
@@ -87,53 +115,47 @@ func main() {
 	store := agentdata.NewStore(dataLayer.DB())
 	registry := platformdata.NewStore(dataLayer.DB())
 
-	sealKey := []byte(cfg.SecretKey)
-	if len(sealKey) < 32 {
-		if fromEnv, err := credential.SealKeyFromEnv(); err == nil {
-			sealKey = fromEnv
-		}
+	sealKey, err := credential.SealKeyFromEnv()
+	if err != nil {
+		sealKey = []byte(secrets.SecretKey)
 	}
 	if len(sealKey) < 32 {
 		panic("AGENT_SECRET_KEY must contain at least 32 bytes")
 	}
-	if err := bootstrap.SeedAgent(ctx, store, az, cfg, logger); err != nil {
-		panic(err)
-	}
-
-	if cfg.Model.APIKey == "" {
-		// The demo stack starts the worker without a shared model key. Agents
-		// that carry their own key still run; this placeholder only fails for
-		// agents relying on the missing environment fallback.
+	if secrets.ModelKey == "" {
 		logger.Log(log.LevelWarn, "msg", "OPENAI_API_KEY/DEEPSEEK_API_KEY not set; only agents with their own API key will run")
-		cfg.Model.APIKey = "missing-model-key"
+		secrets.ModelKey = "missing-model-key"
 	}
 
 	replySender := &adapters.Sender{
-		Client: &messaging.Client{BaseURL: cfg.IM.HTTPURL, HTTP: &http.Client{Timeout: 30 * time.Second}},
+		Client: &httpclient.Client{BaseURL: aw.ImHttpUrl, HTTP: &http.Client{Timeout: 30 * time.Second}},
 		TokenIssuer: func(agentID, botID int64, topic string) (string, error) {
-			return credential.Sign(cfg.JWTSecret, agentID, botID, topic)
+			return credential.Sign(secrets.JWTSecret, agentID, botID, topic)
 		},
 	}
 	directory := &adapters.Directory{
 		Groups: imdata.NewGroupRepo(dataLayer.DB(), logger),
 		Users:  imdata.NewAuthRepo(dataLayer.DB(), dataLayer.Redis, logger),
 	}
+
+	messageStorage := mongostore.NewStore(mongoDB, logger)
+	query := &imapp.QueryService{Reader: messageStorage, Authorizer: az, Log: log.NewHelper(logger)}
+	fileStore := mongostore.NewFileStore(mongoDB)
 	toolsBackend := &app.MessageTools{
-		Reader:     adapters.Messages{Reader: messaging.NewReader(messageStorage)},
+		Reader:     adapters.Messages{Reader: messagingim.NewReader(query)},
 		Authorizer: az,
 		Sender:     replySender,
-		Files:      adapters.Files{Reader: messaging.NewFiles(mongoDB)},
+		Files:      adapters.Files{Reader: messagingmongo.NewFiles(fileStore)},
 		Directory:  directory,
 	}
 	mcpProvider := &agentmcp.Provider{
 		Store: registry, Guard: az, IdleTTL: 10 * time.Minute, MaxClients: 64,
 	}
 	defer mcpProvider.Close()
-	go mcpProvider.StartJanitor(ctx, 5*time.Minute)
 
 	builtinRegistry := builtin.NewRegistry(toolsBackend, az, 8192)
 	deps := eino.Deps{
-		APIKey: cfg.Model.APIKey, BaseURL: cfg.Model.BaseURL, Model: cfg.Model.Name,
+		APIKey: secrets.ModelKey, BaseURL: aw.ModelBaseUrl, Model: aw.ModelName,
 		MCPToolProvider: mcpProvider.Tools,
 		ToolCatalog:     builtinRegistry,
 		SkillBackendFactory: func(bindings []agentport.SkillBinding) (skill.Backend, error) {
@@ -161,49 +183,84 @@ func main() {
 	}
 
 	harness := &app.Harness{
-		Store:       store,
-		Runtime:     rt,
-		Authorizer:  az,
-		Sender:      replySender,
-		MaxAttempts: cfg.Worker.MaxAttempts,
+		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),
 	}
 	exec := &executor.Executor{
 		Store: store, Registry: registry, Authorizer: az, Harness: harness,
 		Reader: toolsBackend.Reader, SealKey: sealKey,
-		MaxAttempts: cfg.Worker.MaxAttempts, RunTimeout: cfg.Worker.RunTimeout.Value(),
-		Lease: cfg.Worker.Lease.Value(), Log: log.NewHelper(logger),
+		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
+		Lease: aw.Lease.AsDuration(), Log: log.NewHelper(logger),
 	}
 	dispatcher := &worker.Dispatcher{Store: store, Authorizer: az, Reader: toolsBackend.Reader, Log: log.NewHelper(logger)}
-	sw := &sweeper.Sweeper{Store: store, Metrics: agentMetrics, Log: log.NewHelper(logger), Interval: cfg.Worker.SweepInterval.Value(), MaxAttempts: cfg.Worker.MaxAttempts}
-	consumer := kafkax.NewConsumer(kafkax.ConsumerConfig{
-		Brokers: cfg.Kafka.Brokers, Topic: cfg.Kafka.EventsTopic, GroupID: cfg.Kafka.EventsGroup,
-		WorkerCount: cfg.Kafka.ConsumerWorkers, MaxRetries: cfg.Kafka.MaxRetries,
-		HandlerTimeout: cfg.Kafka.DispatchTimeout.Value(), RetryBackoff: 500 * time.Millisecond,
-		DLQTopic: cfg.Kafka.DLQTopic,
-	}, nil, logger)
-	workerRunner := &worker.Worker{
-		Store: store, Dispatcher: dispatcher, Executor: exec, Sweeper: sw, Consumer: consumer,
-		Metrics: agentMetrics, Log: log.NewHelper(logger),
-		RunWorkers: cfg.Worker.RunWorkers, QueuedPoll: cfg.Worker.QueuedPoll.Value(),
-	}
-	consumer.SetHandler(workerRunner.HandleEvent)
+	sweeperRunner := &sweeper.Sweeper{Store: store, Metrics: agentMetrics, Log: log.NewHelper(logger), Interval: aw.SweepInterval.AsDuration(), MaxAttempts: int(aw.MaxAttempts)}
 
-	if err := workerRunner.Run(ctx); err != nil && ctx.Err() == nil {
-		logger.Log(log.LevelError, "msg", fmt.Sprintf("agent consumer: %v", err))
+	consumer := kafkax.NewConsumer(kafkax.ConsumerConfig{
+		Brokers: bc.Data.Kafka.Brokers, Topic: bc.Data.Kafka.Topic, GroupID: bc.Data.Kafka.ConsumerGroup,
+		WorkerCount: int(bc.Data.Kafka.WorkerCount), MaxRetries: int(bc.Data.Kafka.MaxRetries),
+		HandlerTimeout: aw.DispatchTimeout.AsDuration(), RetryBackoff: 500 * time.Millisecond,
+		DLQTopic: bc.Data.Kafka.DlqTopic, CommitBatchSize: int(bc.Data.Kafka.CommitBatchSize),
+		CommitFlushInterval: durationOrZero(bc.Data.Kafka.CommitFlushInterval),
+	}, nil, logger)
+	runner := &worker.Worker{
+		Store: store, Dispatcher: dispatcher, Executor: exec, Sweeper: sweeperRunner, Consumer: consumer,
+		Metrics: agentMetrics, Log: log.NewHelper(logger),
+		RunWorkers: int(aw.RunWorkers), QueuedPoll: aw.QueuedPoll.AsDuration(),
+		Background: []func(context.Context){
+			func(ctx context.Context) { mcpProvider.StartJanitor(ctx, 5*time.Minute) },
+		},
+	}
+	consumer.SetHandler(runner.HandleEvent)
+
+	healthAddr := bc.Observability.HealthAddr
+	metricsAddr := bc.Observability.MetricsAddr
+	ready := func(ctx context.Context) error {
+		if !runner.Ready() {
+			return fmt.Errorf("kafka consumer not ready")
+		}
+		if sqlDB, err := dataLayer.DB().DB(); err == nil {
+			if err := sqlDB.PingContext(ctx); err != nil {
+				return fmt.Errorf("postgres not ready: %w", err)
+			}
+		}
+		if err := mongoClient.Ping(ctx, nil); err != nil {
+			return fmt.Errorf("mongodb not ready: %w", err)
+		}
+		return nil
+	}
+	health := server.NewProbeServer("agent-worker-health", healthAddr, nil, ready, logger)
+	var metrics *server.ProbeServer
+	if metricsAddr != "" && metricsAddr != healthAddr {
+		metrics = server.NewProbeServer("agent-worker-metrics", metricsAddr, promhttp.HandlerFor(agentMetrics.Registry, promhttp.HandlerOpts{}), nil, logger)
+	}
+	servers := []transport.Server{runner, health}
+	if metrics != nil {
+		servers = append(servers, metrics)
+	}
+
+	application := kratos.New(
+		kratos.Name("agent-worker"),
+		kratos.Logger(logger),
+		kratos.Server(servers...),
+		kratos.BeforeStart(func(ctx context.Context) error {
+			return bootstrap.SeedAgent(ctx, store, az, bootstrap.SeedInput{
+				AgentID: aw.BootstrapAgentId, BotID: aw.BootstrapBotId, OwnerID: aw.BootstrapOwnerId,
+				Name: aw.BootstrapName, Instruction: aw.BootstrapInstruction,
+				ModelName: aw.ModelName, ModelBaseURL: aw.ModelBaseUrl,
+				APIKey: secrets.ModelKey, SecretKey: secrets.SecretKey,
+			}, logger)
+		}),
+	)
+	if err := application.Run(); err != nil {
+		logger.Log(log.LevelError, "msg", fmt.Sprintf("agent worker: %v", err))
 		os.Exit(1)
 	}
 }
 
-func configPath() string {
-	if path := os.Getenv("AGENT_CONFIG"); path != "" {
-		return path
+func durationOrZero(d interface{ AsDuration() time.Duration }) time.Duration {
+	if d == nil {
+		return 0
 	}
-	for _, path := range []string{"configs/agent-worker.yaml", "/app/configs/agent-worker.yaml"} {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
+	return d.AsDuration()
 }
 
 func loadDotEnv(path string) {
@@ -216,14 +273,14 @@ func loadDotEnv(path string) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
 			continue
 		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), "\"'")
 		if key != "" && os.Getenv(key) == "" {
-			_ = os.Setenv(key, val)
+			_ = os.Setenv(key, value)
 		}
 	}
 }

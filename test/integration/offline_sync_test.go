@@ -9,7 +9,9 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/im/seq"
+	mongostore "nonoka-im/internal/im/storage/mongo"
+	"nonoka-im/internal/realtime"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"google.golang.org/protobuf/proto"
@@ -235,7 +237,7 @@ func TestStorage_GetMentionMessages(t *testing.T) {
 	}
 
 	// Verify the group message itself is also in messages collection (read扩散)
-	msgColl := db.Collection(msgworker.CollectionMessages)
+	msgColl := db.Collection(mongostore.CollectionMessages)
 	count := countMongoDocs(t, msgColl, bson.M{"topic": topic})
 	if count != 1 {
 		t.Fatalf("expected 1 group message in messages collection, got %d", count)
@@ -542,21 +544,21 @@ func TestStorage_MentionInbox_Isolation(t *testing.T) {
 	}
 
 	// Verify: mention_inboxes has 1 record
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	mentionCount := countMongoDocs(t, mentionColl, bson.M{"user_id": mentionedUID})
 	if mentionCount != 1 {
 		t.Fatalf("expected 1 mention inbox record, got %d", mentionCount)
 	}
 
 	// Verify: regular inboxes has 0 records for this user/topic
-	inboxColl := db.Collection(msgworker.CollectionInboxes)
+	inboxColl := db.Collection(mongostore.CollectionInboxes)
 	inboxCount := countMongoDocs(t, inboxColl, bson.M{"user_id": mentionedUID, "topic": topic})
 	if inboxCount != 0 {
 		t.Fatalf("expected 0 regular inbox record for mentioned user in group, got %d", inboxCount)
 	}
 
 	// Verify: messages collection has 1 record
-	msgColl := db.Collection(msgworker.CollectionMessages)
+	msgColl := db.Collection(mongostore.CollectionMessages)
 	msgCount := countMongoDocs(t, msgColl, bson.M{"topic": topic})
 	if msgCount != 1 {
 		t.Fatalf("expected 1 message in messages collection, got %d", msgCount)
@@ -698,14 +700,14 @@ func TestMsgWorker_GroupMention_SaveToMentionInbox(t *testing.T) {
 	}
 
 	// Verify messages collection has 1 record (read扩散)
-	msgColl := db.Collection(msgworker.CollectionMessages)
+	msgColl := db.Collection(mongostore.CollectionMessages)
 	msgCount := countMongoDocs(t, msgColl, bson.M{"topic": topic})
 	if msgCount != 1 {
 		t.Fatalf("expected 1 group message, got %d", msgCount)
 	}
 
 	// Verify mention_inboxes has 2 records (write扩散 for @mentions)
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	mentionCount1 := countMongoDocs(t, mentionColl, bson.M{"user_id": mentionedUID1, "topic": topic})
 	if mentionCount1 != 1 {
 		t.Fatalf("expected 1 mention inbox for user %d, got %d", mentionedUID1, mentionCount1)
@@ -716,7 +718,7 @@ func TestMsgWorker_GroupMention_SaveToMentionInbox(t *testing.T) {
 	}
 
 	// Verify mention records have correct fields
-	var mention1 msgworker.MentionMessage
+	var mention1 mongostore.MentionMessage
 	if err := mentionColl.FindOne(ctx, bson.M{"user_id": mentionedUID1}).Decode(&mention1); err != nil {
 		t.Fatalf("failed to find mention for user %d: %v", mentionedUID1, err)
 	}
@@ -753,25 +755,24 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 	grpcAddr, grpcCleanup := setupGRPCPushServer(t, ts.gwManager)
 	defer grpcCleanup()
 
-	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	seqGen := seq.New(redisClient, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
+	pusher, err := realtime.NewGatewayPusher([]string{grpcAddr}, testLogger)
 	if err != nil {
 		t.Fatalf("failed to create gateway pusher: %v", err)
 	}
 
 	// The push pool that delivers messages asynchronously only runs after
 	// Start, so drive the worker lifecycle even without a Kafka consumer.
-	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, storage, pusher, testLogger)
+	worker := newTestIMWorker(seqGen, storage, pusher, nil, nil, nil)
 	if err := worker.Start(ctx); err != nil {
 		t.Fatalf("failed to start msgworker: %v", err)
 	}
-	defer worker.Stop()
+	defer worker.Stop(context.Background())
 
 	// 4. Create sender and mentioned user
 	_, senderID := registerAndLogin(t, "mention-sender", "123456")
@@ -842,7 +843,7 @@ func TestMsgWorker_GroupMention_PushToOnlineUser(t *testing.T) {
 	}
 
 	// 8. Verify mention_inboxes has the record
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	mentionCount := countMongoDocs(t, mentionColl, bson.M{"user_id": mentionedID, "topic": topic})
 	if mentionCount != 1 {
 		t.Fatalf("expected 1 mention inbox record, got %d", mentionCount)
@@ -868,20 +869,19 @@ func TestMsgWorker_GroupMention_PushToOfflineUser(t *testing.T) {
 		_ = db.Collection(coll).Drop(ctx)
 	}
 
-	seqGen := msgworker.NewSeqGenerator(redisClient, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	storage := msgworker.NewMessageStorage(db, testLogger)
+	seqGen := seq.New(redisClient, testLogger)
+	storage := mongostore.NewStore(db, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure indexes: %v", err)
 	}
 
-	pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
+	pusher, err := realtime.NewGatewayPusher([]string{grpcAddr}, testLogger)
 	if err != nil {
 		t.Fatalf("failed to create gateway pusher: %v", err)
 	}
 	defer pusher.Close()
 
-	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, storage, pusher, testLogger)
+	worker := newTestIMWorker(seqGen, storage, pusher, nil, nil, nil)
 
 	// 3. Send a group message with @mention to an offline user
 	senderID := int64(100)
@@ -905,14 +905,14 @@ func TestMsgWorker_GroupMention_PushToOfflineUser(t *testing.T) {
 	}
 
 	// Verify mention_inboxes has the record
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	mentionCount := countMongoDocs(t, mentionColl, bson.M{"user_id": offlineUID, "topic": topic})
 	if mentionCount != 1 {
 		t.Fatalf("expected 1 mention inbox for offline user, got %d", mentionCount)
 	}
 
 	// Verify messages collection also has the group message
-	msgColl := db.Collection(msgworker.CollectionMessages)
+	msgColl := db.Collection(mongostore.CollectionMessages)
 	msgCount := countMongoDocs(t, msgColl, bson.M{"topic": topic})
 	if msgCount != 1 {
 		t.Fatalf("expected 1 group message, got %d", msgCount)
@@ -947,7 +947,7 @@ func TestMsgWorker_GroupMention_MultipleUsers(t *testing.T) {
 	}
 
 	// Verify each mentioned user has exactly 1 mention inbox record
-	mentionColl := db.Collection(msgworker.CollectionMentionInboxes)
+	mentionColl := db.Collection(mongostore.CollectionMentionInboxes)
 	for _, uid := range mentionedUsers {
 		count := countMongoDocs(t, mentionColl, bson.M{"user_id": uid, "topic": topic})
 		if count != 1 {
@@ -1104,9 +1104,8 @@ func TestGateway_Pull_BackwardHistory(t *testing.T) {
 	receiverID := int64(200)
 	topic := "p2p_100_200"
 
-	seqGen := msgworker.NewSeqGenerator(ts.redis, testLogger)
-	snowflake := msgworker.NewSnowflake(1)
-	worker := msgworker.NewMsgWorker(nil, seqGen, snowflake, ts.storage, nil, testLogger)
+	seqGen := seq.New(ts.redis, testLogger)
+	worker := newTestIMWorker(seqGen, ts.storage, nil, nil, nil, nil)
 
 	// The history below is injected directly, bypassing the gateway, so the
 	// OpenFGA participant tuples a real exchange would have created are

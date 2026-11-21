@@ -7,11 +7,31 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/domain"
 	"nonoka-im/internal/metrics"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/protobuf/proto"
 )
+
+// newRateLimitTestHandler builds a handler with storage/session dependencies
+// omitted; publish only needs the producer, manager and metrics.
+func newRateLimitTestHandler(t *testing.T, msgPerSec float64, burst int) (*Handler, *Connection) {
+	t.Helper()
+	logger := log.NewStdLogger(io.Discard)
+	m := NewManager(logger, metrics.NewMetrics())
+	h := NewHandler(m, nil, &app.MessageService{Authorizer: allowAllAuthorizer{}, Producer: noopDomainProducer{}}, nil, []byte("secret"),
+		HeartbeatConfig{Interval: 30 * time.Second, Timeout: 90 * time.Second},
+		logger, metrics.NewMetrics())
+	h.SetMessageRateLimit(msgPerSec, burst)
+
+	// A connection without a live websocket is enough: SendWithTimeout only
+	// pushes marshaled packets into the buffered send channel.
+	c := NewConnection(nil, "rate-limit-conn", 0, 0, nil)
+	c.SetAuthed(1, "dev-1")
+	return h, c
+}
 
 type allowAllAuthorizer struct{}
 
@@ -21,24 +41,9 @@ func (allowAllAuthorizer) CanExecuteTool(context.Context, int64, int64, string, 
 	return nil
 }
 
-// newRateLimitTestHandler builds a handler with storage/session dependencies
-// omitted; publish only needs the producer, manager and metrics.
-func newRateLimitTestHandler(t *testing.T, msgPerSec float64, burst int) (*Handler, *Connection) {
-	t.Helper()
-	logger := log.NewStdLogger(io.Discard)
-	m := NewManager(logger, metrics.NewMetrics())
-	h := NewHandler(m, nil, NewNoopProducer(), nil, []byte("secret"),
-		HeartbeatConfig{Interval: 30 * time.Second, Timeout: 90 * time.Second},
-		logger, metrics.NewMetrics())
-	h.SetAuthorizer(allowAllAuthorizer{})
-	h.SetMessageRateLimit(msgPerSec, burst)
+type noopDomainProducer struct{}
 
-	// A connection without a live websocket is enough: SendWithTimeout only
-	// pushes marshaled packets into the buffered send channel.
-	c := NewConnection(nil, "rate-limit-conn", 0, 0, nil)
-	c.SetAuthed(1, "dev-1")
-	return h, c
-}
+func (noopDomainProducer) Produce(context.Context, *domain.Message) error { return nil }
 
 func publishPacket(seq uint64) *v1.Packet {
 	return &v1.Packet{

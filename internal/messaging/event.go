@@ -1,0 +1,64 @@
+package messaging
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// SchemaVersion is the agent trigger event schema understood by the agent
+// worker. Bump it only with a matching worker-side migration.
+const SchemaVersion = 1
+
+// MessageEvent is emitted after an IM message has been durably stored. It is
+// the cross-service contract between MsgWorker and agent-worker. Content is
+// intentionally omitted; the worker re-reads it through authorized APIs.
+type MessageEvent struct {
+	SchemaVersion     int     `json:"schema_version"`
+	EventID           string  `json:"event_id"`
+	MsgID             int64   `json:"msg_id"`
+	TopicSeq          uint64  `json:"topic_seq,omitempty"`
+	Topic             string  `json:"topic"`
+	SenderID          int64   `json:"sender_id"`
+	MsgType           int32   `json:"msg_type"`
+	Content           string  `json:"-"` // populated by the worker after authorized storage lookup
+	Timestamp         int64   `json:"timestamp"`
+	MentionedAgentIDs []int64 `json:"mentioned_agent_ids,omitempty"`
+	TraceParent       string  `json:"traceparent,omitempty"`
+}
+
+// NewMessageEvent builds a deterministic event ID from the client message ID
+// when available so Kafka redeliveries deduplicate to the same run.
+func NewMessageEvent(msgID int64, topic string, senderID int64, msgType int32, timestamp int64, mentions []int64, clientMsgID string) MessageEvent {
+	base := ""
+	if strings.TrimSpace(clientMsgID) != "" {
+		base = fmt.Sprintf("%s:%s:%d", topic, clientMsgID, senderID)
+	} else {
+		base = fmt.Sprintf("%d:%s:%d", msgID, topic, senderID)
+	}
+	h := sha256.Sum256([]byte(base))
+	return MessageEvent{
+		SchemaVersion: SchemaVersion, EventID: hex.EncodeToString(h[:]),
+		MsgID: msgID, Topic: topic, SenderID: senderID, MsgType: msgType,
+		Timestamp: timestamp, MentionedAgentIDs: mentions,
+	}
+}
+
+func (e MessageEvent) Marshal() ([]byte, error) {
+	if e.SchemaVersion == 0 {
+		e.SchemaVersion = SchemaVersion
+	}
+	return json.Marshal(e)
+}
+
+func (e MessageEvent) Time() time.Time { return time.Unix(e.Timestamp, 0) }
+
+// EventPublisher publishes agent trigger events. The outbox relay treats a
+// publish error as retryable.
+type EventPublisher interface {
+	Publish(context.Context, MessageEvent) error
+}

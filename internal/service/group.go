@@ -2,261 +2,88 @@ package service
 
 import (
 	"context"
+	stderrors "errors"
 
 	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/authz"
-	imdata "nonoka-im/internal/data/im"
+	"nonoka-im/internal/im/app"
 
 	"github.com/go-kratos/kratos/v2/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// groupMemberIDs returns membership using the existing group repository API.
-// Keeping this check in the service makes every group read/write endpoint
-// enforce the same authorization policy without introducing another component.
-func (s *GroupService) groupMemberIDs(ctx context.Context, groupID string) (map[int64]struct{}, error) {
-	members, err := s.repo.ListMembers(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	ids := make(map[int64]struct{}, len(members))
-	for _, member := range members {
-		if member != nil {
-			ids[member.UserId] = struct{}{}
-		}
-	}
-	return ids, nil
-}
-
-func (s *GroupService) requireMember(ctx context.Context, groupID string, userID int64) (*imdata.Group, error) {
-	group, err := s.repo.GetGroup(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if s.authorizer != nil {
-		if err := s.authorizer.CanAccessTopic(ctx, userID, group.Topic); err != nil {
-			return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "group membership required")
-		}
-		return group, nil
-	}
-	members, err := s.groupMemberIDs(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := members[userID]; !ok {
-		return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "group membership required")
-	}
-	return group, nil
-}
-
 // GroupService provides group-related HTTP APIs.
 type GroupService struct {
 	pb.UnimplementedGroupServiceServer
-
-	repo       imdata.GroupRepo
-	authorizer *authz.OpenFGA
+	uc *app.GroupService
 }
 
-// NewGroupService creates a new GroupService.
-func NewGroupService(repo imdata.GroupRepo) *GroupService {
-	return &GroupService{repo: repo}
-}
+func NewGroupService(uc *app.GroupService) *GroupService { return &GroupService{uc: uc} }
 
-func NewGroupServiceWithAuthorizer(repo imdata.GroupRepo, authorizer *authz.OpenFGA) *GroupService {
-	return &GroupService{repo: repo, authorizer: authorizer}
-}
-
-// CreateGroup creates a new group and adds the creator as a member.
 func (s *GroupService) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupReply, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	name := req.GetName()
-	if name == "" {
-		return nil, errors.BadRequest("INVALID_NAME", "group name is required")
-	}
-
-	group, err := s.repo.CreateGroup(ctx, name, userID, req.GetMemberIds())
+	group, err := s.uc.Create(ctx, extractUserIDFromContext(ctx), req.GetName(), req.GetMemberIds())
 	if err != nil {
-		return nil, err
+		return nil, groupError(err)
 	}
-	if s.authorizer != nil {
-		if err := s.authorizer.SetGroupOwner(ctx, group.GroupID, userID); err != nil {
-			return nil, err
-		}
-		for _, memberID := range req.GetMemberIds() {
-			if err := s.authorizer.SetGroupMember(ctx, group.GroupID, memberID, true); err != nil {
-				return nil, err
-			}
-		}
-		if err := s.authorizer.SetTopicGroup(ctx, group.Topic, group.GroupID); err != nil {
-			return nil, err
-		}
-	}
-
-	return &pb.CreateGroupReply{
-		GroupId: group.GroupID,
-		Topic:   group.Topic,
-	}, nil
+	return &pb.CreateGroupReply{GroupId: group.GroupID, Topic: group.Topic}, nil
 }
 
-// ListMyGroups returns groups the authenticated user is a member of.
 func (s *GroupService) ListMyGroups(ctx context.Context, _ *emptypb.Empty) (*pb.ListGroupsReply, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	groups, err := s.repo.ListMyGroups(ctx, userID)
+	groups, err := s.uc.ListMine(ctx, extractUserIDFromContext(ctx))
 	if err != nil {
-		return nil, err
+		return nil, groupError(err)
 	}
-
 	reply := make([]*pb.Group, 0, len(groups))
-	for _, g := range groups {
-		if s.authorizer != nil && s.authorizer.CanAccessTopic(ctx, userID, g.Topic) != nil {
-			continue
-		}
-		reply = append(reply, &pb.Group{
-			GroupId:   g.GroupID,
-			Topic:     g.Topic,
-			Name:      g.Name,
-			OwnerId:   g.OwnerID,
-			CreatedAt: g.CreatedAt,
-		})
+	for _, group := range groups {
+		reply = append(reply, &pb.Group{GroupId: group.GroupID, Topic: group.Topic, Name: group.Name, OwnerId: group.OwnerID, CreatedAt: group.CreatedAt})
 	}
-
 	return &pb.ListGroupsReply{Groups: reply}, nil
 }
 
-// GetGroup returns details of a specific group.
 func (s *GroupService) GetGroup(ctx context.Context, req *pb.GetGroupRequest) (*pb.Group, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	groupID := req.GetGroupId()
-	if groupID == "" {
-		return nil, errors.BadRequest("INVALID_GROUP_ID", "group id is required")
-	}
-
-	group, err := s.requireMember(ctx, groupID, userID)
+	group, err := s.uc.Get(ctx, extractUserIDFromContext(ctx), req.GetGroupId())
 	if err != nil {
-		return nil, err
+		return nil, groupError(err)
 	}
-
-	return &pb.Group{
-		GroupId:   group.GroupID,
-		Topic:     group.Topic,
-		Name:      group.Name,
-		OwnerId:   group.OwnerID,
-		CreatedAt: group.CreatedAt,
-	}, nil
+	return &pb.Group{GroupId: group.GroupID, Topic: group.Topic, Name: group.Name, OwnerId: group.OwnerID, CreatedAt: group.CreatedAt}, nil
 }
 
-// AddGroupMember adds a user to a group.
 func (s *GroupService) AddGroupMember(ctx context.Context, req *pb.AddGroupMemberRequest) (*emptypb.Empty, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	groupID := req.GetGroupId()
-	memberID := req.GetUserId()
-	if groupID == "" || memberID == 0 {
-		return nil, errors.BadRequest("INVALID_PARAMS", "group id and user id are required")
-	}
-
-	group, err := s.repo.GetGroup(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if s.authorizer != nil {
-		if err := s.authorizer.CanAccessTopic(ctx, userID, group.Topic); err != nil {
-			return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "only group members can add members")
-		}
-	} else {
-		members, err := s.groupMemberIDs(ctx, groupID)
-		if err != nil {
-			return nil, err
-		}
-		if group.OwnerID != userID {
-			if _, ok := members[userID]; !ok {
-				return nil, errors.Forbidden("GROUP_MEMBER_REQUIRED", "only group members can add members")
-			}
-		}
-	}
-	if err := s.repo.AddMember(ctx, groupID, memberID); err != nil {
-		return nil, err
-	}
-	if s.authorizer != nil {
-		if err := s.authorizer.SetGroupMember(ctx, groupID, memberID, true); err != nil {
-			return nil, err
-		}
+	if err := s.uc.AddMember(ctx, extractUserIDFromContext(ctx), req.GetGroupId(), req.GetUserId()); err != nil {
+		return nil, groupError(err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
-// RemoveGroupMember removes a user from a group.
 func (s *GroupService) RemoveGroupMember(ctx context.Context, req *pb.RemoveGroupMemberRequest) (*emptypb.Empty, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	groupID := req.GetGroupId()
-	memberID := req.GetUserId()
-	if groupID == "" || memberID == 0 {
-		return nil, errors.BadRequest("INVALID_PARAMS", "group id and user id are required")
-	}
-
-	group, err := s.repo.GetGroup(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if s.authorizer != nil {
-		if memberID != userID && s.authorizer.CanManageGroup(ctx, userID, groupID) != nil {
-			return nil, errors.Forbidden("GROUP_REMOVE_FORBIDDEN", "only the group owner or the member can remove this user")
-		}
-	} else if group.OwnerID != userID && memberID != userID {
-		return nil, errors.Forbidden("GROUP_REMOVE_FORBIDDEN", "only the group owner or the member can remove this user")
-	}
-	if memberID == group.OwnerID && userID != group.OwnerID {
-		return nil, errors.Forbidden("GROUP_OWNER_REQUIRED", "the group owner cannot be removed by another member")
-	}
-	if s.authorizer != nil {
-		if err := s.authorizer.SetGroupMember(ctx, groupID, memberID, false); err != nil {
-			return nil, err
-		}
-	}
-	if err := s.repo.RemoveMember(ctx, groupID, memberID); err != nil {
-		return nil, err
+	if err := s.uc.RemoveMember(ctx, extractUserIDFromContext(ctx), req.GetGroupId(), req.GetUserId()); err != nil {
+		return nil, groupError(err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
-// ListGroupMembers returns members of a group.
 func (s *GroupService) ListGroupMembers(ctx context.Context, req *pb.ListGroupMembersRequest) (*pb.ListGroupMembersReply, error) {
-	userID := extractUserIDFromContext(ctx)
-	if userID == 0 {
-		return nil, errors.Unauthorized("AUTH_REQUIRED", "authentication required")
-	}
-
-	groupID := req.GetGroupId()
-	if groupID == "" {
-		return nil, errors.BadRequest("INVALID_GROUP_ID", "group id is required")
-	}
-
-	if _, err := s.requireMember(ctx, groupID, userID); err != nil {
-		return nil, err
-	}
-	members, err := s.repo.ListMembers(ctx, groupID)
+	members, err := s.uc.ListMembers(ctx, extractUserIDFromContext(ctx), req.GetGroupId())
 	if err != nil {
-		return nil, err
+		return nil, groupError(err)
 	}
+	reply := make([]*pb.GroupMember, 0, len(members))
+	for _, member := range members {
+		reply = append(reply, &pb.GroupMember{UserId: member.UserID, Username: member.Username})
+	}
+	return &pb.ListGroupMembersReply{Members: reply}, nil
+}
 
-	return &pb.ListGroupMembersReply{Members: members}, nil
+func groupError(err error) error {
+	switch {
+	case stderrors.Is(err, app.ErrAuthRequired):
+		return errors.Unauthorized("AUTH_REQUIRED", "authentication required")
+	case stderrors.Is(err, app.ErrInvalidGroupName):
+		return errors.BadRequest("INVALID_NAME", "group name is required")
+	case stderrors.Is(err, app.ErrGroupNotFound):
+		return errors.NotFound("GROUP_NOT_FOUND", "group not found")
+	case stderrors.Is(err, app.ErrGroupForbidden):
+		return errors.Forbidden("GROUP_MEMBER_REQUIRED", "group membership required")
+	default:
+		return err
+	}
 }

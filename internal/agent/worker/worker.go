@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
-	agevent "nonoka-im/internal/agent/event"
 	"nonoka-im/internal/agent/executor"
 	"nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/agent/sweeper"
 	kafkax "nonoka-im/internal/kafka"
+	"nonoka-im/internal/messaging"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"go.opentelemetry.io/otel"
@@ -19,8 +20,8 @@ import (
 )
 
 // Worker owns the agent trigger consumer, the queued-run replay loop and the
-// fixed-size execution pool. All state lives in PostgreSQL; the process is
-// stateless and can be restarted at any point.
+// fixed-size execution pool. It implements Kratos transport.Server so the
+// process lifecycle is managed by kratos.App.
 type Worker struct {
 	Store      RunQueue
 	Dispatcher *Dispatcher
@@ -33,15 +34,19 @@ type Worker struct {
 	RunWorkers int
 	QueuedPoll time.Duration
 	QueueSize  int
-	work       chan uint64
+	Background []func(context.Context)
+
+	work     chan uint64
+	cancel   context.CancelFunc
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
-// Run starts the pool and background loops, then consumes until ctx is done
-// or the consumer fails.
-func (w *Worker) Run(ctx context.Context) error {
-	runCtx, cancel := context.WithCancel(ctx)
+// Start implements transport.Server. It starts the pool and background loops,
+// then blocks on the Kafka consumer until the context is canceled.
+func (w *Worker) Start(ctx context.Context) error {
+	runCtx, cancel := w.withCancel(ctx)
 	defer cancel()
-
 	queueSize := w.QueueSize
 	if queueSize <= 0 {
 		queueSize = 256
@@ -52,13 +57,63 @@ func (w *Worker) Run(ctx context.Context) error {
 		workers = 1
 	}
 	for i := 0; i < workers; i++ {
-		go w.runLoop(runCtx)
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.runLoop(runCtx)
+		}()
 	}
-	go w.replayLoop(runCtx)
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		w.replayLoop(runCtx)
+	}()
 	if w.Sweeper != nil {
-		go w.Sweeper.Run(runCtx)
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.Sweeper.Run(runCtx)
+		}()
 	}
-	return w.Consumer.Start(runCtx)
+	for _, run := range w.Background {
+		w.wg.Add(1)
+		go func(fn func(context.Context)) {
+			defer w.wg.Done()
+			fn(runCtx)
+		}(run)
+	}
+	if w.Consumer == nil {
+		<-runCtx.Done()
+		return nil
+	}
+	err := w.Consumer.Start(runCtx)
+	cancel()
+	w.wg.Wait()
+	return err
+}
+
+// Stop implements transport.Server.
+func (w *Worker) Stop(context.Context) error {
+	w.stopOnce.Do(func() {
+		if w.cancel != nil {
+			w.cancel()
+		}
+		if w.Consumer != nil {
+			_ = w.Consumer.Stop()
+		}
+	})
+	return nil
+}
+
+// Ready reports whether the Kafka consumer has received its first message.
+func (w *Worker) Ready() bool {
+	return w.Consumer != nil && w.Consumer.Started()
+}
+
+func (w *Worker) withCancel(ctx context.Context) (context.Context, context.CancelFunc) {
+	runCtx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+	return runCtx, cancel
 }
 
 func (w *Worker) runLoop(ctx context.Context) {
@@ -112,11 +167,11 @@ func (w *Worker) replayLoop(ctx context.Context) {
 
 // HandleEvent is the Kafka consumer callback.
 func (w *Worker) HandleEvent(ctx context.Context, key, value []byte, headers map[string]string) error {
-	var ev agevent.MessageEvent
+	var ev messaging.MessageEvent
 	if err := json.Unmarshal(value, &ev); err != nil {
 		return err
 	}
-	if ev.SchemaVersion != agevent.SchemaVersion || ev.EventID == "" || ev.MsgID <= 0 {
+	if ev.SchemaVersion != messaging.SchemaVersion || ev.EventID == "" || ev.MsgID <= 0 {
 		return fmt.Errorf("invalid agent event")
 	}
 	traceParent := ev.TraceParent
@@ -130,8 +185,6 @@ func (w *Worker) HandleEvent(ctx context.Context, key, value []byte, headers map
 			attribute.String("messaging.topic", ev.Topic),
 		))
 	if link, ok := kafkax.LinkFromTraceParent(traceParent); ok {
-		// A link keeps the consumer span independent while recording the
-		// message-processing span that produced the trigger.
 		span.AddLink(link)
 	}
 	defer span.End()

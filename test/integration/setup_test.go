@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +14,25 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/agent/app/admin"
+	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
+	agentdata "nonoka-im/internal/data/agent"
 	imdata "nonoka-im/internal/data/im"
+	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
+	imapp "nonoka-im/internal/im/app"
+	imconsumer "nonoka-im/internal/im/consumer"
+	imgroup "nonoka-im/internal/im/group"
+	impush "nonoka-im/internal/im/push"
+	"nonoka-im/internal/im/seq"
+	mongostore "nonoka-im/internal/im/storage/mongo"
+	kafkax "nonoka-im/internal/kafka"
 	"nonoka-im/internal/metrics"
-	"nonoka-im/internal/msgworker"
+	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -56,7 +68,6 @@ var (
 	httpClient = &http.Client{Timeout: 5 * time.Second}
 )
 
-// testServer holds all dependencies for integration tests.
 type testServer struct {
 	data          *data.Data
 	cleanup       func()
@@ -68,95 +79,87 @@ type testServer struct {
 	kafkaProducer gateway.MessageProducer
 	kafkaTopic    string
 	mongoDB       *mongo.Database
-	storage       *msgworker.MessageStorage
-	msgWorker     *msgworker.MsgWorker
+	storage       *mongostore.Store
+	msgWorker     *imconsumer.Worker
+	messageApp    *imapp.MessageService
+	query         *imapp.QueryService
+	groupRepo     imdata.GroupRepo
+	botIndex      *imgroup.BotIndex
 	fileSvc       *service.FileService
 	grpcCleanup   func()
 	openFGA       *authz.OpenFGA
 	fgaCleanup    func()
 }
 
-// setupTestServer bootstraps a full HTTP server against the test database.
-// If useKafka is true, it connects to the test Kafka instance; otherwise it uses a no-op producer.
+type testUserDirectory struct{ repo biz.AuthRepo }
+
+func (u testUserDirectory) UserExists(ctx context.Context, userID int64) (bool, error) {
+	_, err := u.repo.GetUserByID(ctx, userID)
+	return err == nil, nil
+}
+
+type testSealer struct{}
+
+func (testSealer) Seal(apiKey string) (string, bool, error) {
+	key, err := credential.SealKeyFromEnv()
+	if err != nil {
+		return "", false, err
+	}
+	sealed, err := credential.Seal(key, []byte(apiKey))
+	if err != nil {
+		return "", false, err
+	}
+	return base64.StdEncoding.EncodeToString(sealed), true, nil
+}
+
 func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode: requires postgres, redis, mongodb and kafka")
 	}
 	ctx := context.Background()
-
-	// 1. Data layer with both PostgreSQL and Redis
 	confData := &conf.Data{
-		Database: &conf.Data_Database{
-			Driver: "postgres",
-			Source: "host=127.0.0.1 user=postgres password=root dbname=nonoka_im_test port=5433 sslmode=disable TimeZone=Asia/Shanghai",
-		},
-		Redis: &conf.Data_Redis{
-			Addr: "127.0.0.1:6380",
-		},
+		Database: &conf.Data_Database{Source: "host=127.0.0.1 user=postgres password=root dbname=nonoka_im_test port=5433 sslmode=disable TimeZone=Asia/Shanghai"},
+		Redis:    &conf.Data_Redis{Addr: "127.0.0.1:6380"},
 	}
 	d, cleanup, err := data.NewData(confData)
 	if err != nil {
 		t.Fatalf("failed to create data layer: %v", err)
 	}
-
-	// 2. Clean tables before test
 	if err := d.CleanTestData(); err != nil {
 		t.Fatalf("failed to clean test data: %v", err)
 	}
-
-	// 2.5 Clean Redis test keys
 	if d.Redis != nil {
 		if err := d.Redis.FlushDB(ctx).Err(); err != nil {
 			t.Fatalf("failed to flush redis test db: %v", err)
 		}
 	}
 
-	// 3. MongoDB for message storage (offline pull support)
 	mongoClient, err := mongo.Connect(options.Client().ApplyURI(testMongoURI))
 	if err != nil {
 		t.Fatalf("failed to connect to mongodb: %v", err)
 	}
 	mongoDB := mongoClient.Database(testMongoDB)
-	// Clean collections for test isolation. This must run BEFORE
-	// EnsureIndexes below: dropping a collection also drops its indexes,
-	// including the unique indexes that make message deduplication
-	// race-safe across parallel Kafka partitions.
-	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes"} {
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes", "agent_event_outbox", "im_files"} {
 		_ = mongoDB.Collection(coll).Drop(ctx)
 	}
-	storage := msgworker.NewMessageStorage(mongoDB, testLogger)
+	storage := mongostore.NewStore(mongoDB, testLogger)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure mongodb indexes: %v", err)
 	}
 
-	// 4. Auth config (bcrypt at min cost: dozens of concurrent register/login
-	// calls in tests would otherwise starve the CPU and flake under CI load)
 	authConf := &conf.Auth{
 		JwtSecret:  "test-jwt-secret-do-not-use-in-production",
 		TokenTtl:   durationpb.New(time.Hour),
 		BcryptCost: int32(bcrypt.MinCost),
 	}
-
-	// 5. Biz layer
 	authRepo := imdata.NewAuthRepo(d.DB(), d.Redis, testLogger)
 	authUC := biz.NewAuthUsecase(authRepo, authConf)
-
-	// 6. Service layer
 	authSvc := service.NewAuthService(authUC)
-	dispatchConf := &conf.Dispatch{
-		Strategy: "consistent_hash",
-	}
-	dispatchSvc := service.NewDispatchService(d.Redis, dispatchConf, testLogger)
-
-	// 6.5 OpenFGA authorization: fresh store + embedded model per test server.
-	// CleanTestData recycles PostgreSQL user IDs, so tuple state must not leak
-	// across tests; a dedicated store per server instance isolates them.
+	dispatchSvc := service.NewDispatchService(d.Redis, &conf.Dispatch{Strategy: "consistent_hash"}, testLogger)
 	fgaAuthorizer, fgaCleanup := setupOpenFGA(t)
 
-	// 7. Gateway layer
 	gwManager := gateway.NewManager(testLogger)
 	gwSessionMgr := gateway.NewSessionManager(d.Redis, "test-gateway-node")
-
 	var msgProducer gateway.MessageProducer
 	var kafkaTopic string
 	if useKafka {
@@ -164,140 +167,119 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 			t.Fatalf("kafka not ready: %v", err)
 		}
 		kafkaTopic = testKafkaTopic
-		// Recreate topic fresh for each test to ensure isolation, and verify
-		// the recreation survives the broker's asynchronous deletion of the
-		// previous incarnation (see recreateTopicStable).
 		if err := recreateTopicStable(testKafkaBroker, kafkaTopic, 3); err != nil {
 			t.Fatalf("failed to create kafka topic: %v", err)
 		}
-		kafkaCfg := gateway.KafkaConfig{
-			Brokers:     []string{testKafkaBroker},
-			Topic:       kafkaTopic,
-			BatchSize:   10,
-			MaxAttempts: 30, // extra retries to tolerate test-topic metadata propagation
-		}
-		msgProducer = gateway.NewKafkaProducer(kafkaCfg, testLogger)
+		msgProducer = gateway.NewKafkaProducer(gateway.KafkaConfig{
+			Brokers: []string{testKafkaBroker}, Topic: kafkaTopic, BatchSize: 10, MaxAttempts: 30,
+		}, testLogger)
 	} else {
 		msgProducer = gateway.NewNoopProducer()
 	}
 
-	gwHandler := gateway.NewHandler(gwManager, gwSessionMgr, msgProducer, storage, []byte(authConf.JwtSecret), gateway.HeartbeatConfig{
-		Interval: 30 * time.Second,
-		Timeout:  90 * time.Second,
+	testMetrics := metrics.NewMetrics()
+	conversationRepo := imdata.NewConversationRepo(d.DB(), testLogger)
+	groupRepo := imdata.NewGroupRepo(d.DB(), testLogger)
+	groupMemberRepo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
+	groupMembers := imgroup.NewService(groupMemberRepo, d.Redis, testLogger)
+	botIndex := imgroup.NewBotIndexWithQuery(d.ListBotUserIDs, d.IsBotUser, testLogger)
+	if err := botIndex.Refresh(ctx); err != nil {
+		t.Fatalf("refresh bot index: %v", err)
+	}
+
+	fileStore := mongostore.NewFileStore(mongoDB)
+	fileApp := &imapp.FileService{Store: fileStore, Authorizer: fgaAuthorizer, MaxUpload: service.DefaultMaxUploadBytes}
+	messageApp := &imapp.MessageService{
+		Writer: storage, IDs: seq.NewIDs(1), Seqs: seq.New(d.Redis, testLogger),
+		Conversations: conversationRepo, GroupMembers: groupMembers, Bots: botIndex,
+		Authorizer: fgaAuthorizer, Producer: gateway.NewDomainProducer(msgProducer),
+		Attachments: fileApp, Metrics: testMetrics, Log: log.NewHelper(testLogger),
+	}
+	query := &imapp.QueryService{Reader: storage, Authorizer: fgaAuthorizer, Log: log.NewHelper(testLogger)}
+
+	gwHandler := gateway.NewHandler(gwManager, gwSessionMgr, messageApp, query, []byte(authConf.JwtSecret), gateway.HeartbeatConfig{
+		Interval: 30 * time.Second, Timeout: 90 * time.Second,
 	}, testLogger)
-	gwHandler.SetAuthorizer(fgaAuthorizer)
-	// Integration tests intentionally exercise rapid/burst traffic, so the
-	// per-connection publish rate limiter is disabled here. It is covered by
-	// unit tests and enabled with real defaults in the wire assembly.
 	gwHandler.SetMessageRateLimit(0, 0)
 	wsServer := gateway.NewWebSocketServer(gwHandler, testLogger, 60*time.Second, 10*time.Second, nil)
 
-	// 7. Message service (with producer for HTTP fallback)
-	msgSvc := service.NewMessageServiceWithAuthorizer(storage, msgProducer, fgaAuthorizer, testLogger)
+	msgSvc := service.NewMessageService(messageApp, query, testLogger)
 	userSvc := service.NewUserService(authUC)
-	conversationSvc := service.NewConversationService(imdata.NewConversationRepo(d.DB(), testLogger))
-	groupSvc := service.NewGroupServiceWithAuthorizer(imdata.NewGroupRepo(d.DB(), testLogger), fgaAuthorizer)
-	agentSvc := service.NewAgentHTTP(d, fgaAuthorizer, imdata.NewGroupRepo(d.DB(), testLogger))
+	conversationSvc := service.NewConversationService(&imapp.ConversationService{Repo: conversationRepo})
+	groupSvc := service.NewGroupService(&imapp.GroupService{Repo: groupRepo, Authorizer: fgaAuthorizer})
+	agentStore := agentdata.NewStore(d.DB())
+	platformStore := platformdata.NewStore(d.DB())
+	agentSvc := service.NewAgentHTTP(
+		admin.NewAgentService(agentStore, platformStore, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, testSealer{}, testLogger),
+		admin.NewRunService(agentStore, fgaAuthorizer),
+		admin.NewApprovalService(agentStore, fgaAuthorizer),
+		admin.NewMCPService(platformStore),
+		admin.NewSkillService(platformStore),
+		nil,
+	)
 
-	// 7.5 Start msgworker and gRPC push server when using Kafka
-	var worker *msgworker.MsgWorker
+	var worker *imconsumer.Worker
 	var grpcCleanup func()
 	if useKafka {
-		// Start gRPC push server for msgworker -> gateway push
 		grpcAddr, cleanupGRPC := setupGRPCPushServer(t, gwManager)
 		grpcCleanup = cleanupGRPC
-
-		// Create msgworker dependencies
-		seqGen := msgworker.NewSeqGenerator(d.Redis, testLogger)
-		snowflake := msgworker.NewSnowflake(1)
-		pusher, err := msgworker.NewGatewayPusher([]string{grpcAddr}, testLogger)
+		rawPusher, err := realtime.NewGatewayPusher([]string{grpcAddr}, testLogger)
 		if err != nil {
 			t.Fatalf("failed to create gateway pusher: %v", err)
 		}
-
-		consumerCfg := msgworker.KafkaConsumerConfig{
-			Brokers:     []string{testKafkaBroker},
-			Topic:       kafkaTopic,
-			GroupID:     "test-msgworker-" + fmt.Sprintf("%d", time.Now().UnixNano()),
-			MinBytes:    1,
-			MaxBytes:    10e6,
-			StartOffset: kafka.FirstOffset,
+		pushSvc := &imapp.PushService{
+			Pusher: impush.NewPusher(rawPusher), GroupMembers: groupMembers, Bots: botIndex,
+			Metrics: testMetrics, Log: log.NewHelper(testLogger),
 		}
-		consumer := msgworker.NewKafkaConsumer(consumerCfg, nil, testLogger)
-		worker = msgworker.NewMsgWorker(consumer, seqGen, snowflake, storage, pusher, testLogger)
-
-		// Use PostgreSQL-backed group membership with Redis cache.
-		groupMemberRepo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
-		groupMemberSvc := msgworker.NewPersistentGroupMemberService(groupMemberRepo, d.Redis, testLogger)
-		worker.SetGroupMemberService(groupMemberSvc)
-
-		// Wire conversation summary repository for tests.
-		worker.SetConversationRepo(imdata.NewConversationRepo(d.DB(), testLogger))
-
-		consumer.SetHandler(worker.HandleMessage)
-
+		consumer := kafkax.NewConsumer(kafkax.ConsumerConfig{
+			Brokers: []string{testKafkaBroker}, Topic: kafkaTopic,
+			GroupID:  fmt.Sprintf("test-msgworker-%d", time.Now().UnixNano()),
+			MinBytes: 1, MaxBytes: 10e6, StartOffset: kafka.FirstOffset,
+		}, nil, testLogger)
+		worker = imconsumer.NewWorker(consumer, messageApp, pushSvc, nil, testLogger, testMetrics)
+		worker.Store = storage
+		worker.SetBotIndex(botIndex)
+		worker.SetGroupMemberService(groupMembers)
+		worker.SetConversationRepo(conversationRepo)
 		go func() {
 			if err := worker.Start(context.Background()); err != nil {
 				t.Logf("msgworker start error: %v", err)
 			}
 		}()
-
-		// Wait for consumer to be ready
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// 8. HTTP server with WebSocket handler
 	confServer := &conf.Server{
 		Http: &conf.Server_HTTP{Addr: testHTTPAddr},
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
-	testMetrics := metrics.NewMetrics()
-	// Rate limiting is disabled in the integration harness: several existing
-	// tests deliberately hammer login/register and rapid WS publishes. The
-	// limiter logic itself is covered by unit tests.
-	fileSvc := service.NewFileServiceWithAuthorizer(mongoDB, fgaAuthorizer, testLogger)
+	fileSvc := service.NewFileService(fileApp, testLogger)
 	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, nil, wsServer, authConf, nil, nil, testLogger, testMetrics)
-	// 8. Start HTTP server in background
 	go func() {
 		if err := hs.Start(ctx); err != nil {
-			// Server stopped gracefully on cleanup, ignore expected error
 			select {
 			case <-ctx.Done():
-				return
 			default:
 				t.Logf("http server start/stop error: %v", err)
 			}
 		}
 	}()
-
-	// 9. Wait for server readiness
 	if err := waitForServer(testBaseURL + "/v1/dispatch/gateway"); err != nil {
 		t.Fatalf("server not ready: %v", err)
 	}
 
 	return &testServer{
-		data:          d,
-		cleanup:       cleanup,
-		httpSrv:       hs,
-		gwManager:     gwManager,
-		gwSessionMgr:  gwSessionMgr,
-		redis:         d.Redis,
-		authConf:      authConf,
-		kafkaProducer: msgProducer,
-		kafkaTopic:    kafkaTopic,
-		mongoDB:       mongoDB,
-		storage:       storage,
-		msgWorker:     worker,
-		fileSvc:       fileSvc,
-		grpcCleanup:   grpcCleanup,
-		openFGA:       fgaAuthorizer,
-		fgaCleanup:    fgaCleanup,
+		data: d, cleanup: cleanup, httpSrv: hs, gwManager: gwManager, gwSessionMgr: gwSessionMgr,
+		redis: d.Redis, authConf: authConf, kafkaProducer: msgProducer, kafkaTopic: kafkaTopic,
+		mongoDB: mongoDB, storage: storage, msgWorker: worker, messageApp: messageApp,
+		query: query, groupRepo: groupRepo, botIndex: botIndex, fileSvc: fileSvc,
+		grpcCleanup: grpcCleanup, openFGA: fgaAuthorizer, fgaCleanup: fgaCleanup,
 	}
 }
 
 func (ts *testServer) stop() {
 	if ts.msgWorker != nil {
-		_ = ts.msgWorker.Stop()
+		_ = ts.msgWorker.Stop(context.Background())
 	}
 	if ts.grpcCleanup != nil {
 		ts.grpcCleanup()
@@ -966,4 +948,34 @@ func countMongoDocs(t *testing.T, coll *mongo.Collection, filter bson.M) int64 {
 		t.Fatalf("failed to count documents: %v", err)
 	}
 	return count
+}
+
+// newTestIMWorker builds the consumer pipeline used by msgworker integration
+// tests without starting a Kafka reader.
+func newTestIMWorker(seqGen *seq.Generator, storage *mongostore.Store, pusher realtime.Pusher, conversations imapp.ConversationRepository, members imapp.GroupMemberReader, bots *imgroup.BotIndex, consumers ...*kafkax.Consumer) *imconsumer.Worker {
+	var adapter imapp.Pusher
+	if pusher != nil {
+		adapter = impush.NewPusher(pusher)
+	}
+	var botDir imapp.BotDirectory
+	if bots != nil {
+		botDir = bots
+	}
+	var memberDir imapp.GroupMemberReader
+	if members != nil {
+		memberDir = members
+	}
+	messages := &imapp.MessageService{
+		Writer: storage, IDs: seq.NewIDs(1), Seqs: seqGen,
+		Conversations: conversations, GroupMembers: memberDir, Bots: botDir,
+		Log: log.NewHelper(testLogger),
+	}
+	push := &imapp.PushService{Pusher: adapter, GroupMembers: memberDir, Bots: botDir, Log: log.NewHelper(testLogger)}
+	var consumer *kafkax.Consumer
+	if len(consumers) > 0 {
+		consumer = consumers[0]
+	}
+	worker := imconsumer.NewWorker(consumer, messages, push, nil, testLogger)
+	worker.Store = storage
+	return worker
 }

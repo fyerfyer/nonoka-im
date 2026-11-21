@@ -12,6 +12,12 @@ type RunQueue interface {
 }
 
 // DispatcherStore resolves trigger targets and records queued runs.
+// DispatcherAuthorizer is the narrow topic authorization surface used while
+// dispatching trigger events.
+type DispatcherAuthorizer interface {
+	CanAccessTopic(ctx context.Context, userID int64, topic string) error
+}
+
 type DispatcherStore interface {
 	ActiveAgentsByBot(ctx context.Context, ids []int64) ([]domain.Agent, error)
 	EnqueueRun(ctx context.Context, candidate *domain.AgentRun) (bool, error)

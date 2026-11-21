@@ -97,8 +97,10 @@ func (p *GatewayPusher) SetRouter(router Router) {
 // If the router fails (e.g., Redis unavailable), it falls back to the static gateway list.
 func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
 	start := time.Now()
-	defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
-	p.metrics.IncPushAttempts()
+	if p.metrics != nil {
+		defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
+		p.metrics.IncPushAttempts()
+	}
 
 	if p.router != nil {
 		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
@@ -406,8 +408,10 @@ func (p *GatewayPusher) isDynamicConnUsable(gc *gatewayConn) bool {
 // If the router is unavailable, it falls back to the static gateway list.
 func (p *GatewayPusher) PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
 	start := time.Now()
-	defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
-	p.metrics.IncPushAttempts()
+	if p.metrics != nil {
+		defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
+		p.metrics.IncPushAttempts()
+	}
 
 	if p.router != nil {
 		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
