@@ -121,7 +121,7 @@ func (m *memCheckPoints) Set(_ context.Context, id string, b []byte) error {
 }
 
 func approvalRuntime(backend *interruptBackend) *Engine {
-	r := &Engine{model: &approvalModel{}, checkpoints: &memCheckPoints{}, toolCatalog: staticCatalog{defs: catalog.BuiltinDefinitions()}}
+	r := &Engine{newModel: fakeFactory(&approvalModel{}), checkpoints: &memCheckPoints{}, toolCatalog: staticCatalog{defs: catalog.BuiltinDefinitions()}}
 	for _, t := range builtin.New(backend, allowGuard{}, 8192) {
 		r.tools = append(r.tools, t)
 	}
@@ -132,6 +132,7 @@ func approvalInput() port.Input {
 	return port.Input{
 		Text:          "send a greeting",
 		Instruction:   "test",
+		Model:         port.ModelEndpoint{BaseURL: "https://fixture.invalid/v1", APIKey: "fixture-key", Model: "fixture-model"},
 		AgentID:       7,
 		ActorUserID:   9,
 		BotID:         8,

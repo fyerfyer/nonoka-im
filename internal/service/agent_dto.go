@@ -23,30 +23,33 @@ type AgentView struct {
 }
 
 type AgentDraftView struct {
-	Instruction string          `json:"instruction"`
-	Model       string          `json:"model"`
-	Tools       json.RawMessage `json:"tools"`
-	BaseURL     string          `json:"baseUrl"`
-	HasAPIKey   bool            `json:"hasApiKey"`
-	MaxTokens   int             `json:"maxTokens"`
-	MCPBindings json.RawMessage `json:"mcpBindings"`
-	Skills      json.RawMessage `json:"skills"`
-	Revision    int64           `json:"revision"`
+	Instruction       string            `json:"instruction"`
+	ModelServiceID    int64             `json:"modelServiceId"`
+	ModelID           int64             `json:"modelId"`
+	Tools             json.RawMessage   `json:"tools"`
+	CapabilityPresets json.RawMessage   `json:"capabilityPresets"`
+	ToolPolicies      map[string]string `json:"toolPolicies"`
+	MaxTokens         int               `json:"maxTokens"`
+	MCPBindings       json.RawMessage   `json:"mcpBindings"`
+	Skills            json.RawMessage   `json:"skills"`
+	Revision          int64             `json:"revision"`
 }
 
 type AgentVersionView struct {
-	ID          uint64          `json:"id"`
-	AgentID     int64           `json:"agentId"`
-	Version     int64           `json:"version"`
-	Instruction string          `json:"instruction"`
-	Model       string          `json:"model"`
-	Tools       json.RawMessage `json:"tools"`
-	BaseURL     string          `json:"baseUrl"`
-	HasAPIKey   bool            `json:"hasApiKey"`
-	MaxTokens   int             `json:"maxTokens"`
-	MCPBindings json.RawMessage `json:"mcpBindings"`
-	Skills      json.RawMessage `json:"skills"`
-	CreatedAt   time.Time       `json:"createdAt"`
+	ID                uint64            `json:"id"`
+	AgentID           int64             `json:"agentId"`
+	Version           int64             `json:"version"`
+	Instruction       string            `json:"instruction"`
+	ModelServiceID    int64             `json:"modelServiceId"`
+	ModelID           int64             `json:"modelId"`
+	ModelKey          string            `json:"modelKey"`
+	Tools             json.RawMessage   `json:"tools"`
+	CapabilityPresets json.RawMessage   `json:"capabilityPresets"`
+	ToolPolicies      map[string]string `json:"toolPolicies"`
+	MaxTokens         int               `json:"maxTokens"`
+	MCPBindings       json.RawMessage   `json:"mcpBindings"`
+	Skills            json.RawMessage   `json:"skills"`
+	CreatedAt         time.Time         `json:"createdAt"`
 }
 
 // RunView mirrors the previous domain JSON contract without exposing the
@@ -103,9 +106,10 @@ func agentView(row *domain.Agent, manager bool) AgentView {
 	}
 	if manager {
 		view.Draft = &AgentDraftView{
-			Instruction: row.DraftInstruction, Model: row.DraftModel,
-			Tools: rawJSON(row.DraftTools), BaseURL: row.DraftBaseURL,
-			HasAPIKey: row.DraftAPIKeyEnc != "", MaxTokens: row.DraftMaxTokens,
+			Instruction: row.DraftInstruction, ModelServiceID: row.DraftModelServiceID,
+			ModelID: row.DraftModelID, Tools: rawJSON(row.DraftTools),
+			CapabilityPresets: rawJSON(row.DraftCapabilityPresets),
+			ToolPolicies:      parsePolicies(row.DraftToolPolicies), MaxTokens: row.DraftMaxTokens,
 			MCPBindings: rawJSON(row.DraftMCPBindings), Skills: rawJSON(row.DraftSkills),
 			Revision: row.DraftRevision,
 		}
@@ -116,10 +120,20 @@ func agentView(row *domain.Agent, manager bool) AgentView {
 func versionView(v *domain.AgentVersion) AgentVersionView {
 	return AgentVersionView{
 		ID: v.ID, AgentID: v.AgentID, Version: v.Version, Instruction: v.Instruction,
-		Model: v.Model, Tools: rawJSON(v.Tools), BaseURL: v.BaseURL,
-		HasAPIKey: v.APIKeyEnc != "", MaxTokens: v.MaxTokens,
+		ModelServiceID: v.ModelServiceID, ModelID: v.ModelID, ModelKey: v.ModelKey,
+		Tools: rawJSON(v.Tools), CapabilityPresets: rawJSON(v.CapabilityPresets),
+		ToolPolicies: parsePolicies(v.ToolPolicies), MaxTokens: v.MaxTokens,
 		MCPBindings: rawJSON(v.MCPBindings), Skills: rawJSON(v.Skills), CreatedAt: v.CreatedAt,
 	}
+}
+
+func parsePolicies(raw string) map[string]string {
+	out := map[string]string{}
+	if raw == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
 }
 
 func runView(run *domain.AgentRun) RunView {

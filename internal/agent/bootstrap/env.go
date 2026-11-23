@@ -56,8 +56,7 @@ func ApplyEnv(bc *conf.Bootstrap) Secrets {
 	setInt64(&aw.BootstrapOwnerId, "AGENT_BOOTSTRAP_OWNER_ID")
 	setString(&aw.BootstrapName, "AGENT_BOOTSTRAP_NAME")
 	setString(&aw.BootstrapInstruction, "AGENT_BOOTSTRAP_INSTRUCTION")
-	setString(&aw.ModelBaseUrl, "OPENAI_BASE_URL")
-	setString(&aw.ModelName, "OPENAI_MODEL")
+	setString(&aw.BootstrapModel, "BIFROST_DEFAULT_MODEL")
 
 	setString(&bc.Observability.HealthAddr, "AGENT_HEALTH_ADDR")
 	setString(&bc.Observability.MetricsAddr, "AGENT_METRICS_ADDR")

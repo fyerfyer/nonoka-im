@@ -3,6 +3,16 @@
   "type_definitions": [
     {"type": "user", "relations": {}},
     {
+      "type": "platform",
+      "relations": {
+        "admin": {"this": {}},
+        "can_manage": {"computedUserset": {"relation": "admin"}}
+      },
+      "metadata": {"relations": {
+        "admin": {"directly_related_user_types": [{"type": "user"}]}
+      }}
+    },
+    {
       "type": "group",
       "relations": {
         "owner": {"this": {}},

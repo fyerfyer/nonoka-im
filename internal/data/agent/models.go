@@ -18,24 +18,25 @@ var (
 )
 
 type AgentRow struct {
-	ID               int64  `gorm:"column:id;primaryKey;autoIncrement"`
-	BotUserID        int64  `gorm:"column:bot_user_id;not null"`
-	OwnerUserID      int64  `gorm:"column:owner_user_id;not null"`
-	Name             string `gorm:"column:name;size:100;not null"`
-	Description      string `gorm:"column:description;type:text"`
-	Status           string `gorm:"column:status;size:24;not null;default:draft"`
-	CurrentVersion   int64  `gorm:"column:current_version"`
-	DraftInstruction string `gorm:"column:draft_instruction;type:text"`
-	DraftModel       string `gorm:"column:draft_model;size:100"`
-	DraftTools       string `gorm:"column:draft_tools;type:text"`
-	DraftBaseURL     string `gorm:"column:draft_base_url;size:200"`
-	DraftAPIKeyEnc   string `gorm:"column:draft_api_key_enc;type:text"`
-	DraftMaxTokens   int    `gorm:"column:draft_max_tokens;not null;default:4096"`
-	DraftMCPBindings string `gorm:"column:draft_mcp_bindings;type:text"`
-	DraftSkills      string `gorm:"column:draft_skills;type:text"`
-	DraftRevision    int64  `gorm:"column:draft_revision;not null;default:1"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                     int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	BotUserID              int64  `gorm:"column:bot_user_id;not null"`
+	OwnerUserID            int64  `gorm:"column:owner_user_id;not null"`
+	Name                   string `gorm:"column:name;size:100;not null"`
+	Description            string `gorm:"column:description;type:text"`
+	Status                 string `gorm:"column:status;size:24;not null;default:draft"`
+	CurrentVersion         int64  `gorm:"column:current_version"`
+	DraftInstruction       string `gorm:"column:draft_instruction;type:text"`
+	DraftTools             string `gorm:"column:draft_tools;type:text"`
+	DraftModelServiceID    int64  `gorm:"column:draft_model_service_id"`
+	DraftModelID           int64  `gorm:"column:draft_model_id"`
+	DraftCapabilityPresets string `gorm:"column:draft_capability_presets;type:text"`
+	DraftToolPolicies      string `gorm:"column:draft_tool_policies;type:text"`
+	DraftMaxTokens         int    `gorm:"column:draft_max_tokens;not null;default:4096"`
+	DraftMCPBindings       string `gorm:"column:draft_mcp_bindings;type:text"`
+	DraftSkills            string `gorm:"column:draft_skills;type:text"`
+	DraftRevision          int64  `gorm:"column:draft_revision;not null;default:1"`
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 func (AgentRow) TableName() string { return "agents" }
@@ -44,26 +45,30 @@ func (r AgentRow) toDomain() domain.Agent {
 	return domain.Agent{
 		ID: r.ID, BotUserID: r.BotUserID, OwnerUserID: r.OwnerUserID, Name: r.Name,
 		Description: r.Description, Status: r.Status, CurrentVersion: r.CurrentVersion,
-		DraftInstruction: r.DraftInstruction, DraftModel: r.DraftModel, DraftTools: r.DraftTools,
-		DraftBaseURL: r.DraftBaseURL, DraftAPIKeyEnc: r.DraftAPIKeyEnc, DraftMaxTokens: r.DraftMaxTokens,
+		DraftInstruction: r.DraftInstruction, DraftTools: r.DraftTools,
+		DraftModelServiceID: r.DraftModelServiceID, DraftModelID: r.DraftModelID,
+		DraftCapabilityPresets: r.DraftCapabilityPresets, DraftToolPolicies: r.DraftToolPolicies,
+		DraftMaxTokens:   r.DraftMaxTokens,
 		DraftMCPBindings: r.DraftMCPBindings, DraftSkills: r.DraftSkills, DraftRevision: r.DraftRevision,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
 type AgentVersionRow struct {
-	ID          uint64    `gorm:"column:id;primaryKey;autoIncrement"`
-	AgentID     int64     `gorm:"column:agent_id;not null"`
-	Version     int64     `gorm:"column:version;not null"`
-	Instruction string    `gorm:"column:instruction;type:text;not null"`
-	Model       string    `gorm:"column:model;size:100;not null"`
-	Tools       string    `gorm:"column:tools;type:text;not null"`
-	BaseURL     string    `gorm:"column:base_url;size:200"`
-	APIKeyEnc   string    `gorm:"column:api_key_enc;type:text"`
-	MaxTokens   int       `gorm:"column:max_tokens;not null;default:4096"`
-	MCPBindings string    `gorm:"column:mcp_bindings;type:text"`
-	Skills      string    `gorm:"column:skills;type:text"`
-	CreatedAt   time.Time `gorm:"column:created_at"`
+	ID                uint64    `gorm:"column:id;primaryKey;autoIncrement"`
+	AgentID           int64     `gorm:"column:agent_id;not null"`
+	Version           int64     `gorm:"column:version;not null"`
+	Instruction       string    `gorm:"column:instruction;type:text;not null"`
+	ModelServiceID    int64     `gorm:"column:model_service_id"`
+	ModelID           int64     `gorm:"column:model_id"`
+	ModelKey          string    `gorm:"column:model_key;size:200;not null;default:''"`
+	Tools             string    `gorm:"column:tools;type:text;not null"`
+	CapabilityPresets string    `gorm:"column:capability_presets;type:text"`
+	ToolPolicies      string    `gorm:"column:tool_policies;type:text"`
+	MaxTokens         int       `gorm:"column:max_tokens;not null;default:4096"`
+	MCPBindings       string    `gorm:"column:mcp_bindings;type:text"`
+	Skills            string    `gorm:"column:skills;type:text"`
+	CreatedAt         time.Time `gorm:"column:created_at"`
 }
 
 func (AgentVersionRow) TableName() string { return "agent_versions" }
@@ -71,7 +76,8 @@ func (AgentVersionRow) TableName() string { return "agent_versions" }
 func (r AgentVersionRow) toDomain() domain.AgentVersion {
 	return domain.AgentVersion{
 		ID: r.ID, AgentID: r.AgentID, Version: r.Version, Instruction: r.Instruction,
-		Model: r.Model, Tools: r.Tools, BaseURL: r.BaseURL, APIKeyEnc: r.APIKeyEnc,
+		ModelServiceID: r.ModelServiceID, ModelID: r.ModelID, ModelKey: r.ModelKey,
+		Tools: r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
 		MaxTokens: r.MaxTokens, MCPBindings: r.MCPBindings, Skills: r.Skills, CreatedAt: r.CreatedAt,
 	}
 }

@@ -128,3 +128,21 @@ func TestDataDoesNotDependOnTransportOrAPI(t *testing.T) {
 func TestAgentBootstrapDoesNotDependOnData(t *testing.T) {
 	assertNoDeps(t, "nonoka-im/internal/agent/bootstrap", "nonoka-im/internal/data")
 }
+
+func TestModelServiceDoesNotDependOnAdapters(t *testing.T) {
+	assertNoDeps(t, "nonoka-im/internal/llm",
+		"nonoka-im/internal/agent/eino",
+		"nonoka-im/internal/data",
+		"nonoka-im/internal/service",
+	)
+}
+
+func TestSkillSpecIsPure(t *testing.T) {
+	assertNoDeps(t, "nonoka-im/internal/agent/skillspec",
+		"nonoka-im/internal/agent/eino",
+		"nonoka-im/internal/data",
+		"gorm.io/gorm",
+		"go.mongodb.org/mongo-driver",
+		"net/http",
+	)
+}

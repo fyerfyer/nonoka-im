@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,17 +18,37 @@ import (
 	"nonoka-im/internal/agent/tools"
 )
 
-type fakeStore struct{ server *domain.MCPServer }
+type fakeStore struct {
+	server      *domain.MCPServer
+	tools       map[string]*domain.MCPTool
+	connections map[int64]*domain.MCPConnection
+}
 
-// GetServer returns a copy so tests exercise the provider re-reading the
-// registry instead of observing mutations through a shared pointer.
-func (f *fakeStore) GetServer(_ context.Context, name string) (*domain.MCPServer, error) {
-	if f.server == nil || f.server.Name != name {
+func (f *fakeStore) GetServerByID(_ context.Context, id uint64) (*domain.MCPServer, error) {
+	if f.server == nil || f.server.ID != id {
 		return nil, domain.ErrMCPNotFound
 	}
 	snap := *f.server
 	return &snap, nil
 }
+
+func (f *fakeStore) GetTool(_ context.Context, serverID uint64, name string) (*domain.MCPTool, error) {
+	if t, ok := f.tools[name]; ok && t.ServerID == serverID {
+		snap := *t
+		return &snap, nil
+	}
+	return nil, domain.ErrMCPToolNotFound
+}
+
+func (f *fakeStore) GetConnection(_ context.Context, serverID uint64, userID int64) (*domain.MCPConnection, error) {
+	if c, ok := f.connections[userID]; ok && c.ServerID == serverID {
+		snap := *c
+		return &snap, nil
+	}
+	return nil, domain.ErrMCPConnectionNotFound
+}
+
+func (f *fakeStore) TouchConnection(context.Context, uint64) error { return nil }
 
 type guardRecorder struct{ calls []string }
 
@@ -36,21 +57,16 @@ func (g *guardRecorder) CanExecuteTool(_ context.Context, _, _ int64, tool, _, _
 	return nil
 }
 
-// newFixtureServer starts a read-only MCP server with one tool, "echo", that
-// returns its input text prefixed with "echo:". A second tool "hidden" exists
-// on the server but must never be exposed unless the registry allows it.
 func newFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	s := server.NewMCPServer("fixture", "1.0.0")
 	echo := mcpgo.NewTool("echo",
 		mcpgo.WithDescription("Echo the input text back"),
 		mcpgo.WithString("text", mcpgo.Required(), mcpgo.Description("Text to echo")),
+		mcpgo.WithReadOnlyHintAnnotation(true),
 	)
 	s.AddTool(echo, func(_ context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		text, _ := req.RequireString("text")
-		if len(text) > 1024 {
-			text = text[:1024]
-		}
 		return mcpgo.NewToolResultText("echo:" + text), nil
 	})
 	hidden := mcpgo.NewTool("hidden", mcpgo.WithDescription("Not exposed"))
@@ -63,81 +79,81 @@ func newFixtureServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func registryEntry(t *testing.T, srv *httptest.Server, tools ...string) *domain.MCPServer {
+func fixtureStore(t *testing.T, srv *httptest.Server) *fakeStore {
 	t.Helper()
-	raw, _ := json.Marshal(tools)
-	return &domain.MCPServer{Name: "fixture", Transport: "http", URL: srv.URL, AllowedTools: string(raw), RiskClass: "read_only", Enabled: true}
+	server := &domain.MCPServer{
+		ID: 1, OwnerUserID: 7, Name: "fixture", DisplayName: "Fixture",
+		Transport: domain.MCPTransportHTTP, URL: srv.URL, AuthType: domain.MCPAuthNone,
+		Visibility: domain.VisibilityPrivate, ReviewStatus: domain.ReviewApproved,
+		Enabled: true, ToolsRevision: 1,
+	}
+	hash := sha256.Sum256([]byte("schema"))
+	return &fakeStore{
+		server: server,
+		tools: map[string]*domain.MCPTool{
+			"echo":   {ServerID: 1, Name: "echo", Risk: domain.MCPRiskReadOnly, SchemaHash: hex.EncodeToString(hash[:]), Enabled: true},
+			"hidden": {ServerID: 1, Name: "hidden", Risk: domain.MCPRiskWrite, SchemaHash: "other", Enabled: true},
+		},
+		connections: map[int64]*domain.MCPConnection{},
+	}
+}
+
+func testGuard() *Guard {
+	return &Guard{AllowPrivate: true, AllowInsecure: true}
 }
 
 func TestProviderExposesOnlyBoundTools(t *testing.T) {
 	srv := newFixtureServer(t)
-	store := &fakeStore{server: registryEntry(t, srv, "echo")}
-	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second}
+	store := fixtureStore(t, srv)
+	p := &Provider{Store: store, Guard: testGuard(), ToolGuard: &guardRecorder{}, Timeout: 5 * time.Second}
 
-	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
+	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9, Topic: "p2p_7_9"})
+	ts, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}})
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("tools: %v, %v", ts, err)
 	}
-	info, err := ts[0].Info(context.Background())
-	if err != nil || info.Name != "mcp_fixture_echo" {
+	info, err := ts[0].Info(ctx)
+	if err != nil || info.Name != "mcp_1_echo" {
 		t.Fatalf("exposed name: %+v, %v", info, err)
 	}
-
-	// "hidden" is not in the registry allowlist, so binding it must fail.
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "hidden"}}); err == nil {
-		t.Fatalf("unlisted tool exposed")
-	}
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "missing"}}); err == nil {
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "missing"}}); err == nil {
 		t.Fatalf("unknown tool exposed")
 	}
-
-	// A disabled server refuses tool resolution.
 	store.server.Enabled = false
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}}); err == nil {
 		t.Fatalf("disabled server still serves tools")
 	}
 }
 
-// TestProviderInvalidatesCachedClient verifies the provider re-reads the
-// registry on every Tools call: a cached client must stop serving tools when
-// the server is disabled or deleted, and must be rebuilt when the registry
-// configuration (allowlist) changes.
 func TestProviderInvalidatesCachedClient(t *testing.T) {
 	srv := newFixtureServer(t)
-	store := &fakeStore{server: registryEntry(t, srv, "echo")}
-	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second}
-
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
+	store := fixtureStore(t, srv)
+	p := &Provider{Store: store, Guard: testGuard(), ToolGuard: &guardRecorder{}, Timeout: 5 * time.Second}
+	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9})
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}}); err != nil {
 		t.Fatal(err)
 	}
-
-	// Disable after a successful resolution: the stale cache must not serve.
 	store.server.Enabled = false
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}}); err == nil {
 		t.Fatal("disabled server still serves cached tools")
 	}
-
-	// Re-enable with an expanded allowlist: the client reconnects and the
-	// newly allowed tool becomes resolvable.
 	store.server.Enabled = true
-	store.server.AllowedTools = `["echo","hidden"]`
-	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "hidden"}})
-	if err != nil || len(ts) != 1 {
-		t.Fatalf("config change did not rebuild tools: %v, %v", ts, err)
+	store.server.ToolsRevision = 2
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "hidden"}}); err != nil {
+		t.Fatalf("config change did not rebuild tools: %v", err)
 	}
-
-	// Delete the server: cached tools must fail closed.
 	store.server = nil
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err == nil {
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}}); err == nil {
 		t.Fatal("deleted server still serves cached tools")
 	}
 }
 
 func TestProviderEvictsIdleClients(t *testing.T) {
 	srv := newFixtureServer(t)
-	store := &fakeStore{server: registryEntry(t, srv, "echo")}
-	p := &Provider{Store: store, Guard: &guardRecorder{}, Timeout: 5 * time.Second, IdleTTL: time.Minute}
-	if _, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}}); err != nil {
+	store := fixtureStore(t, srv)
+	p := &Provider{Store: store, Guard: testGuard(), ToolGuard: &guardRecorder{}, Timeout: 5 * time.Second, IdleTTL: time.Minute}
+	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9})
+	if _, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}}); err != nil {
 		t.Fatal(err)
 	}
 	p.mu.Lock()
@@ -149,21 +165,16 @@ func TestProviderEvictsIdleClients(t *testing.T) {
 	if evicted := p.EvictIdle(time.Now().Add(2 * time.Minute)); evicted != 1 {
 		t.Fatalf("expected one idle eviction, got %d", evicted)
 	}
-	p.mu.Lock()
-	after := len(p.clients)
-	p.mu.Unlock()
-	if after != 0 {
-		t.Fatalf("idle client not evicted: %d", after)
-	}
 	p.Close()
 }
 
 func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
 	srv := newFixtureServer(t)
-	store := &fakeStore{server: registryEntry(t, srv, "echo")}
+	store := fixtureStore(t, srv)
 	guard := &guardRecorder{}
-	p := &Provider{Store: store, Guard: guard, Timeout: 5 * time.Second}
-	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
+	p := &Provider{Store: store, Guard: testGuard(), ToolGuard: guard, Timeout: 5 * time.Second}
+	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9, Topic: "p2p_7_9"})
+	ts, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +184,6 @@ func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
 	if !ok {
 		t.Fatalf("tool not invokable")
 	}
-	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9, Topic: "p2p_7_9"})
 	out, err := inner.InvokableRun(ctx, `{"text":"hello"}`)
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
@@ -181,10 +191,9 @@ func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
 	if !strings.Contains(out, "echo:hello") {
 		t.Fatalf("unexpected result %q", out)
 	}
-	if len(guard.calls) != 1 || guard.calls[0] != "mcp_fixture_echo" {
+	if len(guard.calls) != 1 || guard.calls[0] != "mcp_1_echo" {
 		t.Fatalf("guard calls: %v", guard.calls)
 	}
-	// Without a trusted run context the call is rejected.
 	if _, err := inner.InvokableRun(context.Background(), `{"text":"x"}`); err == nil {
 		t.Fatalf("invoke without run context allowed")
 	}
@@ -192,20 +201,66 @@ func TestGuardedToolAuthorizesEveryCall(t *testing.T) {
 
 func TestProviderFailsWithoutGuard(t *testing.T) {
 	srv := newFixtureServer(t)
-	store := &fakeStore{server: registryEntry(t, srv, "echo")}
-	p := &Provider{Store: store, Timeout: 5 * time.Second}
-	ts, err := p.Tools(context.Background(), []port.MCPTool{{Server: "fixture", Tool: "echo"}})
+	store := fixtureStore(t, srv)
+	p := &Provider{Store: store, Guard: testGuard(), Timeout: 5 * time.Second}
+	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9})
+	ts, err := p.Tools(ctx, []port.MCPTool{{ServerID: 1, Tool: "echo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inner, ok := ts[0].(interface {
+	inner := ts[0].(interface {
 		InvokableRun(ctx context.Context, argumentsInJSON string, opts ...einotool.Option) (string, error)
 	})
-	if !ok {
-		t.Fatalf("tool not invokable")
-	}
-	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, AgentID: 9})
 	if _, err := inner.InvokableRun(ctx, `{"text":"x"}`); err == nil {
 		t.Fatalf("invoke without guard allowed")
+	}
+}
+
+func TestDiscoverReturnsSchemasAndRisk(t *testing.T) {
+	srv := newFixtureServer(t)
+	p := &Provider{Guard: testGuard(), Timeout: 5 * time.Second}
+	res, err := p.Discover(context.Background(), domain.MCPTarget{URL: srv.URL, Transport: domain.MCPTransportHTTP, AuthType: domain.MCPAuthNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Tools) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(res.Tools))
+	}
+	for _, tool := range res.Tools {
+		if tool.SchemaHash == "" || tool.InputSchema == "" {
+			t.Fatalf("tool metadata incomplete: %+v", tool)
+		}
+		if tool.Name == "echo" && tool.Risk != domain.MCPRiskReadOnly {
+			t.Fatalf("read-only annotation not honored: %+v", tool)
+		}
+	}
+}
+
+func TestSSRFGuardRejectsPrivateTargets(t *testing.T) {
+	g := &Guard{}
+	for _, raw := range []string{"http://127.0.0.1:1/mcp", "http://169.254.169.254/mcp", "https://10.0.0.5/mcp"} {
+		if err := g.ValidateURL(raw); err == nil {
+			t.Fatalf("private target accepted: %s", raw)
+		}
+	}
+	if err := g.ValidateURL("https://example.com/mcp"); err != nil {
+		t.Fatalf("public https rejected: %v", err)
+	}
+}
+
+func TestAuthHeadersSupportsBearerAndCustomHeader(t *testing.T) {
+	bearer, err := authHeaders(domain.MCPAuthBearer, "secret-token")
+	if err != nil || bearer["Authorization"] != "Bearer secret-token" {
+		t.Fatalf("bearer headers: %+v, %v", bearer, err)
+	}
+	header, err := authHeaders(domain.MCPAuthHeader, `{"name":"X-API-Key","value":"header-secret"}`)
+	if err != nil || header["X-API-Key"] != "header-secret" {
+		t.Fatalf("custom header: %+v, %v", header, err)
+	}
+	if _, err := authHeaders(domain.MCPAuthBearer, ""); err == nil {
+		t.Fatal("empty bearer token accepted")
+	}
+	if _, err := authHeaders(domain.MCPAuthHeader, `{"name":"bad header","value":"x"}`); err == nil {
+		t.Fatal("invalid header name accepted")
 	}
 }

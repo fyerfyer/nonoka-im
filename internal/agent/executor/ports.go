@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/agent/port"
 )
 
 // Store is the persistence surface needed to claim and execute one run. The
@@ -22,9 +23,17 @@ type Store interface {
 	FailRun(ctx context.Context, run *domain.AgentRun, failure domain.Failure, maxAttempts int, update map[string]interface{}) error
 }
 
-// Registry resolves MCP server records for version resolution.
+// Registry resolves MCP server/tool records for version resolution.
 type Registry interface {
-	GetServer(ctx context.Context, name string) (*domain.MCPServer, error)
+	GetServerByID(ctx context.Context, id uint64) (*domain.MCPServer, error)
+	GetTool(ctx context.Context, serverID uint64, name string) (*domain.MCPTool, error)
+}
+
+// ModelResolver resolves the platform model reference frozen into an agent
+// version. It must reject disabled services/models and never fall back to a
+// global provider credential.
+type ModelResolver interface {
+	Resolve(ctx context.Context, serviceID, modelID int64) (port.ModelEndpoint, error)
 }
 
 // Authorizer is the subset of the authorization boundary the executor needs.

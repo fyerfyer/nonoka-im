@@ -189,6 +189,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  patch: <T>(path: string, body: unknown, options?: RequestInit) =>
+    request<T>(path, {
+      ...options,
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   del: <T>(path: string, options?: RequestInit) =>
     request<T>(path, { ...options, method: "DELETE" }),
 };
@@ -351,41 +357,146 @@ export const groupApi = {
     api.get<{ members: GroupMember[] }>(`/v1/groups/${groupId}/members`),
 };
 
-export type AgentTool =
-  | "search_messages"
-  | "get_conversation_context"
-  | "send_message"
-  | "read_file"
-  | "get_topic_info"
-  | "get_my_info"
-  | "list_my_groups"
-  | "get_group_members";
+export type AgentTool = string;
 
-export interface AgentDraft {
-  instruction: string;
-  model: string;
-  tools: AgentTool[];
+export interface Model {
+  id: number;
+  serviceId: number;
+  modelKey: string;
+  displayName: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsReasoning: boolean;
+  inputPricePerMtok: number;
+  outputPricePerMtok: number;
+  enabled: boolean;
+}
+
+export interface ModelService {
+  id: number;
+  name: string;
+  displayName: string;
+  gatewayType: "bifrost" | "openai_compatible";
   baseUrl?: string;
-  hasApiKey?: boolean;
-  maxTokens?: number;
-  mcpBindings?: { server: string; tool: string }[];
-  skills?: { name: string; version: number }[];
-  revision: number;
+  gatewayKeyId?: string;
+  enabled: boolean;
+  hasApiKey: boolean;
+  models: Model[];
+}
+
+export interface CapabilityPreset {
+  key: string;
+  name: string;
+  description: string;
+  defaultEnabled: boolean;
+  tools: string[];
+}
+
+export interface ToolDefinition {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  risk: string;
+  defaultPolicy: "auto" | "ask" | "deny";
+  defaultEnabled: boolean;
+  system: boolean;
+  hidden: boolean;
+  advanced: boolean;
+  sideEffect: boolean;
+  presets: string[];
+  inputSchema?: unknown;
+}
+
+export interface MCPTool {
+  id: number;
+  serverId: number;
+  name: string;
+  description: string;
+  risk: "read_only" | "write";
+  schemaHash: string;
+  inputSchema?: string;
+  annotations?: string;
+  enabled: boolean;
 }
 
 export interface MCPServer {
   id: number;
+  ownerUserId: number;
   name: string;
+  displayName: string;
+  description: string;
   url: string;
-  tools: string[];
-  risk: string;
+  transport: string;
+  authType: "none" | "bearer" | "header" | string;
+  hasCredential: boolean;
+  visibility: "private" | "shared" | "public" | string;
+  reviewStatus: "pending" | "approved" | "rejected" | string;
+  reviewReason?: string;
+  healthStatus: "unknown" | "healthy" | "needs_auth" | "error" | string;
+  lastCheckedAt?: string | null;
+  lastError?: string;
   enabled: boolean;
+  toolsRevision: number;
+  tools?: MCPTool[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface PublishedSkill {
-  name: string;
+export interface MCPConnection {
+  id: number;
+  serverId: number;
+  authType: string;
+  status: string;
+  hasCredential: boolean;
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillVersion {
+  id: number;
+  skillId: number;
   version: number;
-  published: boolean;
+  checksum: string;
+  status: string;
+  reviewStatus: string;
+  reviewReason?: string;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+  content?: string;
+  reviewAt?: string | null;
+}
+
+export interface Skill {
+  id: number;
+  ownerUserId: number;
+  slug: string;
+  displayName: string;
+  description: string;
+  visibility: "private" | "shared" | "public" | string;
+  reviewStatus: string;
+  latestVersion: number;
+  versions?: SkillVersion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentDraft {
+  instruction: string;
+  modelServiceId: number;
+  modelId: number;
+  tools: AgentTool[];
+  capabilityPresets: string[];
+  toolPolicies: Record<string, "auto" | "ask" | "deny">;
+  maxTokens?: number;
+  mcpBindings?: { serverId: number; tool: string; policy?: "auto" | "ask" | "deny" }[];
+  skills?: { skillId: number; version: number }[];
+  revision: number;
 }
 
 export interface AgentPublishedVersion {
@@ -393,11 +504,15 @@ export interface AgentPublishedVersion {
   agentId?: number;
   version?: number;
   instruction?: string;
-  model?: string;
+  modelServiceId?: number;
+  modelId?: number;
+  modelKey?: string;
   tools?: string;
-  baseUrl?: string;
-  hasApiKey?: boolean;
+  capabilityPresets?: string;
+  toolPolicies?: Record<string, string>;
   maxTokens?: number;
+  mcpBindings?: { serverId: number; tool: string; exposed: string; policy?: string }[];
+  skills?: { skillId: number; version: number; checksum?: string }[];
   createdAt?: string;
   [key: string]: unknown;
 }
@@ -467,11 +582,28 @@ export interface Page<T> {
   hasMore: boolean;
 }
 
-export interface MCPServerRegisterInput {
+export interface ModelServiceInput {
   name: string;
-  url: string;
-  tools: string[];
-  risk: "read_only" | "write";
+  displayName?: string;
+  gatewayType?: "bifrost" | "openai_compatible";
+  baseUrl?: string;
+  apiKey?: string;
+  updateApiKey?: boolean;
+  enabled?: boolean;
+  allowAll?: boolean;
+  providerModels?: Record<string, string[]>;
+}
+
+export interface ModelInput {
+  modelKey: string;
+  displayName?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+  supportsReasoning?: boolean;
+  inputPricePerMtok?: number;
+  outputPricePerMtok?: number;
   enabled?: boolean;
 }
 
@@ -479,13 +611,14 @@ export interface AgentInput {
   name: string;
   description: string;
   instruction: string;
-  model: string;
+  modelServiceId: number;
+  modelId: number;
   tools: AgentTool[];
-  base_url?: string;
-  api_key?: string;
-  max_tokens?: number;
-  mcp_bindings?: { server: string; tool: string }[];
-  skills?: { name: string; version: number }[];
+  capabilityPresets: string[];
+  toolPolicies: Record<string, "auto" | "ask" | "deny">;
+  maxTokens?: number;
+  mcpBindings?: { serverId: number; tool: string; policy?: "auto" | "ask" | "deny" }[];
+  skills?: { skillId: number; version: number }[];
 }
 
 export type ListAgentsReply = Page<ManagedAgent>;
@@ -517,12 +650,88 @@ export const agentApi = {
     api.get<AgentApproval>(`/v1/agent-approvals/${id}`),
   approvals: (status = "pending") =>
     api.get<Page<AgentApproval>>(`/v1/agent-approvals?status=${status}`),
+
+  agentTools: () =>
+    api.get<{ presets: CapabilityPreset[]; tools: ToolDefinition[] }>("/v1/agent-tools"),
+
+  listModelServices: () =>
+    api.get<{ services: ModelService[]; canManage: boolean }>("/v1/model-services"),
+  createModelService: (input: ModelServiceInput) =>
+    api.post<ModelService>("/v1/model-services", input),
+  updateModelService: (id: number, input: ModelServiceInput) =>
+    api.patch<ModelService>(`/v1/model-services/${id}`, input),
+  deleteModelService: (id: number) =>
+    api.del<{ status: string }>(`/v1/model-services/${id}`),
+  syncModelService: (id: number) =>
+    api.post<{ models: Model[] }>(`/v1/model-services/${id}/sync`, {}),
+  createModel: (serviceId: number, input: ModelInput) =>
+    api.post<Model>(`/v1/model-services/${serviceId}/models`, input),
+  updateModel: (id: number, input: ModelInput) =>
+    api.patch<Model>(`/v1/model-models/${id}`, input),
+  deleteModel: (id: number) => api.del<{ status: string }>(`/v1/model-models/${id}`),
+  listGatewayModels: () =>
+    api.get<{ models: { name: string; provider: string }[] }>("/v1/model-gateway/models"),
+
   listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
-  registerMCPServer: (input: MCPServerRegisterInput) =>
-    api.post<MCPServer>("/v1/mcp/servers", input),
+  getMCPServer: (id: number) => api.get<MCPServer>(`/v1/mcp/servers/${id}`),
+  registerMCPServer: (input: {
+    name: string;
+    displayName?: string;
+    description?: string;
+    url: string;
+    transport?: string;
+    authType?: "none" | "bearer" | "header";
+    headerName?: string;
+    credential?: string;
+    visibility?: "private" | "shared" | "public";
+    enabled?: boolean;
+  }) => api.post<MCPServer>("/v1/mcp/servers", input),
+  updateMCPServer: (id: number, input: {
+    name: string;
+    displayName?: string;
+    description?: string;
+    url: string;
+    transport?: string;
+    authType?: "none" | "bearer" | "header";
+    headerName?: string;
+    credential?: string;
+    visibility?: "private" | "shared" | "public";
+    enabled?: boolean;
+  }) => api.patch<MCPServer>(`/v1/mcp/servers/${id}`, input),
+  deleteMCPServer: (id: number) => api.del<{ status: string }>(`/v1/mcp/servers/${id}`),
+  discoverMCPServer: (id: number) =>
+    api.post<{ tools: MCPTool[] }>(`/v1/mcp/servers/${id}/discover`, {}),
+  testMCPServer: (id: number) =>
+    api.post<{ status: string }>(`/v1/mcp/servers/${id}/test`, {}),
   setMCPServerStatus: (id: number, enabled: boolean) =>
     api.post<{ id: number; enabled: boolean }>(`/v1/mcp/servers/${id}/status`, { enabled }),
-  listSkills: () => api.get<{ skills: PublishedSkill[] }>("/v1/skills"),
-  publishSkill: (input: { name: string; version: number; content: string }) =>
-    api.post<{ id: number; name: string; version: number }>("/v1/skills", input),
+  reviewMCPServer: (id: number, status: "approved" | "rejected", reason = "") =>
+    api.post<unknown>(`/v1/mcp/servers/${id}/review`, { status, reason }),
+  listMCPTools: (id: number) =>
+    api.get<{ tools: MCPTool[] }>(`/v1/mcp/servers/${id}/tools`),
+  listMCPConnections: () =>
+    api.get<{ connections: MCPConnection[] }>("/v1/mcp/connections"),
+  connectMCPServer: (id: number, input: { authType?: string; headerName?: string; credential: string }) =>
+    api.put<MCPConnection>(`/v1/mcp/connections/${id}`, input),
+  disconnectMCPServer: (id: number) =>
+    api.del<{ status: string }>(`/v1/mcp/connections/${id}`),
+
+  listSkills: () => api.get<{ skills: Skill[] }>("/v1/skills"),
+  getSkill: (id: number) => api.get<Skill>(`/v1/skills/${id}`),
+  createSkill: (input: {
+    slug: string;
+    displayName?: string;
+    description?: string;
+    visibility?: "private" | "shared" | "public";
+    content: string;
+  }) => api.post<Skill>("/v1/skills", input),
+  addSkillVersion: (id: number, content: string) =>
+    api.post<SkillVersion>(`/v1/skills/${id}/versions`, { content }),
+  updateSkill: (id: number, input: { displayName?: string; description?: string; visibility?: string }) =>
+    api.patch<Skill>(`/v1/skills/${id}`, input),
+  deleteSkill: (id: number) => api.del<{ status: string }>(`/v1/skills/${id}`),
+  reviewSkill: (id: number, approved: boolean) =>
+    api.post<unknown>(`/v1/skills/${id}/review`, { approved }),
+  reviewSkillVersion: (id: number, version: number, approved: boolean, reason = "") =>
+    api.post<unknown>(`/v1/skills/${id}/versions/${version}/review`, { approved, reason }),
 };

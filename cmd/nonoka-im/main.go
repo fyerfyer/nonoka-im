@@ -4,10 +4,13 @@ import (
 	"context"
 	"flag"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/llm"
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/config"
@@ -19,6 +22,20 @@ import (
 
 	_ "go.uber.org/automaxprocs"
 )
+
+func platformAdminIDs() []int64 {
+	raw := strings.TrimSpace(os.Getenv("AGENT_ADMIN_USER_IDS"))
+	if raw == "" {
+		return nil
+	}
+	out := make([]int64, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
 
 // go build -ldflags "-X main.Version=x.y.z"
 var (
@@ -39,7 +56,7 @@ func init() {
 	flag.StringVar(&nodeID, "node-id", "", "gateway node id, defaults to hostname")
 }
 
-func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig) *kratos.App {
+func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig, models *llm.Service) *kratos.App {
 	return kratos.New(
 		kratos.ID(id),
 		kratos.Name(Name),
@@ -51,6 +68,11 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gatew
 			hs,
 		),
 		kratos.BeforeStart(func(ctx context.Context) error {
+			if models != nil {
+				if err := models.EnsurePlatformAdmins(ctx, platformAdminIDs()); err != nil {
+					log.NewHelper(logger).Warnf("bootstrap platform admins: %v", err)
+				}
+			}
 			if registry != nil {
 				registry.StartHeartbeat()
 			}

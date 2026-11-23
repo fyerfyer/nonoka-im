@@ -124,6 +124,28 @@ services:
       openfga-migrate:
         condition: service_completed_successfully
 
+  # Bifrost owns provider keys, model routing, budgets and the OpenAI-compatible
+  # inference endpoint. ModelService rows only reference a Bifrost virtual key.
+  bifrost:
+    image: maximhq/bifrost:v2.4.0
+    container_name: nonoka_bifrost
+    restart: unless-stopped
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      BIFROST_ENCRYPTION_KEY: ${BIFROST_ENCRYPTION_KEY:-nonoka-bifrost-encryption-key-32b}
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+    ports:
+      - "127.0.0.1:${NONOKA_BIFROST_PORT:-8088}:8080"
+    volumes:
+      - ./configs/bifrost/config.json:/app/data/config.json:ro
+      - bifrost_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   nonoka-im:
     build:
       context: .
@@ -152,8 +174,14 @@ services:
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       # Encrypts per-agent model API keys at rest; must match the agent worker.
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
-      # Platform admins for the MCP registry and skill publishing endpoints.
+      # Platform admins (OpenFGA platform:global admin), bootstrapped at start.
       AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
+      BIFROST_URL: http://bifrost:8080
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+      AGENT_MCP_ALLOW_PRIVATE: ${AGENT_MCP_ALLOW_PRIVATE:-false}
+      AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${NONOKA_HTTP_PORT:-8000}:8000"
       - "${NONOKA_GRPC_PORT:-9002}:9002"
@@ -195,6 +223,8 @@ services:
         condition: service_healthy
       openfga:
         condition: service_started
+      bifrost:
+        condition: service_healthy
     environment:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
@@ -207,8 +237,13 @@ services:
       OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      BIFROST_URL: http://bifrost:8080
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+      BIFROST_AUTO_PROVISION: ${BIFROST_AUTO_PROVISION:-true}
+      BIFROST_DEFAULT_SERVICE: ${BIFROST_DEFAULT_SERVICE:-bifrost-default}
+      BIFROST_DEFAULT_MODEL: ${BIFROST_DEFAULT_MODEL:-deepseek/deepseek-chat}
+      AGENT_MCP_ALLOW_PRIVATE: ${AGENT_MCP_ALLOW_PRIVATE:-false}
+      AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
@@ -218,6 +253,8 @@ services:
       # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["/app/agent-worker", "-conf", "/app/configs/agent-worker.yaml"]
     volumes:
       - ./configs/agent-worker.yaml:/app/configs/agent-worker.yaml:ro
@@ -245,3 +282,4 @@ volumes:
   postgres_data:
   mongodb_data:
   openfga_data:
+  bifrost_data:

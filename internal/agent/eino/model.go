@@ -35,31 +35,16 @@ type modelCacheKey struct {
 }
 
 func (r *Engine) chatModel(ctx context.Context, in port.Input) (model.ToolCallingChatModel, error) {
-	// No agent-owned overrides: use the runtime default model as-is.
-	if in.BaseURL == "" && in.APIKey == "" && (in.Model == "" || in.Model == r.modelName) {
-		return r.model, nil
+	endpoint := in.Model
+	baseURL := strings.TrimSpace(endpoint.BaseURL)
+	modelName := strings.TrimSpace(endpoint.Model)
+	if r.newModel == nil && (baseURL == "" || modelName == "") {
+		return nil, fmt.Errorf("model endpoint is not configured")
 	}
-	baseURL := in.BaseURL
-	if baseURL == "" {
-		baseURL = r.baseURL
-	}
-	apiKey := in.APIKey
-	if apiKey == "" {
-		apiKey = r.apiKey
-	}
-	modelName := in.Model
-	if modelName == "" {
-		modelName = r.modelName
-	}
-	maxTokens := in.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = in.OutputTokenBudget
-	}
+	apiKey := endpoint.APIKey
+	maxTokens := endpoint.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 4096
-	}
-	if strings.TrimSpace(apiKey) == "" {
-		return nil, fmt.Errorf("model API key is required")
 	}
 	key := modelCacheKey{baseURL: baseURL, apiKeyHash: sha256.Sum256([]byte(apiKey)), modelName: modelName, maxTokens: maxTokens}
 	r.mu.Lock()
@@ -70,7 +55,13 @@ func (r *Engine) chatModel(ctx context.Context, in port.Input) (model.ToolCallin
 	if cached, ok := r.models[key]; ok {
 		return cached, nil
 	}
-	m, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: apiKey, BaseURL: baseURL, Model: modelName, MaxCompletionTokens: &maxTokens})
+	var m model.ToolCallingChatModel
+	var err error
+	if r.newModel != nil {
+		m, err = r.newModel(ctx, port.ModelEndpoint{BaseURL: baseURL, APIKey: apiKey, Model: modelName, MaxTokens: maxTokens}, maxTokens)
+	} else {
+		m, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: apiKey, BaseURL: baseURL, Model: modelName, MaxCompletionTokens: &maxTokens})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create model %q: %w", modelName, err)
 	}

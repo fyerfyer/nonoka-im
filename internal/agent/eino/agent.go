@@ -17,7 +17,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	agentcontext "nonoka-im/internal/agent/context"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/agent/tools/catalog"
@@ -113,28 +112,17 @@ func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool
 	} else {
 		return nil, nil, fmt.Errorf("create patch tool calls middleware: %w", err)
 	}
-	if withSummary && in.NeedsSummary && !in.DisableSummary && len(in.History) > 0 {
-		trigger := in.TriggerTokens
+	if withSummary && !in.DisableSummary && len(in.History) > 0 {
+		trigger := 38000
+		if in.Model.ContextWindow > 0 {
+			trigger = in.Model.ContextWindow * 3 / 4
+		}
 		if trigger <= 0 {
-			trigger = 38000
+			trigger = 1
 		}
 		mw, err := summarization.New(toolCtx, &summarization.Config{
-			Model:                summaryTracker{model: chatModel},
-			PreserveUserMessages: &summarization.PreserveUserMessages{Enabled: false},
-			Trigger:              &summarization.TriggerCondition{ContextTokens: trigger},
-			TokenCounter: func(_ context.Context, input *summarization.TokenCounterInput) (int, error) {
-				if state.summary != "" {
-					return 0, nil
-				}
-				// Count the actually assembled messages (including the system
-				// instruction) so the middleware triggers on real content size,
-				// matching the builder's coarse budget estimate.
-				total := 0
-				for _, msg := range input.Messages {
-					total += agentcontext.EstimateTokens(messageText(msg))
-				}
-				return total, nil
-			},
+			Model:   summaryTracker{model: chatModel},
+			Trigger: &summarization.TriggerCondition{ContextTokens: trigger},
 			GenModelInput: func(_ context.Context, system, user adk.Message, original []adk.Message) ([]adk.Message, error) {
 				// The final message is the current input and must not enter the snapshot.
 				request := append([]adk.Message{system}, original[:len(original)-1]...)

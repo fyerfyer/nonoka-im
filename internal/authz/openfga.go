@@ -229,6 +229,19 @@ func (a *OpenFGA) CanReadFile(ctx context.Context, userID int64, fileID string) 
 	return a.check(ctx, user(userID), "can_read", "file:"+fileID)
 }
 
+// CanManagePlatform authorizes deployment-level administration (model
+// services, platform review queues and policy). Platform admins are ordinary IM
+// users; the role lives in OpenFGA so it can be granted/revoked without a
+// second ACL.
+func (a *OpenFGA) CanManagePlatform(ctx context.Context, userID int64) error {
+	return a.check(ctx, user(userID), "can_manage", "platform:global")
+}
+
+// SetPlatformAdmin grants or revokes the platform administrator relation.
+func (a *OpenFGA) SetPlatformAdmin(ctx context.Context, userID int64, enabled bool) error {
+	return a.write(ctx, user(userID), "admin", "platform:global", !enabled)
+}
+
 func (a *OpenFGA) CanManageAgent(ctx context.Context, userID, agentID int64) error {
 	return a.check(ctx, user(userID), "can_manage", agent(agentID))
 }

@@ -310,8 +310,10 @@ func TestAuthz_AgentShareLifecycle(t *testing.T) {
 
 	// Owner creates an agent and becomes its OpenFGA owner.
 	createResp := httpPostAuth(t, testBaseURL+"/v1/agents", tokenOwner, map[string]any{
-		"name":        "authz-agent",
-		"instruction": "you are a test agent",
+		"name":           "authz-agent",
+		"instruction":    "you are a test agent",
+		"modelServiceId": testModelServiceID,
+		"modelId":        testModelID,
 	})
 	defer createResp.Body.Close()
 	if createResp.StatusCode != http.StatusCreated {

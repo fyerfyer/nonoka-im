@@ -3,19 +3,20 @@ package integration
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/agent/app/admin"
-	"nonoka-im/internal/agent/credential"
+	"nonoka-im/internal/agent/domain"
+	agentmcp "nonoka-im/internal/agent/mcp"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
@@ -31,6 +32,7 @@ import (
 	"nonoka-im/internal/im/seq"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
+	"nonoka-im/internal/llm"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/server"
@@ -66,29 +68,36 @@ const (
 var (
 	testLogger = log.NewStdLogger(os.Stdout)
 	httpClient = &http.Client{Timeout: 5 * time.Second}
+
+	// Seeded manual ModelService/Model for management API tests. The tests in
+	// this package run sequentially; a fresh server re-seeds these IDs.
+	testModelServiceID int64
+	testModelID        int64
 )
 
 type testServer struct {
-	data          *data.Data
-	cleanup       func()
-	httpSrv       *khttp.Server
-	gwManager     *gateway.Manager
-	gwSessionMgr  *gateway.SessionManager
-	redis         redis.UniversalClient
-	authConf      *conf.Auth
-	kafkaProducer gateway.MessageProducer
-	kafkaTopic    string
-	mongoDB       *mongo.Database
-	storage       *mongostore.Store
-	msgWorker     *imconsumer.Worker
-	messageApp    *imapp.MessageService
-	query         *imapp.QueryService
-	groupRepo     imdata.GroupRepo
-	botIndex      *imgroup.BotIndex
-	fileSvc       *service.FileService
-	grpcCleanup   func()
-	openFGA       *authz.OpenFGA
-	fgaCleanup    func()
+	data           *data.Data
+	cleanup        func()
+	httpSrv        *khttp.Server
+	gwManager      *gateway.Manager
+	gwSessionMgr   *gateway.SessionManager
+	redis          redis.UniversalClient
+	authConf       *conf.Auth
+	kafkaProducer  gateway.MessageProducer
+	kafkaTopic     string
+	mongoDB        *mongo.Database
+	storage        *mongostore.Store
+	msgWorker      *imconsumer.Worker
+	messageApp     *imapp.MessageService
+	query          *imapp.QueryService
+	groupRepo      imdata.GroupRepo
+	botIndex       *imgroup.BotIndex
+	fileSvc        *service.FileService
+	grpcCleanup    func()
+	openFGA        *authz.OpenFGA
+	fgaCleanup     func()
+	modelServiceID int64
+	modelID        int64
 }
 
 type testUserDirectory struct{ repo biz.AuthRepo }
@@ -96,20 +105,6 @@ type testUserDirectory struct{ repo biz.AuthRepo }
 func (u testUserDirectory) UserExists(ctx context.Context, userID int64) (bool, error) {
 	_, err := u.repo.GetUserByID(ctx, userID)
 	return err == nil, nil
-}
-
-type testSealer struct{}
-
-func (testSealer) Seal(apiKey string) (string, bool, error) {
-	key, err := credential.SealKeyFromEnv()
-	if err != nil {
-		return "", false, err
-	}
-	sealed, err := credential.Seal(key, []byte(apiKey))
-	if err != nil {
-		return "", false, err
-	}
-	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
 func setupTestServer(t *testing.T, useKafka bool) *testServer {
@@ -209,12 +204,36 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	groupSvc := service.NewGroupService(&imapp.GroupService{Repo: groupRepo, Authorizer: fgaAuthorizer})
 	agentStore := agentdata.NewStore(d.DB())
 	platformStore := platformdata.NewStore(d.DB())
+	t.Setenv("AGENT_SECRET_KEY", strings.Repeat("s", 32))
+	sealer := llm.EnvSealer{Key: []byte(strings.Repeat("s", 32))}
+	modelSvc := llm.NewService(platformStore, sealer, fgaAuthorizer, nil, "")
+	seededService, err := platformStore.CreateModelService(ctx, domain.ModelServiceSpec{
+		Name: "test-manual", DisplayName: "Test", GatewayType: "openai_compatible",
+		BaseURL: "https://fixture.invalid/v1", Enabled: boolPtr(true),
+	}, "")
+	if err != nil {
+		t.Fatalf("seed model service: %v", err)
+	}
+	seededModel, err := platformStore.CreateModel(ctx, domain.ModelSpec{
+		ServiceID: seededService.ID, ModelKey: "fixture-model", DisplayName: "Fixture",
+		MaxOutputTokens: 8192, SupportsTools: true, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("seed model: %v", err)
+	}
+	testModelServiceID = int64(seededService.ID)
+	testModelID = int64(seededModel.ID)
+	mcpDiscovery := &agentmcp.Provider{
+		Store: platformStore, Sealer: sealer,
+		Guard: &agentmcp.Guard{AllowPrivate: true, AllowInsecure: true},
+	}
 	agentSvc := service.NewAgentHTTP(
-		admin.NewAgentService(agentStore, platformStore, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, testSealer{}, testLogger),
+		admin.NewAgentService(agentStore, platformStore, modelSvc, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, testLogger),
 		admin.NewRunService(agentStore, fgaAuthorizer),
 		admin.NewApprovalService(agentStore, fgaAuthorizer),
-		admin.NewMCPService(platformStore),
-		admin.NewSkillService(platformStore),
+		admin.NewMCPService(platformStore, fgaAuthorizer, mcpDiscovery, sealer, testLogger),
+		admin.NewSkillService(platformStore, fgaAuthorizer),
+		modelSvc,
 		nil,
 	)
 
@@ -274,6 +293,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		mongoDB: mongoDB, storage: storage, msgWorker: worker, messageApp: messageApp,
 		query: query, groupRepo: groupRepo, botIndex: botIndex, fileSvc: fileSvc,
 		grpcCleanup: grpcCleanup, openFGA: fgaAuthorizer, fgaCleanup: fgaCleanup,
+		modelServiceID: int64(seededService.ID), modelID: int64(seededModel.ID),
 	}
 }
 
@@ -979,3 +999,5 @@ func newTestIMWorker(seqGen *seq.Generator, storage *mongostore.Store, pusher re
 	worker.Store = storage
 	return worker
 }
+
+func boolPtr(v bool) *bool { return &v }

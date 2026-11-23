@@ -45,11 +45,12 @@ func (f *fakeModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, e
 
 func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 	fake := &fakeModel{}
-	r := &Engine{model: fake}
+	r := &Engine{newModel: fakeFactory(fake)}
 	in := port.Input{
 		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
-		History:      []port.Turn{{ID: 7, Input: "old question", Output: "old answer"}},
-		NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 7,
+		Model:                port.ModelEndpoint{ContextWindow: 1},
+		History:              []port.Turn{{ID: 7, Input: "old question", Output: "old answer"}},
+		SummaryThroughTurnID: 7,
 	}
 	result, err := r.Run(context.Background(), in)
 	if err != nil {
@@ -67,7 +68,7 @@ func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 		}
 	}
 	fresh := &fakeModel{}
-	_, err = (&Engine{model: fresh}).Run(context.Background(), port.Input{
+	_, err = (&Engine{newModel: fakeFactory(fresh)}).Run(context.Background(), port.Input{
 		Instruction: in.Instruction, Summary: result.Summary, Text: "CURRENT_INPUT_MARKER",
 	})
 	if err != nil {
@@ -80,8 +81,8 @@ func TestSummarizationExcludesCurrentInputAndLoadsAcrossRuntime(t *testing.T) {
 
 func TestSummarizationFailureAllowsRecentTurnFallback(t *testing.T) {
 	fake := &fakeModel{failSummary: true}
-	r := &Engine{model: fake}
-	in := port.Input{Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER", History: []port.Turn{{ID: 1, Input: "old", Output: "reply"}}, NeedsSummary: true, TriggerTokens: 1}
+	r := &Engine{newModel: fakeFactory(fake)}
+	in := port.Input{Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER", Model: port.ModelEndpoint{ContextWindow: 1}, History: []port.Turn{{ID: 1, Input: "old", Output: "reply"}}}
 	if _, err := r.Run(context.Background(), in); !errors.Is(err, port.ErrSummary) {
 		t.Fatalf("expected summary error, got %v", err)
 	}
@@ -133,11 +134,11 @@ func (f *failFinalModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatMod
 // heuristic this replaced: only errors raised by the summary model itself may
 // classify as ErrSummary; a later, unrelated model failure must surface as-is.
 func TestRunErrorAfterSuccessfulSummaryIsNotErrSummary(t *testing.T) {
-	r := &Engine{model: &failFinalModel{}}
+	r := &Engine{newModel: fakeFactory(&failFinalModel{})}
 	_, err := r.Run(context.Background(), port.Input{
 		Instruction: "Answer carefully", Text: "CURRENT_INPUT_MARKER",
-		History:      []port.Turn{{ID: 1, Input: "old", Output: "reply"}},
-		NeedsSummary: true, TriggerTokens: 1,
+		Model:   port.ModelEndpoint{ContextWindow: 1},
+		History: []port.Turn{{ID: 1, Input: "old", Output: "reply"}},
 	})
 	if err == nil || errors.Is(err, port.ErrSummary) {
 		t.Fatalf("answer failure must not be reported as ErrSummary: %v", err)
@@ -166,13 +167,13 @@ func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rt, err := NewRuntime(context.Background(), "default-key", "https://default.invalid/v1", "default-model")
+	rt, err := New(context.Background(), Deps{})
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
 	res, err := rt.Run(context.Background(), port.Input{
 		Instruction: "hi", Text: "hello",
-		Model: "fixture-model", BaseURL: srv.URL + "/v1", APIKey: "agent-own-key", MaxTokens: 512,
+		Model: port.ModelEndpoint{BaseURL: srv.URL + "/v1", APIKey: "agent-own-key", Model: "fixture-model", MaxTokens: 512},
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -188,5 +189,11 @@ func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
 	}
 	if res.Usage.TotalTokens != 3 {
 		t.Fatalf("usage not recorded: %+v", res.Usage)
+	}
+}
+
+func fakeFactory(m model.ToolCallingChatModel) ChatModelFactory {
+	return func(context.Context, port.ModelEndpoint, int) (model.ToolCallingChatModel, error) {
+		return m, nil
 	}
 }

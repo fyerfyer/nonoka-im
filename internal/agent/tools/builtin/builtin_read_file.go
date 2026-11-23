@@ -8,16 +8,15 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/cloudwego/eino/schema"
 )
 
 func newReadFileTool(backend tools.Backend, guard tools.Guard, resultBudgetTokens int) tool.InvokableTool {
-	return utils.NewTool(&schema.ToolInfo{Name: "read_file", Desc: `Read the content of an attachment (file or image) by its file ID, as long as the user who triggered you is allowed to see it.
+	return mustTool(utils.InferTool("read_file", `Read the content of an attachment (file or image) by its file ID, as long as the user who triggered you is allowed to see it.
 
 Use this tool when the user asks about the contents of a file shared in this conversation, e.g. "what does the attached log say". Text files are returned as text; other files return metadata only.
 
 Args:
-- file_id: the attachment ID from the message that shared the file (required).`}, func(ctx context.Context, in tools.ReadFileRequest) (tools.ReadFileResult, error) {
+- file_id: the attachment ID from the message that shared the file (required).`, func(ctx context.Context, in tools.ReadFileRequest) (tools.ReadFileResult, error) {
 		r, ok := tools.GetRunContext(ctx)
 		if !ok {
 			return tools.ReadFileResult{}, fmt.Errorf("run context missing")
@@ -40,5 +39,5 @@ Args:
 			result.Content = fmt.Sprintf("[%s attachment: %d bytes, content not shown]", mime, len(content))
 		}
 		return result, nil
-	})
+	}))
 }

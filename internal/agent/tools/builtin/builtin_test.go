@@ -119,8 +119,8 @@ func TestNewToolsFailClosedWhenGuardDenies(t *testing.T) {
 	ctx := tools.WithRunContext(context.Background(), tools.RunContext{ActorUserID: 7, Topic: "p2p_1_7", AgentID: 3})
 	for _, guard := range []tools.Guard{&guardStub{denied: true}, nil} {
 		ts := New(&backendStub{}, guard)
-		if len(ts) != 8 {
-			t.Fatalf("expected 8 tools, got %d", len(ts))
+		if len(ts) != 9 {
+			t.Fatalf("expected 9 tools, got %d", len(ts))
 		}
 		// Order matches New: ..., get_my_info, list_my_groups, get_group_members.
 		for i, args := range map[int]string{5: `{}`, 6: `{}`, 7: `{"group_id":"g1"}`} {

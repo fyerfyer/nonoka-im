@@ -15,6 +15,8 @@ var (
 	ErrAdminRequired = errors.New("platform admin required")
 	ErrForbidden     = errors.New("forbidden")
 	ErrNotFound      = errors.New("not found")
+	ErrConflict      = errors.New("already exists")
+	ErrNeedsAuth     = errors.New("mcp connection required")
 )
 
 // Store is the agent persistence surface used by management usecases.
@@ -38,13 +40,38 @@ type Store interface {
 
 // PlatformStore is the MCP/skill registry surface.
 type PlatformStore interface {
-	RegisterServer(ctx context.Context, name, transport, url, tools, risk string) (*domain.MCPServer, error)
-	GetServer(ctx context.Context, name string) (*domain.MCPServer, error)
-	ListServers(ctx context.Context) ([]domain.MCPServer, error)
+	// MCP servers/tools.
+	CreateServer(ctx context.Context, spec domain.MCPServer) (*domain.MCPServer, error)
+	GetServerByID(ctx context.Context, id uint64) (*domain.MCPServer, error)
+	ListServersForUser(ctx context.Context, userID int64, includeAll bool) ([]domain.MCPServer, error)
+	ListAllServers(ctx context.Context, enabledOnly bool) ([]domain.MCPServer, error)
+	UpdateServer(ctx context.Context, server domain.MCPServer) error
 	SetServerEnabled(ctx context.Context, id uint64, enabled bool) error
-	PublishSkill(ctx context.Context, name string, version int64, content string) (*domain.Skill, error)
-	GetSkill(ctx context.Context, name string, version int64) (*domain.Skill, error)
-	ListSkills(ctx context.Context, publishedOnly bool) ([]domain.Skill, error)
+	SetServerReview(ctx context.Context, id uint64, status, reason string, reviewer int64) error
+	SetServerHealth(ctx context.Context, id uint64, status, lastErr string) error
+	DeleteServer(ctx context.Context, id uint64) error
+	ReplaceTools(ctx context.Context, serverID uint64, tools []domain.MCPTool) (bool, error)
+	ListTools(ctx context.Context, serverID uint64) ([]domain.MCPTool, error)
+	GetTool(ctx context.Context, serverID uint64, name string) (*domain.MCPTool, error)
+
+	// MCP connections.
+	UpsertConnection(ctx context.Context, conn domain.MCPConnection) (*domain.MCPConnection, error)
+	GetConnection(ctx context.Context, serverID uint64, userID int64) (*domain.MCPConnection, error)
+	ListConnections(ctx context.Context, userID int64) ([]domain.MCPConnection, error)
+	DeleteConnection(ctx context.Context, serverID uint64, userID int64) error
+
+	// Skills.
+	CreateSkill(ctx context.Context, ownerID int64, slug, displayName, description, visibility, reviewStatus string) (*domain.Skill, error)
+	GetSkillByID(ctx context.Context, id uint64) (*domain.Skill, error)
+	GetSkillByOwnerSlug(ctx context.Context, ownerID int64, slug string) (*domain.Skill, error)
+	ListSkillsForUser(ctx context.Context, userID int64, includeAll bool) ([]domain.Skill, error)
+	UpdateSkillMeta(ctx context.Context, id uint64, displayName, description, visibility, reviewStatus string) error
+	SetSkillReview(ctx context.Context, id uint64, status string) error
+	DeleteSkill(ctx context.Context, id uint64) error
+	CreateSkillVersion(ctx context.Context, version domain.SkillVersion) (*domain.SkillVersion, error)
+	GetSkillVersion(ctx context.Context, skillID uint64, version int64) (*domain.SkillVersion, error)
+	ListSkillVersions(ctx context.Context, skillID uint64) ([]domain.SkillVersion, error)
+	SetSkillVersionReview(ctx context.Context, skillID uint64, version int64, status, reason string, reviewer int64) error
 }
 
 // Authorizer is the narrow OpenFGA admin surface.
@@ -52,6 +79,7 @@ type Authorizer interface {
 	CanViewAgent(ctx context.Context, userID, agentID int64) error
 	CanUseAgent(ctx context.Context, userID, agentID int64) error
 	CanManageAgent(ctx context.Context, userID, agentID int64) error
+	CanManagePlatform(ctx context.Context, userID int64) error
 	CanAccessTopic(ctx context.Context, userID int64, topic string) error
 	CanManageGroup(ctx context.Context, userID int64, groupID string) error
 	SetAgentOwner(ctx context.Context, agentID, userID int64) error
@@ -60,6 +88,18 @@ type Authorizer interface {
 	ListAgentShares(ctx context.Context, agentID int64) ([]authz.AgentShare, error)
 	DeleteAgentTuples(ctx context.Context, agentID int64, tools []string) error
 	SetGroupMember(ctx context.Context, groupID string, userID int64, enabled bool) error
+}
+
+// MCPDiscovery is implemented by the SSRF-safe MCP adapter.
+type MCPDiscovery interface {
+	Discover(ctx context.Context, target domain.MCPTarget) (*domain.MCPDiscoveryResult, error)
+	Test(ctx context.Context, target domain.MCPTarget) error
+}
+
+// CredentialSealer encrypts MCP credentials at rest.
+type CredentialSealer interface {
+	Seal(plain string) (string, error)
+	Open(sealed string) (string, error)
 }
 
 // GroupDirectory is the group mutation surface used when sharing an agent.
@@ -72,36 +112,39 @@ type UserDirectory interface {
 	UserExists(ctx context.Context, userID int64) (bool, error)
 }
 
-// APIKeySealer seals model credentials at rest.
-type APIKeySealer interface {
-	Seal(apiKey string) (sealed string, update bool, err error)
+// ModelCatalog validates platform model references and resolves the model
+// display metadata used by the management API.
+type ModelCatalog interface {
+	Lookup(ctx context.Context, serviceID, modelID int64) (domain.ModelService, domain.Model, error)
 }
 
 // Input is the transport-neutral agent draft request.
 type Input struct {
-	Name        string
-	Description string
-	Instruction string
-	Model       string
-	Tools       []string
-	BaseURL     string
-	APIKey      string
-	MaxTokens   int
-	MCPBindings []MCPBindingInput
-	Skills      []SkillBindingInput
-	Revision    int64
-	Status      string
-	Kind        string
-	Target      string
-	Enabled     bool
+	Name              string
+	Description       string
+	Instruction       string
+	ModelServiceID    int64
+	ModelID           int64
+	Tools             []string
+	CapabilityPresets []string
+	ToolPolicies      map[string]string
+	MaxTokens         int
+	MCPBindings       []MCPBindingInput
+	Skills            []SkillBindingInput
+	Revision          int64
+	Status            string
+	Kind              string
+	Target            string
+	Enabled           bool
 }
 
 type MCPBindingInput struct {
-	Server string
-	Tool   string
+	ServerID uint64
+	Tool     string
+	Policy   string
 }
 
 type SkillBindingInput struct {
-	Name    string
+	SkillID uint64
 	Version int64
 }

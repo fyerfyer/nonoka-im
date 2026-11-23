@@ -48,36 +48,47 @@ func liveConfig(t *testing.T) (string, string, string) {
 	return key, base, model
 }
 
+func liveEndpoint(key, base, model string) port.ModelEndpoint {
+	return port.ModelEndpoint{BaseURL: base, APIKey: key, Model: model, MaxTokens: 4096}
+}
+
+func newLiveRuntime(ctx context.Context, deps eino.Deps) (*eino.Engine, error) {
+	return eino.New(ctx, deps)
+}
+
 func TestDeepSeekTwoTurnsAndSummaryAcrossRuntime(t *testing.T) {
 	key, base, model := liveConfig(t)
+	endpoint := liveEndpoint(key, base, model)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	firstRuntime, err := eino.NewRuntime(ctx, key, base, model)
+	firstRuntime, err := newLiveRuntime(ctx, eino.Deps{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	instruction := "Answer in one short sentence. When asked for the codeword, repeat it exactly."
-	first, err := firstRuntime.Run(ctx, port.Input{Instruction: instruction, Text: "The codeword for this chat is marigold. Acknowledge it briefly."})
+	first, err := firstRuntime.Run(ctx, port.Input{Instruction: instruction, Model: endpoint, Text: "The codeword for this chat is marigold. Acknowledge it briefly."})
 	if err != nil || strings.TrimSpace(first.Text) == "" {
 		t.Fatalf("first DeepSeek turn: text empty=%t err=%v", first.Text == "", err)
 	}
-	secondRuntime, err := eino.NewRuntime(ctx, key, base, model)
+	secondRuntime, err := newLiveRuntime(ctx, eino.Deps{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold. Acknowledge it briefly.", Output: first.Text}}, Text: "What is this chat's codeword?"})
+	second, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, Model: endpoint, History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold. Acknowledge it briefly.", Output: first.Text}}, Text: "What is this chat's codeword?"})
 	if err != nil || !strings.Contains(strings.ToLower(second.Text), "marigold") {
 		t.Fatalf("second DeepSeek turn did not cite history: text=%q err=%v", second.Text, err)
 	}
-	withSummary, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, Text: "What is the codeword?", History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold.", Output: first.Text}}, NeedsSummary: true, TriggerTokens: 1, SummaryThroughTurnID: 1})
+	summaryEndpoint := endpoint
+	summaryEndpoint.ContextWindow = 1
+	withSummary, err := secondRuntime.Run(ctx, port.Input{Instruction: instruction, Model: summaryEndpoint, Text: "What is the codeword?", History: []port.Turn{{ID: 1, Input: "The codeword for this chat is marigold.", Output: first.Text}}, SummaryThroughTurnID: 1})
 	if err != nil || strings.TrimSpace(withSummary.Summary) == "" || withSummary.SummaryThroughTurnID != 1 {
 		t.Fatalf("DeepSeek summary unavailable: summary empty=%t err=%v", withSummary.Summary == "", err)
 	}
-	restartedRuntime, err := eino.NewRuntime(ctx, key, base, model)
+	restartedRuntime, err := newLiveRuntime(ctx, eino.Deps{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	last, err := restartedRuntime.Run(ctx, port.Input{Instruction: instruction, Summary: withSummary.Summary, Text: "What is this chat's codeword?"})
+	last, err := restartedRuntime.Run(ctx, port.Input{Instruction: instruction, Model: endpoint, Summary: withSummary.Summary, Text: "What is this chat's codeword?"})
 	if err != nil || !strings.Contains(strings.ToLower(last.Text), "marigold") {
 		t.Fatalf("summary not usable after runtime restart: text=%q err=%v", last.Text, err)
 	}

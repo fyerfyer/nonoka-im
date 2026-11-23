@@ -4,11 +4,9 @@ package bootstrap
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
-	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/tools/catalog"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -38,7 +36,7 @@ func InitTracer(ctx context.Context, endpoint string) (func(), error) {
 
 // SeedStore is the narrow persistence surface used to create the preset agent.
 type SeedStore interface {
-	BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model, baseURL, apiKeyEnc string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error)
+	BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction string, modelServiceID, modelID int64, modelKey string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error)
 }
 
 // SeedAuthorizer is the narrow OpenFGA surface used while seeding.
@@ -49,15 +47,14 @@ type SeedAuthorizer interface {
 
 // SeedInput is the resolved preset-agent configuration.
 type SeedInput struct {
-	AgentID      int64
-	BotID        int64
-	OwnerID      int64
-	Name         string
-	Instruction  string
-	ModelName    string
-	ModelBaseURL string
-	APIKey       string
-	SecretKey    string
+	AgentID        int64
+	BotID          int64
+	OwnerID        int64
+	Name           string
+	Instruction    string
+	ModelServiceID int64
+	ModelID        int64
+	ModelKey       string
 }
 
 // SeedAgent creates the preset agent once and binds its built-in tools. A
@@ -69,22 +66,15 @@ func SeedAgent(ctx context.Context, store SeedStore, az SeedAuthorizer, in SeedI
 	if in.Instruction == "" {
 		in.Instruction = "You are the Nonoka IM assistant. Use concise, helpful answers."
 	}
-	bootstrapKeyEnc := ""
-	if in.APIKey != "" {
-		if len(in.SecretKey) < 32 {
-			return fmt.Errorf("AGENT_SECRET_KEY is required to seal the bootstrap model key")
-		}
-		sealed, err := credential.Seal([]byte(in.SecretKey), []byte(in.APIKey))
-		if err == nil {
-			bootstrapKeyEnc = base64.StdEncoding.EncodeToString(sealed)
-		}
+	if in.ModelServiceID <= 0 || in.ModelID <= 0 {
+		return fmt.Errorf("bootstrap agent requires a model service/model")
 	}
 	toolsJSON, err := json.Marshal(catalog.DefaultBootstrapToolNames())
 	if err != nil {
 		return fmt.Errorf("encode bootstrap tool list: %w", err)
 	}
 	_, err = store.BootstrapAgent(ctx, in.AgentID, in.BotID, in.OwnerID,
-		in.Name, in.Instruction, in.ModelName, in.ModelBaseURL, bootstrapKeyEnc, 4096, string(toolsJSON),
+		in.Name, in.Instruction, in.ModelServiceID, in.ModelID, in.ModelKey, 4096, string(toolsJSON),
 		func(ctx context.Context, id int64) error {
 			return az.SetAgentOwner(ctx, id, in.OwnerID)
 		})

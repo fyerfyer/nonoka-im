@@ -8,8 +8,8 @@ import (
 
 func TestBuiltinDefinitionsAreComplete(t *testing.T) {
 	defs := BuiltinDefinitions()
-	if len(defs) != 8 {
-		t.Fatalf("expected 8 built-in definitions, got %d", len(defs))
+	if len(defs) != 9 {
+		t.Fatalf("expected 9 built-in definitions, got %d", len(defs))
 	}
 	byName := map[string]Definition{}
 	for _, def := range defs {

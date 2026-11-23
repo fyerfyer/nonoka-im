@@ -825,8 +825,7 @@ type AgentWorker struct {
 	BootstrapOwnerId     int64                  `protobuf:"varint,11,opt,name=bootstrap_owner_id,json=bootstrapOwnerId,proto3" json:"bootstrap_owner_id,omitempty"`
 	BootstrapName        string                 `protobuf:"bytes,12,opt,name=bootstrap_name,json=bootstrapName,proto3" json:"bootstrap_name,omitempty"`
 	BootstrapInstruction string                 `protobuf:"bytes,13,opt,name=bootstrap_instruction,json=bootstrapInstruction,proto3" json:"bootstrap_instruction,omitempty"`
-	ModelBaseUrl         string                 `protobuf:"bytes,14,opt,name=model_base_url,json=modelBaseUrl,proto3" json:"model_base_url,omitempty"`
-	ModelName            string                 `protobuf:"bytes,15,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	BootstrapModel       string                 `protobuf:"bytes,15,opt,name=bootstrap_model,json=bootstrapModel,proto3" json:"bootstrap_model,omitempty"`
 	DispatchTimeout      *durationpb.Duration   `protobuf:"bytes,16,opt,name=dispatch_timeout,json=dispatchTimeout,proto3" json:"dispatch_timeout,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -953,16 +952,9 @@ func (x *AgentWorker) GetBootstrapInstruction() string {
 	return ""
 }
 
-func (x *AgentWorker) GetModelBaseUrl() string {
+func (x *AgentWorker) GetBootstrapModel() string {
 	if x != nil {
-		return x.ModelBaseUrl
-	}
-	return ""
-}
-
-func (x *AgentWorker) GetModelName() string {
-	if x != nil {
-		return x.ModelName
+		return x.BootstrapModel
 	}
 	return ""
 }
@@ -1633,7 +1625,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\vhealth_addr\x18\x01 \x01(\tR\n" +
 	"healthAddr\x12!\n" +
 	"\fmetrics_addr\x18\x02 \x01(\tR\vmetricsAddr\x120\n" +
-	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\x82\x06\n" +
+	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\xe6\x05\n" +
 	"\vAgentWorker\x12\x1f\n" +
 	"\vrun_workers\x18\x01 \x01(\x05R\n" +
 	"runWorkers\x12:\n" +
@@ -1651,10 +1643,8 @@ const file_conf_conf_proto_rawDesc = "" +
 	" \x01(\x03R\x0ebootstrapBotId\x12,\n" +
 	"\x12bootstrap_owner_id\x18\v \x01(\x03R\x10bootstrapOwnerId\x12%\n" +
 	"\x0ebootstrap_name\x18\f \x01(\tR\rbootstrapName\x123\n" +
-	"\x15bootstrap_instruction\x18\r \x01(\tR\x14bootstrapInstruction\x12$\n" +
-	"\x0emodel_base_url\x18\x0e \x01(\tR\fmodelBaseUrl\x12\x1d\n" +
-	"\n" +
-	"model_name\x18\x0f \x01(\tR\tmodelName\x12D\n" +
+	"\x15bootstrap_instruction\x18\r \x01(\tR\x14bootstrapInstruction\x12'\n" +
+	"\x0fbootstrap_model\x18\x0f \x01(\tR\x0ebootstrapModel\x12D\n" +
 	"\x10dispatch_timeout\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\x0fdispatchTimeoutB\x1eZ\x1cnonoka-im/internal/conf;confb\x06proto3"
 
 var (

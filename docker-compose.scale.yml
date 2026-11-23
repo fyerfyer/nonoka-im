@@ -91,6 +91,25 @@ services:
     depends_on:
       openfga-migrate: {condition: service_completed_successfully}
     networks: [nonoka]
+  bifrost:
+    image: maximhq/bifrost:v2.4.0
+    hostname: bifrost
+    restart: unless-stopped
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      BIFROST_ENCRYPTION_KEY: ${BIFROST_ENCRYPTION_KEY:-nonoka-bifrost-encryption-key-32b}
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+    ports: ["127.0.0.1:8088:8080"]
+    volumes:
+      - ./configs/bifrost/config.json:/app/data/config.json:ro
+      - bifrost_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [nonoka]
   gateway-1:
     build: {context: ., dockerfile: Dockerfile}
     hostname: gateway-1
@@ -102,6 +121,9 @@ services:
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      BIFROST_URL: http://bifrost:8080
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+      AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
@@ -128,6 +150,9 @@ services:
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      BIFROST_URL: http://bifrost:8080
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+      AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
@@ -174,8 +199,11 @@ services:
       OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-chat}
+      BIFROST_URL: http://bifrost:8080
+      BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
+      BIFROST_AUTO_PROVISION: ${BIFROST_AUTO_PROVISION:-true}
+      BIFROST_DEFAULT_SERVICE: ${BIFROST_DEFAULT_SERVICE:-bifrost-default}
+      BIFROST_DEFAULT_MODEL: ${BIFROST_DEFAULT_MODEL:-deepseek/deepseek-chat}
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
@@ -199,6 +227,7 @@ services:
       mongodb: {condition: service_healthy}
       kafka: {condition: service_healthy}
       openfga: {condition: service_started}
+      bifrost: {condition: service_healthy}
     networks: [nonoka]
   nginx:
     image: nginx:alpine
@@ -219,6 +248,7 @@ volumes:
   postgres_data:
   mongodb_data:
   openfga_data:
+  bifrost_data:
 networks:
   nonoka:
     driver: bridge

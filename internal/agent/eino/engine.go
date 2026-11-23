@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	openai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/model"
@@ -27,11 +26,14 @@ func init() {
 	gob.Register(approvalDecision{})
 }
 
+// ChatModelFactory builds the provider model for one resolved platform
+// endpoint. The default uses the OpenAI-compatible adapter; tests can inject a
+// fake without changing the runtime contract.
+type ChatModelFactory func(ctx context.Context, endpoint port.ModelEndpoint, maxTokens int) (model.ToolCallingChatModel, error)
+
 type Engine struct {
-	model                      model.ToolCallingChatModel
-	tools                      []tool.BaseTool
-	apiKey, baseURL, modelName string
-	maxTokens                  int
+	tools    []tool.BaseTool
+	newModel ChatModelFactory
 
 	// mcpTools resolves per-run MCP bindings into guarded tools; nil disables
 	// MCP tools. skillBackend builds the skill middleware backend for the
@@ -55,15 +57,9 @@ type Engine struct {
 	order  []modelCacheKey // FIFO eviction order; capped at modelCacheLimit.
 }
 
-// Deps is the complete, immutable dependency set of an Eino engine. All
-// collaborators are supplied at construction so a partially wired engine can
-// never be used at port.
+// Deps is the complete, immutable dependency set of an Eino engine. The model
+// endpoint is supplied per run from the platform Model Service, not here.
 type Deps struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	// MaxTokens defaults to 4096 when zero.
-	MaxTokens int
 	// Tools are the pre-built built-in tools for every run. Per-run MCP tools
 	// are resolved separately by MCPToolProvider.
 	Tools               []tool.BaseTool
@@ -73,32 +69,16 @@ type Deps struct {
 	Ledger              tools.ToolInvocationStore
 	MarkSideEffect      tools.SideEffectMarker
 	ToolCatalog         catalog.Catalog
+	NewChatModel        ChatModelFactory
 }
 
 // New constructs the Eino implementation of port.Runtime.
-func New(ctx context.Context, deps Deps) (*Engine, error) {
-	if strings.TrimSpace(deps.APIKey) == "" {
-		return nil, fmt.Errorf("model API key is required")
-	}
-	maxTokens := deps.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 4096
-	}
-	m, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: deps.APIKey, BaseURL: deps.BaseURL, Model: deps.Model, MaxCompletionTokens: &maxTokens})
-	if err != nil {
-		return nil, err
-	}
+func New(_ context.Context, deps Deps) (*Engine, error) {
 	return &Engine{
-		model: m, tools: deps.Tools, apiKey: deps.APIKey, baseURL: deps.BaseURL,
-		modelName: deps.Model, maxTokens: maxTokens, mcpTools: deps.MCPToolProvider,
+		tools: deps.Tools, newModel: deps.NewChatModel, mcpTools: deps.MCPToolProvider,
 		skillBackend: deps.SkillBackendFactory, checkpoints: deps.Checkpoints,
 		ledger: deps.Ledger, markSideEffect: deps.MarkSideEffect, toolCatalog: deps.ToolCatalog,
 	}, nil
-}
-
-// NewRuntime is the no-tools convenience constructor used by live tests.
-func NewRuntime(ctx context.Context, apiKey, baseURL, modelName string) (*Engine, error) {
-	return New(ctx, Deps{APIKey: apiKey, BaseURL: baseURL, Model: modelName})
 }
 
 func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summaryThrough uint64) (port.Result, error) {
@@ -211,15 +191,3 @@ func (r *Engine) Resume(ctx context.Context, in port.ResumeInput) (port.Result, 
 // summaryTracker wraps the model used by the summarization middleware and
 // tags genuine summary generation failures by wrapping them in ErrSummary, so
 // the run loop and the harness can recognize them with errors.Is instead of a
-
-func messageText(msg *schema.Message) string {
-	if msg == nil {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(msg.Content)
-	for _, part := range msg.UserInputMultiContent {
-		b.WriteString(part.Text)
-	}
-	return b.String()
-}

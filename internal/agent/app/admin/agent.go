@@ -4,14 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
 	"nonoka-im/internal/agent/domain"
-	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/authz"
 
@@ -22,15 +18,15 @@ import (
 type AgentService struct {
 	Store    Store
 	Platform PlatformStore
+	Models   ModelCatalog
 	Authz    Authorizer
 	Groups   GroupDirectory
 	Users    UserDirectory
-	Sealer   APIKeySealer
 	Log      *log.Helper
 }
 
-func NewAgentService(store Store, platform PlatformStore, az Authorizer, groups GroupDirectory, users UserDirectory, sealer APIKeySealer, logger log.Logger) *AgentService {
-	return &AgentService{Store: store, Platform: platform, Authz: az, Groups: groups, Users: users, Sealer: sealer, Log: log.NewHelper(logger)}
+func NewAgentService(store Store, platform PlatformStore, models ModelCatalog, az Authorizer, groups GroupDirectory, users UserDirectory, logger log.Logger) *AgentService {
+	return &AgentService{Store: store, Platform: platform, Models: models, Authz: az, Groups: groups, Users: users, Log: log.NewHelper(logger)}
 }
 
 func (s *AgentService) List(ctx context.Context, userID int64, limit, offset int) ([]domain.Agent, int64, int, error) {
@@ -88,21 +84,20 @@ func (s *AgentService) Detail(ctx context.Context, userID, agentID int64) (*doma
 }
 
 func (s *AgentService) Create(ctx context.Context, userID int64, input Input) (*domain.Agent, error) {
-	if err := validateInput(&input); err != nil {
+	if err := s.validateInput(ctx, &input); err != nil {
 		return nil, err
 	}
-	mcpJSON, skillsJSON, err := s.validateExtensions(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	sealed, _, err := s.seal(input.APIKey)
+	mcpJSON, skillsJSON, err := s.validateExtensions(ctx, userID, input)
 	if err != nil {
 		return nil, err
 	}
 	toolsJSON, _ := json.Marshal(input.Tools)
+	presetsJSON, _ := json.Marshal(input.CapabilityPresets)
+	policiesJSON, _ := json.Marshal(input.ToolPolicies)
 	spec := domain.AgentSpec{
 		Name: input.Name, Description: input.Description, Instruction: input.Instruction,
-		Model: input.Model, Tools: string(toolsJSON), BaseURL: input.BaseURL, APIKeyEnc: sealed,
+		ModelServiceID: input.ModelServiceID, ModelID: input.ModelID, Tools: string(toolsJSON),
+		CapabilityPresets: string(presetsJSON), ToolPolicies: string(policiesJSON),
 		MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON,
 	}
 	return s.Store.CreateAgent(ctx, userID, spec, func(ctx context.Context, id int64) error {
@@ -114,33 +109,66 @@ func (s *AgentService) UpdateDraft(ctx context.Context, userID, agentID int64, i
 	if err := s.requireManager(ctx, userID, agentID); err != nil {
 		return nil, err
 	}
-	if err := validateInput(&input); err != nil {
+	if err := s.validateInput(ctx, &input); err != nil {
 		return nil, err
 	}
-	mcpJSON, skillsJSON, err := s.validateExtensions(ctx, input)
+	agent, err := s.Store.GetAgent(ctx, agentID)
 	if err != nil {
-		return nil, err
+		return nil, ErrNotFound
 	}
-	sealed, updateKey, err := s.seal(input.APIKey)
+	mcpJSON, skillsJSON, err := s.validateExtensions(ctx, agent.OwnerUserID, input)
 	if err != nil {
 		return nil, err
 	}
 	toolsJSON, _ := json.Marshal(input.Tools)
+	presetsJSON, _ := json.Marshal(input.CapabilityPresets)
+	policiesJSON, _ := json.Marshal(input.ToolPolicies)
 	spec := domain.AgentSpec{
 		Name: input.Name, Description: input.Description, Instruction: input.Instruction,
-		Model: input.Model, Tools: string(toolsJSON), BaseURL: input.BaseURL, APIKeyEnc: sealed,
+		ModelServiceID: input.ModelServiceID, ModelID: input.ModelID, Tools: string(toolsJSON),
+		CapabilityPresets: string(presetsJSON), ToolPolicies: string(policiesJSON),
 		MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON,
 	}
-	return s.Store.UpdateDraft(ctx, agentID, input.Revision, spec, updateKey)
+	return s.Store.UpdateDraft(ctx, agentID, input.Revision, spec, false)
 }
 
 func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision int64) (*domain.AgentVersion, error) {
 	if err := s.requireManager(ctx, userID, agentID); err != nil {
 		return nil, err
 	}
+	agent, err := s.Store.GetAgent(ctx, agentID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if s.Models == nil {
+		return nil, fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
+	}
+	service, model, err := s.Models.Lookup(ctx, agent.DraftModelServiceID, agent.DraftModelID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	if !service.Enabled || !model.Enabled {
+		return nil, fmt.Errorf("%w: selected model service/model is disabled", ErrInvalidInput)
+	}
+	if model.MaxOutputTokens > 0 && agent.DraftMaxTokens > model.MaxOutputTokens {
+		return nil, fmt.Errorf("%w: max_tokens exceeds the current model limit %d", ErrInvalidInput, model.MaxOutputTokens)
+	}
 	version, err := s.Store.Publish(ctx, agentID, revision)
 	if err != nil {
 		return nil, err
+	}
+	shares, shareErr := s.Authz.ListAgentShares(ctx, agentID)
+	if shareErr != nil {
+		if rerr := s.Store.RollbackPublish(ctx, agentID, version.Version); rerr != nil {
+			return nil, fmt.Errorf("load agent shares: %w (rollback failed: %v)", shareErr, rerr)
+		}
+		return nil, fmt.Errorf("load agent shares: %w", shareErr)
+	}
+	if vErr := s.validateFrozenExtensions(ctx, version, len(shares) > 0); vErr != nil {
+		if rerr := s.Store.RollbackPublish(ctx, agentID, version.Version); rerr != nil {
+			return nil, fmt.Errorf("%w (rollback failed: %v)", vErr, rerr)
+		}
+		return nil, vErr
 	}
 	var toolNames []string
 	if err := json.Unmarshal([]byte(version.Tools), &toolNames); err != nil {
@@ -193,6 +221,21 @@ func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, t
 	}
 	if kind != "user" && kind != "group" {
 		return fmt.Errorf("%w: invalid share kind", ErrInvalidInput)
+	}
+	if enabled {
+		agent, err := s.Store.GetAgent(ctx, agentID)
+		if err != nil {
+			return ErrNotFound
+		}
+		if agent.CurrentVersion > 0 {
+			version, err := s.Store.GetVersion(ctx, agentID, agent.CurrentVersion)
+			if err != nil {
+				return ErrNotFound
+			}
+			if err := s.validateFrozenExtensions(ctx, version, true); err != nil {
+				return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+			}
+		}
 	}
 	if kind == "user" {
 		uid, err := strconv.ParseInt(target, 10, 64)
@@ -269,170 +312,204 @@ func (s *AgentService) requireManager(ctx context.Context, userID, agentID int64
 	return nil
 }
 
-func (s *AgentService) seal(apiKey string) (string, bool, error) {
-	if strings.TrimSpace(apiKey) == "" {
-		return "", false, nil
-	}
-	if s.Sealer == nil {
-		return "", false, fmt.Errorf("model credential sealing unavailable")
-	}
-	return s.Sealer.Seal(apiKey)
-}
-
-func (s *AgentService) validateExtensions(ctx context.Context, input Input) (string, string, error) {
+func (s *AgentService) validateExtensions(ctx context.Context, ownerID int64, input Input) (string, string, error) {
 	mcpBindings := make([]domain.MCPBinding, 0, len(input.MCPBindings))
 	seen := map[string]bool{}
 	for _, binding := range input.MCPBindings {
-		if binding.Server == "" || binding.Tool == "" || strings.ContainsAny(binding.Server+binding.Tool, " \t\n") {
+		if binding.ServerID == 0 || binding.Tool == "" || strings.ContainsAny(binding.Tool, " \t\n/") {
 			return "", "", fmt.Errorf("%w: invalid mcp binding", ErrInvalidInput)
 		}
-		key := binding.Server + "/" + binding.Tool
+		key := fmt.Sprintf("%d/%s", binding.ServerID, binding.Tool)
 		if seen[key] {
 			return "", "", fmt.Errorf("%w: duplicate mcp binding %q", ErrInvalidInput, key)
 		}
 		seen[key] = true
-		server, err := s.Platform.GetServer(ctx, binding.Server)
+		server, err := s.Platform.GetServerByID(ctx, binding.ServerID)
 		if err != nil || !server.Enabled {
-			return "", "", fmt.Errorf("%w: mcp server %q is not available", ErrInvalidInput, binding.Server)
+			return "", "", fmt.Errorf("%w: mcp server %d is not available", ErrInvalidInput, binding.ServerID)
 		}
-		var allowed []string
-		if err := json.Unmarshal([]byte(server.AllowedTools), &allowed); err != nil {
-			return "", "", fmt.Errorf("%w: mcp server %q has an invalid tool list", ErrInvalidInput, binding.Server)
+		if server.OwnerUserID != ownerID && server.Visibility == domain.VisibilityPrivate {
+			return "", "", fmt.Errorf("%w: mcp server %d is private", ErrInvalidInput, binding.ServerID)
 		}
-		found := false
-		for _, name := range allowed {
-			if name == binding.Tool {
-				found = true
-				break
+		if server.Visibility != domain.VisibilityPrivate && server.ReviewStatus != domain.ReviewApproved {
+			return "", "", fmt.Errorf("%w: mcp server %d is not approved", ErrInvalidInput, binding.ServerID)
+		}
+		tool, err := s.Platform.GetTool(ctx, binding.ServerID, binding.Tool)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: tool %q is not available on mcp server %d", ErrInvalidInput, binding.Tool, binding.ServerID)
+		}
+		policy := binding.Policy
+		if policy == "" {
+			policy = catalog.PolicyAuto
+			if tool.Risk == domain.MCPRiskWrite {
+				policy = catalog.PolicyAsk
 			}
 		}
-		if !found {
-			return "", "", fmt.Errorf("%w: tool %q is not allowed on mcp server %q", ErrInvalidInput, binding.Tool, binding.Server)
+		if policy != catalog.PolicyAuto && policy != catalog.PolicyAsk && policy != catalog.PolicyDeny {
+			return "", "", fmt.Errorf("%w: invalid mcp tool policy", ErrInvalidInput)
 		}
-		mcpBindings = append(mcpBindings, domain.MCPBinding{Server: binding.Server, Tool: binding.Tool, Exposed: tools.ExposedMCPName(binding.Server, binding.Tool)})
+		mcpBindings = append(mcpBindings, domain.MCPBinding{
+			ServerID: binding.ServerID, Server: server.Name, Tool: binding.Tool,
+			Exposed:    domain.MCPExposedName(binding.ServerID, binding.Tool),
+			SchemaHash: tool.SchemaHash, Policy: policy,
+		})
 	}
 	skills := make([]domain.SkillBinding, 0, len(input.Skills))
-	seenSkill := map[string]bool{}
+	seenSkill := map[uint64]bool{}
 	for _, binding := range input.Skills {
-		if binding.Name == "" || binding.Version <= 0 {
+		if binding.SkillID == 0 || binding.Version <= 0 {
 			return "", "", fmt.Errorf("%w: invalid skill binding", ErrInvalidInput)
 		}
-		if seenSkill[binding.Name] {
-			return "", "", fmt.Errorf("%w: duplicate skill binding %q", ErrInvalidInput, binding.Name)
+		if seenSkill[binding.SkillID] {
+			return "", "", fmt.Errorf("%w: duplicate skill binding %d", ErrInvalidInput, binding.SkillID)
 		}
-		seenSkill[binding.Name] = true
-		row, err := s.Platform.GetSkill(ctx, binding.Name, binding.Version)
-		if err != nil || !row.Published {
-			return "", "", fmt.Errorf("%w: skill %q version %d is not published", ErrInvalidInput, binding.Name, binding.Version)
+		seenSkill[binding.SkillID] = true
+		skill, err := s.Platform.GetSkillByID(ctx, binding.SkillID)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: skill %d not found", ErrInvalidInput, binding.SkillID)
 		}
-		skills = append(skills, domain.SkillBinding{Name: binding.Name, Version: binding.Version})
+		if skill.OwnerUserID != ownerID && skill.Visibility == domain.VisibilityPrivate {
+			return "", "", fmt.Errorf("%w: skill %d is private", ErrInvalidInput, binding.SkillID)
+		}
+		sv, err := s.Platform.GetSkillVersion(ctx, binding.SkillID, binding.Version)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: skill %d version %d not found", ErrInvalidInput, binding.SkillID, binding.Version)
+		}
+		if skill.Visibility != domain.VisibilityPrivate &&
+			(skill.ReviewStatus != domain.ReviewApproved || sv.ReviewStatus != domain.ReviewApproved) {
+			return "", "", fmt.Errorf("%w: skill %d version %d is not approved", ErrInvalidInput, binding.SkillID, binding.Version)
+		}
+		skills = append(skills, domain.SkillBinding{
+			SkillID: binding.SkillID, Name: skill.Slug, Version: binding.Version, Checksum: sv.Checksum,
+		})
 	}
 	mcpJSON, _ := json.Marshal(mcpBindings)
 	skillsJSON, _ := json.Marshal(skills)
 	return string(mcpJSON), string(skillsJSON), nil
 }
 
-func validateInput(input *Input) error {
+// validateFrozenExtensions re-checks the published snapshot against the live
+// registry. It prevents publishing stale MCP schemas and keeps private
+// resources out of agents that have active shares.
+func (s *AgentService) validateFrozenExtensions(ctx context.Context, version *domain.AgentVersion, sharedAgent bool) error {
+	var bindings []domain.MCPBinding
+	if version.MCPBindings != "" {
+		if err := json.Unmarshal([]byte(version.MCPBindings), &bindings); err != nil {
+			return fmt.Errorf("%w: invalid mcp binding snapshot", ErrInvalidInput)
+		}
+	}
+	for _, binding := range bindings {
+		server, err := s.Platform.GetServerByID(ctx, binding.ServerID)
+		if err != nil || !server.Enabled {
+			return fmt.Errorf("%w: mcp server %d is not available", ErrInvalidInput, binding.ServerID)
+		}
+		if sharedAgent && server.Visibility == domain.VisibilityPrivate {
+			return fmt.Errorf("%w: private mcp server %d cannot be used by a shared agent", ErrInvalidInput, binding.ServerID)
+		}
+		if server.Visibility != domain.VisibilityPrivate && server.ReviewStatus != domain.ReviewApproved {
+			return fmt.Errorf("%w: mcp server %d is not approved", ErrInvalidInput, binding.ServerID)
+		}
+		tool, err := s.Platform.GetTool(ctx, binding.ServerID, binding.Tool)
+		if err != nil {
+			return fmt.Errorf("%w: mcp tool %q is no longer available", ErrInvalidInput, binding.Tool)
+		}
+		if binding.SchemaHash != "" && tool.SchemaHash != binding.SchemaHash {
+			return fmt.Errorf("%w: mcp tool %q schema changed; re-save the draft and republish", ErrInvalidInput, binding.Tool)
+		}
+	}
+	var skills []domain.SkillBinding
+	if version.Skills != "" {
+		if err := json.Unmarshal([]byte(version.Skills), &skills); err != nil {
+			return fmt.Errorf("%w: invalid skill binding snapshot", ErrInvalidInput)
+		}
+	}
+	for _, binding := range skills {
+		skill, err := s.Platform.GetSkillByID(ctx, binding.SkillID)
+		if err != nil {
+			return fmt.Errorf("%w: skill %d is not available", ErrInvalidInput, binding.SkillID)
+		}
+		if sharedAgent && skill.Visibility == domain.VisibilityPrivate {
+			return fmt.Errorf("%w: private skill %d cannot be bound to a shared agent", ErrInvalidInput, binding.SkillID)
+		}
+		sv, err := s.Platform.GetSkillVersion(ctx, binding.SkillID, binding.Version)
+		if err != nil {
+			return fmt.Errorf("%w: skill %d version %d is not available", ErrInvalidInput, binding.SkillID, binding.Version)
+		}
+		if skill.Visibility != domain.VisibilityPrivate &&
+			(skill.ReviewStatus != domain.ReviewApproved || sv.ReviewStatus != domain.ReviewApproved) {
+			return fmt.Errorf("%w: skill %d version %d is not approved", ErrInvalidInput, binding.SkillID, binding.Version)
+		}
+		if binding.Checksum != "" && sv.Checksum != binding.Checksum {
+			return fmt.Errorf("%w: skill %d version %d content changed", ErrInvalidInput, binding.SkillID, binding.Version)
+		}
+	}
+	return nil
+}
+
+func (s *AgentService) validateInput(ctx context.Context, input *Input) error {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Instruction = strings.TrimSpace(input.Instruction)
-	input.Model = strings.TrimSpace(input.Model)
-	if input.Model == "" {
-		input.Model = os.Getenv("OPENAI_MODEL")
-	}
 	if len(input.Name) == 0 || len(input.Name) > 100 || input.Instruction == "" || len(input.Instruction) > 20000 || len(input.Description) > 4000 {
 		return fmt.Errorf("%w: invalid agent name, description or instruction", ErrInvalidInput)
 	}
-	if len(input.Model) > 100 {
-		return fmt.Errorf("%w: invalid model", ErrInvalidInput)
+	if input.ModelServiceID <= 0 || input.ModelID <= 0 {
+		return fmt.Errorf("%w: a model service and model are required", ErrInvalidInput)
 	}
-	input.BaseURL = strings.TrimSpace(input.BaseURL)
-	if input.BaseURL != "" {
-		if err := validateModelBaseURL(input.BaseURL); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidInput, err)
-		}
+	if s.Models == nil {
+		return fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
 	}
-	if len(input.APIKey) > 512 {
-		return fmt.Errorf("%w: invalid api_key", ErrInvalidInput)
+	service, model, err := s.Models.Lookup(ctx, input.ModelServiceID, input.ModelID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	if !service.Enabled {
+		return fmt.Errorf("%w: model service %q is disabled", ErrInvalidInput, service.Name)
+	}
+	if !model.Enabled {
+		return fmt.Errorf("%w: model %q is disabled", ErrInvalidInput, model.ModelKey)
 	}
 	if input.MaxTokens < 0 || input.MaxTokens > 128000 {
 		return fmt.Errorf("%w: invalid max_tokens", ErrInvalidInput)
 	}
-	allowed := make(map[string]bool)
-	for _, def := range catalog.BuiltinDefinitions() {
-		allowed[def.Name] = true
-	}
-	seen := map[string]bool{}
-	for _, name := range input.Tools {
-		if !allowed[name] || seen[name] {
-			return fmt.Errorf("%w: unsupported or duplicate tool %q", ErrInvalidInput, name)
-		}
-		seen[name] = true
-	}
 	if input.MaxTokens == 0 {
 		input.MaxTokens = 4096
 	}
+	if model.MaxOutputTokens > 0 && input.MaxTokens > model.MaxOutputTokens {
+		return fmt.Errorf("%w: max_tokens exceeds model limit %d", ErrInvalidInput, model.MaxOutputTokens)
+	}
+	allowed := make(map[string]bool)
+	system := make(map[string]bool)
+	for _, def := range catalog.BuiltinDefinitions() {
+		allowed[def.Name] = true
+		if def.System {
+			system[def.Name] = true
+		}
+	}
+	for name, policy := range input.ToolPolicies {
+		if !allowed[name] {
+			return fmt.Errorf("%w: policy refers to unknown builtin tool %q", ErrInvalidInput, name)
+		}
+		if policy != catalog.PolicyAuto && policy != catalog.PolicyAsk && policy != catalog.PolicyDeny {
+			return fmt.Errorf("%w: tool policy must be auto, ask or deny", ErrInvalidInput)
+		}
+		if system[name] && policy == catalog.PolicyDeny {
+			return fmt.Errorf("%w: system tools cannot be disabled", ErrInvalidInput)
+		}
+	}
+	if len(input.CapabilityPresets) == 0 && len(input.Tools) == 0 {
+		input.CapabilityPresets = catalog.DefaultPresetKeys()
+	}
+	resolved, err := catalog.ResolveTools(input.CapabilityPresets, input.Tools)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	filtered := resolved[:0]
+	for _, name := range resolved {
+		if input.ToolPolicies[name] == catalog.PolicyDeny && !system[name] {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	input.Tools = filtered
 	return nil
-}
-
-// validateModelBaseURL is the transitional SSRF guard for agent-owned model
-// endpoints. Shared agents must eventually use the platform Model Service.
-func validateModelBaseURL(raw string) error {
-	if len(raw) > 200 {
-		return fmt.Errorf("invalid base_url")
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return fmt.Errorf("base_url must be an http(s) URL")
-	}
-	host := strings.ToLower(u.Hostname())
-	if host == "" {
-		return fmt.Errorf("base_url must include a host")
-	}
-	if u.Scheme == "http" && host != "localhost" && host != "127.0.0.1" && host != "::1" {
-		return fmt.Errorf("base_url must use https")
-	}
-	if allow := strings.TrimSpace(os.Getenv("AGENT_MODEL_ALLOWED_HOSTS")); allow != "" {
-		allowed := false
-		for _, entry := range strings.Split(allow, ",") {
-			entry = strings.ToLower(strings.TrimSpace(entry))
-			if entry != "" && (entry == host || strings.HasSuffix(host, "."+entry)) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("base_url host is not in AGENT_MODEL_ALLOWED_HOSTS")
-		}
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if isPrivateIP(ip) {
-			return fmt.Errorf("base_url must not target a private or loopback address")
-		}
-		return nil
-	}
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return fmt.Errorf("base_url host %q could not be resolved", host)
-	}
-	for _, ip := range ips {
-		if isPrivateIP(ip) {
-			return fmt.Errorf("base_url must not target a private or loopback address")
-		}
-	}
-	return nil
-}
-
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast()
-}
-
-// IsAdmin reports whether the user is a configured platform admin.
-func IsAdmin(userID int64) bool {
-	for _, part := range strings.Split(os.Getenv("AGENT_ADMIN_USER_IDS"), ",") {
-		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id == userID {
-			return true
-		}
-	}
-	return false
 }

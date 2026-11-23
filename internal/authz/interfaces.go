@@ -2,6 +2,14 @@ package authz
 
 import "context"
 
+// PlatformAuthorizer is the deployment-level administration surface. It is
+// deliberately separate from IM group/agent roles: a platform admin operates
+// model services, review queues and platform policy, not other users' chats.
+type PlatformAuthorizer interface {
+	CanManagePlatform(ctx context.Context, userID int64) error
+	SetPlatformAdmin(ctx context.Context, userID int64, enabled bool) error
+}
+
 // AgentAuthorizer is the read/use side of agent authorization.
 type AgentAuthorizer interface {
 	CanViewAgent(ctx context.Context, userID, agentID int64) error

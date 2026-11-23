@@ -51,8 +51,9 @@ func (d *Data) IsBotUser(ctx context.Context, id int64) (bool, error) {
 func (d *Data) CleanTestData() error {
 	return d.db.Exec(`TRUNCATE TABLE users, group_members, conversations, groups,
 		agent_runs, agent_turns, agent_sessions, agent_context_snapshots,
-		agent_versions, agents, mcp_servers, skills, agent_checkpoints,
-		agent_approvals, agent_tool_invocations, idempotency_keys RESTART IDENTITY CASCADE`).Error
+		agent_versions, agents, mcp_servers, mcp_tools, mcp_connections, skills, skill_versions, agent_checkpoints,
+		agent_approvals, agent_tool_invocations, idempotency_keys,
+		model_services, model_models RESTART IDENTITY CASCADE`).Error
 }
 
 // NewData opens PostgreSQL and Redis and applies versioned migrations. The

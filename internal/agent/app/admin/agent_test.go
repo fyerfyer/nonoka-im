@@ -1,39 +1,38 @@
 package admin
 
-import "testing"
+import (
+	"context"
+	"testing"
 
-func TestValidateModelBaseURLRejectsSSRFTargets(t *testing.T) {
-	cases := []struct {
-		name    string
-		raw     string
-		wantErr bool
-	}{
-		{name: "public https", raw: "https://example.com/v1", wantErr: false},
-		{name: "loopback literal", raw: "https://127.0.0.1/v1", wantErr: true},
-		{name: "loopback ipv6", raw: "https://[::1]/v1", wantErr: true},
-		{name: "metadata", raw: "https://169.254.169.254/latest", wantErr: true},
-		{name: "private", raw: "https://10.0.0.5/v1", wantErr: true},
-		{name: "localhost name", raw: "https://localhost/v1", wantErr: true},
-		{name: "plain http", raw: "http://example.com/v1", wantErr: true},
-		{name: "bad scheme", raw: "ftp://example.com/v1", wantErr: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateModelBaseURL(tc.raw)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("validateModelBaseURL(%q) err=%v, wantErr=%v", tc.raw, err, tc.wantErr)
-			}
-		})
-	}
+	"nonoka-im/internal/agent/domain"
+)
+
+type catalogStub struct {
+	service domain.ModelService
+	model   domain.Model
+	err     error
 }
 
-func TestValidateInputUsesToolCatalog(t *testing.T) {
-	v := &Input{Name: "catalog-agent", Instruction: "be helpful", Model: "deepseek-chat", Tools: []string{"send_message", "get_group_members"}}
-	if err := validateInput(v); err != nil {
+func (c catalogStub) Lookup(context.Context, int64, int64) (domain.ModelService, domain.Model, error) {
+	return c.service, c.model, c.err
+}
+
+func TestValidateInputUsesModelCatalog(t *testing.T) {
+	svc := &AgentService{Models: catalogStub{
+		service: domain.ModelService{ID: 1, Name: "bifrost", Enabled: true},
+		model:   domain.Model{ID: 2, ServiceID: 1, ModelKey: "deepseek/deepseek-chat", Enabled: true, MaxOutputTokens: 8192},
+	}}
+	in := &Input{Name: "catalog-agent", Instruction: "be helpful", ModelServiceID: 1, ModelID: 2, Tools: []string{"send_message", "get_group_members"}}
+	if err := svc.validateInput(context.Background(), in); err != nil {
 		t.Fatalf("catalog tools rejected: %v", err)
 	}
-	v.Tools = []string{"not_a_real_tool"}
-	if err := validateInput(v); err == nil {
+	in.Tools = []string{"not_a_real_tool"}
+	if err := svc.validateInput(context.Background(), in); err == nil {
 		t.Fatal("unknown tool accepted; validation is still hardcoded")
+	}
+	in.Tools = nil
+	in.ToolPolicies = map[string]string{"send_message": "sometimes"}
+	if err := svc.validateInput(context.Background(), in); err == nil {
+		t.Fatal("invalid tool policy accepted")
 	}
 }

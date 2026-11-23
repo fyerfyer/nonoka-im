@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/credential"
+	agentmcp "nonoka-im/internal/agent/mcp"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
@@ -26,6 +26,7 @@ import (
 	"nonoka-im/internal/httpapi"
 	imapp "nonoka-im/internal/im/app"
 	mongostore "nonoka-im/internal/im/storage/mongo"
+	"nonoka-im/internal/llm"
 	"nonoka-im/internal/messaging"
 	messagingim "nonoka-im/internal/messaging/im"
 	"nonoka-im/internal/metrics"
@@ -283,8 +284,26 @@ func provideIdempotency(d *data.Data) *httpapi.Idempotency {
 	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
 }
 
-func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, logger log.Logger) *admin.AgentService {
-	return admin.NewAgentService(store, platform, az, groups, userDirectory{repo: users}, apiKeySealer{}, logger)
+func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, logger log.Logger) *admin.AgentService {
+	return admin.NewAgentService(store, platform, models, az, groups, userDirectory{repo: users}, logger)
+}
+
+// provideModelService wires the platform Model Service catalog to Bifrost. An
+// empty BIFROST_URL disables gateway management; openai_compatible services
+// remain usable for tests or non-Bifrost deployments.
+func provideModelService(platform *platformdata.Store, az *authz.OpenFGA) *llm.Service {
+	sealKey, _ := credential.SealKeyFromEnv()
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BIFROST_URL")), "/")
+	var gateway llm.Gateway
+	if baseURL != "" {
+		gateway = llm.NewClient(baseURL, llm.Auth{
+			AdminToken: os.Getenv("BIFROST_ADMIN_TOKEN"),
+			SetupToken: os.Getenv("BIFROST_SETUP_TOKEN"),
+			Username:   os.Getenv("BIFROST_ADMIN_USERNAME"),
+			Password:   os.Getenv("BIFROST_ADMIN_PASSWORD"),
+		})
+	}
+	return llm.NewService(platform, llm.EnvSealer{Key: sealKey}, az, gateway, baseURL)
 }
 
 func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA) *admin.RunService {
@@ -295,12 +314,17 @@ func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA) *adm
 	return admin.NewApprovalService(store, az)
 }
 
-func provideAgentMCPService(platform *platformdata.Store) *admin.MCPService {
-	return admin.NewMCPService(platform)
+func provideAgentMCPService(platform *platformdata.Store, az *authz.OpenFGA, logger log.Logger) *admin.MCPService {
+	sealKey, _ := credential.SealKeyFromEnv()
+	sealer := llm.EnvSealer{Key: sealKey}
+	discovery := &agentmcp.Provider{
+		Store: platform, Sealer: sealer, Guard: agentmcp.NewGuardFromEnv(),
+	}
+	return admin.NewMCPService(platform, az, discovery, sealer, logger)
 }
 
-func provideAgentSkillService(platform *platformdata.Store) *admin.SkillService {
-	return admin.NewSkillService(platform)
+func provideAgentSkillService(platform *platformdata.Store, az *authz.OpenFGA) *admin.SkillService {
+	return admin.NewSkillService(platform, az)
 }
 
 type userDirectory struct{ repo biz.AuthRepo }
@@ -308,20 +332,6 @@ type userDirectory struct{ repo biz.AuthRepo }
 func (u userDirectory) UserExists(ctx context.Context, userID int64) (bool, error) {
 	_, err := u.repo.GetUserByID(ctx, userID)
 	return err == nil, nil
-}
-
-type apiKeySealer struct{}
-
-func (apiKeySealer) Seal(apiKey string) (string, bool, error) {
-	key, err := credential.SealKeyFromEnv()
-	if err != nil {
-		return "", false, err
-	}
-	sealed, err := credential.Seal(key, []byte(apiKey))
-	if err != nil {
-		return "", false, err
-	}
-	return base64.StdEncoding.EncodeToString(sealed), true, nil
 }
 
 // provideMetrics creates a Prometheus metrics collector.
@@ -435,12 +445,14 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideAgentApprovalService,
 		provideAgentMCPService,
 		provideAgentSkillService,
+		provideModelService,
 		agentdata.NewStore,
 		platformdata.NewStore,
 		provideMetrics,
 		provideMetricsSlice,
 		authz.NewOpenFGAFromEnv,
 		wire.Bind(new(authz.Authorizer), new(*authz.OpenFGA)),
+		wire.Bind(new(authz.PlatformAuthorizer), new(*authz.OpenFGA)),
 		newApp,
 	))
 }

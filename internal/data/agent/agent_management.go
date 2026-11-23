@@ -26,7 +26,14 @@ func (s *Store) CreateAgent(ctx context.Context, ownerID int64, spec domain.Agen
 		if err := tx.Create(&bot).Error; err != nil {
 			return err
 		}
-		row := AgentRow{BotUserID: bot.ID, OwnerUserID: ownerID, Name: spec.Name, Description: spec.Description, Status: "draft", DraftInstruction: spec.Instruction, DraftModel: spec.Model, DraftTools: spec.Tools, DraftBaseURL: spec.BaseURL, DraftAPIKeyEnc: spec.APIKeyEnc, DraftMaxTokens: spec.MaxTokens, DraftMCPBindings: spec.MCPBindings, DraftSkills: spec.Skills, DraftRevision: 1}
+		row := AgentRow{
+			BotUserID: bot.ID, OwnerUserID: ownerID, Name: spec.Name, Description: spec.Description,
+			Status: "draft", DraftInstruction: spec.Instruction, DraftTools: spec.Tools,
+			DraftModelServiceID: spec.ModelServiceID, DraftModelID: spec.ModelID,
+			DraftCapabilityPresets: spec.CapabilityPresets, DraftToolPolicies: spec.ToolPolicies,
+			DraftMaxTokens: spec.MaxTokens, DraftMCPBindings: spec.MCPBindings, DraftSkills: spec.Skills,
+			DraftRevision: 1,
+		}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -119,10 +126,16 @@ func (s *Store) GetVersion(ctx context.Context, agentID, version int64) (*domain
 // UpdateDraft replaces the draft configuration. updateKey=true overwrites the
 // sealed API key; false keeps the existing one.
 func (s *Store) UpdateDraft(ctx context.Context, id, revision int64, spec domain.AgentSpec, updateKey bool) (*domain.Agent, error) {
-	updates := map[string]interface{}{"name": spec.Name, "description": spec.Description, "draft_instruction": spec.Instruction, "draft_model": spec.Model, "draft_tools": spec.Tools, "draft_base_url": spec.BaseURL, "draft_max_tokens": spec.MaxTokens, "draft_mcp_bindings": spec.MCPBindings, "draft_skills": spec.Skills, "draft_revision": gorm.Expr("draft_revision + 1"), "updated_at": time.Now()}
-	if updateKey {
-		updates["draft_api_key_enc"] = spec.APIKeyEnc
+	updates := map[string]any{
+		"name": spec.Name, "description": spec.Description,
+		"draft_instruction": spec.Instruction, "draft_tools": spec.Tools,
+		"draft_model_service_id": spec.ModelServiceID, "draft_model_id": spec.ModelID,
+		"draft_capability_presets": spec.CapabilityPresets, "draft_tool_policies": spec.ToolPolicies,
+		"draft_max_tokens": spec.MaxTokens, "draft_mcp_bindings": spec.MCPBindings,
+		"draft_skills": spec.Skills, "draft_revision": gorm.Expr("draft_revision + 1"),
+		"updated_at": time.Now(),
 	}
+	_ = updateKey
 	result := s.db.WithContext(ctx).Model(&AgentRow{}).Where("id = ? AND draft_revision = ?", id, revision).Updates(updates)
 	if result.Error != nil {
 		return nil, transientOrDomain(result.Error)
@@ -146,7 +159,23 @@ func (s *Store) Publish(ctx context.Context, id, revision int64) (*domain.AgentV
 		if row.DraftRevision != revision {
 			return ErrDraftConflict
 		}
-		version := AgentVersionRow{AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction, Model: row.DraftModel, Tools: row.DraftTools, BaseURL: row.DraftBaseURL, APIKeyEnc: row.DraftAPIKeyEnc, MaxTokens: row.DraftMaxTokens, MCPBindings: row.DraftMCPBindings, Skills: row.DraftSkills}
+		if row.DraftModelServiceID <= 0 || row.DraftModelID <= 0 {
+			return fmt.Errorf("agent %d has no model service/model selected", id)
+		}
+		var modelKey string
+		if err := tx.Table("model_models").Where("id = ? AND service_id = ?", row.DraftModelID, row.DraftModelServiceID).Pluck("model_key", &modelKey).Error; err != nil {
+			return err
+		}
+		if modelKey == "" {
+			return domain.ErrModelNotFound
+		}
+		version := AgentVersionRow{
+			AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction,
+			ModelServiceID: row.DraftModelServiceID, ModelID: row.DraftModelID, ModelKey: modelKey,
+			Tools: row.DraftTools, CapabilityPresets: row.DraftCapabilityPresets,
+			ToolPolicies: row.DraftToolPolicies, MaxTokens: row.DraftMaxTokens,
+			MCPBindings: row.DraftMCPBindings, Skills: row.DraftSkills,
+		}
 		if err := tx.Create(&version).Error; err != nil {
 			return err
 		}
@@ -352,7 +381,7 @@ func (s *Store) SetRunAction(ctx context.Context, id uint64, action string, ackn
 // frozen built-in tool snapshot supplied by the composition root; the data
 // layer deliberately does not know the tool catalog. It returns created=false
 // (without error) when the agent already exists.
-func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction, model, baseURL, apiKeyEnc string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error) {
+func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction string, modelServiceID, modelID int64, modelKey string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error) {
 	if id <= 0 || ownerID <= 0 {
 		return false, fmt.Errorf("bootstrap agent and owner IDs required")
 	}
@@ -385,7 +414,12 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 		if maxTokens <= 0 {
 			maxTokens = 4096
 		}
-		row := AgentRow{ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active", CurrentVersion: 1, DraftInstruction: instruction, DraftModel: model, DraftTools: toolsJSON, DraftBaseURL: baseURL, DraftAPIKeyEnc: apiKeyEnc, DraftMaxTokens: maxTokens, DraftRevision: 1}
+		row := AgentRow{
+			ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active",
+			CurrentVersion: 1, DraftInstruction: instruction, DraftTools: toolsJSON,
+			DraftModelServiceID: modelServiceID, DraftModelID: modelID,
+			DraftMaxTokens: maxTokens, DraftRevision: 1,
+		}
 		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if res.Error != nil {
 			return res.Error
@@ -394,7 +428,11 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 			return nil
 		}
 		created = true
-		version := AgentVersionRow{AgentID: id, Version: 1, Instruction: instruction, Model: model, Tools: row.DraftTools, BaseURL: baseURL, APIKeyEnc: apiKeyEnc, MaxTokens: maxTokens}
+		version := AgentVersionRow{
+			AgentID: id, Version: 1, Instruction: instruction,
+			ModelServiceID: modelServiceID, ModelID: modelID, ModelKey: modelKey,
+			Tools: row.DraftTools, MaxTokens: maxTokens,
+		}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&version).Error; err != nil {
 			return err
 		}

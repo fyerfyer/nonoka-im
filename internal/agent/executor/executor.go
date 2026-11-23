@@ -5,16 +5,15 @@ package executor
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"nonoka-im/internal/agent/app"
-	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/port"
+	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/messaging"
 
@@ -24,10 +23,10 @@ import (
 type Executor struct {
 	Store      Store
 	Registry   Registry
+	Models     ModelResolver
 	Authorizer Authorizer
 	Harness    *app.Harness
 	Reader     app.MessageReader
-	SealKey    []byte
 
 	MaxAttempts int
 	RunTimeout  time.Duration
@@ -264,20 +263,52 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 			return app.ResolvedAgent{}, fmt.Errorf("%w: decode tool list: %v", port.ErrInvalidConfig, err)
 		}
 	}
-	apiKey := ""
-	if version.APIKeyEnc != "" {
-		raw, err := base64.StdEncoding.DecodeString(version.APIKeyEnc)
-		if err != nil {
-			return app.ResolvedAgent{}, fmt.Errorf("%w: decode sealed model key: %v", port.ErrInvalidConfig, err)
+	policies := map[string]string{}
+	if version.ToolPolicies != "" {
+		if err := json.Unmarshal([]byte(version.ToolPolicies), &policies); err != nil {
+			return app.ResolvedAgent{}, fmt.Errorf("%w: decode tool policies: %v", port.ErrInvalidConfig, err)
 		}
-		if len(e.SealKey) < 32 {
-			return app.ResolvedAgent{}, fmt.Errorf("%w: AGENT_SECRET_KEY is required to unseal model keys", port.ErrInvalidConfig)
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		allowedSet[name] = true
+	}
+	for _, name := range catalog.SystemToolNames() {
+		if !allowedSet[name] {
+			allowed = append(allowed, name)
+			allowedSet[name] = true
 		}
-		plain, err := credential.Open(e.SealKey, raw)
-		if err != nil {
-			return app.ResolvedAgent{}, fmt.Errorf("%w: unseal model key: %v", port.ErrInvalidConfig, err)
+	}
+	var approvalTools []string
+	for _, def := range catalog.BuiltinDefinitions() {
+		if !allowedSet[def.Name] {
+			continue
 		}
-		apiKey = string(plain)
+		policy := catalog.Policy(def, policies)
+		if policy == catalog.PolicyDeny && !def.System {
+			delete(allowedSet, def.Name)
+			continue
+		}
+		if policy == catalog.PolicyAsk && !def.System {
+			approvalTools = append(approvalTools, def.Name)
+		}
+	}
+	filteredAllowed := allowed[:0]
+	for _, name := range allowed {
+		if allowedSet[name] {
+			filteredAllowed = append(filteredAllowed, name)
+		}
+	}
+	allowed = filteredAllowed
+	if e.Models == nil {
+		return app.ResolvedAgent{}, fmt.Errorf("%w: model resolver unavailable", port.ErrInvalidConfig)
+	}
+	endpoint, err := e.Models.Resolve(ctx, version.ModelServiceID, version.ModelID)
+	if err != nil {
+		return app.ResolvedAgent{}, fmt.Errorf("%w: resolve model: %v", port.ErrInvalidConfig, err)
+	}
+	if version.MaxTokens > 0 {
+		endpoint.MaxTokens = version.MaxTokens
 	}
 	var mcpBindings []domain.MCPBinding
 	if version.MCPBindings != "" {
@@ -292,29 +323,54 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 		}
 	}
 	var mcpTools []port.MCPTool
-	var approvalTools []string
 	for _, binding := range mcpBindings {
-		mcpTools = append(mcpTools, port.MCPTool{Server: binding.Server, Tool: binding.Tool})
-		server, err := e.Registry.GetServer(ctx, binding.Server)
+		server, err := e.Registry.GetServerByID(ctx, binding.ServerID)
 		if err != nil {
 			if errors.Is(err, domain.ErrMCPNotFound) {
-				return app.ResolvedAgent{}, fmt.Errorf("%w: mcp server %q not found", port.ErrInvalidConfig, binding.Server)
+				return app.ResolvedAgent{}, fmt.Errorf("%w: mcp server %d not found", port.ErrInvalidConfig, binding.ServerID)
 			}
 			return app.ResolvedAgent{}, err
 		}
 		if !server.Enabled {
-			return app.ResolvedAgent{}, fmt.Errorf("%w: mcp server %q is disabled", port.ErrInvalidConfig, binding.Server)
+			return app.ResolvedAgent{}, fmt.Errorf("%w: mcp server %q is disabled", port.ErrInvalidConfig, server.Name)
 		}
-		if server.RiskClass == "write" {
-			approvalTools = append(approvalTools, binding.Exposed)
+		if server.Visibility != domain.VisibilityPrivate && server.ReviewStatus != domain.ReviewApproved {
+			return app.ResolvedAgent{}, fmt.Errorf("%w: mcp server %q is not approved", port.ErrInvalidConfig, server.Name)
+		}
+		tool, err := e.Registry.GetTool(ctx, binding.ServerID, binding.Tool)
+		if err != nil {
+			return app.ResolvedAgent{}, fmt.Errorf("%w: mcp tool %q is unavailable", port.ErrInvalidConfig, binding.Tool)
+		}
+		if binding.SchemaHash != "" && tool.SchemaHash != binding.SchemaHash {
+			return app.ResolvedAgent{}, fmt.Errorf("%w: mcp tool %q schema changed", port.ErrInvalidConfig, binding.Tool)
+		}
+		policy := binding.Policy
+		if policy == "" {
+			policy = catalog.PolicyAuto
+			if tool.Risk == domain.MCPRiskWrite {
+				policy = catalog.PolicyAsk
+			}
+		}
+		if policy == catalog.PolicyDeny {
+			continue
+		}
+		exposed := binding.Exposed
+		if exposed == "" {
+			exposed = domain.MCPExposedName(binding.ServerID, binding.Tool)
+		}
+		mcpTools = append(mcpTools, port.MCPTool{
+			ServerID: binding.ServerID, Server: server.Name, Tool: binding.Tool,
+			Exposed: exposed, SchemaHash: binding.SchemaHash, Policy: policy,
+		})
+		if policy == catalog.PolicyAsk {
+			approvalTools = append(approvalTools, exposed)
 		}
 	}
 	skills := make([]port.SkillBinding, 0, len(skillBindings))
 	skills = append(skills, skillBindings...)
 	return app.ResolvedAgent{
 		ID: agent.ID, BotID: agent.BotUserID, Version: version.Version,
-		Instruction: version.Instruction, Model: version.Model, BaseURL: version.BaseURL,
-		APIKey: apiKey, MaxTokens: version.MaxTokens, Tools: allowed, MCPTools: mcpTools,
+		Instruction: version.Instruction, Model: endpoint, Tools: allowed, MCPTools: mcpTools,
 		Skills: skills, RestrictTools: true, ApprovalTools: approvalTools,
 	}, nil
 }

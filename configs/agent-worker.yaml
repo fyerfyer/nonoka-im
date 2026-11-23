@@ -1,8 +1,8 @@
 # Agent worker configuration.
 #
 # Precedence: built-in defaults < this file < environment variables.
-# Secrets (JWT secret, seal key, model API key) stay in the environment and are
-# never written here.
+# Secrets (JWT secret, seal key, Bifrost virtual key) stay in the environment
+# and are never written here.
 
 data:
   database:
@@ -37,8 +37,9 @@ agent_worker:
   bootstrap_owner_id: 0
   bootstrap_name: "Nonoka Assistant"
   bootstrap_instruction: "You are the Nonoka IM assistant. Use concise, helpful answers."
-  model_base_url: "https://api.deepseek.com/v1"
-  model_name: ""
+  # Bootstrap-only preference for the first Bifrost model. Runtime model access
+  # always comes from the model_services/model_models tables.
+  bootstrap_model: "deepseek/deepseek-chat"
 
 observability:
   health_addr: ":8090"

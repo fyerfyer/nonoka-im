@@ -36,14 +36,14 @@ func GetRunContext(ctx context.Context) (RunContext, bool) {
 }
 
 type SearchRequest struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Query string `json:"query" jsonschema:"required" jsonschema_description:"Keyword or phrase to search for."`
+	Limit int    `json:"limit,omitempty" jsonschema_description:"Maximum results (1-20, default 10)."`
 	// Since filters to messages sent at or after this unix time (seconds).
 	// Zero means no time filter.
-	Since int64 `json:"since,omitempty"`
+	Since int64 `json:"since,omitempty" jsonschema_description:"Only messages at or after this Unix timestamp (seconds)."`
 	// SenderID filters to messages sent by this user ID. Zero means no
 	// sender filter.
-	SenderID int64 `json:"sender_id,omitempty"`
+	SenderID int64 `json:"sender_id,omitempty" jsonschema_description:"Only messages sent by this user ID."`
 }
 
 // SearchFilter carries the optional search_messages filters in parsed form.
@@ -58,16 +58,16 @@ func (r SearchRequest) Filter() SearchFilter {
 }
 
 type ContextRequest struct {
-	Limit int `json:"limit,omitempty"`
+	Limit int `json:"limit,omitempty" jsonschema_description:"Maximum recent messages (1-50, default 20)."`
 }
 type SendRequest struct {
-	Content string `json:"content"`
+	Content string `json:"content" jsonschema:"required" jsonschema_description:"Message text to post."`
 }
 type ReadFileRequest struct {
-	FileID string `json:"file_id"`
+	FileID string `json:"file_id" jsonschema:"required" jsonschema_description:"Attachment file ID."`
 }
 type GroupMembersRequest struct {
-	GroupID string `json:"group_id"`
+	GroupID string `json:"group_id" jsonschema:"required" jsonschema_description:"Group ID to list members for."`
 }
 type SearchResult struct {
 	Results []string `json:"results"`

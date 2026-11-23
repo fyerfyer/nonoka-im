@@ -196,7 +196,7 @@ func TestHandleResolvedPhaseBFailureMarksRunFailed(t *testing.T) {
 		MaxAttempts: 1,
 	}
 	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 1001, TopicSeq: 100, Topic: topic, SenderID: actorID, Content: "hello agent"}
-	err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: "deepseek-chat"}, run, session, snapshot, turns)
+	err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: port.ModelEndpoint{BaseURL: "https://fixture.invalid/v1", APIKey: "fixture-key", Model: "deepseek-chat"}}, run, session, snapshot, turns)
 	if err == nil || err.Error() != "model exploded" {
 		t.Fatalf("expected original runtime error, got %v", err)
 	}
@@ -292,7 +292,7 @@ func TestHandleResolvedCompletesRunAndTurn(t *testing.T) {
 		Sender:     sender,
 	}
 	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 2002, TopicSeq: 1, Topic: topic, SenderID: actorID, Content: "hello agent"}
-	if err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: "deepseek-chat"}, run, session, snapshot, turns); err != nil {
+	if err := h.HandleResolved(ctx, ev, ResolvedAgent{ID: agentID, BotID: botID, Version: 1, Instruction: "be helpful", Model: port.ModelEndpoint{BaseURL: "https://fixture.invalid/v1", APIKey: "fixture-key", Model: "deepseek-chat"}}, run, session, snapshot, turns); err != nil {
 		t.Fatalf("HandleResolved: %v", err)
 	}
 	if len(sender.sent) != 1 || sender.sent[0] != "hi there" {

@@ -189,7 +189,6 @@ message AgentWorker {
   int64 bootstrap_owner_id = 11;
   string bootstrap_name = 12;
   string bootstrap_instruction = 13;
-  string model_base_url = 14;
-  string model_name = 15;
+  string bootstrap_model = 15;
   google.protobuf.Duration dispatch_timeout = 16;
 }

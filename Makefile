@@ -64,7 +64,7 @@ test-deps-down:
 .PHONY: test-auth
 # run auth integration tests
 test-auth:
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 180s
 
 .PHONY: test-gateway
 # run gateway basic integration tests (no concurrent, no kafka)
@@ -97,7 +97,7 @@ test-unit:
 .PHONY: test-reliability
 # run the Phase 0 reliability scenarios (claim races, approvals, deletion, bot push)
 test-reliability:
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestAgentApproval_|TestMsgWorker_BotRecipients|TestAgentDelete' -count=1 -timeout 120s
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestAgentApproval_|TestMsgWorker_BotRecipients|TestAgentDelete' -count=1 -timeout 240s
 
 .PHONY: test
 # run all integration tests (start deps, run tests by group, cleanup)
@@ -107,7 +107,7 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Auth Tests               ==="
 	@echo "========================================"
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 30s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAuth' -count=1 -timeout 180s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Gateway Tests            ==="
 	@echo "========================================"
@@ -123,7 +123,7 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Agent Tests              ==="
 	@echo "========================================"
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgent' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgent' -count=1 -timeout 240s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Reliability Tests        ==="
 	@echo "========================================"

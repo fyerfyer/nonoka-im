@@ -12,7 +12,7 @@ nonoka-im 是一个 Go 实现的即时通讯（IM）系统，基于 Kratos v2 �
 
 - `cmd/nonoka-im` — 网关主服务：gRPC + HTTP server、WebSocket server、Redis 心跳节点注册，wire 依赖注入。
 - `cmd/msgworker` — Kafka 消费者：消费 `im-messages` → 生成 topic_seq / msg_id → MongoDB 落库 → 推回在线客户端。
-- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（OpenAI 兼容 API，默认 DeepSeek）执行 agent，经 OpenFGA 鉴权后通过内部 HTTP 把回复发回 IM。使用 `-conf configs/agent-worker.yaml` + Kratos `internal/conf`，环境变量只做覆盖与 secret 注入。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；探针端点由 `internal/server.ProbeServer` 提供 `/healthz`、`/readyz`、`/metrics`。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 可在管理 API 中自配 `base_url`/`api_key`（api_key 用 `AGENT_SECRET_KEY` AES-GCM 加密落库，发布版本冻结副本）；MCP server 登记与 Skill 发布由 `AGENT_ADMIN_USER_IDS` 配置的平台管理员通过 `/v1/mcp/servers`、`/v1/skills` 管理。
+- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（通过 Bifrost 的 OpenAI 兼容 API）执行 agent，经 OpenFGA 鉴权后通过内部 HTTP 把回复发回 IM。使用 `-conf configs/agent-worker.yaml` + Kratos `internal/conf`，环境变量只做覆盖与 secret 注入。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；探针端点由 `internal/server.ProbeServer` 提供 `/healthz`、`/readyz`、`/metrics`。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 只引用平台 `model_service_id + model_id`，不再保存任意 `base_url`/`api_key`；provider key、模型路由与预算由 Bifrost 管理，平台管理员通过 `/v1/model-services` 维护映射。平台管理员身份存 OpenFGA `platform:global#admin`，启动时由 `AGENT_ADMIN_USER_IDS` 幂等写入。MCP/Skill 支持用户自助登记与上传；共享/公开资源需要管理员审核，共享 Agent 必须使用 per-user MCP connection，私有 MCP/Skill 不允许绑定到已共享 Agent。
 - `cmd/authz-migrate` — 一次性工具：向 OpenFGA 写授权模型 / 历史数据回填。
 
 ### 核心包（internal/）
@@ -22,7 +22,8 @@ nonoka-im 是一个 Go 实现的即时通讯（IM）系统，基于 Kratos v2 �
 - `biz/` — 认证等共享 usecase 与消费侧 repository 接口；IM 业务用例在 `internal/im/app`。
 - `data/` — 数据访问：PostgreSQL repos（gorm）、Redis、MongoDB 装配；按 `im` / `agent` / `platform` 子域组织。repository 接口由消费侧定义，data 只做实现和 domain↔row 映射。
 - `im/` — IM bounded context：`domain`（纯实体）、`app`（Message/Query/Push/Outbox/Conversation/Group/File usecase + ports）、`storage/mongo`（Mongo repository/索引/附件）、`consumer`（Kafka adapter + Kratos worker）、`push`（realtime 适配器 + 重试队列）、`seq`、`group`。`internal/msgworker` 已删除。
-- `agent/` — Agent 平台，已按 ports & adapters 组织：`domain`（纯实体/值对象）、`port`（Runtime 端口 + Run/Resume DTO + 错误分类）、`app`（Harness/审批/finalize）、`eino`（Eino 适配器）、`tools/catalog`（工具元数据/风险/默认策略/脱敏摘要）、`tools/builtin`（内置工具实现）、`mcp`（受控 MCP 连接与工具装配）、`skills`（Skill middleware Backend）、`store`（Eino CheckPointStore 的 PostgreSQL 适配）、`worker/executor/sweeper`（job runtime）、`event`（Kafka event/outbox 类型）、`credential`（JWT/api_key 加密）、`metrics`。内置工具 8 个：search_messages、get_conversation_context、send_message、read_file、get_topic_info、get_my_info、list_my_groups、get_group_members。
+- `agent/` — Agent 平台，已按 ports & adapters 组织：`domain`（纯实体/值对象）、`port`（Runtime 端口 + Run/Resume DTO + `ModelEndpoint` + 错误分类）、`app`（Harness/审批/finalize）、`eino`（Eino 适配器）、`tools/catalog`（工具元数据/风险/默认策略/CapabilityPreset/输入 schema/脱敏摘要）、`tools/builtin`（内置工具实现）、`mcp`（受控 MCP 连接、发现、SSRF Guard、per-user 凭据、健康检查）、`skills`（Skill middleware Backend）、`skillspec`（SKILL.md 解析/校验）、`store`（Eino CheckPointStore 的 PostgreSQL 适配）、`worker/executor/sweeper`（job runtime）、`event`（Kafka event/outbox 类型）、`credential`（JWT/api_key 加密）、`metrics`。内置工具 9 个：search_messages、get_conversation_context、send_message、read_file、get_topic_info、get_my_info、list_my_groups、get_group_members，以及隐藏系统工具 get_current_time。
+- `llm/` — 平台 LLM Service：Bifrost 控制面客户端（provider/model catalog、virtual key 创建/更新）、ModelService/Model 管理与运行时端点解析。Provider 真实 key 只存在 Bifrost；`model_services` 仅保存 gateway URL/加密 virtual key 映射，`model_models` 是从 `/v1/models` 同步的目录。
 - `realtime/` — 共享 Gateway 路由 / Pusher / RunStream 契约；连接与推送适配器。
 - `messaging/` — IM 集成契约：根包只放 DTO/接口；`messaging/im`、`messaging/mongo`、`messaging/httpclient`、`messaging/kafka` 放适配器。agent 不传递依赖 IM storage。
 - `kafka/` — 共享 Kafka consumer/publisher、trace、DLQ 约定。
@@ -75,7 +76,7 @@ client -> DTO -> service -> DO -> biz/app -> DO -> data -> PO -> storage
 ### 新功能落点
 
 - **新 HTTP API**：`api/...proto` → `make api` → `internal/service` DTO 转换 → `internal/biz`/`app` usecase → `internal/data` repository。
-- **新 Agent 工具**：`internal/agent/tools/catalog` 加 `Definition`（category/risk/default policy/side effect/summarize）→ `internal/agent/tools/builtin` 加 handler（或 `mcp`）→ 测试。不要在 `eino` 里写 `switch toolName`。
+- **新 Agent 工具**：`internal/agent/tools/catalog` 加 `Definition`（category/risk/default policy/side effect/summarize）→ `internal/agent/tools/builtin` 加 handler（或 `mcp`）→ 测试。不要在 `eino` 里写 `switch toolName`。新工具必须用 `utils.InferTool` + typed request structs；先查 Eino ADK/middleware，不要手写第二个 agent loop。审计见 `docs/agent-eino-audit.md`。
 - **新 Agent 能力/策略**：优先放 `agent/domain`（纯规则）或 `agent/app`（编排）；`eino` 只做适配。
 - **新 Kafka job**：`cmd/<job>` 只装配；消费/执行/重试/清理拆到 `internal/<domain>/{consumer,app,worker}`。
 - **新存储**：row model + mapper 放 `internal/data/<domain>`；domain 保持无 tag；错误在 adapter 内翻译成 domain error。
@@ -113,6 +114,7 @@ app := kratos.New(
 
 - Agent 子域已按 `domain/port/app/eino/tools/{catalog,builtin}` 分层；新增 Agent 代码遵循此结构。
 - Phase 0.5 已完成：`internal/msgworker`、`internal/filestore` 已删除；IM 代码在 `internal/im/...`，messaging 接缝为接口 + 适配器，job 应用统一使用 `kratos.App` + probe server。
+- Phase 1/2 已完成：Bifrost Model Service（控制面 + 推理面）、Tool Registry/CapabilityPreset/`auto|ask|deny`、MCP 自助（发现/认证/SSRF/健康/审核）、Skill 版本/校验/审核。SDK MCP/Skill 模块按决策推迟到 Phase 3。
 - 架构约束由 `test/architecture/architecture_test.go` 自动检查（`make test-arch`）；详细说明见 `docs/architecture.md`。
 - 详细阶段规划见 `REFACTOR.md`。
 
@@ -150,7 +152,7 @@ make test-deps-down  # 清理
 
 ### AI / agent 相关测试
 
-agent 相关功能使用真实 LLM 测试：API Key 从项目根目录 `.env` 的 `DEEPSEEK_API_KEY` 读取（OpenAI 兼容接口，默认模型 DeepSeek）。agent 实连测试在 `test/agentlive/`。**不要把 key 写进代码或提交 `.env`。**
+agent 相关功能使用真实 LLM 测试：API Key 从项目根目录 `.env` 的 `DEEPSEEK_API_KEY` 读取（OpenAI 兼容接口，默认模型 DeepSeek）。agent 实连测试在 `test/agentlive/`。真实公网 MCP（DeepWiki/Context7）测试用 `NONOKA_MCP_LIVE=1` 开启，`TestDeepSeekCallsExternalMCPTool` 同时需要 `NONOKA_AGENT_LIVE=1`。**不要把 key 写进代码或提交 `.env`。**
 
 ## 新功能开发流程（必须遵守）
 
@@ -161,7 +163,7 @@ agent 相关功能使用真实 LLM 测试：API Key 从项目根目录 `.env` �
 
 功能开发完成后，**不能只跑测试就结束**，必须做端到端验收：
 
-1. `make demo` 启动完整栈（postgres / redis / mongo / kafka / openfga / nonoka-im / msgworker / agent-worker / web，前端在 http://localhost:3000，后端 HTTP 8000）。agent-worker 默认随栈启动；未配置 `DEEPSEEK_API_KEY` 时，未自带 api_key 的 Agent 无法运行（日志告警），不影响 IM 功能。
+1. `make demo` 启动完整栈（postgres / redis / mongo / kafka / openfga / nonoka-im / msgworker / agent-worker / web，前端在 http://localhost:3000，后端 HTTP 8000）。agent-worker 默认随栈启动；未配置 `DEEPSEEK_API_KEY` 时 Bifrost 没有可用 provider，Agent 无法运行（日志告警），不影响 IM 功能。
 2. 确认各容器正常启动。
 3. 用 **Playwright** 在浏览器里实测：注册 / 登录等基本流程 + 本次新实现的功能，确认真实可用。
 4. 有问题先看日志排查：`docker compose -f docker-compose.yml logs <service>`（如 `nonoka-im`、`msgworker`、`web`、`agent-worker`），或按需看其他日志。

@@ -5,113 +5,140 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"testing"
 )
 
-// TestAgentModelConfigLifecycle verifies that an agent owner can configure a
-// custom OpenAI-compatible endpoint (base URL + API key + max tokens), that
-// the key is sealed and never echoed back, and that publishing freezes the
-// configuration into the version snapshot.
+// TestAgentModelConfigLifecycle verifies the platform ModelService boundary:
+// agents only reference service/model IDs, the gateway URL/key never appear in
+// agent DTOs, and the old per-agent base_url/api_key fields are rejected.
 func TestAgentModelConfigLifecycle(t *testing.T) {
-	t.Setenv("AGENT_SECRET_KEY", strings.Repeat("s", 32))
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "agent-model-owner", "123456")
+	token, userID := registerAndLogin(t, "agent-model-owner", "123456")
+	if err := ts.openFGA.SetPlatformAdmin(t.Context(), userID, true); err != nil {
+		t.Fatalf("grant platform admin: %v", err)
+	}
 
-	// Invalid base URLs are rejected.
+	// Old per-agent model credentials are no longer accepted.
 	badResp := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
 		"name":        "bad-url-agent",
 		"instruction": "test",
-		"base_url":    "ftp://example.com",
+		"base_url":    "https://example.com/v1",
+		"api_key":     "sk-test-secret-123",
 	})
 	badResp.Body.Close()
 	if badResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for ftp base_url, got %d", badResp.StatusCode)
+		t.Fatalf("expected 400 for per-agent base_url/api_key, got %d", badResp.StatusCode)
 	}
 
-	// Create with a custom endpoint and key.
+	// Platform admin creates a manual OpenAI-compatible service and one model.
+	svcResp := httpPostAuth(t, testBaseURL+"/v1/model-services", token, map[string]any{
+		"name": "fixture-manual", "displayName": "Fixture Manual", "gatewayType": "openai_compatible",
+		"baseUrl": "https://fixture.invalid/v1", "apiKey": "sk-test-secret-123",
+	})
+	svcBody, _ := io.ReadAll(svcResp.Body)
+	svcResp.Body.Close()
+	if svcResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create model service: %d: %s", svcResp.StatusCode, svcBody)
+	}
+	if string(svcBody) == "" || containsSecret(svcBody) {
+		t.Fatalf("model service response leaked the key: %s", svcBody)
+	}
+	var svc struct {
+		ID        int64  `json:"id"`
+		BaseURL   string `json:"baseUrl"`
+		HasAPIKey bool   `json:"hasApiKey"`
+	}
+	if err := json.Unmarshal(svcBody, &svc); err != nil || svc.ID == 0 {
+		t.Fatalf("decode service: %v (%s)", err, svcBody)
+	}
+	if svc.BaseURL == "" || !svc.HasAPIKey {
+		t.Fatalf("admin service view missing metadata: %+v", svc)
+	}
+	modelResp := httpPostAuth(t, testBaseURL+"/v1/model-services/"+strconv.FormatInt(svc.ID, 10)+"/models", token, map[string]any{
+		"modelKey": "fixture-model", "displayName": "Fixture", "maxOutputTokens": 2048, "supportsTools": true,
+	})
+	modelBody, _ := io.ReadAll(modelResp.Body)
+	modelResp.Body.Close()
+	if modelResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create model: %d: %s", modelResp.StatusCode, modelBody)
+	}
+	var model struct {
+		ID uint64 `json:"id"`
+	}
+	if err := json.Unmarshal(modelBody, &model); err != nil || model.ID == 0 {
+		t.Fatalf("decode model: %v (%s)", err, modelBody)
+	}
+
+	// Non-admin catalog hides the gateway URL and credentials.
+	tokenUser, _ := registerAndLogin(t, "agent-model-user", "123456")
+	listResp := httpGet(t, testBaseURL+"/v1/model-services", tokenUser)
+	listBody, _ := io.ReadAll(listResp.Body)
+	listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list services: %d: %s", listResp.StatusCode, listBody)
+	}
+	if containsSecret(listBody) || containsString(listBody, "fixture.invalid") {
+		t.Fatalf("non-admin service list leaked gateway details: %s", listBody)
+	}
+
+	// Create and publish an agent that references the platform model.
 	createResp := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
-		"name":        "model-agent",
-		"instruction": "you are a fixture-backed agent",
-		"model":       "fixture-model",
-		"base_url":    "https://example.com/v1",
-		"api_key":     "sk-test-secret-123",
-		"max_tokens":  1024,
+		"name":           "model-agent",
+		"instruction":    "you are a fixture-backed agent",
+		"modelServiceId": svc.ID,
+		"modelId":        model.ID,
+		"maxTokens":      1024,
 	})
 	body, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create agent failed: status %d: %s", createResp.StatusCode, body)
 	}
-	if strings.Contains(string(body), "sk-test-secret-123") {
-		t.Fatalf("create response leaks the API key")
+	if containsSecret(body) || containsString(body, "fixture.invalid") {
+		t.Fatalf("agent response leaked model service details: %s", body)
 	}
 	var created struct {
 		ID    int64 `json:"id"`
 		Draft struct {
-			BaseURL   string `json:"baseUrl"`
-			HasAPIKey bool   `json:"hasApiKey"`
-			MaxTokens int    `json:"maxTokens"`
-			Model     string `json:"model"`
-			Revision  int64  `json:"revision"`
+			ModelServiceID int64 `json:"modelServiceId"`
+			ModelID        int64 `json:"modelId"`
+			MaxTokens      int   `json:"maxTokens"`
+			Revision       int64 `json:"revision"`
 		} `json:"draft"`
 	}
 	if err := json.Unmarshal(body, &created); err != nil || created.ID == 0 {
 		t.Fatalf("decode created agent failed: %v", err)
 	}
-	if !created.Draft.HasAPIKey || created.Draft.BaseURL != "https://example.com/v1" || created.Draft.MaxTokens != 1024 || created.Draft.Model != "fixture-model" {
-		t.Fatalf("draft config mismatch: %+v", created.Draft)
+	if created.Draft.ModelServiceID != svc.ID || created.Draft.ModelID != int64(model.ID) || created.Draft.MaxTokens != 1024 {
+		t.Fatalf("draft model reference mismatch: %+v", created.Draft)
 	}
 
-	// Publish freezes the sealed key into the version; the response masks it.
 	pubResp := httpPostAuth(t, testBaseURL+"/v1/agents/"+strconv.FormatInt(created.ID, 10)+"/publish", token, map[string]any{"revision": created.Draft.Revision})
 	pubBody, _ := io.ReadAll(pubResp.Body)
 	pubResp.Body.Close()
 	if pubResp.StatusCode != http.StatusOK {
 		t.Fatalf("publish failed: status %d: %s", pubResp.StatusCode, pubBody)
 	}
-	if strings.Contains(string(pubBody), "sk-test-secret-123") || strings.Contains(string(pubBody), "APIKeyEnc") {
-		t.Fatalf("publish response leaks the sealed key: %s", pubBody)
+	if containsSecret(pubBody) || containsString(pubBody, "baseUrl") {
+		t.Fatalf("publish response leaked model service details: %s", pubBody)
 	}
-	var version struct {
-		Version   int64  `json:"version"`
-		BaseURL   string `json:"baseUrl"`
-		Model     string `json:"model"`
-		HasAPIKey bool   `json:"hasApiKey"`
-		MaxTokens int    `json:"maxTokens"`
-	}
-	if err := json.Unmarshal(pubBody, &version); err != nil {
-		t.Fatalf("decode version failed: %v", err)
-	}
-	if version.Version != 1 || !version.HasAPIKey || version.BaseURL != "https://example.com/v1" || version.MaxTokens != 1024 {
-		t.Fatalf("version config mismatch: %+v", version)
-	}
+}
 
-	// Detail keeps masking the key for the manager.
-	detailResp := httpGet(t, testBaseURL+"/v1/agents/"+strconv.FormatInt(created.ID, 10), token)
-	detailBody, _ := io.ReadAll(detailResp.Body)
-	detailResp.Body.Close()
-	if strings.Contains(string(detailBody), "sk-test-secret-123") {
-		t.Fatalf("detail leaks the API key")
-	}
+func containsSecret(body []byte) bool {
+	return containsString(body, "sk-test-secret-123") || containsString(body, "apiKeyEnc")
+}
 
-	// A draft update without api_key keeps the existing sealed key.
-	draftResp := httpPutAuth(t, testBaseURL+"/v1/agents/"+strconv.FormatInt(created.ID, 10)+"/draft", token, map[string]any{
-		"name":        "model-agent",
-		"instruction": "you are a fixture-backed agent v2",
-		"model":       "fixture-model",
-		"base_url":    "https://example.com/v1",
-		"max_tokens":  2048,
-		"revision":    created.Draft.Revision,
-	})
-	draftBody, _ := io.ReadAll(draftResp.Body)
-	draftResp.Body.Close()
-	if draftResp.StatusCode != http.StatusOK {
-		t.Fatalf("draft update failed: status %d: %s", draftResp.StatusCode, draftBody)
+func containsString(body []byte, needle string) bool {
+	return len(needle) > 0 && len(body) >= len(needle) && (string(body) == needle || indexOf(body, needle) >= 0)
+}
+
+func indexOf(body []byte, needle string) int {
+	for i := 0; i+len(needle) <= len(body); i++ {
+		if string(body[i:i+len(needle)]) == needle {
+			return i
+		}
 	}
-	if !strings.Contains(string(draftBody), `"hasApiKey":true`) {
-		t.Fatalf("draft update dropped the sealed key: %s", draftBody)
-	}
+	return -1
 }

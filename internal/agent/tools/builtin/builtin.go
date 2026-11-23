@@ -27,6 +27,7 @@ func New(backend tools.Backend, guard tools.Guard, budgets ...int) []tool.Invoka
 		newMyInfoTool(backend, guard, resultBudgetTokens),
 		newMyGroupsTool(backend, guard, resultBudgetTokens),
 		newGroupMembersTool(backend, guard, resultBudgetTokens),
+		newCurrentTimeTool(),
 	}
 }
 

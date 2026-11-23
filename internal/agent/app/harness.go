@@ -46,10 +46,7 @@ type ResolvedAgent struct {
 	BotID         int64
 	Version       int64
 	Instruction   string
-	Model         string
-	BaseURL       string
-	APIKey        string
-	MaxTokens     int
+	Model         port.ModelEndpoint
 	Tools         []string
 	MCPTools      []port.MCPTool
 	Skills        []port.SkillBinding
@@ -112,9 +109,6 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 		return h.failRun(ctx, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("agent harness dependencies unavailable")})
 	}
 	builder := h.Builder
-	if builder.ContextWindow == 0 {
-		builder = agentcontext.DefaultBuilder()
-	}
 
 	// Build the prompt and run the model without holding any database lock.
 	in, err := builder.Build(agent.Instruction, ev.Content, snapshot, turns)
@@ -124,7 +118,6 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 	in.EventID, in.AgentID, in.ActorUserID, in.BotID, in.Topic = ev.EventID, agent.ID, ev.SenderID, agent.BotID, ev.Topic
 	in.RunID, in.AttemptID = run.ID, run.AttemptID
 	in.Model = agent.Model
-	in.BaseURL, in.APIKey, in.MaxTokens = agent.BaseURL, agent.APIKey, agent.MaxTokens
 	in.AllowedTools, in.RestrictTools = agent.Tools, agent.RestrictTools
 	in.MCPTools, in.Skills = agent.MCPTools, agent.Skills
 	in.CheckPointID = checkpointIDForRun(run.ID)
@@ -224,9 +217,6 @@ func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, a
 		Input: port.Input{
 			Instruction:   agent.Instruction,
 			Model:         agent.Model,
-			BaseURL:       agent.BaseURL,
-			APIKey:        agent.APIKey,
-			MaxTokens:     agent.MaxTokens,
 			AllowedTools:  agent.Tools,
 			RestrictTools: agent.RestrictTools,
 			MCPTools:      agent.MCPTools,

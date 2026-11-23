@@ -140,14 +140,15 @@ NONOKA_HTTP_PORT=8001 NONOKA_GRPC_PORT=9003 NONOKA_WEB_PORT=3010 NONOKA_POSTGRES
   docker compose -f docker-compose.yml up -d --build
 ```
 
-若要在 Compose 中运行 Agent worker，先在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`，然后执行：
+在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY` 后执行 `make demo`。该栈包含 Bifrost 模型网关（<http://localhost:8088>），provider 真实 key 只存在 Bifrost；agent-worker 会自动创建默认 `bifrost-default` ModelService，并在 Web 的 **Agents → Platform** 页面可管理 ModelService、MCP 与 Skill。
+
+平台管理员通过 `AGENT_ADMIN_USER_IDS=<user-id>` 指定，启动时写入 OpenFGA `platform:global#admin`。注册用户后可重启 `nonoka-im` 让该用户获得平台管理权限：
 
 ```bash
-docker compose -f docker-compose.yml --profile agent up -d --build
-docker compose -f docker-compose.yml logs -f agent-worker
+AGENT_ADMIN_USER_IDS=<user-id> docker compose -f docker-compose.yml up -d nonoka-im
 ```
 
-`agent-worker` 是可选 profile；不加 `--profile agent` 时不会启动，也不会要求模型密钥。启动后打开 Web 的 **Agents** 页面创建并发布 Agent，再在私聊或已授权的群聊中触发它。
+启动后打开 Web 的 **Agents** 页面创建并发布 Agent，再在私聊或已授权的群聊中触发它。
 
 ### 2. 初始化 Kafka Topic
 

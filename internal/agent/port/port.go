@@ -10,13 +10,20 @@ import (
 	"nonoka-im/internal/agent/domain"
 )
 
+// ModelEndpoint is the resolved platform model access point for one run. The
+// agent runtime never reads arbitrary per-agent URLs or provider credentials.
+type ModelEndpoint struct {
+	BaseURL       string
+	APIKey        string
+	Model         string
+	MaxTokens     int
+	ContextWindow int
+}
+
 type Input struct {
 	Text                        string
 	Instruction                 string
-	Model                       string
-	BaseURL                     string
-	APIKey                      string
-	MaxTokens                   int
+	Model                       ModelEndpoint
 	AllowedTools                []string
 	RestrictTools               bool
 	Summary                     string
@@ -26,11 +33,6 @@ type Input struct {
 	History                     []Turn
 	AgentID, ActorUserID, BotID int64
 	Topic                       string
-	TokenBudget                 int
-	OutputTokenBudget           int
-	ToolResultTokenBudget       int
-	TriggerTokens               int
-	NeedsSummary                bool
 	DisableSummary              bool
 	SummaryThroughTurnID        uint64
 	MCPTools                    []MCPTool

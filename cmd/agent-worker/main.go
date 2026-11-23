@@ -11,6 +11,7 @@ import (
 
 	"nonoka-im/internal/agent/adapters"
 	"nonoka-im/internal/agent/app"
+	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/bootstrap"
 	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
@@ -34,6 +35,7 @@ import (
 	imapp "nonoka-im/internal/im/app"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
+	"nonoka-im/internal/llm"
 	"nonoka-im/internal/messaging/httpclient"
 	messagingim "nonoka-im/internal/messaging/im"
 	messagingmongo "nonoka-im/internal/messaging/mongo"
@@ -122,9 +124,33 @@ func main() {
 	if len(sealKey) < 32 {
 		panic("AGENT_SECRET_KEY must contain at least 32 bytes")
 	}
-	if secrets.ModelKey == "" {
-		logger.Log(log.LevelWarn, "msg", "OPENAI_API_KEY/DEEPSEEK_API_KEY not set; only agents with their own API key will run")
-		secrets.ModelKey = "missing-model-key"
+	bifrostURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BIFROST_URL")), "/")
+	var gateway llm.Gateway
+	if bifrostURL != "" {
+		gateway = llm.NewClient(bifrostURL, llm.Auth{
+			AdminToken: os.Getenv("BIFROST_ADMIN_TOKEN"),
+			SetupToken: os.Getenv("BIFROST_SETUP_TOKEN"),
+			Username:   os.Getenv("BIFROST_ADMIN_USERNAME"),
+			Password:   os.Getenv("BIFROST_ADMIN_PASSWORD"),
+		})
+	}
+	modelSvc := llm.NewService(registry, llm.EnvSealer{Key: sealKey}, az, gateway, bifrostURL)
+	var seedServiceID, seedModelID int64
+	var seedModelKey string
+	if bifrostURL != "" && !strings.EqualFold(os.Getenv("BIFROST_AUTO_PROVISION"), "false") {
+		name := strings.TrimSpace(os.Getenv("BIFROST_DEFAULT_SERVICE"))
+		if name == "" {
+			name = "bifrost-default"
+		}
+		preferred := strings.TrimSpace(aw.BootstrapModel)
+		sid, mid, key, serr := modelSvc.EnsureDefaultService(ctx, llm.DefaultSpec{
+			Name: name, Display: "Bifrost", AllowAll: true, Preferred: preferred,
+		})
+		if serr != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("bootstrap model service: %v", serr))
+		} else {
+			seedServiceID, seedModelID, seedModelKey = sid, mid, key
+		}
 	}
 
 	replySender := &adapters.Sender{
@@ -149,13 +175,13 @@ func main() {
 		Directory:  directory,
 	}
 	mcpProvider := &agentmcp.Provider{
-		Store: registry, Guard: az, IdleTTL: 10 * time.Minute, MaxClients: 64,
+		Store: registry, Sealer: llm.EnvSealer{Key: sealKey}, Guard: agentmcp.NewGuardFromEnv(),
+		ToolGuard: az, IdleTTL: 10 * time.Minute, MaxClients: 64,
 	}
 	defer mcpProvider.Close()
 
 	builtinRegistry := builtin.NewRegistry(toolsBackend, az, 8192)
 	deps := eino.Deps{
-		APIKey: secrets.ModelKey, BaseURL: aw.ModelBaseUrl, Model: aw.ModelName,
 		MCPToolProvider: mcpProvider.Tools,
 		ToolCatalog:     builtinRegistry,
 		SkillBackendFactory: func(bindings []agentport.SkillBinding) (skill.Backend, error) {
@@ -186,11 +212,12 @@ func main() {
 		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),
 	}
 	exec := &executor.Executor{
-		Store: store, Registry: registry, Authorizer: az, Harness: harness,
-		Reader: toolsBackend.Reader, SealKey: sealKey,
+		Store: store, Registry: registry, Models: modelSvc, Authorizer: az, Harness: harness,
+		Reader:      toolsBackend.Reader,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
 		Lease: aw.Lease.AsDuration(), Log: log.NewHelper(logger),
 	}
+	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, logger)
 	dispatcher := &worker.Dispatcher{Store: store, Authorizer: az, Reader: toolsBackend.Reader, Log: log.NewHelper(logger)}
 	sweeperRunner := &sweeper.Sweeper{Store: store, Metrics: agentMetrics, Log: log.NewHelper(logger), Interval: aw.SweepInterval.AsDuration(), MaxAttempts: int(aw.MaxAttempts)}
 
@@ -207,6 +234,7 @@ func main() {
 		RunWorkers: int(aw.RunWorkers), QueuedPoll: aw.QueuedPoll.AsDuration(),
 		Background: []func(context.Context){
 			func(ctx context.Context) { mcpProvider.StartJanitor(ctx, 5*time.Minute) },
+			func(ctx context.Context) { mcpAdmin.HealthCheckLoop(ctx, 5*time.Minute) },
 		},
 	}
 	consumer.SetHandler(runner.HandleEvent)
@@ -242,11 +270,14 @@ func main() {
 		kratos.Logger(logger),
 		kratos.Server(servers...),
 		kratos.BeforeStart(func(ctx context.Context) error {
+			if aw.BootstrapOwnerId > 0 && seedServiceID <= 0 {
+				logger.Log(log.LevelWarn, "msg", "bootstrap agent skipped: no model service available (configure BIFROST_URL or create one via the platform API)")
+				return nil
+			}
 			return bootstrap.SeedAgent(ctx, store, az, bootstrap.SeedInput{
 				AgentID: aw.BootstrapAgentId, BotID: aw.BootstrapBotId, OwnerID: aw.BootstrapOwnerId,
 				Name: aw.BootstrapName, Instruction: aw.BootstrapInstruction,
-				ModelName: aw.ModelName, ModelBaseURL: aw.ModelBaseUrl,
-				APIKey: secrets.ModelKey, SecretKey: secrets.SecretKey,
+				ModelServiceID: seedServiceID, ModelID: seedModelID, ModelKey: seedModelKey,
 			}, logger)
 		}),
 	)

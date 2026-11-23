@@ -11,6 +11,7 @@ import (
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/httpapi"
+	"nonoka-im/internal/llm"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 )
@@ -23,28 +24,31 @@ type AgentHTTP struct {
 	approvals *admin.ApprovalService
 	mcp       *admin.MCPService
 	skills    *admin.SkillService
+	models    *llm.Service
 	idem      *httpapi.Idempotency
 }
 
-func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, idem *httpapi.Idempotency) *AgentHTTP {
-	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, idem: idem}
+func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, models *llm.Service, idem *httpapi.Idempotency) *AgentHTTP {
+	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, models: models, idem: idem}
 }
 
 type agentRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Instruction string   `json:"instruction"`
-	Model       string   `json:"model"`
-	Tools       []string `json:"tools"`
-	BaseURL     string   `json:"base_url"`
-	APIKey      string   `json:"api_key"`
-	MaxTokens   int      `json:"max_tokens"`
-	MCPBindings []struct {
-		Server string `json:"server"`
-		Tool   string `json:"tool"`
-	} `json:"mcp_bindings"`
+	Name              string            `json:"name"`
+	Description       string            `json:"description"`
+	Instruction       string            `json:"instruction"`
+	ModelServiceID    int64             `json:"modelServiceId"`
+	ModelID           int64             `json:"modelId"`
+	Tools             []string          `json:"tools"`
+	CapabilityPresets []string          `json:"capabilityPresets"`
+	ToolPolicies      map[string]string `json:"toolPolicies"`
+	MaxTokens         int               `json:"maxTokens"`
+	MCPBindings       []struct {
+		ServerID uint64 `json:"serverId"`
+		Tool     string `json:"tool"`
+		Policy   string `json:"policy"`
+	} `json:"mcpBindings"`
 	Skills []struct {
-		Name    string `json:"name"`
+		SkillID uint64 `json:"skillId"`
 		Version int64  `json:"version"`
 	} `json:"skills"`
 	Revision int64  `json:"revision"`
@@ -56,15 +60,17 @@ type agentRequest struct {
 
 func (r *agentRequest) input() admin.Input {
 	input := admin.Input{
-		Name: r.Name, Description: r.Description, Instruction: r.Instruction, Model: r.Model,
-		Tools: r.Tools, BaseURL: r.BaseURL, APIKey: r.APIKey, MaxTokens: r.MaxTokens,
-		Revision: r.Revision, Status: r.Status, Kind: r.Kind, Target: r.Target, Enabled: r.Enabled,
+		Name: r.Name, Description: r.Description, Instruction: r.Instruction,
+		ModelServiceID: r.ModelServiceID, ModelID: r.ModelID,
+		Tools: r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
+		MaxTokens: r.MaxTokens, Revision: r.Revision, Status: r.Status, Kind: r.Kind,
+		Target: r.Target, Enabled: r.Enabled,
 	}
 	for _, binding := range r.MCPBindings {
-		input.MCPBindings = append(input.MCPBindings, admin.MCPBindingInput{Server: binding.Server, Tool: binding.Tool})
+		input.MCPBindings = append(input.MCPBindings, admin.MCPBindingInput{ServerID: binding.ServerID, Tool: binding.Tool, Policy: binding.Policy})
 	}
 	for _, skill := range r.Skills {
-		input.Skills = append(input.Skills, admin.SkillBindingInput{Name: skill.Name, Version: skill.Version})
+		input.Skills = append(input.Skills, admin.SkillBindingInput{SkillID: skill.SkillID, Version: skill.Version})
 	}
 	return input
 }
@@ -136,14 +142,28 @@ func agentHTTPError(err error) *httpapi.Error {
 	switch {
 	case errors.As(err, &inputErr):
 		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
-	case errors.Is(err, admin.ErrInvalidInput):
+	case errors.Is(err, admin.ErrInvalidInput), errors.Is(err, domain.ErrInvalidSkill):
 		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
+	case errors.Is(err, domain.ErrInvalidMCPTarget):
+		return httpapi.BadRequest("INVALID_MCP_TARGET", err.Error())
 	case errors.Is(err, admin.ErrAdminRequired):
 		return httpapi.Forbidden("platform admin required")
-	case errors.Is(err, admin.ErrForbidden), errors.Is(err, authz.ErrDenied):
+	case errors.Is(err, admin.ErrNeedsAuth), errors.Is(err, domain.ErrMCPAuthRequired):
+		return httpapi.Conflict("MCP_AUTH_REQUIRED", err.Error())
+	case errors.Is(err, admin.ErrForbidden), errors.Is(err, authz.ErrDenied), errors.Is(err, llm.ErrForbidden):
 		return httpapi.Forbidden("access denied")
-	case errors.Is(err, admin.ErrNotFound):
+	case errors.Is(err, admin.ErrNotFound), errors.Is(err, llm.ErrNotFound):
 		return httpapi.NotFound(err.Error())
+	case errors.Is(err, llm.ErrInvalidInput):
+		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
+	case errors.Is(err, domain.ErrModelServiceConflict):
+		return httpapi.Conflict("MODEL_SERVICE_EXISTS", err.Error())
+	case errors.Is(err, domain.ErrModelServiceInUse):
+		return httpapi.Conflict("MODEL_SERVICE_IN_USE", err.Error())
+	case errors.Is(err, domain.ErrModelNotFound), errors.Is(err, domain.ErrModelServiceNotFound):
+		return httpapi.NotFound(err.Error())
+	case errors.Is(err, llm.ErrGatewayRejected), errors.Is(err, llm.ErrGatewayUnavailable):
+		return &httpapi.Error{Status: http.StatusBadGateway, Code: "MODEL_GATEWAY_ERROR", Message: err.Error()}
 	case errors.Is(err, domain.ErrDraftConflict):
 		return httpapi.Conflict("DRAFT_CONFLICT", err.Error())
 	case errors.Is(err, domain.ErrRunState):
@@ -154,11 +174,17 @@ func agentHTTPError(err error) *httpapi.Error {
 		return httpapi.Conflict("APPROVAL_NOT_PENDING", err.Error())
 	case errors.Is(err, domain.ErrSideEffectCommitted):
 		return httpapi.Conflict("SIDE_EFFECT_COMMITTED", "run already committed a side effect; retry requires acknowledgeSideEffect=true")
-	case errors.Is(err, domain.ErrMCPConflict):
+	case errors.Is(err, admin.ErrConflict), errors.Is(err, domain.ErrMCPConflict):
 		return httpapi.Conflict("MCP_EXISTS", err.Error())
+	case errors.Is(err, domain.ErrSkillConflict):
+		return httpapi.Conflict("SKILL_EXISTS", err.Error())
+	case errors.Is(err, domain.ErrMCPReviewRequired):
+		return httpapi.Conflict("MCP_NOT_APPROVED", err.Error())
 	case errors.Is(err, domain.ErrAgentNotFound), errors.Is(err, domain.ErrVersionNotFound),
 		errors.Is(err, domain.ErrRunNotFound), errors.Is(err, domain.ErrApprovalNotFound),
-		errors.Is(err, domain.ErrSkillNotFound):
+		errors.Is(err, domain.ErrSkillNotFound), errors.Is(err, domain.ErrSkillVersionNotFound),
+		errors.Is(err, domain.ErrMCPNotFound), errors.Is(err, domain.ErrMCPToolNotFound),
+		errors.Is(err, domain.ErrMCPConnectionNotFound):
 		return httpapi.NotFound(err.Error())
 	default:
 		return httpapi.Internal(err)

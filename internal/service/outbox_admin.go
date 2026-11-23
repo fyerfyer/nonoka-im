@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"nonoka-im/internal/agent/app/admin"
+	"nonoka-im/internal/authz"
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/messaging"
 
@@ -15,10 +15,13 @@ import (
 
 // OutboxAdminHTTP exposes failed agent-outbox rows for the platform admin DLQ
 // view and replay action.
-type OutboxAdminHTTP struct{ admin messaging.OutboxAdmin }
+type OutboxAdminHTTP struct {
+	admin messaging.OutboxAdmin
+	authz authz.PlatformAuthorizer
+}
 
-func NewOutboxAdminHTTP(admin messaging.OutboxAdmin) *OutboxAdminHTTP {
-	return &OutboxAdminHTTP{admin: admin}
+func NewOutboxAdminHTTP(admin messaging.OutboxAdmin, az authz.PlatformAuthorizer) *OutboxAdminHTTP {
+	return &OutboxAdminHTTP{admin: admin, authz: az}
 }
 
 func (s *OutboxAdminHTTP) handle(c khttp.Context, fn func(context.Context) (any, error)) error {
@@ -28,7 +31,7 @@ func (s *OutboxAdminHTTP) handle(c khttp.Context, fn func(context.Context) (any,
 			writeAgentJSON(c.Response(), http.StatusUnauthorized, map[string]string{"code": "UNAUTHORIZED", "message": "authentication required"})
 			return nil, nil
 		}
-		if !admin.IsAdmin(uid) {
+		if s.authz == nil || s.authz.CanManagePlatform(ctx, uid) != nil {
 			writeAgentJSON(c.Response(), http.StatusForbidden, map[string]string{"code": "FORBIDDEN", "message": "platform admin required"})
 			return nil, nil
 		}
