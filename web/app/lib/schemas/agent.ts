@@ -54,36 +54,4 @@ export const shareSchema = z.object({
   role: z.enum(["viewer", "editor"]).default("viewer"),
 });
 
-export const modelServiceSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100),
-  displayName: z.string().max(200).optional(),
-  gatewayType: z.enum(["bifrost", "openai_compatible"]).default("bifrost"),
-  baseUrl: z.string().url().optional().or(z.literal("")),
-  apiKey: z.string().optional(),
-});
-
-export const mcpServerSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100),
-  displayName: z.string().max(200).optional(),
-  description: z.string().max(2000).optional(),
-  url: z.string().url("Enter a valid HTTPS URL"),
-  authType: z.enum(["none", "bearer", "header"]).default("none"),
-  headerName: z.string().optional(),
-  credential: z.string().optional(),
-  visibility: z.enum(["private", "shared", "public"]).default("private"),
-});
-
-export const skillSchema = z.object({
-  slug: z
-    .string()
-    .trim()
-    .min(1, "Slug is required")
-    .max(100)
-    .regex(/^[a-z0-9][a-z0-9-]*$/, "Use lowercase letters, digits and dashes"),
-  displayName: z.string().max(200).optional(),
-  description: z.string().max(2000).optional(),
-  visibility: z.enum(["private", "shared", "public"]).default("private"),
-  content: z.string().min(1, "SKILL.md content is required"),
-});
-
 

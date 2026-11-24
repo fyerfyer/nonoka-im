@@ -13,9 +13,11 @@ import { formatDuration, formatTime } from "./agent-utils";
 export function AgentOverview({
   agent,
   onTab,
+  onOpenHistory,
 }: {
   agent: ManagedAgent;
   onTab: (tab: string) => void;
+  onOpenHistory: () => void;
 }) {
   const runs = useQuery(agentRunsQuery(agent.id));
   const approvals = useQuery(approvalsQuery("pending"));
@@ -163,7 +165,7 @@ export function AgentOverview({
               <Button variant="outline" size="sm" onClick={() => onTab("build")}>
                 Edit configuration
               </Button>
-              <Button variant="outline" size="sm" onClick={() => onTab("versions")}>
+              <Button variant="outline" size="sm" onClick={onOpenHistory}>
                 View versions
               </Button>
             </div>

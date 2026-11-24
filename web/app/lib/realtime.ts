@@ -171,7 +171,7 @@ export class RealtimeClient extends EventTarget {
           this.handleDisconnect();
         };
 
-        const onError = (ev: Event) => {
+        const onError = () => {
           cleanup();
           reject(new Error("websocket error"));
         };

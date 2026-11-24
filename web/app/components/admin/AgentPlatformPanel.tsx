@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CirclePlus, PackagePlus, Power, PowerOff, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  CirclePlus,
+  Cpu,
+  ExternalLink,
+  PackagePlus,
+  Power,
+  PowerOff,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import {
   agentApi,
   type ModelService,
@@ -13,9 +23,12 @@ import {
   type ToolDefinition,
 } from "@/lib/api/agents";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+const BIFROST_DASHBOARD_URL =
+  process.env.NEXT_PUBLIC_BIFROST_DASHBOARD_URL || "http://localhost:8088";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : "Request failed";
@@ -38,18 +51,6 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
   const [servers, setServers] = useState<MCPServer[]>(catalog.mcps);
   const [skills, setSkills] = useState<Skill[]>(catalog.skills);
   const [busy, setBusy] = useState(false);
-  const [gatewayModels, setGatewayModels] = useState<{ name: string; provider: string }[]>([]);
-  const [selectedProviderModels, setSelectedProviderModels] = useState<Record<string, string[]>>({});
-
-  const [serviceName, setServiceName] = useState("");
-  const [serviceDisplay, setServiceDisplay] = useState("");
-  const [gatewayType, setGatewayType] = useState<"bifrost" | "openai_compatible">("bifrost");
-  const [serviceBaseURL, setServiceBaseURL] = useState("");
-  const [serviceKey, setServiceKey] = useState("");
-  const [allowAll, setAllowAll] = useState(true);
-  const [modelServiceId, setModelServiceId] = useState<number | null>(null);
-  const [modelKey, setModelKey] = useState("");
-  const [modelDisplay, setModelDisplay] = useState("");
 
   const [serverName, setServerName] = useState("");
   const [serverDisplay, setServerDisplay] = useState("");
@@ -86,55 +87,6 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
   useEffect(() => { load(); }, [load]);
 
   const refresh = async () => { await load(); onChanged?.(); };
-
-  const loadGatewayModels = async () => {
-    try {
-      const data = await agentApi.listGatewayModels();
-      setGatewayModels(data.models);
-      toast.success(`Loaded ${data.models.length} gateway models`);
-    } catch (err) { toast.error(errorText(err)); }
-  };
-
-  const toggleProviderModel = (provider: string, name: string) => {
-    setAllowAll(false);
-    setSelectedProviderModels((old) => {
-      const current = new Set(old[provider] ?? []);
-      if (current.has(name)) current.delete(name); else current.add(name);
-      return { ...old, [provider]: [...current] };
-    });
-  };
-
-  const createService = async () => {
-    setBusy(true);
-    try {
-      const providerModels = Object.fromEntries(Object.entries(selectedProviderModels).filter(([, models]) => models.length > 0));
-      await agentApi.createModelService({
-        name: serviceName.trim(),
-        displayName: serviceDisplay.trim() || undefined,
-        gatewayType,
-        baseUrl: gatewayType === "openai_compatible" ? serviceBaseURL.trim() : undefined,
-        apiKey: serviceAPIKey(gatewayType, serviceKey),
-        allowAll: gatewayType === "bifrost" ? allowAll || Object.keys(providerModels).length === 0 : false,
-        providerModels: gatewayType === "bifrost" ? providerModels : undefined,
-      });
-      toast.success("Model service created");
-      setServiceName(""); setServiceDisplay(""); setServiceBaseURL(""); setServiceKey(""); setSelectedProviderModels({});
-      await refresh();
-    } catch (err) { toast.error(errorText(err)); }
-    finally { setBusy(false); }
-  };
-
-  const addModel = async (serviceId: number) => {
-    if (!modelKey.trim()) return;
-    setBusy(true);
-    try {
-      await agentApi.createModel(serviceId, { modelKey: modelKey.trim(), displayName: modelDisplay.trim() || undefined, maxOutputTokens: 4096, supportsTools: true });
-      toast.success("Model added");
-      setModelKey(""); setModelDisplay(""); setModelServiceId(null);
-      await refresh();
-    } catch (err) { toast.error(errorText(err)); }
-    finally { setBusy(false); }
-  };
 
   const registerServer = async () => {
     setBusy(true);
@@ -202,76 +154,49 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
   return (
     <div className="max-w-4xl space-y-10">
       <section className="space-y-3">
-        <h3 className="flex items-center gap-2 text-sm font-semibold"><CirclePlus className="h-4 w-4 text-primary" />Model services</h3>
-        {canManage && (
-          <div className="space-y-2 rounded-lg border p-3">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="block text-xs font-medium">Name<Input className="mt-1" value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="bifrost-prod" /></label>
-              <label className="block text-xs font-medium">Display name<Input className="mt-1" value={serviceDisplay} onChange={(e) => setServiceDisplay(e.target.value)} /></label>
-              <label className="block text-xs font-medium">Gateway type
-                <select className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm" value={gatewayType} onChange={(e) => setGatewayType(e.target.value as typeof gatewayType)}>
-                  <option value="bifrost">Bifrost</option>
-                  <option value="openai_compatible">OpenAI compatible</option>
-                </select>
-              </label>
-            </div>
-            {gatewayType === "openai_compatible" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-xs font-medium">Base URL<Input className="mt-1" value={serviceBaseURL} onChange={(e) => setServiceBaseURL(e.target.value)} placeholder="https://api.example.com/v1" /></label>
-                <label className="block text-xs font-medium">API key<Input className="mt-1" type="password" value={serviceKey} onChange={(e) => setServiceKey(e.target.value)} placeholder="Optional for local endpoints" /></label>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={allowAll} onChange={(e) => setAllowAll(e.target.checked)} />Allow all Bifrost providers/models</label>
-                  <Button size="xs" variant="outline" onClick={() => void loadGatewayModels()}><RefreshCw />Load gateway models</Button>
-                </div>
-                {gatewayModels.length > 0 && (
-                  <div className="max-h-48 space-y-2 overflow-auto rounded-md border p-2">
-                    {Object.entries(gatewayModels.reduce<Record<string, { name: string; provider: string }[]>>((acc, model) => {
-                      (acc[model.provider] ??= []).push(model);
-                      return acc;
-                    }, {})).map(([provider, models]) => (
-                      <div key={provider}>
-                        <div className="text-xs font-semibold uppercase text-muted-foreground">{provider}</div>
-                        {models.map((model) => (
-                          <label key={`${provider}/${model.name}`} className="flex items-center gap-2 text-xs">
-                            <input type="checkbox" checked={(selectedProviderModels[provider] ?? []).includes(model.name)} onChange={() => toggleProviderModel(provider, model.name)} />
-                            {model.name}
-                          </label>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex justify-end"><Button size="sm" disabled={busy || !serviceName.trim()} onClick={() => void createService()}><CirclePlus />Create service</Button></div>
+        <h3 className="flex items-center gap-2 text-sm font-semibold"><Cpu className="h-4 w-4 text-primary" />LLM gateway</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div className="space-y-1">
+            <p className="font-medium">Bifrost is the single model gateway.</p>
+            <p className="text-xs text-muted-foreground">
+              Provider keys, routing, budgets and virtual keys are managed in
+              Bifrost. This console only shows the model catalog Nonoka can use.
+            </p>
           </div>
-        )}
+          <a
+            href={BIFROST_DASHBOARD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <ExternalLink /> Open Bifrost
+          </a>
+        </div>
         <div className="divide-y rounded-lg border">
-          {services.length === 0 ? <p className="py-4 text-center text-xs text-muted-foreground">No model services</p> : services.map((service) => (
-            <div key={service.id} className="space-y-2 px-3 py-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{service.displayName || service.name}</span>
-                <Badge variant="secondary" className="text-[10px]">{service.gatewayType}</Badge>
-                <Badge variant="secondary" className={cn("text-[10px]", service.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400" : "")}>{service.enabled ? "enabled" : "disabled"}</Badge>
-                {canManage && service.gatewayType === "bifrost" && <Button size="xs" variant="ghost" title="Sync models" onClick={() => void act(() => agentApi.syncModelService(service.id), "Models synced")}><RefreshCw /></Button>}
-                {canManage && <Button size="xs" variant="ghost" title="Delete service" onClick={() => void act(() => agentApi.deleteModelService(service.id), "Service deleted")}><Trash2 /></Button>}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {service.models.map((model) => <Badge key={model.id} variant="secondary" className="text-[10px]">{model.displayName || model.modelKey}</Badge>)}
-                {canManage && <Button size="xs" variant="outline" onClick={() => setModelServiceId(modelServiceId === service.id ? null : service.id)}><PackagePlus />Add model</Button>}
-              </div>
-              {modelServiceId === service.id && (
-                <div className="flex flex-wrap items-end gap-2 rounded-md border p-2">
-                  <label className="block text-xs font-medium">Model key<Input className="mt-1" value={modelKey} onChange={(e) => setModelKey(e.target.value)} placeholder="provider/model" /></label>
-                  <label className="block text-xs font-medium">Display name<Input className="mt-1" value={modelDisplay} onChange={(e) => setModelDisplay(e.target.value)} /></label>
-                  <Button size="sm" disabled={busy || !modelKey.trim()} onClick={() => void addModel(service.id)}>Add</Button>
+          {services.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              No models available. Configure a provider and virtual key in Bifrost.
+            </p>
+          ) : (
+            services.map((service) => (
+              <div key={service.id} className="space-y-2 px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{service.displayName || service.name}</span>
+                  <Badge variant="secondary" className="text-[10px]">{service.gatewayType}</Badge>
+                  <Badge variant="secondary" className={cn("text-[10px]", service.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400" : "")}>{service.enabled ? "enabled" : "disabled"}</Badge>
+                  <span className="ml-auto text-[10px] text-muted-foreground">read-only catalog</span>
                 </div>
-              )}
-            </div>
-          ))}
+                <div className="flex flex-wrap gap-1">
+                  {service.models.map((model) => (
+                    <Badge key={model.id} variant="secondary" className="text-[10px]">
+                      {model.displayName || model.modelKey}
+                      {model.supportsVision ? " · vision" : ""}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
@@ -397,8 +322,4 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
       </section>
     </div>
   );
-}
-
-function serviceAPIKey(gatewayType: "bifrost" | "openai_compatible", key: string): string | undefined {
-  return gatewayType === "openai_compatible" && key.trim() ? key : undefined;
 }

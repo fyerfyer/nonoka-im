@@ -140,7 +140,7 @@ NONOKA_HTTP_PORT=8001 NONOKA_GRPC_PORT=9003 NONOKA_WEB_PORT=3010 NONOKA_POSTGRES
   docker compose -f docker-compose.yml up -d --build
 ```
 
-在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY` 后执行 `make demo`。该栈包含 Bifrost 模型网关（<http://localhost:8088>），provider 真实 key 只存在 Bifrost；agent-worker 会自动创建默认 `bifrost-default` ModelService，并在 Web 的 **Agents → Platform** 页面可管理 ModelService、MCP 与 Skill。
+在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY` 后执行 `make demo`。该栈包含 Bifrost 模型网关（<http://localhost:8088>），provider 真实 key 只存在 Bifrost；agent-worker 会自动创建默认 `bifrost-default` ModelService。Web 的 **Admin** 页面只展示只读模型目录、MCP 与 Skill，provider key、路由、预算和 virtual key 统一在 Bifrost 管理。
 
 平台管理员通过 `AGENT_ADMIN_USER_IDS=<user-id>` 指定，启动时写入 OpenFGA `platform:global#admin`。注册用户后可重启 `nonoka-im` 让该用户获得平台管理权限：
 
