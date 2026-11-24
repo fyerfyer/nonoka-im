@@ -270,25 +270,32 @@ func (a *OpenFGA) write(ctx context.Context, subject, relation, object string, r
 		body.Writes = []fgaclient.ClientTupleKey{{User: subject, Relation: relation, Object: object}}
 	}
 	_, err := a.client.Write(ctx).Body(body).Options(fgaclient.ClientWriteOptions{Conflict: fgaclient.ClientWriteConflictOptions{OnDuplicateWrites: fgaclient.CLIENT_WRITE_REQUEST_ON_DUPLICATE_WRITES_IGNORE, OnMissingDeletes: fgaclient.CLIENT_WRITE_REQUEST_ON_MISSING_DELETES_IGNORE}}).Execute()
-	if err == nil || remove {
-		return err
+	if err == nil {
+		return nil
 	}
 	// Conflict options were added to OpenFGA in v1.10. Newer servers answer a
-	// duplicate tuple write with HTTP 409; the bundled v1.8 stack instead
-	// answers with HTTP 422 write_failed_due_to_invalid_input. Use only the
-	// SDK's structured error fields (no message-text matching) to treat a
-	// duplicate write as the idempotent success bootstrap and repeated sends
-	// rely on.
+	// duplicate tuple write or a missing delete as a no-op; the bundled v1.8
+	// stack instead answers with HTTP 422 write_failed_due_to_invalid_input.
+	// Use only the SDK's structured error fields (no message-text matching) and
+	// confirm the tuple state before treating the failure as idempotent.
 	var apiErr fga.FgaApiError
 	if errors.As(err, &apiErr) && apiErr.ResponseStatusCode() == http.StatusConflict {
 		return nil
 	}
 	var validationErr fga.FgaApiValidationError
 	if errors.As(err, &validationErr) && validationErr.ResponseCode() == fga.ERRORCODE_WRITE_FAILED_DUE_TO_INVALID_INPUT {
+		exists := a.tupleExists(ctx, subject, relation, object)
+		if remove {
+			// Deleting a tuple that is already absent is a successful revoke.
+			if !exists {
+				return nil
+			}
+			return err
+		}
 		// The 422 code also covers genuinely invalid writes, so confirm the
 		// tuple is already present before calling it a duplicate (one extra
 		// Read round trip on this rare path).
-		if a.tupleExists(ctx, subject, relation, object) {
+		if exists {
 			return nil
 		}
 	}
