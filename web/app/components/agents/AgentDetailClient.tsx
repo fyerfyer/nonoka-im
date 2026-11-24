@@ -9,11 +9,13 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Bot,
+  History,
   Loader2,
   MessageSquare,
   Power,
   Save,
   Send,
+  Share2,
   Trash2,
 } from "lucide-react";
 import {
@@ -51,7 +53,7 @@ import {
   toAgentInput,
 } from "./agent-utils";
 
-const TABS = ["overview", "build", "tools", "access", "test", "versions", "runs"] as const;
+const TABS = ["overview", "build", "tools", "test", "runs"] as const;
 type Tab = (typeof TABS)[number];
 
 function isTab(value: string | undefined): value is Tab {
@@ -92,6 +94,8 @@ export function AgentDetailClient({
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishNote, setPublishNote] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const initialized = useRef("");
 
   const form = useForm<AgentFormValues>({
@@ -294,6 +298,22 @@ export function AgentDetailClient({
               <MessageSquare />
               Chat
             </Button>
+            {canManage && (
+              <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+                <Share2 />
+                Share
+              </Button>
+            )}
+            {canManage && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Version history"
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -338,7 +358,11 @@ export function AgentDetailClient({
 
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
         {tab === "overview" && (
-          <AgentOverview agent={agent} onTab={(next) => changeTab(next as Tab)} />
+          <AgentOverview
+            agent={agent}
+            onTab={(next) => changeTab(next as Tab)}
+            onOpenHistory={() => setHistoryOpen(true)}
+          />
         )}
         {tab === "build" && canManage && (
           <div className="max-w-3xl">
@@ -354,11 +378,7 @@ export function AgentDetailClient({
             />
           </div>
         )}
-        {tab === "access" && canManage && (
-          <AgentAccessPanel agentId={agentId} canOwn={canOwn} />
-        )}
         {tab === "test" && canManage && <AgentPlayground agentId={agentId} />}
-        {tab === "versions" && canManage && <AgentVersions agent={agent} />}
         {tab === "runs" && canManage && <AgentRuns agentId={agentId} />}
       </main>
 
@@ -414,6 +434,24 @@ export function AgentDetailClient({
               Delete
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Share agent</DialogTitle>
+          </DialogHeader>
+          <AgentAccessPanel agentId={agentId} canOwn={canOwn} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Version history</DialogTitle>
+          </DialogHeader>
+          <AgentVersions agent={agent} />
         </DialogContent>
       </Dialog>
     </div>

@@ -299,31 +299,6 @@ export interface AgentInput {
   skills?: SkillBinding[];
 }
 
-export interface ModelServiceInput {
-  name: string;
-  displayName?: string;
-  gatewayType?: "bifrost" | "openai_compatible";
-  baseUrl?: string;
-  apiKey?: string;
-  updateApiKey?: boolean;
-  enabled?: boolean;
-  allowAll?: boolean;
-  providerModels?: Record<string, string[]>;
-}
-
-export interface ModelInput {
-  modelKey: string;
-  displayName?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  supportsTools?: boolean;
-  supportsVision?: boolean;
-  supportsReasoning?: boolean;
-  inputPricePerMtok?: number;
-  outputPricePerMtok?: number;
-  enabled?: boolean;
-}
-
 export interface Catalog {
   services: ModelService[];
   canManageModels: boolean;
@@ -429,24 +404,6 @@ export const agentApi = {
 
   listModelServices: () =>
     api.get<{ services: ModelService[]; canManage: boolean }>("/v1/model-services"),
-  createModelService: (input: ModelServiceInput) =>
-    api.post<ModelService>("/v1/model-services", input),
-  updateModelService: (id: number, input: ModelServiceInput) =>
-    api.patch<ModelService>(`/v1/model-services/${id}`, input),
-  deleteModelService: (id: number) =>
-    api.del<{ status: string }>(`/v1/model-services/${id}`),
-  syncModelService: (id: number) =>
-    api.post<{ models: Model[] }>(`/v1/model-services/${id}/sync`, {}),
-  createModel: (serviceId: number, input: ModelInput) =>
-    api.post<Model>(`/v1/model-services/${serviceId}/models`, input),
-  updateModel: (id: number, input: ModelInput) =>
-    api.patch<Model>(`/v1/model-models/${id}`, input),
-  deleteModel: (id: number) =>
-    api.del<{ status: string }>(`/v1/model-models/${id}`),
-  listGatewayModels: () =>
-    api.get<{ models: { name: string; provider: string }[] }>(
-      "/v1/model-gateway/models"
-    ),
 
   listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
   getMCPServer: (id: number) => api.get<MCPServer>(`/v1/mcp/servers/${id}`),

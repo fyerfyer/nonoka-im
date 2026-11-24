@@ -28,9 +28,13 @@ export function AgentBuildForm({
     setValue,
     formState: { errors },
   } = form;
+  const enabledServices = catalog.services.filter((item) => item.enabled);
   const serviceId = watch("modelServiceId");
-  const service = catalog.services.find((item) => item.id === serviceId);
+  const service =
+    enabledServices.find((item) => item.id === serviceId) ??
+    (enabledServices.length === 1 ? enabledServices[0] : undefined);
   const models = service?.models.filter((model) => model.enabled) ?? [];
+  const showServicePicker = enabledServices.length > 1;
   const instruction = watch("instruction") || "";
   const estimate = Math.ceil(instruction.length / 4);
 
@@ -97,37 +101,37 @@ export function AgentBuildForm({
               gateway.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="agent-model-service">Model service</Label>
-              <select
-                id="agent-model-service"
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                disabled={disabled}
-                value={serviceId || ""}
-                onChange={(event) => {
-                  const nextId = Number(event.target.value);
-                  const nextService = catalog.services.find((s) => s.id === nextId);
-                  const nextModel = nextService?.models.find((m) => m.enabled);
-                  setValue("modelServiceId", nextId, { shouldValidate: true });
-                  setValue("modelId", nextModel?.id ?? 0, { shouldValidate: true });
-                }}
-              >
-                <option value="">Select service</option>
-                {catalog.services
-                  .filter((item) => item.enabled)
-                  .map((item) => (
+          <div className={cn("grid gap-4", showServicePicker && "sm:grid-cols-2")}>
+            {showServicePicker && (
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-model-service">Gateway</Label>
+                <select
+                  id="agent-model-service"
+                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  disabled={disabled}
+                  value={serviceId || ""}
+                  onChange={(event) => {
+                    const nextId = Number(event.target.value);
+                    const nextService = enabledServices.find((s) => s.id === nextId);
+                    const nextModel = nextService?.models.find((m) => m.enabled);
+                    setValue("modelServiceId", nextId, { shouldValidate: true });
+                    setValue("modelId", nextModel?.id ?? 0, { shouldValidate: true });
+                  }}
+                >
+                  <option value="">Select gateway</option>
+                  {enabledServices.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.displayName || item.name} ({item.gatewayType})
+                      {item.displayName || item.name}
                     </option>
                   ))}
-              </select>
-              {errors.modelServiceId && (
-                <p className="text-xs text-destructive">
-                  {errors.modelServiceId.message}
-                </p>
-              )}
-            </div>
+                </select>
+                {errors.modelServiceId && (
+                  <p className="text-xs text-destructive">
+                    {errors.modelServiceId.message}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="agent-model">Model</Label>
               <select
@@ -145,6 +149,7 @@ export function AgentBuildForm({
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.displayName || model.modelKey}
+                    {model.supportsVision ? " · vision" : ""}
                   </option>
                 ))}
               </select>
@@ -153,6 +158,11 @@ export function AgentBuildForm({
               )}
             </div>
           </div>
+          {!showServicePicker && service && (
+            <p className="text-xs text-muted-foreground">
+              Gateway: {service.displayName || service.name}
+            </p>
+          )}
         </section>
       )}
 

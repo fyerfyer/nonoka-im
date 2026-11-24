@@ -5,7 +5,6 @@ import { ChatMessage, Conversation, User } from "@/types";
 import { MessageBubble } from "./MessageBubble";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 import { useAgentNames } from "@/hooks/useAgentNames";

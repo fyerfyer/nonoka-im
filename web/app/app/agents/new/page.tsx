@@ -14,7 +14,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAuthStore } from "@/stores/authStore";
 import { invalidateAgentNames } from "@/hooks/useAgentNames";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AgentBuildForm } from "@/components/agents/AgentBuildForm";
 import { CapabilityPicker } from "@/components/agents/CapabilityPicker";
