@@ -15,6 +15,7 @@ type Store interface {
 	Heartbeat(ctx context.Context, id uint64, attemptID string, lease time.Duration) (bool, error)
 	GetAgent(ctx context.Context, id int64) (*domain.Agent, error)
 	GetVersion(ctx context.Context, agentID, version int64) (*domain.AgentVersion, error)
+	GetRun(ctx context.Context, id uint64) (*domain.AgentRun, error)
 	LoadRunState(ctx context.Context, run *domain.AgentRun) (*domain.AgentSession, *domain.AgentContextSnapshot, []domain.AgentTurn, error)
 	ApprovalForRun(ctx context.Context, runID uint64) (*domain.AgentApproval, error)
 	ConsumeApproval(ctx context.Context, id uint64, attemptID string) (string, bool, error)

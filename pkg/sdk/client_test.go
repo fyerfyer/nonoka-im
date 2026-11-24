@@ -1,127 +1,143 @@
 package sdk
 
 import (
-	"strings"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
-// TestHandleSendReceipt_UntracksMessage verifies that a server-pushed send
-// receipt removes the message from the in-flight sendingMsgs map, preventing
-// a memory leak.
-func TestHandleSendReceipt_UntracksMessage(t *testing.T) {
-	client := NewClient(Options{})
-	defer client.Close()
-
-	clientMsgID := "test-client-msg-001"
-	msg := &Message{
-		ClientMsgID: clientMsgID,
-		Topic:       "p2p_1_2",
-		Status:      MessageStatusSending,
-	}
-
-	client.trackSendingMsg(msg)
-
-	if _, ok := client.getSendingMsg(clientMsgID); !ok {
-		t.Fatal("message should be in sendingMsgs before receipt")
-	}
-
-	client.handleSendReceipt(clientMsgID, 12345, "p2p_1_2", 1)
-
-	if _, ok := client.getSendingMsg(clientMsgID); ok {
-		t.Fatal("message should be removed from sendingMsgs after receipt")
-	}
-
-	if msg.Status != MessageStatusSent {
-		t.Fatalf("expected message status Sent, got %v", msg.Status)
-	}
-	if msg.MsgID != 12345 {
-		t.Fatalf("expected msg_id=12345, got %d", msg.MsgID)
-	}
-	if msg.TopicSeq != 1 {
-		t.Fatalf("expected topic_seq=1, got %d", msg.TopicSeq)
-	}
-}
-
-// TestHandleSendReceipt_Idempotent verifies that receiving a receipt for an
-// already-untracked message does not panic or leak state.
-func TestHandleSendReceipt_Idempotent(t *testing.T) {
-	client := NewClient(Options{})
-	defer client.Close()
-
-	client.handleSendReceipt("missing-client-msg", 1, "p2p_1_2", 1)
-	if len(client.sendingMsgs) != 0 {
-		t.Fatalf("expected empty sendingMsgs, got %d", len(client.sendingMsgs))
-	}
-}
-
-// getSendingMsg is a test helper to safely read from sendingMsgs.
-func (c *Client) getSendingMsg(clientMsgID string) (*Message, bool) {
-	c.sendingMu.RLock()
-	defer c.sendingMu.RUnlock()
-	msg, ok := c.sendingMsgs[clientMsgID]
-	return msg, ok
-}
-
-// TestGatewaySelector_RoundRobin verifies round-robin cycling across URLs.
-func TestGatewaySelector_RoundRobin(t *testing.T) {
-	urls := []string{"ws://g1/ws", "ws://g2/ws", "ws://g3/ws"}
-	seen := make(map[string]bool)
-	for i := 0; i < len(urls)*2; i++ {
-		url, _ := selectGatewayURL(urls, GatewaySelectorRoundRobin, 0, i)
-		seen[url] = true
-	}
-	for _, u := range urls {
-		if !seen[u] {
-			t.Fatalf("expected URL %s to be selected", u)
+func TestMessagesSendReusesClientMessageID(t *testing.T) {
+	var calls atomic.Int32
+	var ids []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/message/send" {
+			http.NotFound(w, r)
+			return
 		}
+		var body struct {
+			ClientMsgID string `json:"clientMsgId"`
+			Topic       string `json:"topic"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		ids = append(ids, body.ClientMsgID)
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"code":503,"reason":"UNAVAILABLE","message":"try again"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"clientMsgId":"` + body.ClientMsgID + `","msgId":"42","timestamp":"1700000000","topicSeq":"7"}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL, TokenSource: StaticToken("token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	result, err := client.Messages.SendText(context.Background(), "p2p_1_2", "hello")
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if result.MessageID != 42 || result.TopicSeq != 7 || result.ClientMessageID == "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(ids) != 2 || ids[0] != ids[1] {
+		t.Fatalf("client message ID was not reused: %v", ids)
 	}
 }
 
-// TestGatewaySelector_HashUserID verifies deterministic selection by user ID.
-func TestGatewaySelector_HashUserID(t *testing.T) {
-	urls := []string{"ws://g1/ws", "ws://g2/ws", "ws://g3/ws"}
-	url1, _ := selectGatewayURL(urls, GatewaySelectorHashUserID, 42, 0)
-	url2, _ := selectGatewayURL(urls, GatewaySelectorHashUserID, 42, 0)
-	if url1 != url2 {
-		t.Fatalf("expected deterministic selection for same user, got %s and %s", url1, url2)
+func TestAgentCRUDAndTypedErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"code":"UNAUTHORIZED","message":"missing token","requestId":"req-1"}`))
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/agents":
+			if r.Method == http.MethodGet {
+				_, _ = w.Write([]byte(`{"items":[{"id":1,"botUserId":9,"ownerUserId":1,"name":"A","description":"d","status":"active","currentVersion":1,"canManage":true,"canOwn":true,"draftChanged":false}],"hasMore":false}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":2,"botUserId":10,"ownerUserId":1,"name":"New","description":"","status":"draft","currentVersion":0,"canManage":true,"canOwn":true,"draftChanged":true,"draft":{"instruction":"hi","modelServiceId":1,"modelId":2,"tools":[],"capabilityPresets":[],"toolPolicies":{},"maxTokens":4096,"mcpBindings":[],"skills":[],"revision":1}}`))
+		case "/v1/agents/1":
+			_, _ = w.Write([]byte(`{"id":1,"botUserId":9,"ownerUserId":1,"name":"A","description":"d","status":"active","currentVersion":1,"canManage":true,"canOwn":true,"draftChanged":false}`))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"NOT_FOUND","message":"missing"}`))
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL, TokenSource: StaticToken("token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	page, err := client.Agents.List(context.Background(), ListOptions{})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Name != "A" {
+		t.Fatalf("list: %+v err=%v", page, err)
+	}
+	created, err := client.Agents.Create(context.Background(), AgentInput{Name: "New"})
+	if err != nil || created.ID != 2 || created.Draft == nil {
+		t.Fatalf("create: %+v err=%v", created, err)
+	}
+	_, err = client.Agents.Get(context.Background(), 999)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !IsNotFound(err) || apiErr.Code != "NOT_FOUND" {
+		t.Fatalf("expected typed not-found error, got %v", err)
 	}
 
-	url3, _ := selectGatewayURL(urls, GatewaySelectorHashUserID, 43, 0)
-	if url1 == url3 {
-		t.Fatalf("expected different selection for different users")
+	unauthorized, err := New(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unauthorized.Close()
+	_, err = unauthorized.Agents.Get(context.Background(), 1)
+	if !IsUnauthorized(err) {
+		t.Fatalf("expected unauthorized, got %v", err)
 	}
 }
 
-// TestRealtimeClient_GatewayURLList verifies that the realtime client picks a
-// URL from the configured list and rotates to the next one on failure.
-func TestRealtimeClient_GatewayURLList(t *testing.T) {
-	rt := NewRealtimeClient(RealtimeOptions{
-		GatewayURLs:     []string{"ws://g1/ws", "ws://g2/ws"},
-		GatewaySelector: GatewaySelectorRoundRobin,
-		UserID:          1,
-	})
+func TestPasswordTokenSourceLoginAndCache(t *testing.T) {
+	var logins atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/login":
+			logins.Add(1)
+			_, _ = w.Write([]byte(`{"userId":"7","token":"access","refreshToken":"refresh"}`))
+		case "/v1/auth/refresh":
+			_, _ = w.Write([]byte(`{"userId":"7","token":"access-2","refreshToken":"refresh-2"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
 
-	url1 := rt.nextGatewayURL()
-	if !strings.Contains(url1, "g1") {
-		t.Fatalf("expected first URL, got %s", url1)
+	source := NewPasswordTokenSource(server.URL, "alice", "secret", "device")
+	first, err := source.Token(context.Background())
+	if err != nil || first != "access" {
+		t.Fatalf("first token: %q err=%v", first, err)
 	}
-
-	rt.rotateGateway()
-	url2 := rt.nextGatewayURL()
-	if !strings.Contains(url2, "g2") {
-		t.Fatalf("expected second URL after rotation, got %s", url2)
+	second, err := source.Token(context.Background())
+	if err != nil || second != "access" {
+		t.Fatalf("cached token: %q err=%v", second, err)
 	}
-}
-
-// TestGatewayList_Priority verifies GatewayURL > GatewayURLs > discovered.
-func TestGatewayList_Priority(t *testing.T) {
-	if got := gatewayList("ws://explicit/ws", []string{"ws://list/ws"}, []string{"ws://discovered/ws"}); got[0] != "ws://explicit/ws" {
-		t.Fatalf("expected explicit URL priority, got %v", got)
+	if logins.Load() != 1 {
+		t.Fatalf("expected one login, got %d", logins.Load())
 	}
-	if got := gatewayList("", []string{"ws://list/ws"}, []string{"ws://discovered/ws"}); got[0] != "ws://list/ws" {
-		t.Fatalf("expected list URL priority, got %v", got)
-	}
-	if got := gatewayList("", nil, []string{"ws://discovered/ws"}); got[0] != "ws://discovered/ws" {
-		t.Fatalf("expected discovered URL fallback, got %v", got)
+	refreshed, err := source.Refresh(context.Background())
+	if err != nil || refreshed != "access-2" {
+		t.Fatalf("refresh token: %q err=%v", refreshed, err)
 	}
 }

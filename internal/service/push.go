@@ -109,6 +109,24 @@ func (s *PushService) BatchPushToUsers(ctx context.Context, req *pb.BatchPushToU
 	}, nil
 }
 
+// PushRunEventToUser delivers one transient agent run event to all online
+// devices of a user.
+func (s *PushService) PushRunEventToUser(ctx context.Context, req *pb.PushRunEventToUserRequest) (*pb.PushRunEventToUserReply, error) {
+	event := req.GetEvent()
+	if event == nil {
+		return &pb.PushRunEventToUserReply{Success: false}, nil
+	}
+	packet := &pb.Packet{
+		Cmd: pb.Command_CMD_AGENT_RUN_EVENT,
+		Payload: &pb.Packet_AgentRunEvent{
+			AgentRunEvent: event,
+		},
+	}
+	delivered := s.manager.BroadcastToUser(req.GetUserId(), packet)
+	s.log.Debugf("push run event: user_id=%d run_id=%d type=%s delivered=%d", req.GetUserId(), event.GetRunId(), event.GetType(), delivered)
+	return &pb.PushRunEventToUserReply{Success: delivered > 0, DeliveredCount: int32(delivered)}, nil
+}
+
 // PushReceiptToUser delivers a send receipt to all online devices of a user.
 func (s *PushService) PushReceiptToUser(ctx context.Context, req *pb.PushReceiptToUserRequest) (*pb.PushReceiptToUserReply, error) {
 	receipt := req.GetReceipt()

@@ -107,7 +107,7 @@ func main() {
 		// Update with server-assigned metadata (Sent state)
 		msgHandler.ConfirmSent(idx, result)
 		fmt.Printf("  ✅ Sent (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
-			result.ClientMsgID, result.MsgID, result.TopicSeq)
+			result.ClientMessageID, result.MessageID, result.TopicSeq)
 
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -121,7 +121,7 @@ func main() {
 	} else {
 		fmt.Printf("📋 Loaded %d messages from history\n", len(msgs))
 		for _, m := range msgs {
-			fmt.Printf("  - Seq %d: %s [%s]\n", m.TopicSeq, string(m.Content), m.Status.String())
+			fmt.Printf("  - Seq %d: %s [%s]\n", m.TopicSeq, string(m.Content), string(m.Status))
 		}
 	}
 

@@ -28,6 +28,7 @@ type OpenFGA struct{ client *fgaclient.OpenFgaClient }
 type AgentShare struct {
 	Kind   string `json:"kind"`
 	Target string `json:"target"`
+	Role   string `json:"role"`
 }
 
 func NewOpenFGA(apiURL, storeID, modelID string) (*OpenFGA, error) {
@@ -245,6 +246,9 @@ func (a *OpenFGA) SetPlatformAdmin(ctx context.Context, userID int64, enabled bo
 func (a *OpenFGA) CanManageAgent(ctx context.Context, userID, agentID int64) error {
 	return a.check(ctx, user(userID), "can_manage", agent(agentID))
 }
+func (a *OpenFGA) CanOwnAgent(ctx context.Context, userID, agentID int64) error {
+	return a.check(ctx, user(userID), "owner", agent(agentID))
+}
 func (a *OpenFGA) CanViewAgent(ctx context.Context, userID, agentID int64) error {
 	return a.check(ctx, user(userID), "can_view", agent(agentID))
 }
@@ -385,17 +389,60 @@ func agentToolID(agentID int64, tool string) string {
 func (a *OpenFGA) SetAgentOwner(ctx context.Context, agentID, userID int64) error {
 	return a.write(ctx, user(userID), "owner", agent(agentID), false)
 }
-func (a *OpenFGA) SetAgentShare(ctx context.Context, agentID int64, kind, target string, active bool) error {
-	subject, relation := "", ""
+func (a *OpenFGA) SetAgentShare(ctx context.Context, agentID int64, kind, target, role string, active bool) error {
+	if role == "" {
+		role = "viewer"
+	}
+	subject := ""
+	relations := []string{}
 	switch kind {
 	case "user":
-		subject, relation = "user:"+target, "user_grant"
+		subject = "user:" + target
+		switch role {
+		case "viewer":
+			// user_grant is the legacy viewer relation; remove it together
+			// with viewer so pre-role tuples do not linger.
+			relations = []string{"viewer", "user_grant"}
+		case "editor":
+			relations = []string{"editor"}
+		default:
+			return fmt.Errorf("unsupported user role %q", role)
+		}
 	case "group":
-		subject, relation = "group:"+target, "shared_group"
+		subject = "group:" + target
+		switch role {
+		case "viewer":
+			relations = []string{"shared_group"}
+		case "editor":
+			relations = []string{"shared_group_editor"}
+		default:
+			return fmt.Errorf("unsupported group role %q", role)
+		}
 	default:
 		return fmt.Errorf("unsupported sharing kind %q", kind)
 	}
-	return a.write(ctx, subject, relation, agent(agentID), !active)
+	allRelations := relations
+	if kind == "user" {
+		allRelations = []string{"viewer", "user_grant", "editor"}
+	} else {
+		allRelations = []string{"shared_group", "shared_group_editor"}
+	}
+	if active {
+		for _, relation := range allRelations {
+			if relation == relations[0] {
+				continue
+			}
+			_ = a.write(ctx, subject, relation, agent(agentID), true)
+		}
+		return a.write(ctx, subject, relations[0], agent(agentID), false)
+	}
+	var firstErr error
+	for _, relation := range allRelations {
+		if err := a.write(ctx, subject, relation, agent(agentID), true); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func (a *OpenFGA) ListAgentShares(ctx context.Context, agentID int64) ([]AgentShare, error) {
@@ -414,10 +461,14 @@ func (a *OpenFGA) ListAgentShares(ctx context.Context, agentID int64) ([]AgentSh
 		for _, tuple := range result.GetTuples() {
 			key := tuple.GetKey()
 			switch key.GetRelation() {
-			case "user_grant":
-				shares = append(shares, AgentShare{Kind: "user", Target: strings.TrimPrefix(key.GetUser(), "user:")})
+			case "user_grant", "viewer":
+				shares = append(shares, AgentShare{Kind: "user", Target: strings.TrimPrefix(key.GetUser(), "user:"), Role: "viewer"})
+			case "editor":
+				shares = append(shares, AgentShare{Kind: "user", Target: strings.TrimPrefix(key.GetUser(), "user:"), Role: "editor"})
 			case "shared_group":
-				shares = append(shares, AgentShare{Kind: "group", Target: strings.TrimPrefix(key.GetUser(), "group:")})
+				shares = append(shares, AgentShare{Kind: "group", Target: strings.TrimPrefix(key.GetUser(), "group:"), Role: "viewer"})
+			case "shared_group_editor":
+				shares = append(shares, AgentShare{Kind: "group", Target: strings.TrimPrefix(key.GetUser(), "group:"), Role: "editor"})
 			}
 		}
 		continuation = result.GetContinuationToken()

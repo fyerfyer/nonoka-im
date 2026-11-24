@@ -25,6 +25,16 @@ interface ChatStore {
     clientMsgId: string,
     patch: Partial<ChatMessage>
   ) => void;
+  upsertStreamingMessage: (topic: string, msg: ChatMessage) => void;
+  updateStreamMessage: (
+    topic: string,
+    runId: number,
+    patch: Partial<ChatMessage>
+  ) => void;
+  appendStreamDelta: (topic: string, runId: number, delta: string) => void;
+  removeMessage: (topic: string, clientMsgId: string) => void;
+  hasMessageID: (topic: string, msgId: number) => boolean;
+  hasClientMessageID: (topic: string, clientMessageId: string) => boolean;
   recallMessage: (topic: string, topicSeq: number, msgId?: number) => void;
   setMessagesLoading: (topic: string, flag: boolean) => void;
   prependMessages: (topic: string, msgs: ChatMessage[], hasMore: boolean) => void;
@@ -99,7 +109,7 @@ const initialState = {
   mentionedTopics: new Set<string>(),
 };
 
-export const useChatStore = create<ChatStore>((set) => ({
+export const useChatStore = create<ChatStore>((set, get) => ({
   ...initialState,
   setConversations: (list) =>
     set((state) => {
@@ -171,6 +181,70 @@ export const useChatStore = create<ChatStore>((set) => ({
       }
       return { conversations: map };
     }),
+  upsertStreamingMessage: (topic, msg) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = ensureConversation(map, topic);
+      if (conv.messages.some((m) => m.clientMsgId === msg.clientMsgId)) {
+        return state;
+      }
+      map.set(topic, {
+        ...conv,
+        messages: [...conv.messages, msg],
+        lastMsgPreview: msg.content || "Agent is responding…",
+        lastMsgAt: msg.timestamp,
+      });
+      return { conversations: map };
+    }),
+  updateStreamMessage: (topic, runId, patch) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const idx = conv.messages.findIndex((m) => m.runId === runId);
+      if (idx < 0) return state;
+      const messages = [...conv.messages];
+      messages[idx] = { ...messages[idx], ...patch };
+      map.set(topic, { ...conv, messages });
+      return { conversations: map };
+    }),
+  appendStreamDelta: (topic, runId, delta) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const idx = conv.messages.findIndex((m) => m.runId === runId);
+      if (idx < 0) return state;
+      const messages = [...conv.messages];
+      const next = { ...messages[idx], content: messages[idx].content + delta };
+      messages[idx] = next;
+      map.set(topic, {
+        ...conv,
+        messages,
+        lastMsgPreview: next.content.slice(-120) || "Agent is responding…",
+        lastMsgAt: next.timestamp,
+      });
+      return { conversations: map };
+    }),
+  removeMessage: (topic, clientMsgId) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const messages = conv.messages.filter((m) => m.clientMsgId !== clientMsgId);
+      if (messages.length === conv.messages.length) return state;
+      map.set(topic, { ...conv, messages });
+      return { conversations: map };
+    }),
+  hasMessageID: (topic, msgId) => {
+    const conv = get().conversations.get(topic);
+    return !!conv?.messages.some((m) => Number(m.msgId) === msgId);
+  },
+  hasClientMessageID: (topic, clientMessageId) => {
+    if (!clientMessageId) return false;
+    const conv = get().conversations.get(topic);
+    return !!conv?.messages.some((m) => m.clientMsgId === clientMessageId);
+  },
   recallMessage: (topic, topicSeq, msgId) => set((state) => {
     const map = new Map(state.conversations); const conv = map.get(topic); if (!conv) return state;
     const messages = conv.messages.map((m) => m.topicSeq !== undefined && (Number(m.topicSeq) === topicSeq || (!!msgId && Number(m.msgId) === msgId)) ? { ...m, content: "This message was recalled", status: "recalled" as const, recalled: true } : m);

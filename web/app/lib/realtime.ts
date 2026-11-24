@@ -1,8 +1,9 @@
 import { api } from "@/lib/proto/im";
 import { dispatchApi, refreshAuth, forceReLogin } from "@/lib/api";
+import type { RunEvent } from "@/lib/api/agents";
 import { generateClientMsgId } from "@/lib/uuid";
 
-const { Packet, Command } = api.im.v1;
+const { Packet, Command, AgentRunEventType } = api.im.v1;
 
 export type RealtimeEventType =
   | "connected"
@@ -14,6 +15,7 @@ export type RealtimeEventType =
   | "deliveryReceipt"
   | "readReceipt"
   | "recall"
+  | "agentRunEvent"
   | "error";
 
 export interface RealtimeMessage {
@@ -51,6 +53,19 @@ export interface ReadReceiptPayload {
 export interface RecallPayload { topic: string; topicSeq: number; msgId: number; senderId: number; recalledAt: number; }
 
 type PacketType = InstanceType<typeof Packet>;
+
+const RUN_EVENT_TYPES: Record<number, RunEvent["type"]> = {
+  [AgentRunEventType.AGENT_RUN_STARTED]: "started",
+  [AgentRunEventType.AGENT_RUN_DELTA]: "delta",
+  [AgentRunEventType.AGENT_RUN_TOOL_STARTED]: "tool_started",
+  [AgentRunEventType.AGENT_RUN_TOOL_FINISHED]: "tool_finished",
+  [AgentRunEventType.AGENT_RUN_APPROVAL_REQUIRED]: "approval_required",
+  [AgentRunEventType.AGENT_RUN_APPROVAL_RESOLVED]: "approval_resolved",
+  [AgentRunEventType.AGENT_RUN_COMPLETED]: "completed",
+  [AgentRunEventType.AGENT_RUN_FAILED]: "failed",
+  [AgentRunEventType.AGENT_RUN_CANCELLED]: "cancelled",
+  [AgentRunEventType.AGENT_RUN_HEARTBEAT]: "heartbeat",
+};
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const HEARTBEAT_TIMEOUT_MS = 10000;
@@ -409,6 +424,37 @@ export class RealtimeClient extends EventTarget {
       if (Number(pkt.cmd) === Command.CMD_RECALL && pkt.recallNotice) {
         const r = pkt.recallNotice;
         this.dispatch("recall", { topic: r.topic, topicSeq: Number(r.topicSeq), msgId: Number(r.msgId), senderId: Number(r.senderId), recalledAt: Number(r.recalledAt) } as RecallPayload);
+        return;
+      }
+
+      if (Number(pkt.cmd) === Command.CMD_AGENT_RUN_EVENT && pkt.agentRunEvent) {
+        const e = pkt.agentRunEvent;
+        const type = RUN_EVENT_TYPES[Number(e.type)] || "heartbeat";
+        this.dispatch("agentRunEvent", {
+          runId: Number(e.runId),
+          seq: Number(e.seq),
+          type,
+          topic: e.topic,
+          agentId: Number(e.agentId),
+          botUserId: Number(e.botUserId),
+          actorUserId: Number(e.actorUserId),
+          triggerMsgId: Number(e.triggerMsgId) || undefined,
+          test: !!e.test,
+          delta: e.delta || undefined,
+          tool: e.tool || undefined,
+          toolCallId: e.toolCallId || undefined,
+          summary: e.summary || undefined,
+          status: e.status || undefined,
+          approvalId: Number(e.approvalId) || undefined,
+          replyMsgId: Number(e.replyMsgId) || undefined,
+          clientMessageId: e.clientMsgId || undefined,
+          errorCode: e.errorCode || undefined,
+          errorClass: e.errorClass || undefined,
+          retryable: !!e.retryable,
+          inputTokens: Number(e.inputTokens) || undefined,
+          outputTokens: Number(e.outputTokens) || undefined,
+          timestampMs: Number(e.timestampMs) || undefined,
+        } as RunEvent);
         return;
       }
 

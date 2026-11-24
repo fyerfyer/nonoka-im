@@ -25,7 +25,7 @@ export function useAuth() {
     async (username: string, password: string) => {
       try {
         const reply = await authApi.login({ username, password });
-        const user: User = { userId: reply.userId, username };
+        const user: User = { userId: Number(reply.userId), username };
         store.login(reply.token, reply.refreshToken, user);
         toast.success("Login successful");
         router.replace("/chat");

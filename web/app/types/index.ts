@@ -18,6 +18,20 @@ export interface GroupMember {
 
 export type MessageStatus = "sending" | "sent" | "delivered" | "read" | "failed" | "recalled";
 
+export interface ToolCallState {
+  tool: string;
+  toolCallId?: string;
+  summary?: string;
+  status?: string;
+}
+
+export interface ApprovalState {
+  approvalId: number;
+  tool: string;
+  summary: string;
+  status: string;
+}
+
 export interface ChatMessage {
   clientMsgId: string;
   msgId?: number;
@@ -29,6 +43,20 @@ export interface ChatMessage {
   topicSeq?: number;
   status: MessageStatus;
   recalled?: boolean;
+  // Client-only streaming state. These fields never come from the server.
+  runId?: number;
+  streaming?: boolean;
+  streamStatus?:
+    | "starting"
+    | "streaming"
+    | "waiting_approval"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  toolCalls?: ToolCallState[];
+  approval?: ApprovalState;
+  errorCode?: string;
+  errorClass?: string;
 }
 
 export interface Conversation {

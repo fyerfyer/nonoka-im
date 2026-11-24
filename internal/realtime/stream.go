@@ -8,16 +8,39 @@ import "context"
 type RunEventType string
 
 const (
-	RunStarted        RunEventType = "started"
-	RunDelta          RunEventType = "delta"
-	RunToolStarted    RunEventType = "tool_started"
-	RunToolFinished   RunEventType = "tool_finished"
-	RunApprovalNeeded RunEventType = "approval_required"
-	RunCompleted      RunEventType = "completed"
-	RunFailed         RunEventType = "failed"
-	RunCancelled      RunEventType = "cancelled"
-	RunHeartbeat      RunEventType = "heartbeat"
+	RunStarted          RunEventType = "started"
+	RunDelta            RunEventType = "delta"
+	RunToolStarted      RunEventType = "tool_started"
+	RunToolFinished     RunEventType = "tool_finished"
+	RunApprovalNeeded   RunEventType = "approval_required"
+	RunApprovalResolved RunEventType = "approval_resolved"
+	RunCompleted        RunEventType = "completed"
+	RunFailed           RunEventType = "failed"
+	RunCancelled        RunEventType = "cancelled"
+	RunHeartbeat        RunEventType = "heartbeat"
 )
+
+// IsTerminal reports whether the event closes a run stream.
+func (t RunEventType) IsTerminal() bool {
+	switch t {
+	case RunCompleted, RunFailed, RunCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsDurable reports whether the event should be persisted to the run timeline.
+// Deltas and heartbeats are intentionally transient.
+func (t RunEventType) IsDurable() bool {
+	switch t {
+	case RunStarted, RunToolStarted, RunToolFinished, RunApprovalNeeded,
+		RunApprovalResolved, RunCompleted, RunFailed, RunCancelled:
+		return true
+	default:
+		return false
+	}
+}
 
 // RunEvent is the single event shape carried by the realtime run stream. The
 // pair (RunID, Seq) is the ordering and deduplication key.
@@ -27,25 +50,48 @@ type RunEvent struct {
 	Type    RunEventType `json:"type"`
 	Topic   string       `json:"topic"`
 	AgentID int64        `json:"agentId"`
+	// BotUserID identifies the agent's sender in the chat UI.
+	BotUserID    int64 `json:"botUserId"`
+	ActorUserID  int64 `json:"actorUserId"`
+	TriggerMsgID int64 `json:"triggerMsgId,omitempty"`
+	// Test marks playground runs whose events must not create chat history.
+	Test bool `json:"test,omitempty"`
 
 	// Delta is set for RunDelta only.
 	Delta string `json:"delta,omitempty"`
 	// Tool fields are set for tool events.
-	Tool    string `json:"tool,omitempty"`
-	Summary string `json:"summary,omitempty"`
-	// ApprovalID is set for RunApprovalNeeded.
+	Tool       string `json:"tool,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Status     string `json:"status,omitempty"`
+	// ApprovalID is set for approval events.
 	ApprovalID uint64 `json:"approvalId,omitempty"`
-	// ReplyMsgID and Usage are set for RunCompleted.
-	ReplyMsgID   int64  `json:"replyMsgId,omitempty"`
-	ErrorCode    string `json:"errorCode,omitempty"`
-	InputTokens  int    `json:"inputTokens,omitempty"`
-	OutputTokens int    `json:"outputTokens,omitempty"`
-	TimestampMs  int64  `json:"timestampMs"`
+	// ReplyMsgID and ClientMessageID identify the final IM message. The HTTP
+	// send path is asynchronous, so ClientMessageID is the reliable join key
+	// even when the worker has not observed the assigned msg_id yet.
+	ReplyMsgID      int64  `json:"replyMsgId,omitempty"`
+	ClientMessageID string `json:"clientMessageId,omitempty"`
+	ErrorCode       string `json:"errorCode,omitempty"`
+	ErrorClass      string `json:"errorClass,omitempty"`
+	Retryable       bool   `json:"retryable,omitempty"`
+	InputTokens     int    `json:"inputTokens,omitempty"`
+	OutputTokens    int    `json:"outputTokens,omitempty"`
+	TimestampMs     int64  `json:"timestampMs"`
+}
+
+// RunEventStore assigns per-run sequence numbers and keeps a bounded replay
+// buffer. Implementations must make (run_id, seq) unique and monotonic.
+type RunEventStore interface {
+	Append(ctx context.Context, event RunEvent) (RunEvent, error)
+	Since(ctx context.Context, runID, afterSeq uint64) ([]RunEvent, error)
+}
+
+// RunEventSink delivers run events to one or more live users.
+type RunEventSink interface {
+	Publish(ctx context.Context, event RunEvent, recipients []int64) error
 }
 
 // RunPublisher delivers transient run events to one user's live connections.
-// Phase 4 implements it over the Gateway gRPC push API; Phase 0 only fixes the
-// contract so callers and SDK can be written against a stable shape.
 type RunPublisher interface {
 	PublishRunEvent(ctx context.Context, userID int64, event RunEvent) error
 }

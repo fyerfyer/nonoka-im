@@ -38,11 +38,36 @@ func (s *AgentHTTP) RunDetail(c khttp.Context) error {
 		if err != nil || id == 0 {
 			return invalidAgentInput("invalid run id")
 		}
-		run, err := s.runs.Get(ctx, extractUserIDFromContext(ctx), id)
+		run, steps, tools, err := s.runs.Get(ctx, extractUserIDFromContext(ctx), id)
 		if err != nil {
 			return err
 		}
-		writeAgentJSON(w, http.StatusOK, runView(run))
+		view := runView(run)
+		view.Steps = runStepViews(steps)
+		view.ToolInvocations = toolInvocationViews(tools)
+		writeAgentJSON(w, http.StatusOK, view)
+		return nil
+	})
+}
+
+func (s *AgentHTTP) RunEvents(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		id, err := strconv.ParseUint(c.Vars().Get("id"), 10, 64)
+		if err != nil || id == 0 {
+			return invalidAgentInput("invalid run id")
+		}
+		afterSeq, _ := strconv.ParseUint(r.URL.Query().Get("afterSeq"), 10, 64)
+		rows, err := s.runs.Events(ctx, extractUserIDFromContext(ctx), id, afterSeq)
+		if err != nil {
+			return err
+		}
+		next := afterSeq
+		for _, row := range rows {
+			if row.Seq > next {
+				next = row.Seq
+			}
+		}
+		writeAgentJSON(w, http.StatusOK, map[string]any{"events": rows, "nextSeq": next})
 		return nil
 	})
 }

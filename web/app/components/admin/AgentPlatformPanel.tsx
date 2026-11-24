@@ -11,7 +11,7 @@ import {
   type SkillVersion,
   type CapabilityPreset,
   type ToolDefinition,
-} from "@/lib/api";
+} from "@/lib/api/agents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +32,7 @@ interface PlatformPanelProps {
   onChanged?: () => void;
 }
 
-export function PlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
+export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
   const [services, setServices] = useState<ModelService[]>(catalog.services);
   const [canManage, setCanManage] = useState(false);
   const [servers, setServers] = useState<MCPServer[]>(catalog.mcps);

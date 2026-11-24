@@ -121,6 +121,7 @@ services:
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       BIFROST_URL: http://bifrost:8080
       BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
       AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
@@ -150,6 +151,7 @@ services:
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       BIFROST_URL: http://bifrost:8080
       BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
       AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
@@ -191,8 +193,11 @@ services:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
       MONGODB_DATABASE: nonoka_im
+      REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:19092
       IM_HTTP_URL: http://nginx
+      GATEWAY_GRPC_ADDR: gateway-1:9002
+      INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}

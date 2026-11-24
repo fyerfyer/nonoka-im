@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -124,18 +126,29 @@ func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool) callbacks.Hand
 			// a model retry that eventually succeeds would leave a stale marker
 			// that misclassifies a later tool error as a model error.
 			modelError.Store(false)
-			if converted := model.ConvCallbackOutput(output); converted != nil {
-				if tokens := converted.TokenUsage; tokens != nil {
-					usage.InputTokens += tokens.PromptTokens
-					usage.OutputTokens += tokens.CompletionTokens
-					usage.TotalTokens += tokens.TotalTokens
-				} else if converted.Message != nil && converted.Message.ResponseMeta != nil && converted.Message.ResponseMeta.Usage != nil {
-					tokens := converted.Message.ResponseMeta.Usage
-					usage.InputTokens += tokens.PromptTokens
-					usage.OutputTokens += tokens.CompletionTokens
-					usage.TotalTokens += tokens.TotalTokens
-				}
+			recordModelUsage(usage, output)
+			if span, ok := ctx.Value(spanContextKey{}).(trace.Span); ok {
+				span.End()
 			}
+			return ctx
+		}).
+		OnEndWithStreamOutputFn(func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
+			if info.Component != components.ComponentOfChatModel {
+				output.Close()
+				return ctx
+			}
+			modelError.Store(false)
+			for {
+				chunk, err := output.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					break
+				}
+				recordModelUsage(usage, chunk)
+			}
+			output.Close()
 			if span, ok := ctx.Value(spanContextKey{}).(trace.Span); ok {
 				span.End()
 			}
@@ -152,4 +165,23 @@ func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool) callbacks.Hand
 			}
 			return ctx
 		}).Build()
+}
+
+func recordModelUsage(usage *port.Usage, output callbacks.CallbackOutput) {
+	converted := model.ConvCallbackOutput(output)
+	if converted == nil {
+		return
+	}
+	if tokens := converted.TokenUsage; tokens != nil {
+		usage.InputTokens += tokens.PromptTokens
+		usage.OutputTokens += tokens.CompletionTokens
+		usage.TotalTokens += tokens.TotalTokens
+		return
+	}
+	if converted.Message != nil && converted.Message.ResponseMeta != nil && converted.Message.ResponseMeta.Usage != nil {
+		tokens := converted.Message.ResponseMeta.Usage
+		usage.InputTokens += tokens.PromptTokens
+		usage.OutputTokens += tokens.CompletionTokens
+		usage.TotalTokens += tokens.TotalTokens
+	}
 }

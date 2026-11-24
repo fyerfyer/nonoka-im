@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { agentApi } from "@/lib/api";
+import { agentApi } from "@/lib/api/agents";
 
 export interface AgentName {
   name: string;

@@ -33,6 +33,10 @@ func ApplyEnv(bc *conf.Bootstrap) Secrets {
 	setString(&bc.Data.Database.Source, "POSTGRES_DSN")
 	setString(&bc.Data.Mongodb.Uri, "MONGODB_URI")
 	setString(&bc.Data.Mongodb.Database, "MONGODB_DATABASE")
+	if bc.Data.Redis == nil {
+		bc.Data.Redis = &conf.Data_Redis{}
+	}
+	setString(&bc.Data.Redis.Addr, "REDIS_ADDR")
 	if brokers := splitList(os.Getenv("KAFKA_BROKERS")); len(brokers) > 0 {
 		bc.Data.Kafka.Brokers = brokers
 	}

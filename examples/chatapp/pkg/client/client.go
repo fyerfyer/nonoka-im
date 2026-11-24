@@ -3,169 +3,181 @@ package client
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"nonoka-im/pkg/sdk"
 )
 
-// ChatClient wraps the SDK client with higher-level chat operations.
-// With the refactored SDK, we no longer need a custom AuthClient —
-// sdk.Client.Auth provides Register/Login out of the box.
+// ChatClient wraps the SDK with the small set of high-level operations the demo
+// needs. Authentication and resource modules come from one SDK client.
 type ChatClient struct {
+	mu        sync.RWMutex
 	sdkClient *sdk.Client
 	config    ChatConfig
+	token     string
+	userID    int64
 
-	// OnSendReceipt is called when the server confirms a message with its
-	// assigned msg_id and topic_seq. The application layer can use this to
-	// update local message state.
-	OnSendReceipt func(clientMsgID string, msgID int64, topic string, topicSeq uint64)
-
-	// OnDeliveryReceipt is called when the server reports that a message
-	// was delivered to the recipient's device.
+	// OnSendReceipt and OnDeliveryReceipt bridge realtime receipts into the
+	// demo's local message store.
+	OnSendReceipt     func(clientMsgID string, msgID int64, topic string, topicSeq uint64)
 	OnDeliveryReceipt func(topic string, topicSeq uint64, msgID int64)
 }
 
-// ChatConfig holds configuration for the chat client.
 type ChatConfig struct {
 	BaseURL           string
-	GatewayURL        string // optional: empty means auto-resolve via dispatch
+	GatewayURL        string
 	DeviceID          string
 	RequestTimeout    time.Duration
 	HeartbeatInterval time.Duration
 }
 
-// NewChatClient creates a new chat client.
 func NewChatClient(cfg ChatConfig) *ChatClient {
-	return &ChatClient{
-		config: cfg,
-	}
+	return &ChatClient{config: cfg}
 }
 
-// Register creates a new user account via SDK AuthService.
 func (c *ChatClient) Register(ctx context.Context, username, password string) error {
-	if c.sdkClient == nil {
-		c.initSDK("")
+	client, err := sdk.New(sdk.Config{BaseURL: c.config.BaseURL, Timeout: c.config.RequestTimeout})
+	if err != nil {
+		return err
 	}
-	_, err := c.sdkClient.Auth.Register(ctx, username, password)
+	defer client.Close()
+	_, err = client.Auth.Register(ctx, username, password)
 	return err
 }
 
-// Login authenticates a user and returns token + userID.
 func (c *ChatClient) Login(ctx context.Context, username, password string) (string, int64, error) {
-	if c.sdkClient == nil {
-		c.initSDK("")
+	client, err := sdk.New(sdk.Config{BaseURL: c.config.BaseURL, Timeout: c.config.RequestTimeout})
+	if err != nil {
+		return "", 0, err
 	}
-	result, err := c.sdkClient.Auth.Login(ctx, username, password)
+	defer client.Close()
+	pair, err := client.Auth.Login(ctx, username, password, c.config.DeviceID)
 	if err != nil {
 		return "", 0, fmt.Errorf("login failed: %w", err)
 	}
-	return result.Token, result.UserID, nil
+	c.mu.Lock()
+	c.token, c.userID = pair.Token, pair.UserID
+	c.mu.Unlock()
+	return pair.Token, pair.UserID, nil
 }
 
-// Connect establishes a WebSocket connection.
-// If GatewayURL is empty in config, the SDK auto-resolves it via DispatchService.
 func (c *ChatClient) Connect(ctx context.Context, token string) error {
-	c.initSDK(token)
-	if err := c.sdkClient.Connect(ctx); err != nil {
+	c.mu.Lock()
+	c.token = token
+	c.mu.Unlock()
+	if err := c.initSDKLocked(); err != nil {
+		return err
+	}
+	c.mu.RLock()
+	client := c.sdkClient
+	c.mu.RUnlock()
+	if err := client.Connect(ctx); err != nil {
 		return fmt.Errorf("sdk connect failed: %w", err)
 	}
+	go c.consumeEvents(client)
 	return nil
 }
 
-// initSDK lazily initializes the underlying SDK client.
-// Uses UpdateToken to avoid recreating the client when token changes.
-func (c *ChatClient) initSDK(token string) {
-	// If client already exists, just update the token.
+func (c *ChatClient) initSDKLocked() error {
 	if c.sdkClient != nil {
-		c.sdkClient.UpdateToken(token)
-		return
+		return nil
 	}
-	c.sdkClient = sdk.NewClient(sdk.Options{
-		BaseURL:           c.config.BaseURL,
-		GatewayURL:        c.config.GatewayURL,
-		Token:             token,
-		DeviceID:          c.config.DeviceID,
-		RequestTimeout:    c.config.RequestTimeout,
-		HeartbeatInterval: c.config.HeartbeatInterval,
-		AutoReconnect:     true,
-		AutoAck:           true,
-		OnConnect: func() {
-			fmt.Println("[SDK] Connected and authenticated")
+	realtime := sdk.DefaultRealtimeConfig()
+	realtime.DeviceID = c.config.DeviceID
+	realtime.HeartbeatInterval = c.config.HeartbeatInterval
+	if c.config.GatewayURL != "" {
+		realtime.GatewayURLs = []string{c.config.GatewayURL}
+	}
+	client, err := sdk.New(
+		sdk.Config{
+			BaseURL: c.config.BaseURL, TokenSource: sdk.StaticToken(c.token),
+			Timeout: c.config.RequestTimeout, Realtime: realtime,
 		},
-		OnDisconnect: func(reason error) {
-			fmt.Printf("[SDK] Disconnected: %v\n", reason)
-		},
-		OnSendReceipt: func(clientMsgID string, msgID int64, topic string, topicSeq uint64) {
-			if c.OnSendReceipt != nil {
-				c.OnSendReceipt(clientMsgID, msgID, topic, topicSeq)
-			}
-		},
-		OnDeliveryReceipt: func(topic string, topicSeq uint64, msgID int64) {
-			if c.OnDeliveryReceipt != nil {
-				c.OnDeliveryReceipt(topic, topicSeq, msgID)
-			}
-		},
-	})
+	)
+	if err != nil {
+		return err
+	}
+	c.sdkClient = client
+	return nil
 }
 
-// Close closes all client resources.
+func (c *ChatClient) consumeEvents(client *sdk.Client) {
+	for event := range client.Realtime.Events() {
+		switch event.Type {
+		case sdk.RealtimeSendReceipt:
+			if event.SendReceipt != nil && c.OnSendReceipt != nil {
+				c.OnSendReceipt(event.SendReceipt.ClientMessageID, event.SendReceipt.MessageID, event.SendReceipt.Topic, event.SendReceipt.TopicSeq)
+			}
+		case sdk.RealtimeDeliveryReceipt:
+			if event.DeliveryReceipt != nil && c.OnDeliveryReceipt != nil {
+				c.OnDeliveryReceipt(event.DeliveryReceipt.Topic, event.DeliveryReceipt.TopicSeq, event.DeliveryReceipt.MessageID)
+			}
+		case sdk.RealtimeConnected:
+			fmt.Println("[SDK] Connected")
+		case sdk.RealtimeDisconnected:
+			fmt.Printf("[SDK] Disconnected: %v\n", event.Err)
+		case sdk.RealtimeError:
+			if event.Err != nil {
+				fmt.Printf("[SDK] Realtime error: %v\n", event.Err)
+			}
+		}
+	}
+}
+
 func (c *ChatClient) Close() error {
-	if c.sdkClient != nil {
-		return c.sdkClient.Close()
+	c.mu.Lock()
+	client := c.sdkClient
+	c.sdkClient = nil
+	c.mu.Unlock()
+	if client != nil {
+		return client.Close()
 	}
 	return nil
 }
 
-// SDK returns the underlying SDK client for advanced usage.
 func (c *ChatClient) SDK() *sdk.Client {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.sdkClient
 }
 
-// IsConnected returns true if the client is connected.
 func (c *ChatClient) IsConnected() bool {
-	if c.sdkClient == nil {
-		return false
-	}
-	return c.sdkClient.IsConnected()
+	client := c.SDK()
+	return client != nil && client.IsConnected()
 }
 
-// IsAuthed returns true if the client is authenticated.
 func (c *ChatClient) IsAuthed() bool {
-	if c.sdkClient == nil || c.sdkClient.Realtime == nil {
-		return false
-	}
-	return c.sdkClient.Realtime.IsAuthed()
+	client := c.SDK()
+	return client != nil && client.IsAuthed()
 }
 
-// ConnectionState returns the current connection state string.
 func (c *ChatClient) ConnectionState() string {
-	if c.sdkClient == nil || c.sdkClient.Realtime == nil {
+	client := c.SDK()
+	if client == nil {
 		return "uninitialized"
 	}
-	return string(c.sdkClient.Realtime.State())
+	return client.ConnectionState()
 }
 
-// UserID returns the authenticated user ID.
 func (c *ChatClient) UserID() int64 {
-	if c.sdkClient == nil {
-		return 0
-	}
-	return c.sdkClient.UserID()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.userID
 }
 
-// SendText sends a text message to a topic via Conversation.
-func (c *ChatClient) SendText(ctx context.Context, topic string, text string) (*sdk.SendResult, error) {
-	if c.sdkClient == nil {
+func (c *ChatClient) SendText(ctx context.Context, topic, text string) (*sdk.SendResult, error) {
+	client := c.SDK()
+	if client == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
-	conv := c.sdkClient.Conversations.Get(topic)
-	return conv.SendText(ctx, text)
+	return client.Messages.SendText(ctx, topic, text)
 }
 
-// GetConversation returns a conversation for the given topic.
-func (c *ChatClient) GetConversation(topic string) *sdk.Conversation {
-	if c.sdkClient == nil {
+func (c *ChatClient) GetConversation(topic string) *sdk.ConversationClient {
+	client := c.SDK()
+	if client == nil {
 		return nil
 	}
-	return c.sdkClient.Conversations.Get(topic)
+	return client.Conversations.Get(topic)
 }

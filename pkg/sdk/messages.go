@@ -1,0 +1,218 @@
+package sdk
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+
+	v1 "nonoka-im/api/im/v1"
+
+	"github.com/google/uuid"
+)
+
+type cachedSend struct {
+	result  *SendResult
+	expires time.Time
+}
+
+type MessagesResource struct {
+	proto  v1.MessageServiceHTTPClient
+	client *Client
+
+	mu    sync.Mutex
+	cache map[string]cachedSend
+}
+
+// Send persists one message with a stable client message ID. Network/429/5xx
+// failures are retried with the same ID, so the server deduplicates them.
+func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResult, error) {
+	clientID := req.ClientMessageID
+	if clientID == "" {
+		clientID = uuid.NewString()
+	}
+	if req.Type == MessageTypeUnspecified {
+		req.Type = MessageTypeText
+	}
+	if cached := r.cached(clientID); cached != nil {
+		return cached, nil
+	}
+	if r.client != nil && r.client.Realtime != nil && r.client.Realtime.IsConnected() {
+		result, err := r.sendWebSocket(ctx, req, clientID)
+		if err == nil && result != nil && result.MessageID != 0 {
+			r.remember(clientID, result)
+		}
+		return result, err
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<attempt) * 250 * time.Millisecond
+			var apiErr *APIError
+			if errors.As(lastErr, &apiErr) && apiErr.RetryAfter > 0 {
+				delay = apiErr.RetryAfter
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		reply, err := r.proto.SendMessage(ctx, &v1.SendMessageRequest{
+			Topic: req.Topic, MsgType: v1.MsgType(req.Type), Content: req.Content,
+			ClientMsgId: clientID, MentionedUserIds: req.MentionedUserIDs,
+		})
+		if err == nil {
+			result := &SendResult{
+				ClientMessageID: reply.GetClientMsgId(), MessageID: reply.GetMsgId(),
+				Timestamp: reply.GetTimestamp(), TopicSeq: reply.GetTopicSeq(),
+			}
+			r.remember(clientID, result)
+			return result, nil
+		}
+		lastErr = apiErrorFromKratos(err)
+		var apiErr *APIError
+		if !errors.As(lastErr, &apiErr) || !apiErr.Retryable {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
+}
+
+func (r *MessagesResource) SendText(ctx context.Context, topic, text string) (*SendResult, error) {
+	return r.Send(ctx, SendRequest{Topic: topic, Type: MessageTypeText, Content: []byte(text)})
+}
+
+func (r *MessagesResource) SendImage(ctx context.Context, topic, url string) (*SendResult, error) {
+	return r.Send(ctx, SendRequest{Topic: topic, Type: MessageTypeImage, Content: []byte(url)})
+}
+
+func (r *MessagesResource) SendFile(ctx context.Context, topic, url string) (*SendResult, error) {
+	return r.Send(ctx, SendRequest{Topic: topic, Type: MessageTypeFile, Content: []byte(url)})
+}
+
+func (r *MessagesResource) Pull(ctx context.Context, req PullRequest) (*PullResult, error) {
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	reply, err := r.proto.PullMessages(ctx, &v1.PullRequest{
+		Topic: req.Topic, LastSeq: req.LastSeq, Limit: req.Limit, EndSeq: req.EndSeq,
+	})
+	if err != nil {
+		return nil, apiErrorFromKratos(err)
+	}
+	out := make([]*Message, 0, len(reply.GetMessages()))
+	for _, item := range reply.GetMessages() {
+		out = append(out, &Message{
+			ID: item.GetMsgId(), Topic: item.GetTopic(), SenderID: item.GetSenderId(),
+			Type: MessageType(item.GetMsgType()), Content: item.GetContent(),
+			Timestamp: item.GetTimestamp(), TopicSeq: item.GetTopicSeq(),
+			ClientMessageID: item.GetClientMsgId(), Recalled: item.GetRecalled(),
+			Status: MessageStatusDelivered,
+		})
+	}
+	return &PullResult{Messages: out, HasMore: reply.GetHasMore(), NextSeq: reply.GetNextSeq()}, nil
+}
+
+// sendWebSocket publishes through the live connection and waits for the
+// server's send receipt, which carries the durable msg_id and topic_seq.
+func (r *MessagesResource) sendWebSocket(ctx context.Context, req SendRequest, clientID string) (*SendResult, error) {
+	events, cancel := r.client.Realtime.Subscribe()
+	defer cancel()
+	packet := &v1.Packet{
+		Cmd: v1.Command_CMD_PUBLISH, Seq: r.client.Realtime.nextSeq(),
+		Payload: &v1.Packet_SendReq{SendReq: &v1.SendMessageRequest{
+			Topic: req.Topic, MsgType: v1.MsgType(req.Type), Content: req.Content,
+			ClientMsgId: clientID, MentionedUserIds: req.MentionedUserIDs,
+		}},
+	}
+	if _, err := r.client.Realtime.request(ctx, packet, 5*time.Second); err != nil {
+		return nil, err
+	}
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+			if result := r.lookupSent(ctx, req.Topic, clientID); result != nil {
+				return result, nil
+			}
+			return &SendResult{ClientMessageID: clientID, Timestamp: time.Now().Unix()}, nil
+		case event, ok := <-events:
+			if !ok {
+				return nil, ErrConnectionClosed
+			}
+			if event.Type == RealtimeSendReceipt && event.SendReceipt != nil && event.SendReceipt.ClientMessageID == clientID {
+				return &SendResult{
+					ClientMessageID: event.SendReceipt.ClientMessageID,
+					MessageID:       event.SendReceipt.MessageID,
+					TopicSeq:        event.SendReceipt.TopicSeq,
+					Timestamp:       event.SendReceipt.Timestamp,
+				}, nil
+			}
+		}
+	}
+}
+
+func (r *MessagesResource) cached(clientID string) *SendResult {
+	if clientID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.cache[clientID]
+	if !ok || time.Now().After(entry.expires) {
+		if ok {
+			delete(r.cache, clientID)
+		}
+		return nil
+	}
+	copy := *entry.result
+	return &copy
+}
+
+func (r *MessagesResource) remember(clientID string, result *SendResult) {
+	if clientID == "" || result == nil || result.MessageID == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cache == nil {
+		r.cache = map[string]cachedSend{}
+	}
+	if len(r.cache) > 4096 {
+		now := time.Now()
+		for key, entry := range r.cache {
+			if now.After(entry.expires) {
+				delete(r.cache, key)
+			}
+		}
+	}
+	r.cache[clientID] = cachedSend{result: result, expires: time.Now().Add(30 * time.Second)}
+}
+
+// lookupSent is a fallback for a lost send receipt. The message may already be
+// durably persisted even when the realtime receipt was dropped.
+func (r *MessagesResource) lookupSent(ctx context.Context, topic, clientID string) *SendResult {
+	for attempt := 0; attempt < 15; attempt++ {
+		page, err := r.Pull(ctx, PullRequest{Topic: topic, Limit: 50})
+		if err == nil {
+			for _, message := range page.Messages {
+				if message.ClientMessageID == clientID && message.ID != 0 {
+					return &SendResult{
+						ClientMessageID: clientID, MessageID: message.ID,
+						TopicSeq: message.TopicSeq, Timestamp: message.Timestamp,
+					}
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return nil
+}

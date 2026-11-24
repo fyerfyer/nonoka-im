@@ -194,20 +194,14 @@ func TestFile_MediaMessageEndToEnd(t *testing.T) {
 	}
 	topic := fmt.Sprintf("p2p_%d_%d", user1, user2)
 
-	sender := sdk.NewClient(sdk.Options{
-		GatewayURL:        testWSURL,
-		Token:             token1,
-		DeviceID:          "media-sender",
-		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    15 * time.Second,
-	})
+	sender := newTestSDKClient(t, token1, "media-sender")
 	defer sender.Close()
 	if err := sender.Connect(ctx); err != nil {
 		t.Fatalf("sender connect failed: %v", err)
 	}
 
 	meta := `{"url":"/v1/files/abc123","name":"pic.png","size":123,"mime":"image/png"}`
-	if _, err := sender.SendMessage(ctx, topic, v1.MsgType_MSG_TYPE_IMAGE, []byte(meta)); err != nil {
+	if _, err := sender.Messages.Send(ctx, sdk.SendRequest{Topic: topic, Type: sdk.MessageTypeImage, Content: []byte(meta)}); err != nil {
 		t.Fatalf("send image message failed: %v", err)
 	}
 

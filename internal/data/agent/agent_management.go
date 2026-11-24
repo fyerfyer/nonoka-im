@@ -146,7 +146,57 @@ func (s *Store) UpdateDraft(ctx context.Context, id, revision int64, spec domain
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) Publish(ctx context.Context, id, revision int64) (*domain.AgentVersion, error) {
+// ListVersions returns every published version, newest first.
+func (s *Store) ListVersions(ctx context.Context, agentID int64) ([]domain.AgentVersion, error) {
+	var rows []AgentVersionRow
+	if err := s.db.WithContext(ctx).Where("agent_id = ?", agentID).Order("version desc").Find(&rows).Error; err != nil {
+		return nil, transientOrDomain(err)
+	}
+	out := make([]domain.AgentVersion, 0, len(rows))
+	for i := range rows {
+		out = append(out, rows[i].toDomain())
+	}
+	return out, nil
+}
+
+// RestoreDraft copies a published version back into the editable draft. It
+// never changes current_version; the caller must publish explicitly.
+func (s *Store) RestoreDraft(ctx context.Context, id, version, expectedRevision int64) (*domain.Agent, error) {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row AgentRow
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrAgentNotFound
+			}
+			return transientOrDomain(err)
+		}
+		if expectedRevision > 0 && row.DraftRevision != expectedRevision {
+			return domain.ErrDraftConflict
+		}
+		var source AgentVersionRow
+		if err := tx.Where("agent_id = ? AND version = ?", id, version).First(&source).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrVersionNotFound
+			}
+			return transientOrDomain(err)
+		}
+		updates := map[string]any{
+			"draft_instruction": source.Instruction, "draft_tools": source.Tools,
+			"draft_model_service_id": source.ModelServiceID, "draft_model_id": source.ModelID,
+			"draft_capability_presets": source.CapabilityPresets, "draft_tool_policies": source.ToolPolicies,
+			"draft_max_tokens": source.MaxTokens, "draft_mcp_bindings": source.MCPBindings,
+			"draft_skills": source.Skills, "draft_revision": gorm.Expr("draft_revision + 1"),
+			"updated_at": time.Now(),
+		}
+		return tx.Model(&AgentRow{}).Where("id = ?", id).Updates(updates).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetAgent(ctx, id)
+}
+
+func (s *Store) Publish(ctx context.Context, id, revision int64, note string, publishedBy int64) (*domain.AgentVersion, error) {
 	var result domain.AgentVersion
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row AgentRow
@@ -169,12 +219,15 @@ func (s *Store) Publish(ctx context.Context, id, revision int64) (*domain.AgentV
 		if modelKey == "" {
 			return domain.ErrModelNotFound
 		}
+		now := time.Now()
 		version := AgentVersionRow{
 			AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction,
 			ModelServiceID: row.DraftModelServiceID, ModelID: row.DraftModelID, ModelKey: modelKey,
 			Tools: row.DraftTools, CapabilityPresets: row.DraftCapabilityPresets,
 			ToolPolicies: row.DraftToolPolicies, MaxTokens: row.DraftMaxTokens,
 			MCPBindings: row.DraftMCPBindings, Skills: row.DraftSkills,
+			PublishNote: note, PublishedBy: publishedBy, PublishedAt: &now,
+			SourceRevision: row.DraftRevision,
 		}
 		if err := tx.Create(&version).Error; err != nil {
 			return err
@@ -337,6 +390,9 @@ func (s *Store) GetRun(ctx context.Context, id uint64) (*domain.AgentRun, error)
 // approval again) instead of replaying an interrupted side effect. If the run
 // already committed a side effect, the operator must explicitly acknowledge it.
 func (s *Store) SetRunAction(ctx context.Context, id uint64, action string, acknowledgeSideEffect bool) error {
+	if action == "cancel" {
+		return s.cancelRun(ctx, id)
+	}
 	var from, to string
 	updates := map[string]interface{}{}
 	switch action {
@@ -375,6 +431,31 @@ func (s *Store) SetRunAction(ctx context.Context, id uint64, action string, ackn
 		return ErrRunState
 	}
 	return nil
+}
+
+// cancelRun marks any non-terminal run cancelled. Clearing attempt_id and
+// lease_until makes the executor's heartbeat lose the fence, which cancels the
+// in-flight model/tool context. Pending approvals are expired in the same
+// transaction so they cannot be approved after cancellation.
+func (s *Store) cancelRun(ctx context.Context, id uint64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&AgentRunRow{}).
+			Where("id = ? AND status IN ?", id, []string{domain.RunQueued, domain.RunRunning, domain.RunWaitingApproval}).
+			Updates(map[string]interface{}{
+				"status": domain.RunCancelled, "error_code": "cancelled", "error_class": "",
+				"attempt_id": "", "lease_until": nil, "next_attempt_at": nil,
+				"checkpoint_id": "", "finished_at": time.Now(),
+			})
+		if res.Error != nil {
+			return transientOrDomain(res.Error)
+		}
+		if res.RowsAffected != 1 {
+			return ErrRunState
+		}
+		return tx.Model(&AgentApprovalRow{}).
+			Where("run_id = ? AND status = ?", id, domain.ApprovalPending).
+			Updates(map[string]interface{}{"status": domain.ApprovalExpired, "updated_at": time.Now()}).Error
+	})
 }
 
 // BootstrapAgent idempotently creates the preset agent. toolsJSON is the
@@ -428,10 +509,12 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 			return nil
 		}
 		created = true
+		now := time.Now()
 		version := AgentVersionRow{
 			AgentID: id, Version: 1, Instruction: instruction,
 			ModelServiceID: modelServiceID, ModelID: modelID, ModelKey: modelKey,
-			Tools: row.DraftTools, MaxTokens: maxTokens,
+			Tools: row.DraftTools, MaxTokens: maxTokens, PublishedBy: ownerID,
+			PublishedAt: &now, SourceRevision: 1,
 		}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&version).Error; err != nil {
 			return err

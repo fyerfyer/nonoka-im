@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthInitializer } from "@/components/AuthInitializer";
+import { RealtimeProvider } from "@/components/RealtimeProvider";
+import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,9 +19,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-full flex flex-col font-sans antialiased">
-        <AuthInitializer />
-        <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="top-center" />
+        <Providers>
+          <AuthInitializer />
+          <RealtimeProvider />
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster position="top-center" />
+        </Providers>
       </body>
     </html>
   );

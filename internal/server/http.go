@@ -111,7 +111,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	// Configure CORS for local frontend development if origins are provided.
 	if gatewayConf != nil && len(gatewayConf.CorsOrigins) > 0 {
 		corsOpts := cors.Options{
-			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Request-Id"},
 			AllowCredentials: true,
 			MaxAge:           86400,
@@ -162,13 +162,19 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.DELETE("/v1/agents/{id}", agents.Delete)
 		r.PUT("/v1/agents/{id}/draft", agents.Draft)
 		r.POST("/v1/agents/{id}/publish", agents.Publish)
+		r.POST("/v1/agents/{id}/restore", agents.Restore)
+		r.POST("/v1/agents/{id}/test", agents.Test)
+		r.GET("/v1/agents/{id}/versions", agents.Versions)
+		r.GET("/v1/agents/{id}/versions/{version}", agents.Version)
 		r.POST("/v1/agents/{id}/status", agents.Status)
 		r.PUT("/v1/agents/{id}/shares", agents.Share)
 		r.GET("/v1/agents/{id}/shares", agents.Shares)
 		r.GET("/v1/agents/{id}/runs", agents.Runs)
 		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
+		r.GET("/v1/agent-runs/{id}/events", agents.RunEvents)
 		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
 		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
+		r.POST("/v1/agent-runs/{id}/cancel", func(ctx khttp.Context) error { return agents.RunAction(ctx, "cancel") })
 		r.POST("/v1/agent-approvals/{id}/approve", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "approve") })
 		r.POST("/v1/agent-approvals/{id}/reject", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "reject") })
 		r.GET("/v1/agent-approvals", agents.ListApprovals)

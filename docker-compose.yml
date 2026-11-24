@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: nonoka_redis
     ports:
-      - "${NONOKA_REDIS_PORT:-6379}:6379"
+      - "${NONOKA_REDIS_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -40,7 +40,11 @@ services:
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}).ok }\" | grep -q 1"]
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id: ''rs0'', members: [{_id: 0, host: ''mongodb:27017''}]}).ok }" | grep -q 1',
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -75,7 +79,12 @@ services:
       KAFKA_NUM_PARTITIONS: 3
     healthcheck:
       test:
-        ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+        [
+          "CMD",
+          "kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:9092",
+        ]
       interval: 5s
       timeout: 10s
       retries: 10
@@ -174,6 +183,7 @@ services:
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       # Encrypts per-agent model API keys at rest; must match the agent worker.
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       # Platform admins (OpenFGA platform:global admin), bootstrapped at start.
       AGENT_ADMIN_USER_IDS: ${AGENT_ADMIN_USER_IDS:-}
       BIFROST_URL: http://bifrost:8080
@@ -229,8 +239,11 @@ services:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
       MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
       MONGODB_DATABASE: nonoka_im
+      REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:19092
       IM_HTTP_URL: http://nonoka-im:8000
+      GATEWAY_GRPC_ADDR: nonoka-im:9002
+      INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
@@ -276,7 +289,7 @@ services:
       nonoka-im:
         condition: service_healthy
     ports:
-      - "${NONOKA_WEB_PORT:-3000}:3000"
+      - "${NONOKA_WEB_PORT:-3001}:3000"
 
 volumes:
   postgres_data:

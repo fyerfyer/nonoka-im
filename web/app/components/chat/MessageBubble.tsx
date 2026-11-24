@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { absoluteFileUrl, formatSize, parseMediaContent } from "@/lib/media";
 import { segmentMentions, MentionMember } from "@/lib/mentions";
 import { AgentApprovalCard, MSG_TYPE_AGENT_CARD } from "./AgentApprovalCard";
+import { agentApi } from "@/lib/api/agents";
 import { toast } from "sonner";
 import {
   Bot,
@@ -15,6 +17,9 @@ import {
   Undo2,
   FileIcon,
   Copy,
+  Square,
+  Wrench,
+  ShieldAlert,
 } from "lucide-react";
 
 const MSG_TYPE_IMAGE = 2;
@@ -44,6 +49,20 @@ export function MessageBubble({
   onRetry,
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
+  const [cancelling, setCancelling] = useState(false);
+
+  const cancelRun = async () => {
+    if (!message.runId) return;
+    setCancelling(true);
+    try {
+      await agentApi.cancelRun(message.runId);
+      toast.success("Agent run cancelled");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const canRecall = isMe && onRecall && message.status !== "recalled" && !message.recalled;
   const canCopy =
@@ -127,6 +146,29 @@ export function MessageBubble({
             members={members}
             currentUserId={currentUserId}
           />
+          {message.streaming && message.streamStatus !== "waiting_approval" && (
+            <StreamingStatus message={message} />
+          )}
+          {message.streamStatus === "waiting_approval" && message.approval && (
+            <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50/60 p-2 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <div className="min-w-0">
+                <p className="font-medium">Waiting for approval</p>
+                <p className="truncate text-muted-foreground" title={message.approval.summary}>
+                  {message.approval.tool} · {message.approval.summary || "Review the approval card"}
+                </p>
+              </div>
+            </div>
+          )}
+          {message.streamStatus === "failed" && (
+            <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {message.errorCode || "Agent run failed"}
+            </p>
+          )}
+          {message.streamStatus === "cancelled" && (
+            <p className="mt-2 text-xs text-muted-foreground">Run cancelled.</p>
+          )}
           <div
             className={cn(
               "mt-1 flex items-center gap-1 text-[10px] opacity-70",
@@ -137,9 +179,50 @@ export function MessageBubble({
             {isMe && (
               <StatusIcon status={message.status} onRetry={onRetry} />
             )}
+            {message.streaming && message.runId && (
+              <button
+                type="button"
+                title="Stop agent"
+                className="ml-1 rounded p-0.5 hover:bg-background/30"
+                onClick={cancelRun}
+                disabled={cancelling}
+              >
+                {cancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+              </button>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StreamingStatus({ message }: { message: ChatMessage }) {
+  const tools = message.toolCalls || [];
+  if (tools.length === 0) {
+    if (message.content) return null;
+    return (
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Thinking…
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+      {tools.map((tool, i) => (
+        <div key={`${tool.toolCallId || tool.tool}-${i}`} className="flex items-center gap-1.5">
+          {tool.status === "running" ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : tool.status === "error" ? (
+            <AlertCircle className="h-3 w-3 text-destructive" />
+          ) : (
+            <Check className="h-3 w-3 text-emerald-600" />
+          )}
+          <Wrench className="h-3 w-3" />
+          <span className="truncate">{tool.summary || tool.tool}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bot, Check, Loader2, ShieldAlert, X } from "lucide-react";
-import { agentApi, AppError } from "@/lib/api";
+import { agentApi, AppError } from "@/lib/api/agents";
+import { useRunStreamStore } from "@/stores/runStreamStore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,10 @@ export function AgentApprovalCard({ content }: { content: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card?.approval_id]);
 
+  const realtimeStatus = useRunStreamStore((s) =>
+    card ? s.approvalStatus.get(card.approval_id) : undefined
+  );
+
   if (!card) {
     return (
       <p className="whitespace-pre-wrap break-words italic opacity-70">
@@ -105,7 +110,7 @@ export function AgentApprovalCard({ content }: { content: string }) {
     );
   }
 
-  const status = overrideStatus ?? serverStatus ?? card.status;
+  const status = overrideStatus ?? realtimeStatus ?? serverStatus ?? card.status;
   const expired =
     nowTs > 0 && card.expires_at > 0 && card.expires_at * 1000 <= nowTs;
   const actionable = status === "pending" && nowTs > 0 && !expired;

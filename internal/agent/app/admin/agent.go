@@ -64,23 +64,24 @@ func (s *AgentService) List(ctx context.Context, userID int64, limit, offset int
 	return visible, total, scanned, nil
 }
 
-func (s *AgentService) Detail(ctx context.Context, userID, agentID int64) (*domain.Agent, *domain.AgentVersion, bool, error) {
+func (s *AgentService) Detail(ctx context.Context, userID, agentID int64) (*domain.Agent, *domain.AgentVersion, bool, bool, error) {
 	agent, err := s.Store.GetAgent(ctx, agentID)
 	if err != nil {
-		return nil, nil, false, ErrNotFound
+		return nil, nil, false, false, ErrNotFound
 	}
 	if err := s.Authz.CanViewAgent(ctx, userID, agentID); err != nil {
-		return nil, nil, false, ErrForbidden
+		return nil, nil, false, false, ErrForbidden
 	}
 	manager := s.Authz.CanManageAgent(ctx, userID, agentID) == nil
+	owner := s.Authz.CanOwnAgent(ctx, userID, agentID) == nil
 	var published *domain.AgentVersion
 	if manager && agent.CurrentVersion > 0 {
 		published, err = s.Store.GetVersion(ctx, agentID, agent.CurrentVersion)
 		if err != nil {
-			return nil, nil, manager, err
+			return nil, nil, manager, owner, err
 		}
 	}
-	return agent, published, manager, nil
+	return agent, published, manager, owner, nil
 }
 
 func (s *AgentService) Create(ctx context.Context, userID int64, input Input) (*domain.Agent, error) {
@@ -132,9 +133,13 @@ func (s *AgentService) UpdateDraft(ctx context.Context, userID, agentID int64, i
 	return s.Store.UpdateDraft(ctx, agentID, input.Revision, spec, false)
 }
 
-func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision int64) (*domain.AgentVersion, error) {
+func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision int64, note string) (*domain.AgentVersion, error) {
 	if err := s.requireManager(ctx, userID, agentID); err != nil {
 		return nil, err
+	}
+	note = strings.TrimSpace(note)
+	if len(note) > 1000 {
+		return nil, fmt.Errorf("%w: publish note is too long", ErrInvalidInput)
 	}
 	agent, err := s.Store.GetAgent(ctx, agentID)
 	if err != nil {
@@ -153,7 +158,7 @@ func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision in
 	if model.MaxOutputTokens > 0 && agent.DraftMaxTokens > model.MaxOutputTokens {
 		return nil, fmt.Errorf("%w: max_tokens exceeds the current model limit %d", ErrInvalidInput, model.MaxOutputTokens)
 	}
-	version, err := s.Store.Publish(ctx, agentID, revision)
+	version, err := s.Store.Publish(ctx, agentID, revision, note, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +210,102 @@ func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision in
 	return version, nil
 }
 
+func (s *AgentService) Versions(ctx context.Context, userID, agentID int64) ([]domain.AgentVersion, error) {
+	if err := s.requireManager(ctx, userID, agentID); err != nil {
+		return nil, err
+	}
+	return s.Store.ListVersions(ctx, agentID)
+}
+
+func (s *AgentService) Version(ctx context.Context, userID, agentID, version int64) (*domain.AgentVersion, error) {
+	if err := s.requireManager(ctx, userID, agentID); err != nil {
+		return nil, err
+	}
+	v, err := s.Store.GetVersion(ctx, agentID, version)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	return v, nil
+}
+
+func (s *AgentService) Restore(ctx context.Context, userID, agentID, version, revision int64) (*domain.Agent, error) {
+	if err := s.requireManager(ctx, userID, agentID); err != nil {
+		return nil, err
+	}
+	if version <= 0 {
+		return nil, fmt.Errorf("%w: invalid version", ErrInvalidInput)
+	}
+	agent, err := s.Store.RestoreDraft(ctx, agentID, version, revision)
+	if err != nil {
+		return nil, err
+	}
+	return agent, nil
+}
+
+// TestSnapshot validates the current draft and freezes it for a playground
+// run. It never mutates the agent or creates a published version.
+func (s *AgentService) TestSnapshot(ctx context.Context, userID, agentID int64) (*domain.Agent, domain.RunConfig, error) {
+	if err := s.requireManager(ctx, userID, agentID); err != nil {
+		return nil, domain.RunConfig{}, err
+	}
+	agent, err := s.Store.GetAgent(ctx, agentID)
+	if err != nil {
+		return nil, domain.RunConfig{}, ErrNotFound
+	}
+	var tools []string
+	if agent.DraftTools != "" {
+		if err := json.Unmarshal([]byte(agent.DraftTools), &tools); err != nil {
+			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft tools", ErrInvalidInput)
+		}
+	}
+	var presets []string
+	if agent.DraftCapabilityPresets != "" {
+		if err := json.Unmarshal([]byte(agent.DraftCapabilityPresets), &presets); err != nil {
+			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft presets", ErrInvalidInput)
+		}
+	}
+	policies := map[string]string{}
+	if agent.DraftToolPolicies != "" {
+		if err := json.Unmarshal([]byte(agent.DraftToolPolicies), &policies); err != nil {
+			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft policies", ErrInvalidInput)
+		}
+	}
+	var mcpBindings []domain.MCPBinding
+	if agent.DraftMCPBindings != "" {
+		if err := json.Unmarshal([]byte(agent.DraftMCPBindings), &mcpBindings); err != nil {
+			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft mcp bindings", ErrInvalidInput)
+		}
+	}
+	var skills []domain.SkillBinding
+	if agent.DraftSkills != "" {
+		if err := json.Unmarshal([]byte(agent.DraftSkills), &skills); err != nil {
+			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft skills", ErrInvalidInput)
+		}
+	}
+	if strings.TrimSpace(agent.DraftInstruction) == "" || agent.DraftModelServiceID <= 0 || agent.DraftModelID <= 0 {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: draft needs an instruction and model", ErrInvalidInput)
+	}
+	if s.Models == nil {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
+	}
+	service, model, err := s.Models.Lookup(ctx, agent.DraftModelServiceID, agent.DraftModelID)
+	if err != nil {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	if !service.Enabled || !model.Enabled {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: selected model service/model is disabled", ErrInvalidInput)
+	}
+	if agent.DraftMaxTokens > 0 && model.MaxOutputTokens > 0 && agent.DraftMaxTokens > model.MaxOutputTokens {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: max tokens exceeds model limit %d", ErrInvalidInput, model.MaxOutputTokens)
+	}
+	return agent, domain.RunConfig{
+		Instruction: agent.DraftInstruction, ModelServiceID: agent.DraftModelServiceID,
+		ModelID: agent.DraftModelID, Tools: tools, CapabilityPresets: presets,
+		ToolPolicies: policies, MaxTokens: agent.DraftMaxTokens,
+		MCPBindings: mcpBindings, Skills: skills,
+	}, nil
+}
+
 func (s *AgentService) SetStatus(ctx context.Context, userID, agentID int64, status string) error {
 	if err := s.requireManager(ctx, userID, agentID); err != nil {
 		return err
@@ -215,12 +316,18 @@ func (s *AgentService) SetStatus(ctx context.Context, userID, agentID int64, sta
 	return s.Store.SetAgentStatus(ctx, agentID, status)
 }
 
-func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, target string, enabled bool) error {
-	if err := s.requireManager(ctx, userID, agentID); err != nil {
+func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, target, role string, enabled bool) error {
+	if err := s.requireOwner(ctx, userID, agentID); err != nil {
 		return err
 	}
 	if kind != "user" && kind != "group" {
 		return fmt.Errorf("%w: invalid share kind", ErrInvalidInput)
+	}
+	if role == "" {
+		role = "viewer"
+	}
+	if role != "viewer" && role != "editor" {
+		return fmt.Errorf("%w: share role must be viewer or editor", ErrInvalidInput)
 	}
 	if enabled {
 		agent, err := s.Store.GetAgent(ctx, agentID)
@@ -264,7 +371,7 @@ func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, t
 			}
 		}
 	}
-	if err := s.Authz.SetAgentShare(ctx, agentID, kind, target, enabled); err != nil {
+	if err := s.Authz.SetAgentShare(ctx, agentID, kind, target, role, enabled); err != nil {
 		return err
 	}
 	if kind == "group" && !enabled {
@@ -281,7 +388,7 @@ func (s *AgentService) Shares(ctx context.Context, userID, agentID int64) ([]aut
 }
 
 func (s *AgentService) Delete(ctx context.Context, userID, agentID int64) error {
-	if err := s.requireManager(ctx, userID, agentID); err != nil {
+	if err := s.requireOwner(ctx, userID, agentID); err != nil {
 		return err
 	}
 	toolNames, err := s.Store.DeleteAgent(ctx, agentID)
@@ -307,6 +414,13 @@ func (s *AgentService) VerifyBotSend(ctx context.Context, agentID, botID int64, 
 
 func (s *AgentService) requireManager(ctx context.Context, userID, agentID int64) error {
 	if s.Authz.CanManageAgent(ctx, userID, agentID) != nil {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (s *AgentService) requireOwner(ctx context.Context, userID, agentID int64) error {
+	if s.Authz.CanOwnAgent(ctx, userID, agentID) != nil {
 		return ErrForbidden
 	}
 	return nil

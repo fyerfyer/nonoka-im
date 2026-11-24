@@ -12645,6 +12645,7 @@ export const api = $root.api = (() => {
              * @property {number} CMD_DELIVERY_RECEIPT=8 CMD_DELIVERY_RECEIPT value
              * @property {number} CMD_SEND_RECEIPT=9 CMD_SEND_RECEIPT value
              * @property {number} CMD_RECALL=10 CMD_RECALL value
+             * @property {number} CMD_AGENT_RUN_EVENT=11 CMD_AGENT_RUN_EVENT value
              */
             v1.Command = (function() {
                 const valuesById = {}, values = $Object.create(valuesById);
@@ -12659,7 +12660,1147 @@ export const api = $root.api = (() => {
                 values[valuesById[8] = "CMD_DELIVERY_RECEIPT"] = 8;
                 values[valuesById[9] = "CMD_SEND_RECEIPT"] = 9;
                 values[valuesById[10] = "CMD_RECALL"] = 10;
+                values[valuesById[11] = "CMD_AGENT_RUN_EVENT"] = 11;
                 return values;
+            })();
+
+            /**
+             * AgentRunEventType enum.
+             * @name api.im.v1.AgentRunEventType
+             * @enum {number}
+             * @property {number} AGENT_RUN_EVENT_UNKNOWN=0 AGENT_RUN_EVENT_UNKNOWN value
+             * @property {number} AGENT_RUN_STARTED=1 AGENT_RUN_STARTED value
+             * @property {number} AGENT_RUN_DELTA=2 AGENT_RUN_DELTA value
+             * @property {number} AGENT_RUN_TOOL_STARTED=3 AGENT_RUN_TOOL_STARTED value
+             * @property {number} AGENT_RUN_TOOL_FINISHED=4 AGENT_RUN_TOOL_FINISHED value
+             * @property {number} AGENT_RUN_APPROVAL_REQUIRED=5 AGENT_RUN_APPROVAL_REQUIRED value
+             * @property {number} AGENT_RUN_APPROVAL_RESOLVED=6 AGENT_RUN_APPROVAL_RESOLVED value
+             * @property {number} AGENT_RUN_COMPLETED=7 AGENT_RUN_COMPLETED value
+             * @property {number} AGENT_RUN_FAILED=8 AGENT_RUN_FAILED value
+             * @property {number} AGENT_RUN_CANCELLED=9 AGENT_RUN_CANCELLED value
+             * @property {number} AGENT_RUN_HEARTBEAT=10 AGENT_RUN_HEARTBEAT value
+             */
+            v1.AgentRunEventType = (function() {
+                const valuesById = {}, values = $Object.create(valuesById);
+                values[valuesById[0] = "AGENT_RUN_EVENT_UNKNOWN"] = 0;
+                values[valuesById[1] = "AGENT_RUN_STARTED"] = 1;
+                values[valuesById[2] = "AGENT_RUN_DELTA"] = 2;
+                values[valuesById[3] = "AGENT_RUN_TOOL_STARTED"] = 3;
+                values[valuesById[4] = "AGENT_RUN_TOOL_FINISHED"] = 4;
+                values[valuesById[5] = "AGENT_RUN_APPROVAL_REQUIRED"] = 5;
+                values[valuesById[6] = "AGENT_RUN_APPROVAL_RESOLVED"] = 6;
+                values[valuesById[7] = "AGENT_RUN_COMPLETED"] = 7;
+                values[valuesById[8] = "AGENT_RUN_FAILED"] = 8;
+                values[valuesById[9] = "AGENT_RUN_CANCELLED"] = 9;
+                values[valuesById[10] = "AGENT_RUN_HEARTBEAT"] = 10;
+                return values;
+            })();
+
+            v1.AgentRunEvent = (function() {
+
+                /**
+                 * Properties of an AgentRunEvent.
+                 * @typedef {Object} api.im.v1.AgentRunEvent.$Properties
+                 * @property {number|Long|null} [runId] AgentRunEvent runId
+                 * @property {number|Long|null} [seq] AgentRunEvent seq
+                 * @property {api.im.v1.AgentRunEventType|null} [type] AgentRunEvent type
+                 * @property {string|null} [topic] AgentRunEvent topic
+                 * @property {number|Long|null} [agentId] AgentRunEvent agentId
+                 * @property {number|Long|null} [botUserId] AgentRunEvent botUserId
+                 * @property {number|Long|null} [actorUserId] AgentRunEvent actorUserId
+                 * @property {number|Long|null} [triggerMsgId] AgentRunEvent triggerMsgId
+                 * @property {boolean|null} [test] AgentRunEvent test
+                 * @property {string|null} [delta] AgentRunEvent delta
+                 * @property {string|null} [tool] AgentRunEvent tool
+                 * @property {string|null} [toolCallId] AgentRunEvent toolCallId
+                 * @property {string|null} [summary] AgentRunEvent summary
+                 * @property {string|null} [status] AgentRunEvent status
+                 * @property {number|Long|null} [approvalId] AgentRunEvent approvalId
+                 * @property {number|Long|null} [replyMsgId] AgentRunEvent replyMsgId
+                 * @property {string|null} [errorCode] AgentRunEvent errorCode
+                 * @property {string|null} [errorClass] AgentRunEvent errorClass
+                 * @property {boolean|null} [retryable] AgentRunEvent retryable
+                 * @property {number|null} [inputTokens] AgentRunEvent inputTokens
+                 * @property {number|null} [outputTokens] AgentRunEvent outputTokens
+                 * @property {number|Long|null} [timestampMs] AgentRunEvent timestampMs
+                 * @property {string|null} [clientMsgId] AgentRunEvent clientMsgId
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of an AgentRunEvent.
+                 * @memberof api.im.v1
+                 * @interface IAgentRunEvent
+                 * @augments api.im.v1.AgentRunEvent.$Properties
+                 * @deprecated Use api.im.v1.AgentRunEvent.$Properties instead.
+                 */
+
+                /**
+                 * Shape of an AgentRunEvent.
+                 * @typedef {api.im.v1.AgentRunEvent.$Properties} api.im.v1.AgentRunEvent.$Shape
+                 */
+
+                /**
+                 * Constructs a new AgentRunEvent.
+                 * @memberof api.im.v1
+                 * @classdesc Represents an AgentRunEvent.
+                 * @constructor
+                 * @param {api.im.v1.AgentRunEvent.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const AgentRunEvent = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * AgentRunEvent runId.
+                 * @member {number|Long} runId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.runId = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * AgentRunEvent seq.
+                 * @member {number|Long} seq
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.seq = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * AgentRunEvent type.
+                 * @member {api.im.v1.AgentRunEventType} type
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.type = 0;
+
+                /**
+                 * AgentRunEvent topic.
+                 * @member {string} topic
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.topic = "";
+
+                /**
+                 * AgentRunEvent agentId.
+                 * @member {number|Long} agentId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.agentId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent botUserId.
+                 * @member {number|Long} botUserId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.botUserId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent actorUserId.
+                 * @member {number|Long} actorUserId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.actorUserId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent triggerMsgId.
+                 * @member {number|Long} triggerMsgId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.triggerMsgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent test.
+                 * @member {boolean} test
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.test = false;
+
+                /**
+                 * AgentRunEvent delta.
+                 * @member {string} delta
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.delta = "";
+
+                /**
+                 * AgentRunEvent tool.
+                 * @member {string} tool
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.tool = "";
+
+                /**
+                 * AgentRunEvent toolCallId.
+                 * @member {string} toolCallId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.toolCallId = "";
+
+                /**
+                 * AgentRunEvent summary.
+                 * @member {string} summary
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.summary = "";
+
+                /**
+                 * AgentRunEvent status.
+                 * @member {string} status
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.status = "";
+
+                /**
+                 * AgentRunEvent approvalId.
+                 * @member {number|Long} approvalId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.approvalId = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * AgentRunEvent replyMsgId.
+                 * @member {number|Long} replyMsgId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.replyMsgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent errorCode.
+                 * @member {string} errorCode
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.errorCode = "";
+
+                /**
+                 * AgentRunEvent errorClass.
+                 * @member {string} errorClass
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.errorClass = "";
+
+                /**
+                 * AgentRunEvent retryable.
+                 * @member {boolean} retryable
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.retryable = false;
+
+                /**
+                 * AgentRunEvent inputTokens.
+                 * @member {number} inputTokens
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.inputTokens = 0;
+
+                /**
+                 * AgentRunEvent outputTokens.
+                 * @member {number} outputTokens
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.outputTokens = 0;
+
+                /**
+                 * AgentRunEvent timestampMs.
+                 * @member {number|Long} timestampMs
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.timestampMs = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunEvent clientMsgId.
+                 * @member {string} clientMsgId
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.clientMsgId = "";
+
+                /**
+                 * Creates a new AgentRunEvent instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {api.im.v1.AgentRunEvent.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.AgentRunEvent} AgentRunEvent instance
+                 * @type {{
+                 *   (properties: api.im.v1.AgentRunEvent.$Shape): api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape;
+                 *   (properties?: api.im.v1.AgentRunEvent.$Properties): api.im.v1.AgentRunEvent;
+                 * }}
+                 */
+                AgentRunEvent.create = function(properties) {
+                    return new AgentRunEvent(properties);
+                };
+
+                /**
+                 * Encodes the specified AgentRunEvent message. Does not implicitly {@link api.im.v1.AgentRunEvent.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {api.im.v1.AgentRunEvent.$Properties} message AgentRunEvent message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                AgentRunEvent.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.runId != null && $Object.hasOwnProperty.call(message, "runId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).uint64(message.runId);
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).uint64(message.seq);
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        writer.uint32(/* id 3, wireType 0 =*/24).int32(message.type);
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        writer.uint32(/* id 4, wireType 2 =*/34).string(message.topic);
+                    if (message.agentId != null && $Object.hasOwnProperty.call(message, "agentId"))
+                        writer.uint32(/* id 5, wireType 0 =*/40).int64(message.agentId);
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        writer.uint32(/* id 6, wireType 0 =*/48).int64(message.botUserId);
+                    if (message.actorUserId != null && $Object.hasOwnProperty.call(message, "actorUserId"))
+                        writer.uint32(/* id 7, wireType 0 =*/56).int64(message.actorUserId);
+                    if (message.triggerMsgId != null && $Object.hasOwnProperty.call(message, "triggerMsgId"))
+                        writer.uint32(/* id 8, wireType 0 =*/64).int64(message.triggerMsgId);
+                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
+                        writer.uint32(/* id 9, wireType 0 =*/72).bool(message.test);
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        writer.uint32(/* id 10, wireType 2 =*/82).string(message.delta);
+                    if (message.tool != null && $Object.hasOwnProperty.call(message, "tool"))
+                        writer.uint32(/* id 11, wireType 2 =*/90).string(message.tool);
+                    if (message.toolCallId != null && $Object.hasOwnProperty.call(message, "toolCallId"))
+                        writer.uint32(/* id 12, wireType 2 =*/98).string(message.toolCallId);
+                    if (message.summary != null && $Object.hasOwnProperty.call(message, "summary"))
+                        writer.uint32(/* id 13, wireType 2 =*/106).string(message.summary);
+                    if (message.status != null && $Object.hasOwnProperty.call(message, "status"))
+                        writer.uint32(/* id 14, wireType 2 =*/114).string(message.status);
+                    if (message.approvalId != null && $Object.hasOwnProperty.call(message, "approvalId"))
+                        writer.uint32(/* id 15, wireType 0 =*/120).uint64(message.approvalId);
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        writer.uint32(/* id 16, wireType 0 =*/128).int64(message.replyMsgId);
+                    if (message.errorCode != null && $Object.hasOwnProperty.call(message, "errorCode"))
+                        writer.uint32(/* id 17, wireType 2 =*/138).string(message.errorCode);
+                    if (message.errorClass != null && $Object.hasOwnProperty.call(message, "errorClass"))
+                        writer.uint32(/* id 18, wireType 2 =*/146).string(message.errorClass);
+                    if (message.retryable != null && $Object.hasOwnProperty.call(message, "retryable"))
+                        writer.uint32(/* id 19, wireType 0 =*/152).bool(message.retryable);
+                    if (message.inputTokens != null && $Object.hasOwnProperty.call(message, "inputTokens"))
+                        writer.uint32(/* id 20, wireType 0 =*/160).int32(message.inputTokens);
+                    if (message.outputTokens != null && $Object.hasOwnProperty.call(message, "outputTokens"))
+                        writer.uint32(/* id 21, wireType 0 =*/168).int32(message.outputTokens);
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        writer.uint32(/* id 22, wireType 0 =*/176).int64(message.timestampMs);
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        writer.uint32(/* id 23, wireType 2 =*/186).string(message.clientMsgId);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified AgentRunEvent message, length delimited. Does not implicitly {@link api.im.v1.AgentRunEvent.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {api.im.v1.AgentRunEvent.$Properties} message AgentRunEvent message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                AgentRunEvent.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes an AgentRunEvent message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape} AgentRunEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                AgentRunEvent.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.AgentRunEvent(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.runId = value;
+                                else
+                                    delete message.runId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.seq = value;
+                                else
+                                    delete message.seq;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.type = value;
+                                else
+                                    delete message.type;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.topic = value;
+                                else
+                                    delete message.topic;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.agentId = value;
+                                else
+                                    delete message.agentId;
+                                continue;
+                            }
+                        case 6: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.botUserId = value;
+                                else
+                                    delete message.botUserId;
+                                continue;
+                            }
+                        case 7: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.actorUserId = value;
+                                else
+                                    delete message.actorUserId;
+                                continue;
+                            }
+                        case 8: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.triggerMsgId = value;
+                                else
+                                    delete message.triggerMsgId;
+                                continue;
+                            }
+                        case 9: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.test = value;
+                                else
+                                    delete message.test;
+                                continue;
+                            }
+                        case 10: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.delta = value;
+                                else
+                                    delete message.delta;
+                                continue;
+                            }
+                        case 11: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.tool = value;
+                                else
+                                    delete message.tool;
+                                continue;
+                            }
+                        case 12: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.toolCallId = value;
+                                else
+                                    delete message.toolCallId;
+                                continue;
+                            }
+                        case 13: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.summary = value;
+                                else
+                                    delete message.summary;
+                                continue;
+                            }
+                        case 14: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.status = value;
+                                else
+                                    delete message.status;
+                                continue;
+                            }
+                        case 15: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.approvalId = value;
+                                else
+                                    delete message.approvalId;
+                                continue;
+                            }
+                        case 16: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.replyMsgId = value;
+                                else
+                                    delete message.replyMsgId;
+                                continue;
+                            }
+                        case 17: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.errorCode = value;
+                                else
+                                    delete message.errorCode;
+                                continue;
+                            }
+                        case 18: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.errorClass = value;
+                                else
+                                    delete message.errorClass;
+                                continue;
+                            }
+                        case 19: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.retryable = value;
+                                else
+                                    delete message.retryable;
+                                continue;
+                            }
+                        case 20: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.inputTokens = value;
+                                else
+                                    delete message.inputTokens;
+                                continue;
+                            }
+                        case 21: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.outputTokens = value;
+                                else
+                                    delete message.outputTokens;
+                                continue;
+                            }
+                        case 22: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.timestampMs = value;
+                                else
+                                    delete message.timestampMs;
+                                continue;
+                            }
+                        case 23: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.clientMsgId = value;
+                                else
+                                    delete message.clientMsgId;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes an AgentRunEvent message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape} AgentRunEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                AgentRunEvent.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies an AgentRunEvent message.
+                 * @function verify
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                AgentRunEvent.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.runId != null && $Object.hasOwnProperty.call(message, "runId"))
+                        if (!$util.isInteger(message.runId) && !(message.runId && $util.isInteger(message.runId.low) && $util.isInteger(message.runId.high)))
+                            return "runId: integer|Long expected";
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        if (!$util.isInteger(message.seq) && !(message.seq && $util.isInteger(message.seq.low) && $util.isInteger(message.seq.high)))
+                            return "seq: integer|Long expected";
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        switch (message.type) {
+                        default:
+                            return "type: enum value expected";
+                        case 0:
+                        case 1:
+                        case 2:
+                        case 3:
+                        case 4:
+                        case 5:
+                        case 6:
+                        case 7:
+                        case 8:
+                        case 9:
+                        case 10:
+                            break;
+                        }
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        if (!$util.isString(message.topic))
+                            return "topic: string expected";
+                    if (message.agentId != null && $Object.hasOwnProperty.call(message, "agentId"))
+                        if (!$util.isInteger(message.agentId) && !(message.agentId && $util.isInteger(message.agentId.low) && $util.isInteger(message.agentId.high)))
+                            return "agentId: integer|Long expected";
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        if (!$util.isInteger(message.botUserId) && !(message.botUserId && $util.isInteger(message.botUserId.low) && $util.isInteger(message.botUserId.high)))
+                            return "botUserId: integer|Long expected";
+                    if (message.actorUserId != null && $Object.hasOwnProperty.call(message, "actorUserId"))
+                        if (!$util.isInteger(message.actorUserId) && !(message.actorUserId && $util.isInteger(message.actorUserId.low) && $util.isInteger(message.actorUserId.high)))
+                            return "actorUserId: integer|Long expected";
+                    if (message.triggerMsgId != null && $Object.hasOwnProperty.call(message, "triggerMsgId"))
+                        if (!$util.isInteger(message.triggerMsgId) && !(message.triggerMsgId && $util.isInteger(message.triggerMsgId.low) && $util.isInteger(message.triggerMsgId.high)))
+                            return "triggerMsgId: integer|Long expected";
+                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
+                        if (typeof message.test !== "boolean")
+                            return "test: boolean expected";
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        if (!$util.isString(message.delta))
+                            return "delta: string expected";
+                    if (message.tool != null && $Object.hasOwnProperty.call(message, "tool"))
+                        if (!$util.isString(message.tool))
+                            return "tool: string expected";
+                    if (message.toolCallId != null && $Object.hasOwnProperty.call(message, "toolCallId"))
+                        if (!$util.isString(message.toolCallId))
+                            return "toolCallId: string expected";
+                    if (message.summary != null && $Object.hasOwnProperty.call(message, "summary"))
+                        if (!$util.isString(message.summary))
+                            return "summary: string expected";
+                    if (message.status != null && $Object.hasOwnProperty.call(message, "status"))
+                        if (!$util.isString(message.status))
+                            return "status: string expected";
+                    if (message.approvalId != null && $Object.hasOwnProperty.call(message, "approvalId"))
+                        if (!$util.isInteger(message.approvalId) && !(message.approvalId && $util.isInteger(message.approvalId.low) && $util.isInteger(message.approvalId.high)))
+                            return "approvalId: integer|Long expected";
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        if (!$util.isInteger(message.replyMsgId) && !(message.replyMsgId && $util.isInteger(message.replyMsgId.low) && $util.isInteger(message.replyMsgId.high)))
+                            return "replyMsgId: integer|Long expected";
+                    if (message.errorCode != null && $Object.hasOwnProperty.call(message, "errorCode"))
+                        if (!$util.isString(message.errorCode))
+                            return "errorCode: string expected";
+                    if (message.errorClass != null && $Object.hasOwnProperty.call(message, "errorClass"))
+                        if (!$util.isString(message.errorClass))
+                            return "errorClass: string expected";
+                    if (message.retryable != null && $Object.hasOwnProperty.call(message, "retryable"))
+                        if (typeof message.retryable !== "boolean")
+                            return "retryable: boolean expected";
+                    if (message.inputTokens != null && $Object.hasOwnProperty.call(message, "inputTokens"))
+                        if (!$util.isInteger(message.inputTokens))
+                            return "inputTokens: integer expected";
+                    if (message.outputTokens != null && $Object.hasOwnProperty.call(message, "outputTokens"))
+                        if (!$util.isInteger(message.outputTokens))
+                            return "outputTokens: integer expected";
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        if (!$util.isInteger(message.timestampMs) && !(message.timestampMs && $util.isInteger(message.timestampMs.low) && $util.isInteger(message.timestampMs.high)))
+                            return "timestampMs: integer|Long expected";
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        if (!$util.isString(message.clientMsgId))
+                            return "clientMsgId: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates an AgentRunEvent message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.AgentRunEvent} AgentRunEvent
+                 */
+                AgentRunEvent.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.AgentRunEvent)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.AgentRunEvent: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.AgentRunEvent();
+                    if (object.runId != null)
+                        if (typeof object.runId === "object" ? object.runId.low || object.runId.high : $Number(object.runId) !== 0)
+                            if ($util.Long)
+                                message.runId = $util.Long.fromValue(object.runId, true);
+                            else if (typeof object.runId === "string")
+                                message.runId = $parseInt(object.runId, 10);
+                            else if (typeof object.runId === "number")
+                                message.runId = object.runId;
+                            else if (typeof object.runId === "object")
+                                message.runId = new $util.LongBits(object.runId.low >>> 0, object.runId.high >>> 0).toNumber(true);
+                    if (object.seq != null)
+                        if (typeof object.seq === "object" ? object.seq.low || object.seq.high : $Number(object.seq) !== 0)
+                            if ($util.Long)
+                                message.seq = $util.Long.fromValue(object.seq, true);
+                            else if (typeof object.seq === "string")
+                                message.seq = $parseInt(object.seq, 10);
+                            else if (typeof object.seq === "number")
+                                message.seq = object.seq;
+                            else if (typeof object.seq === "object")
+                                message.seq = new $util.LongBits(object.seq.low >>> 0, object.seq.high >>> 0).toNumber(true);
+                    if (object.type !== 0 && (typeof object.type !== "string" || $root.api.im.v1.AgentRunEventType[object.type] !== 0))
+                        switch (object.type) {
+                        default:
+                            if (typeof object.type === "number") {
+                                message.type = object.type;
+                                break;
+                            }
+                            break;
+                        case "AGENT_RUN_EVENT_UNKNOWN":
+                        case 0:
+                            message.type = 0;
+                            break;
+                        case "AGENT_RUN_STARTED":
+                        case 1:
+                            message.type = 1;
+                            break;
+                        case "AGENT_RUN_DELTA":
+                        case 2:
+                            message.type = 2;
+                            break;
+                        case "AGENT_RUN_TOOL_STARTED":
+                        case 3:
+                            message.type = 3;
+                            break;
+                        case "AGENT_RUN_TOOL_FINISHED":
+                        case 4:
+                            message.type = 4;
+                            break;
+                        case "AGENT_RUN_APPROVAL_REQUIRED":
+                        case 5:
+                            message.type = 5;
+                            break;
+                        case "AGENT_RUN_APPROVAL_RESOLVED":
+                        case 6:
+                            message.type = 6;
+                            break;
+                        case "AGENT_RUN_COMPLETED":
+                        case 7:
+                            message.type = 7;
+                            break;
+                        case "AGENT_RUN_FAILED":
+                        case 8:
+                            message.type = 8;
+                            break;
+                        case "AGENT_RUN_CANCELLED":
+                        case 9:
+                            message.type = 9;
+                            break;
+                        case "AGENT_RUN_HEARTBEAT":
+                        case 10:
+                            message.type = 10;
+                            break;
+                        }
+                    if (object.topic != null)
+                        if (typeof object.topic !== "string" || object.topic.length)
+                            message.topic = $String(object.topic);
+                    if (object.agentId != null)
+                        if (typeof object.agentId === "object" ? object.agentId.low || object.agentId.high : $Number(object.agentId) !== 0)
+                            if ($util.Long)
+                                message.agentId = $util.Long.fromValue(object.agentId, false);
+                            else if (typeof object.agentId === "string")
+                                message.agentId = $parseInt(object.agentId, 10);
+                            else if (typeof object.agentId === "number")
+                                message.agentId = object.agentId;
+                            else if (typeof object.agentId === "object")
+                                message.agentId = new $util.LongBits(object.agentId.low >>> 0, object.agentId.high >>> 0).toNumber();
+                    if (object.botUserId != null)
+                        if (typeof object.botUserId === "object" ? object.botUserId.low || object.botUserId.high : $Number(object.botUserId) !== 0)
+                            if ($util.Long)
+                                message.botUserId = $util.Long.fromValue(object.botUserId, false);
+                            else if (typeof object.botUserId === "string")
+                                message.botUserId = $parseInt(object.botUserId, 10);
+                            else if (typeof object.botUserId === "number")
+                                message.botUserId = object.botUserId;
+                            else if (typeof object.botUserId === "object")
+                                message.botUserId = new $util.LongBits(object.botUserId.low >>> 0, object.botUserId.high >>> 0).toNumber();
+                    if (object.actorUserId != null)
+                        if (typeof object.actorUserId === "object" ? object.actorUserId.low || object.actorUserId.high : $Number(object.actorUserId) !== 0)
+                            if ($util.Long)
+                                message.actorUserId = $util.Long.fromValue(object.actorUserId, false);
+                            else if (typeof object.actorUserId === "string")
+                                message.actorUserId = $parseInt(object.actorUserId, 10);
+                            else if (typeof object.actorUserId === "number")
+                                message.actorUserId = object.actorUserId;
+                            else if (typeof object.actorUserId === "object")
+                                message.actorUserId = new $util.LongBits(object.actorUserId.low >>> 0, object.actorUserId.high >>> 0).toNumber();
+                    if (object.triggerMsgId != null)
+                        if (typeof object.triggerMsgId === "object" ? object.triggerMsgId.low || object.triggerMsgId.high : $Number(object.triggerMsgId) !== 0)
+                            if ($util.Long)
+                                message.triggerMsgId = $util.Long.fromValue(object.triggerMsgId, false);
+                            else if (typeof object.triggerMsgId === "string")
+                                message.triggerMsgId = $parseInt(object.triggerMsgId, 10);
+                            else if (typeof object.triggerMsgId === "number")
+                                message.triggerMsgId = object.triggerMsgId;
+                            else if (typeof object.triggerMsgId === "object")
+                                message.triggerMsgId = new $util.LongBits(object.triggerMsgId.low >>> 0, object.triggerMsgId.high >>> 0).toNumber();
+                    if (object.test != null)
+                        if (object.test)
+                            message.test = $Boolean(object.test);
+                    if (object.delta != null)
+                        if (typeof object.delta !== "string" || object.delta.length)
+                            message.delta = $String(object.delta);
+                    if (object.tool != null)
+                        if (typeof object.tool !== "string" || object.tool.length)
+                            message.tool = $String(object.tool);
+                    if (object.toolCallId != null)
+                        if (typeof object.toolCallId !== "string" || object.toolCallId.length)
+                            message.toolCallId = $String(object.toolCallId);
+                    if (object.summary != null)
+                        if (typeof object.summary !== "string" || object.summary.length)
+                            message.summary = $String(object.summary);
+                    if (object.status != null)
+                        if (typeof object.status !== "string" || object.status.length)
+                            message.status = $String(object.status);
+                    if (object.approvalId != null)
+                        if (typeof object.approvalId === "object" ? object.approvalId.low || object.approvalId.high : $Number(object.approvalId) !== 0)
+                            if ($util.Long)
+                                message.approvalId = $util.Long.fromValue(object.approvalId, true);
+                            else if (typeof object.approvalId === "string")
+                                message.approvalId = $parseInt(object.approvalId, 10);
+                            else if (typeof object.approvalId === "number")
+                                message.approvalId = object.approvalId;
+                            else if (typeof object.approvalId === "object")
+                                message.approvalId = new $util.LongBits(object.approvalId.low >>> 0, object.approvalId.high >>> 0).toNumber(true);
+                    if (object.replyMsgId != null)
+                        if (typeof object.replyMsgId === "object" ? object.replyMsgId.low || object.replyMsgId.high : $Number(object.replyMsgId) !== 0)
+                            if ($util.Long)
+                                message.replyMsgId = $util.Long.fromValue(object.replyMsgId, false);
+                            else if (typeof object.replyMsgId === "string")
+                                message.replyMsgId = $parseInt(object.replyMsgId, 10);
+                            else if (typeof object.replyMsgId === "number")
+                                message.replyMsgId = object.replyMsgId;
+                            else if (typeof object.replyMsgId === "object")
+                                message.replyMsgId = new $util.LongBits(object.replyMsgId.low >>> 0, object.replyMsgId.high >>> 0).toNumber();
+                    if (object.errorCode != null)
+                        if (typeof object.errorCode !== "string" || object.errorCode.length)
+                            message.errorCode = $String(object.errorCode);
+                    if (object.errorClass != null)
+                        if (typeof object.errorClass !== "string" || object.errorClass.length)
+                            message.errorClass = $String(object.errorClass);
+                    if (object.retryable != null)
+                        if (object.retryable)
+                            message.retryable = $Boolean(object.retryable);
+                    if (object.inputTokens != null)
+                        if ($Number(object.inputTokens) !== 0)
+                            message.inputTokens = object.inputTokens | 0;
+                    if (object.outputTokens != null)
+                        if ($Number(object.outputTokens) !== 0)
+                            message.outputTokens = object.outputTokens | 0;
+                    if (object.timestampMs != null)
+                        if (typeof object.timestampMs === "object" ? object.timestampMs.low || object.timestampMs.high : $Number(object.timestampMs) !== 0)
+                            if ($util.Long)
+                                message.timestampMs = $util.Long.fromValue(object.timestampMs, false);
+                            else if (typeof object.timestampMs === "string")
+                                message.timestampMs = $parseInt(object.timestampMs, 10);
+                            else if (typeof object.timestampMs === "number")
+                                message.timestampMs = object.timestampMs;
+                            else if (typeof object.timestampMs === "object")
+                                message.timestampMs = new $util.LongBits(object.timestampMs.low >>> 0, object.timestampMs.high >>> 0).toNumber();
+                    if (object.clientMsgId != null)
+                        if (typeof object.clientMsgId !== "string" || object.clientMsgId.length)
+                            message.clientMsgId = $String(object.clientMsgId);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from an AgentRunEvent message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {api.im.v1.AgentRunEvent} message AgentRunEvent
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                AgentRunEvent.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.runId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.runId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.seq = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.seq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.type = options.enums === $String ? "AGENT_RUN_EVENT_UNKNOWN" : 0;
+                        object.topic = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.agentId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.agentId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.botUserId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.botUserId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.actorUserId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.actorUserId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.triggerMsgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.triggerMsgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.test = false;
+                        object.delta = "";
+                        object.tool = "";
+                        object.toolCallId = "";
+                        object.summary = "";
+                        object.status = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.approvalId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.approvalId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.replyMsgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.replyMsgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.errorCode = "";
+                        object.errorClass = "";
+                        object.retryable = false;
+                        object.inputTokens = 0;
+                        object.outputTokens = 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.timestampMs = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.timestampMs = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.clientMsgId = "";
+                    }
+                    if (message.runId != null && $Object.hasOwnProperty.call(message, "runId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.runId = typeof message.runId === "number" ? $BigInt(message.runId) : $util.Long.fromBits(message.runId.low >>> 0, message.runId.high >>> 0, true).toBigInt();
+                        else if (typeof message.runId === "number")
+                            object.runId = options.longs === $String ? $String(message.runId) : message.runId;
+                        else
+                            object.runId = options.longs === $String ? $util.Long.prototype.toString.call(message.runId) : options.longs === $Number ? new $util.LongBits(message.runId.low >>> 0, message.runId.high >>> 0).toNumber(true) : message.runId;
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.seq = typeof message.seq === "number" ? $BigInt(message.seq) : $util.Long.fromBits(message.seq.low >>> 0, message.seq.high >>> 0, true).toBigInt();
+                        else if (typeof message.seq === "number")
+                            object.seq = options.longs === $String ? $String(message.seq) : message.seq;
+                        else
+                            object.seq = options.longs === $String ? $util.Long.prototype.toString.call(message.seq) : options.longs === $Number ? new $util.LongBits(message.seq.low >>> 0, message.seq.high >>> 0).toNumber(true) : message.seq;
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        object.type = options.enums === $String ? $root.api.im.v1.AgentRunEventType[message.type] === $undefined ? message.type : $root.api.im.v1.AgentRunEventType[message.type] : message.type;
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        object.topic = message.topic;
+                    if (message.agentId != null && $Object.hasOwnProperty.call(message, "agentId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.agentId = typeof message.agentId === "number" ? $BigInt(message.agentId) : $util.Long.fromBits(message.agentId.low >>> 0, message.agentId.high >>> 0, false).toBigInt();
+                        else if (typeof message.agentId === "number")
+                            object.agentId = options.longs === $String ? $String(message.agentId) : message.agentId;
+                        else
+                            object.agentId = options.longs === $String ? $util.Long.prototype.toString.call(message.agentId) : options.longs === $Number ? new $util.LongBits(message.agentId.low >>> 0, message.agentId.high >>> 0).toNumber() : message.agentId;
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.botUserId = typeof message.botUserId === "number" ? $BigInt(message.botUserId) : $util.Long.fromBits(message.botUserId.low >>> 0, message.botUserId.high >>> 0, false).toBigInt();
+                        else if (typeof message.botUserId === "number")
+                            object.botUserId = options.longs === $String ? $String(message.botUserId) : message.botUserId;
+                        else
+                            object.botUserId = options.longs === $String ? $util.Long.prototype.toString.call(message.botUserId) : options.longs === $Number ? new $util.LongBits(message.botUserId.low >>> 0, message.botUserId.high >>> 0).toNumber() : message.botUserId;
+                    if (message.actorUserId != null && $Object.hasOwnProperty.call(message, "actorUserId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.actorUserId = typeof message.actorUserId === "number" ? $BigInt(message.actorUserId) : $util.Long.fromBits(message.actorUserId.low >>> 0, message.actorUserId.high >>> 0, false).toBigInt();
+                        else if (typeof message.actorUserId === "number")
+                            object.actorUserId = options.longs === $String ? $String(message.actorUserId) : message.actorUserId;
+                        else
+                            object.actorUserId = options.longs === $String ? $util.Long.prototype.toString.call(message.actorUserId) : options.longs === $Number ? new $util.LongBits(message.actorUserId.low >>> 0, message.actorUserId.high >>> 0).toNumber() : message.actorUserId;
+                    if (message.triggerMsgId != null && $Object.hasOwnProperty.call(message, "triggerMsgId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.triggerMsgId = typeof message.triggerMsgId === "number" ? $BigInt(message.triggerMsgId) : $util.Long.fromBits(message.triggerMsgId.low >>> 0, message.triggerMsgId.high >>> 0, false).toBigInt();
+                        else if (typeof message.triggerMsgId === "number")
+                            object.triggerMsgId = options.longs === $String ? $String(message.triggerMsgId) : message.triggerMsgId;
+                        else
+                            object.triggerMsgId = options.longs === $String ? $util.Long.prototype.toString.call(message.triggerMsgId) : options.longs === $Number ? new $util.LongBits(message.triggerMsgId.low >>> 0, message.triggerMsgId.high >>> 0).toNumber() : message.triggerMsgId;
+                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
+                        object.test = message.test;
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        object.delta = message.delta;
+                    if (message.tool != null && $Object.hasOwnProperty.call(message, "tool"))
+                        object.tool = message.tool;
+                    if (message.toolCallId != null && $Object.hasOwnProperty.call(message, "toolCallId"))
+                        object.toolCallId = message.toolCallId;
+                    if (message.summary != null && $Object.hasOwnProperty.call(message, "summary"))
+                        object.summary = message.summary;
+                    if (message.status != null && $Object.hasOwnProperty.call(message, "status"))
+                        object.status = message.status;
+                    if (message.approvalId != null && $Object.hasOwnProperty.call(message, "approvalId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.approvalId = typeof message.approvalId === "number" ? $BigInt(message.approvalId) : $util.Long.fromBits(message.approvalId.low >>> 0, message.approvalId.high >>> 0, true).toBigInt();
+                        else if (typeof message.approvalId === "number")
+                            object.approvalId = options.longs === $String ? $String(message.approvalId) : message.approvalId;
+                        else
+                            object.approvalId = options.longs === $String ? $util.Long.prototype.toString.call(message.approvalId) : options.longs === $Number ? new $util.LongBits(message.approvalId.low >>> 0, message.approvalId.high >>> 0).toNumber(true) : message.approvalId;
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.replyMsgId = typeof message.replyMsgId === "number" ? $BigInt(message.replyMsgId) : $util.Long.fromBits(message.replyMsgId.low >>> 0, message.replyMsgId.high >>> 0, false).toBigInt();
+                        else if (typeof message.replyMsgId === "number")
+                            object.replyMsgId = options.longs === $String ? $String(message.replyMsgId) : message.replyMsgId;
+                        else
+                            object.replyMsgId = options.longs === $String ? $util.Long.prototype.toString.call(message.replyMsgId) : options.longs === $Number ? new $util.LongBits(message.replyMsgId.low >>> 0, message.replyMsgId.high >>> 0).toNumber() : message.replyMsgId;
+                    if (message.errorCode != null && $Object.hasOwnProperty.call(message, "errorCode"))
+                        object.errorCode = message.errorCode;
+                    if (message.errorClass != null && $Object.hasOwnProperty.call(message, "errorClass"))
+                        object.errorClass = message.errorClass;
+                    if (message.retryable != null && $Object.hasOwnProperty.call(message, "retryable"))
+                        object.retryable = message.retryable;
+                    if (message.inputTokens != null && $Object.hasOwnProperty.call(message, "inputTokens"))
+                        object.inputTokens = message.inputTokens;
+                    if (message.outputTokens != null && $Object.hasOwnProperty.call(message, "outputTokens"))
+                        object.outputTokens = message.outputTokens;
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.timestampMs = typeof message.timestampMs === "number" ? $BigInt(message.timestampMs) : $util.Long.fromBits(message.timestampMs.low >>> 0, message.timestampMs.high >>> 0, false).toBigInt();
+                        else if (typeof message.timestampMs === "number")
+                            object.timestampMs = options.longs === $String ? $String(message.timestampMs) : message.timestampMs;
+                        else
+                            object.timestampMs = options.longs === $String ? $util.Long.prototype.toString.call(message.timestampMs) : options.longs === $Number ? new $util.LongBits(message.timestampMs.low >>> 0, message.timestampMs.high >>> 0).toNumber() : message.timestampMs;
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        object.clientMsgId = message.clientMsgId;
+                    return object;
+                };
+
+                /**
+                 * Converts this AgentRunEvent to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                AgentRunEvent.prototype.toJSON = function() {
+                    return AgentRunEvent.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for AgentRunEvent
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                AgentRunEvent.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.AgentRunEvent";
+                };
+
+                return AgentRunEvent;
             })();
 
             v1.Packet = (function() {
@@ -12682,8 +13823,9 @@ export const api = $root.api = (() => {
                  * @property {api.im.v1.SendReceipt.$Properties|null} [sendReceipt] Packet sendReceipt
                  * @property {api.im.v1.RecallRequest.$Properties|null} [recallReq] Packet recallReq
                  * @property {api.im.v1.RecallNotice.$Properties|null} [recallNotice] Packet recallNotice
+                 * @property {api.im.v1.AgentRunEvent.$Properties|null} [agentRunEvent] Packet agentRunEvent
                  * @property {api.im.v1.ErrorResponse.$Properties|null} [error] Packet error
-                 * @property {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error"} [payload] Packet payload
+                 * @property {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error"} [payload] Packet payload
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -12713,10 +13855,11 @@ export const api = $root.api = (() => {
                  *   sendReceipt?: api.im.v1.SendReceipt.$Shape|null;
                  *   recallReq?: api.im.v1.RecallRequest.$Shape|null;
                  *   recallNotice?: api.im.v1.RecallNotice.$Shape|null;
+                 *   agentRunEvent?: api.im.v1.AgentRunEvent.$Shape|null;
                  *   error?: api.im.v1.ErrorResponse.$Shape|null;
                  *   $unknowns?: Array.<Uint8Array>;
                  * } & (
-                 *   ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error: api.im.v1.ErrorResponse.$Shape })
+                 *   ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; agentRunEvent?: null; error?: null }|{ payload?: "agentRunEvent"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent: api.im.v1.AgentRunEvent.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error: api.im.v1.ErrorResponse.$Shape })
                  * )} api.im.v1.Packet.$Shape
                  */
 
@@ -12856,6 +13999,14 @@ export const api = $root.api = (() => {
                 Packet.prototype.recallNotice = null;
 
                 /**
+                 * Packet agentRunEvent.
+                 * @member {api.im.v1.AgentRunEvent.$Properties|null|undefined} agentRunEvent
+                 * @memberof api.im.v1.Packet
+                 * @instance
+                 */
+                Packet.prototype.agentRunEvent = null;
+
+                /**
                  * Packet error.
                  * @member {api.im.v1.ErrorResponse.$Properties|null|undefined} error
                  * @memberof api.im.v1.Packet
@@ -12868,12 +14019,12 @@ export const api = $root.api = (() => {
 
                 /**
                  * Packet payload.
-                 * @member {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error"|undefined} payload
+                 * @member {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error"|undefined} payload
                  * @memberof api.im.v1.Packet
                  * @instance
                  */
                 $Object.defineProperty(Packet.prototype, "payload", {
-                    get: $util.oneOfGetter($oneOfFields = ["authReq", "authResp", "sendReq", "sendReply", "pullReq", "pullReply", "ackReq", "notify", "readReceipt", "deliveryReceipt", "sendReceipt", "recallReq", "recallNotice", "error"]),
+                    get: $util.oneOfGetter($oneOfFields = ["authReq", "authResp", "sendReq", "sendReply", "pullReq", "pullReply", "ackReq", "notify", "readReceipt", "deliveryReceipt", "sendReceipt", "recallReq", "recallNotice", "agentRunEvent", "error"]),
                     set: $util.oneOfSetter($oneOfFields)
                 });
 
@@ -12941,6 +14092,8 @@ export const api = $root.api = (() => {
                         $root.api.im.v1.ErrorResponse.encode(message.error, writer.uint32(/* id 99, wireType 2 =*/794).fork(), _depth + 1).ldelim();
                     if (message.recallNotice != null && $Object.hasOwnProperty.call(message, "recallNotice"))
                         $root.api.im.v1.RecallNotice.encode(message.recallNotice, writer.uint32(/* id 100, wireType 2 =*/802).fork(), _depth + 1).ldelim();
+                    if (message.agentRunEvent != null && $Object.hasOwnProperty.call(message, "agentRunEvent"))
+                        $root.api.im.v1.AgentRunEvent.encode(message.agentRunEvent, writer.uint32(/* id 110, wireType 2 =*/882).fork(), _depth + 1).ldelim();
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -13097,6 +14250,13 @@ export const api = $root.api = (() => {
                                 message.payload = "recallNotice";
                                 continue;
                             }
+                        case 110: {
+                                if (wireType !== 2)
+                                    break;
+                                message.agentRunEvent = $root.api.im.v1.AgentRunEvent.decode(reader, reader.uint32(), $undefined, _depth + 1, message.agentRunEvent);
+                                message.payload = "agentRunEvent";
+                                continue;
+                            }
                         case 99: {
                                 if (wireType !== 2)
                                     break;
@@ -13163,6 +14323,7 @@ export const api = $root.api = (() => {
                         case 8:
                         case 9:
                         case 10:
+                        case 11:
                             break;
                         }
                     if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
@@ -13296,6 +14457,16 @@ export const api = $root.api = (() => {
                                 return "recallNotice." + error;
                         }
                     }
+                    if (message.agentRunEvent != null && $Object.hasOwnProperty.call(message, "agentRunEvent")) {
+                        if (properties.payload === 1)
+                            return "payload: multiple values";
+                        properties.payload = 1;
+                        {
+                            let error = $root.api.im.v1.AgentRunEvent.verify(message.agentRunEvent, _depth + 1);
+                            if (error)
+                                return "agentRunEvent." + error;
+                        }
+                    }
                     if (message.error != null && $Object.hasOwnProperty.call(message, "error")) {
                         if (properties.payload === 1)
                             return "payload: multiple values";
@@ -13379,6 +14550,10 @@ export const api = $root.api = (() => {
                         case 10:
                             message.cmd = 10;
                             break;
+                        case "CMD_AGENT_RUN_EVENT":
+                        case 11:
+                            message.cmd = 11;
+                            break;
                         }
                     if (object.seq != null)
                         if (typeof object.seq === "object" ? object.seq.low || object.seq.high : $Number(object.seq) !== 0)
@@ -13454,6 +14629,11 @@ export const api = $root.api = (() => {
                         if (!$util.isObject(object.recallNotice))
                             throw $TypeError(".api.im.v1.Packet.recallNotice: object expected");
                         message.recallNotice = $root.api.im.v1.RecallNotice.fromObject(object.recallNotice, _depth + 1);
+                    }
+                    if (object.agentRunEvent != null) {
+                        if (!$util.isObject(object.agentRunEvent))
+                            throw $TypeError(".api.im.v1.Packet.agentRunEvent: object expected");
+                        message.agentRunEvent = $root.api.im.v1.AgentRunEvent.fromObject(object.agentRunEvent, _depth + 1);
                     }
                     if (object.error != null) {
                         if (!$util.isObject(object.error))
@@ -13566,6 +14746,11 @@ export const api = $root.api = (() => {
                         object.recallNotice = $root.api.im.v1.RecallNotice.toObject(message.recallNotice, options, _depth + 1);
                         if (options.oneofs)
                             object.payload = "recallNotice";
+                    }
+                    if (message.agentRunEvent != null && $Object.hasOwnProperty.call(message, "agentRunEvent")) {
+                        object.agentRunEvent = $root.api.im.v1.AgentRunEvent.toObject(message.agentRunEvent, options, _depth + 1);
+                        if (options.oneofs)
+                            object.payload = "agentRunEvent";
                     }
                     return object;
                 };
@@ -17094,6 +18279,47 @@ export const api = $root.api = (() => {
                     responseStream: { value: $undefined }
                 });
 
+                /**
+                 * Callback as used by {@link api.im.v1.PushService#pushRunEventToUser}.
+                 * @memberof api.im.v1.PushService
+                 * @typedef PushRunEventToUserCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.PushRunEventToUserReply} [response] PushRunEventToUserReply
+                 */
+
+                /**
+                 * Calls PushRunEventToUser.
+                 * @memberof api.im.v1.PushService
+                 * @typedef PushRunEventToUser
+                 * @type {{
+                 *   (request: api.im.v1.IPushRunEventToUserRequest, callback: api.im.v1.PushService.PushRunEventToUserCallback): void;
+                 *   (request: api.im.v1.IPushRunEventToUserRequest): Promise<api.im.v1.PushRunEventToUserReply>;
+                 *   readonly name: "PushRunEventToUser";
+                 *   readonly path: "/api.im.v1.PushService/PushRunEventToUser";
+                 *   readonly requestType: "PushRunEventToUserRequest";
+                 *   readonly responseType: "PushRunEventToUserReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls PushRunEventToUser.
+                 * @name api.im.v1.PushService#pushRunEventToUser
+                 * @type {api.im.v1.PushService.PushRunEventToUser}
+                 */
+                $Object.defineProperties(PushService.prototype.pushRunEventToUser = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, PushService.prototype.pushRunEventToUser, $root.api.im.v1.PushRunEventToUserRequest, $root.api.im.v1.PushRunEventToUserReply, request, callback);
+                }, {
+                    name: { value: "PushRunEventToUser" },
+                    path: { value: "/api.im.v1.PushService/PushRunEventToUser" },
+                    requestType: { value: "PushRunEventToUserRequest" },
+                    responseType: { value: "PushRunEventToUserReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
                 return PushService;
             })();
 
@@ -20482,6 +21708,603 @@ export const api = $root.api = (() => {
                 };
 
                 return BatchPushReceiptsToUsersReply;
+            })();
+
+            v1.PushRunEventToUserRequest = (function() {
+
+                /**
+                 * Properties of a PushRunEventToUserRequest.
+                 * @typedef {Object} api.im.v1.PushRunEventToUserRequest.$Properties
+                 * @property {number|Long|null} [userId] PushRunEventToUserRequest userId
+                 * @property {api.im.v1.AgentRunEvent.$Properties|null} [event] PushRunEventToUserRequest event
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a PushRunEventToUserRequest.
+                 * @memberof api.im.v1
+                 * @interface IPushRunEventToUserRequest
+                 * @augments api.im.v1.PushRunEventToUserRequest.$Properties
+                 * @deprecated Use api.im.v1.PushRunEventToUserRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a PushRunEventToUserRequest.
+                 * @typedef {api.im.v1.PushRunEventToUserRequest.$Properties} api.im.v1.PushRunEventToUserRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new PushRunEventToUserRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a PushRunEventToUserRequest.
+                 * @constructor
+                 * @param {api.im.v1.PushRunEventToUserRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const PushRunEventToUserRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * PushRunEventToUserRequest userId.
+                 * @member {number|Long} userId
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @instance
+                 */
+                PushRunEventToUserRequest.prototype.userId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * PushRunEventToUserRequest event.
+                 * @member {api.im.v1.AgentRunEvent.$Properties|null|undefined} event
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @instance
+                 */
+                PushRunEventToUserRequest.prototype.event = null;
+
+                /**
+                 * Creates a new PushRunEventToUserRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.PushRunEventToUserRequest} PushRunEventToUserRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.PushRunEventToUserRequest.$Shape): api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape;
+                 *   (properties?: api.im.v1.PushRunEventToUserRequest.$Properties): api.im.v1.PushRunEventToUserRequest;
+                 * }}
+                 */
+                PushRunEventToUserRequest.create = function(properties) {
+                    return new PushRunEventToUserRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified PushRunEventToUserRequest message. Does not implicitly {@link api.im.v1.PushRunEventToUserRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserRequest.$Properties} message PushRunEventToUserRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushRunEventToUserRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event"))
+                        $root.api.im.v1.AgentRunEvent.encode(message.event, writer.uint32(/* id 2, wireType 2 =*/18).fork(), _depth + 1).ldelim();
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified PushRunEventToUserRequest message, length delimited. Does not implicitly {@link api.im.v1.PushRunEventToUserRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserRequest.$Properties} message PushRunEventToUserRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushRunEventToUserRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a PushRunEventToUserRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape} PushRunEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushRunEventToUserRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.PushRunEventToUserRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.userId = value;
+                                else
+                                    delete message.userId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                message.event = $root.api.im.v1.AgentRunEvent.decode(reader, reader.uint32(), $undefined, _depth + 1, message.event);
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a PushRunEventToUserRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape} PushRunEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushRunEventToUserRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a PushRunEventToUserRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                PushRunEventToUserRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (!$util.isInteger(message.userId) && !(message.userId && $util.isInteger(message.userId.low) && $util.isInteger(message.userId.high)))
+                            return "userId: integer|Long expected";
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event")) {
+                        let error = $root.api.im.v1.AgentRunEvent.verify(message.event, _depth + 1);
+                        if (error)
+                            return "event." + error;
+                    }
+                    return null;
+                };
+
+                /**
+                 * Creates a PushRunEventToUserRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.PushRunEventToUserRequest} PushRunEventToUserRequest
+                 */
+                PushRunEventToUserRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.PushRunEventToUserRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.PushRunEventToUserRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.PushRunEventToUserRequest();
+                    if (object.userId != null)
+                        if (typeof object.userId === "object" ? object.userId.low || object.userId.high : $Number(object.userId) !== 0)
+                            if ($util.Long)
+                                message.userId = $util.Long.fromValue(object.userId, false);
+                            else if (typeof object.userId === "string")
+                                message.userId = $parseInt(object.userId, 10);
+                            else if (typeof object.userId === "number")
+                                message.userId = object.userId;
+                            else if (typeof object.userId === "object")
+                                message.userId = new $util.LongBits(object.userId.low >>> 0, object.userId.high >>> 0).toNumber();
+                    if (object.event != null) {
+                        if (!$util.isObject(object.event))
+                            throw $TypeError(".api.im.v1.PushRunEventToUserRequest.event: object expected");
+                        message.event = $root.api.im.v1.AgentRunEvent.fromObject(object.event, _depth + 1);
+                    }
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a PushRunEventToUserRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserRequest} message PushRunEventToUserRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                PushRunEventToUserRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.userId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.event = null;
+                    }
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.userId = typeof message.userId === "number" ? $BigInt(message.userId) : $util.Long.fromBits(message.userId.low >>> 0, message.userId.high >>> 0, false).toBigInt();
+                        else if (typeof message.userId === "number")
+                            object.userId = options.longs === $String ? $String(message.userId) : message.userId;
+                        else
+                            object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event"))
+                        object.event = $root.api.im.v1.AgentRunEvent.toObject(message.event, options, _depth + 1);
+                    return object;
+                };
+
+                /**
+                 * Converts this PushRunEventToUserRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                PushRunEventToUserRequest.prototype.toJSON = function() {
+                    return PushRunEventToUserRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for PushRunEventToUserRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.PushRunEventToUserRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                PushRunEventToUserRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.PushRunEventToUserRequest";
+                };
+
+                return PushRunEventToUserRequest;
+            })();
+
+            v1.PushRunEventToUserReply = (function() {
+
+                /**
+                 * Properties of a PushRunEventToUserReply.
+                 * @typedef {Object} api.im.v1.PushRunEventToUserReply.$Properties
+                 * @property {boolean|null} [success] PushRunEventToUserReply success
+                 * @property {number|null} [deliveredCount] PushRunEventToUserReply deliveredCount
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a PushRunEventToUserReply.
+                 * @memberof api.im.v1
+                 * @interface IPushRunEventToUserReply
+                 * @augments api.im.v1.PushRunEventToUserReply.$Properties
+                 * @deprecated Use api.im.v1.PushRunEventToUserReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a PushRunEventToUserReply.
+                 * @typedef {api.im.v1.PushRunEventToUserReply.$Properties} api.im.v1.PushRunEventToUserReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new PushRunEventToUserReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a PushRunEventToUserReply.
+                 * @constructor
+                 * @param {api.im.v1.PushRunEventToUserReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const PushRunEventToUserReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * PushRunEventToUserReply success.
+                 * @member {boolean} success
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @instance
+                 */
+                PushRunEventToUserReply.prototype.success = false;
+
+                /**
+                 * PushRunEventToUserReply deliveredCount.
+                 * @member {number} deliveredCount
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @instance
+                 */
+                PushRunEventToUserReply.prototype.deliveredCount = 0;
+
+                /**
+                 * Creates a new PushRunEventToUserReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.PushRunEventToUserReply} PushRunEventToUserReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.PushRunEventToUserReply.$Shape): api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape;
+                 *   (properties?: api.im.v1.PushRunEventToUserReply.$Properties): api.im.v1.PushRunEventToUserReply;
+                 * }}
+                 */
+                PushRunEventToUserReply.create = function(properties) {
+                    return new PushRunEventToUserReply(properties);
+                };
+
+                /**
+                 * Encodes the specified PushRunEventToUserReply message. Does not implicitly {@link api.im.v1.PushRunEventToUserReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserReply.$Properties} message PushRunEventToUserReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushRunEventToUserReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).bool(message.success);
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).int32(message.deliveredCount);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified PushRunEventToUserReply message, length delimited. Does not implicitly {@link api.im.v1.PushRunEventToUserReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserReply.$Properties} message PushRunEventToUserReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushRunEventToUserReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a PushRunEventToUserReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape} PushRunEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushRunEventToUserReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.PushRunEventToUserReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.success = value;
+                                else
+                                    delete message.success;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.deliveredCount = value;
+                                else
+                                    delete message.deliveredCount;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a PushRunEventToUserReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape} PushRunEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushRunEventToUserReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a PushRunEventToUserReply message.
+                 * @function verify
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                PushRunEventToUserReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        if (typeof message.success !== "boolean")
+                            return "success: boolean expected";
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        if (!$util.isInteger(message.deliveredCount))
+                            return "deliveredCount: integer expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a PushRunEventToUserReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.PushRunEventToUserReply} PushRunEventToUserReply
+                 */
+                PushRunEventToUserReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.PushRunEventToUserReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.PushRunEventToUserReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.PushRunEventToUserReply();
+                    if (object.success != null)
+                        if (object.success)
+                            message.success = $Boolean(object.success);
+                    if (object.deliveredCount != null)
+                        if ($Number(object.deliveredCount) !== 0)
+                            message.deliveredCount = object.deliveredCount | 0;
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a PushRunEventToUserReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushRunEventToUserReply} message PushRunEventToUserReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                PushRunEventToUserReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        object.success = false;
+                        object.deliveredCount = 0;
+                    }
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        object.success = message.success;
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        object.deliveredCount = message.deliveredCount;
+                    return object;
+                };
+
+                /**
+                 * Converts this PushRunEventToUserReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                PushRunEventToUserReply.prototype.toJSON = function() {
+                    return PushRunEventToUserReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for PushRunEventToUserReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.PushRunEventToUserReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                PushRunEventToUserReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.PushRunEventToUserReply";
+                };
+
+                return PushRunEventToUserReply;
             })();
 
             v1.UserService = (function() {

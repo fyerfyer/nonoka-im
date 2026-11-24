@@ -88,3 +88,16 @@ func (s *Store) FailToolInvocation(ctx context.Context, runID uint64, toolCallID
 	}
 	return nil
 }
+
+// ListToolInvocations returns the durable side-effect ledger for a run.
+func (s *Store) ListToolInvocations(ctx context.Context, runID uint64) ([]domain.ToolInvocation, error) {
+	var rows []ToolInvocationRow
+	if err := s.db.WithContext(ctx).Where("run_id = ?", runID).Order("id asc").Find(&rows).Error; err != nil {
+		return nil, transientOrDomain(err)
+	}
+	out := make([]domain.ToolInvocation, 0, len(rows))
+	for i := range rows {
+		out = append(out, rows[i].toDomain())
+	}
+	return out, nil
+}

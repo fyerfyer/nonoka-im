@@ -25,14 +25,19 @@ type Store interface {
 	GetAgent(ctx context.Context, id int64) (*domain.Agent, error)
 	CreateAgent(ctx context.Context, ownerID int64, spec domain.AgentSpec, grant func(context.Context, int64) error) (*domain.Agent, error)
 	UpdateDraft(ctx context.Context, id, revision int64, spec domain.AgentSpec, updateKey bool) (*domain.Agent, error)
-	Publish(ctx context.Context, id, revision int64) (*domain.AgentVersion, error)
+	Publish(ctx context.Context, id, revision int64, note string, publishedBy int64) (*domain.AgentVersion, error)
 	RollbackPublish(ctx context.Context, id, version int64) error
+	RestoreDraft(ctx context.Context, id, version, expectedRevision int64) (*domain.Agent, error)
 	SetAgentStatus(ctx context.Context, id int64, status string) error
 	DeleteAgent(ctx context.Context, id int64) ([]string, error)
 	GetVersion(ctx context.Context, agentID, version int64) (*domain.AgentVersion, error)
+	ListVersions(ctx context.Context, agentID int64) ([]domain.AgentVersion, error)
+	EnqueueRun(ctx context.Context, candidate *domain.AgentRun) (bool, error)
 	ListRunsPage(ctx context.Context, agentID int64, limit, offset int) ([]domain.AgentRun, int64, error)
 	GetRun(ctx context.Context, id uint64) (*domain.AgentRun, error)
 	SetRunAction(ctx context.Context, id uint64, action string, acknowledgeSideEffect bool) error
+	ListToolInvocations(ctx context.Context, runID uint64) ([]domain.ToolInvocation, error)
+	ListRunSteps(ctx context.Context, runID uint64) ([]domain.AgentRunStep, error)
 	ListApprovals(ctx context.Context, approverID int64, status string, limit, offset int) ([]domain.AgentApproval, int64, error)
 	GetApproval(ctx context.Context, id uint64) (*domain.AgentApproval, error)
 	DecideAndRequeue(ctx context.Context, id uint64, decision string, actorID int64) error
@@ -79,12 +84,13 @@ type Authorizer interface {
 	CanViewAgent(ctx context.Context, userID, agentID int64) error
 	CanUseAgent(ctx context.Context, userID, agentID int64) error
 	CanManageAgent(ctx context.Context, userID, agentID int64) error
+	CanOwnAgent(ctx context.Context, userID, agentID int64) error
 	CanManagePlatform(ctx context.Context, userID int64) error
 	CanAccessTopic(ctx context.Context, userID int64, topic string) error
 	CanManageGroup(ctx context.Context, userID int64, groupID string) error
 	SetAgentOwner(ctx context.Context, agentID, userID int64) error
 	SetAgentToolBinding(ctx context.Context, agentID int64, tool string, enabled bool) error
-	SetAgentShare(ctx context.Context, agentID int64, kind, target string, enabled bool) error
+	SetAgentShare(ctx context.Context, agentID int64, kind, target, role string, enabled bool) error
 	ListAgentShares(ctx context.Context, agentID int64) ([]authz.AgentShare, error)
 	DeleteAgentTuples(ctx context.Context, agentID int64, tools []string) error
 	SetGroupMember(ctx context.Context, groupID string, userID int64, enabled bool) error
@@ -135,7 +141,11 @@ type Input struct {
 	Status            string
 	Kind              string
 	Target            string
+	Role              string
 	Enabled           bool
+	Note              string
+	Version           int64
+	Message           string
 }
 
 type MCPBindingInput struct {

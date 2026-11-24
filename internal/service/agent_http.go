@@ -55,7 +55,11 @@ type agentRequest struct {
 	Status   string `json:"status"`
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
+	Role     string `json:"role"`
 	Enabled  bool   `json:"enabled"`
+	Note     string `json:"note"`
+	Version  int64  `json:"version"`
+	Message  string `json:"message"`
 }
 
 func (r *agentRequest) input() admin.Input {
@@ -64,7 +68,8 @@ func (r *agentRequest) input() admin.Input {
 		ModelServiceID: r.ModelServiceID, ModelID: r.ModelID,
 		Tools: r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
 		MaxTokens: r.MaxTokens, Revision: r.Revision, Status: r.Status, Kind: r.Kind,
-		Target: r.Target, Enabled: r.Enabled,
+		Target: r.Target, Role: r.Role, Enabled: r.Enabled, Note: r.Note,
+		Version: r.Version, Message: r.Message,
 	}
 	for _, binding := range r.MCPBindings {
 		input.MCPBindings = append(input.MCPBindings, admin.MCPBindingInput{ServerID: binding.ServerID, Tool: binding.Tool, Policy: binding.Policy})

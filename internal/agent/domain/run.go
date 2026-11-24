@@ -13,6 +13,27 @@ const (
 	RunCancelled       = "cancelled"
 )
 
+// Run kinds. IM runs are triggered by Kafka events and reply through the IM
+// pipeline; test runs execute a frozen draft configuration for the playground
+// and never send IM messages.
+const (
+	RunKindIM   = "im"
+	RunKindTest = "test"
+)
+
+// Durable run-step types. Delta events are intentionally absent: they are
+// transient and only kept in the Redis run-event buffer.
+const (
+	RunStepStarted          = "started"
+	RunStepToolStarted      = "tool_started"
+	RunStepToolFinished     = "tool_finished"
+	RunStepApproval         = "approval_required"
+	RunStepApprovalResolved = "approval_resolved"
+	RunStepCompleted        = "completed"
+	RunStepFailed           = "failed"
+	RunStepCancelled        = "cancelled"
+)
+
 // Failure classes/codes that are shared by the persistence adapter and the
 // executor without importing the runtime package.
 const (
@@ -42,6 +63,13 @@ type AgentRun struct {
 	NextAttemptAt *time.Time
 	ReplyMsgID    int64
 	CheckpointID  string
+	// Kind distinguishes IM-triggered runs from playground test runs.
+	Kind string
+	// InputText and OutputText are test-run payloads. IM runs read their
+	// input from the triggering message and write their reply to IM.
+	InputText      string
+	OutputText     string
+	ConfigSnapshot string
 	// SideEffectAt records that a write tool already produced an external
 	// effect during this run. Retryable failures after this point are forced
 	// terminal until an operator explicitly acknowledges the risk.
@@ -52,6 +80,20 @@ type AgentRun struct {
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
+}
+
+// AgentRunStep is one durable point in a run timeline. Summary is redacted and
+// never contains raw tool arguments.
+type AgentRunStep struct {
+	ID         uint64
+	RunID      uint64
+	Seq        uint64
+	Type       string
+	Tool       string
+	ToolCallID string
+	Summary    string
+	Status     string
+	CreatedAt  time.Time
 }
 
 type AgentTurn struct {

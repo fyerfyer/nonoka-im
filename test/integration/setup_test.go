@@ -229,7 +229,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	}
 	agentSvc := service.NewAgentHTTP(
 		admin.NewAgentService(agentStore, platformStore, modelSvc, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, testLogger),
-		admin.NewRunService(agentStore, fgaAuthorizer),
+		admin.NewRunService(agentStore, fgaAuthorizer, realtime.NewMemoryRunEventStore(), nil),
 		admin.NewApprovalService(agentStore, fgaAuthorizer),
 		admin.NewMCPService(platformStore, fgaAuthorizer, mcpDiscovery, sealer, testLogger),
 		admin.NewSkillService(platformStore, fgaAuthorizer),

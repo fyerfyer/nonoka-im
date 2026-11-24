@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -81,7 +82,7 @@ func New(_ context.Context, deps Deps) (*Engine, error) {
 	}, nil
 }
 
-func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summaryThrough uint64) (port.Result, error) {
+func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summaryThrough uint64, sink port.EventSink) (port.Result, error) {
 	var final string
 	for {
 		event, ok := iterator.Next()
@@ -109,12 +110,36 @@ func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summ
 				return port.Result{Status: port.StatusInterrupted, Interrupt: &port.InterruptInfo{ToolCallID: root.ID, Tool: info.Tool, Summary: info.Summary, ArgsHash: info.ArgsHash}, Summary: state.summary, SummaryThroughTurnID: summaryThrough, Usage: state.usage}, nil
 			}
 		}
-		// GetMessage handles wrapped events and copies a streaming message
-		// before concatenating it, so a future streaming consumer can still
-		// forward the original stream.
-		msg, _, err := adk.GetMessage(event)
-		if err != nil {
-			return port.Result{}, fmt.Errorf("read Eino output: %w", err)
+		if event.Output == nil || event.Output.MessageOutput == nil {
+			continue
+		}
+		mv := event.Output.MessageOutput
+		var msg *schema.Message
+		if mv.IsStreaming {
+			streams := mv.MessageStream.Copy(2)
+			readStream, concatStream := streams[0], streams[1]
+			for {
+				chunk, err := readStream.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					readStream.Close()
+					concatStream.Close()
+					return port.Result{}, fmt.Errorf("read Eino stream: %w", err)
+				}
+				if chunk != nil && chunk.Role == schema.Assistant && chunk.Content != "" && sink != nil {
+					sink(port.StreamEvent{Type: port.EventDelta, Delta: chunk.Content})
+				}
+			}
+			readStream.Close()
+			var err error
+			msg, err = schema.ConcatMessageStream(concatStream)
+			if err != nil {
+				return port.Result{}, fmt.Errorf("concat Eino stream: %w", err)
+			}
+		} else {
+			msg = mv.Message
 		}
 		if msg != nil && msg.Role == schema.Assistant && len(msg.ToolCalls) == 0 {
 			final = msg.Content
@@ -149,16 +174,19 @@ func (r *Engine) Run(ctx context.Context, in port.Input) (port.Result, error) {
 	}
 	msgs = append(msgs, schema.UserMessage(in.Text))
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, RunID: in.RunID, AttemptID: in.AttemptID, EventID: in.EventID, Topic: in.Topic})
-	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: false}
+	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: true}
 	if r.checkpoints != nil && in.CheckPointID != "" {
 		runnerCfg.CheckPointStore = r.checkpoints
 	}
 	runner := adk.NewRunner(toolCtx, runnerCfg)
-	opts := []adk.AgentRunOption{adk.WithCallbacks(modelSpanHandler(&state.usage, &state.modelError))}
+	opts := []adk.AgentRunOption{adk.WithCallbacks(
+		modelSpanHandler(&state.usage, &state.modelError),
+		toolEventCallbacks(in.OnEvent, r.summarizeArgs),
+	)}
 	if in.CheckPointID != "" {
 		opts = append(opts, adk.WithCheckPointID(in.CheckPointID))
 	}
-	return runLoop(runner.Run(toolCtx, msgs, opts...), state, in.SummaryThroughTurnID)
+	return runLoop(runner.Run(toolCtx, msgs, opts...), state, in.SummaryThroughTurnID, in.OnEvent)
 }
 
 // Resume continues an interrupted run from its checkpoint. The agent is
@@ -174,18 +202,21 @@ func (r *Engine) Resume(ctx context.Context, in port.ResumeInput) (port.Result, 
 		return port.Result{}, err
 	}
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, RunID: in.RunID, AttemptID: in.AttemptID, EventID: in.EventID, Topic: in.Topic})
-	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: false}
+	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: true}
 	if r.checkpoints != nil {
 		runnerCfg.CheckPointStore = r.checkpoints
 	}
 	runner := adk.NewRunner(toolCtx, runnerCfg)
 	iterator, err := runner.ResumeWithParams(toolCtx, in.CheckPointID, &adk.ResumeParams{
 		Targets: map[string]any{in.InterruptID: approvalDecision{Approved: in.Approved}},
-	}, adk.WithCallbacks(modelSpanHandler(&state.usage, &state.modelError)))
+	}, adk.WithCallbacks(
+		modelSpanHandler(&state.usage, &state.modelError),
+		toolEventCallbacks(in.OnEvent, r.summarizeArgs),
+	))
 	if err != nil {
 		return port.Result{}, fmt.Errorf("resume run: %w", err)
 	}
-	return runLoop(iterator, state, in.SummaryThroughTurnID)
+	return runLoop(iterator, state, in.SummaryThroughTurnID, in.OnEvent)
 }
 
 // summaryTracker wraps the model used by the summarization middleware and

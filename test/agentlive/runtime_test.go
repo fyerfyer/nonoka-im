@@ -94,3 +94,38 @@ func TestDeepSeekTwoTurnsAndSummaryAcrossRuntime(t *testing.T) {
 	}
 	t.Logf("DeepSeek runtime acceptance passed: model=%s, turns=4", model)
 }
+
+func TestDeepSeekStreamsDeltas(t *testing.T) {
+	key, base, model := liveConfig(t)
+	endpoint := liveEndpoint(key, base, model)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	engine, err := newLiveRuntime(ctx, eino.Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deltas []string
+	result, err := engine.Run(ctx, port.Input{
+		Instruction: "Answer with exactly two short sentences.",
+		Model:       endpoint,
+		Text:        "Say hello and name one benefit of streaming.",
+		OnEvent: func(event port.StreamEvent) {
+			if event.Type == port.EventDelta {
+				deltas = append(deltas, event.Delta)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("stream run: %v", err)
+	}
+	if len(deltas) == 0 {
+		t.Fatal("expected at least one streamed delta")
+	}
+	if got := strings.Join(deltas, ""); strings.TrimSpace(got) == "" {
+		t.Fatalf("delta stream was empty: %v", deltas)
+	}
+	if strings.TrimSpace(result.Text) == "" {
+		t.Fatal("final streamed answer is empty")
+	}
+	t.Logf("DeepSeek streaming acceptance passed: deltas=%d", len(deltas))
+}

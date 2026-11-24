@@ -15,6 +15,7 @@ type AgentAuthorizer interface {
 	CanViewAgent(ctx context.Context, userID, agentID int64) error
 	CanUseAgent(ctx context.Context, userID, agentID int64) error
 	CanManageAgent(ctx context.Context, userID, agentID int64) error
+	CanOwnAgent(ctx context.Context, userID, agentID int64) error
 	CanAccessTopic(ctx context.Context, userID int64, topic string) error
 }
 
@@ -22,7 +23,7 @@ type AgentAuthorizer interface {
 type AgentAdminAuthorizer interface {
 	SetAgentOwner(ctx context.Context, agentID, userID int64) error
 	SetAgentToolBinding(ctx context.Context, agentID int64, tool string, enabled bool) error
-	SetAgentShare(ctx context.Context, agentID int64, kind, target string, enabled bool) error
+	SetAgentShare(ctx context.Context, agentID int64, kind, target, role string, enabled bool) error
 	ListAgentShares(ctx context.Context, agentID int64) ([]AgentShare, error)
 	DeleteAgentTuples(ctx context.Context, agentID int64, tools []string) error
 	CanManageGroup(ctx context.Context, userID int64, groupID string) error

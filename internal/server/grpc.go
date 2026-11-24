@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
+	"os"
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
+	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/service"
 
 	kerrors "github.com/go-kratos/kratos/v2/errors"
@@ -15,7 +18,28 @@ import (
 	"github.com/go-kratos/kratos/v2/middleware/selector"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	jwt5 "github.com/golang-jwt/jwt/v5"
+	"google.golang.org/grpc/metadata"
 )
+
+// requireInternalPushToken protects Agent Worker run-event pushes. When the
+// env token is empty the endpoint remains open for local tests/demos.
+func requireInternalPushToken(next middleware.Handler) middleware.Handler {
+	return func(ctx context.Context, req interface{}) (interface{}, error) {
+		expected := os.Getenv("INTERNAL_PUSH_TOKEN")
+		if expected == "" {
+			return next(ctx, req)
+		}
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, kerrors.Unauthorized("INTERNAL_PUSH_UNAUTHORIZED", "missing internal push token")
+		}
+		values := md.Get(realtime.InternalPushTokenHeader)
+		if len(values) == 0 || subtle.ConstantTimeCompare([]byte(values[0]), []byte(expected)) != 1 {
+			return nil, kerrors.Unauthorized("INTERNAL_PUSH_UNAUTHORIZED", "invalid internal push token")
+		}
+		return next(ctx, req)
+	}
+}
 
 // userTokenScope is the only scope accepted on the gRPC API. Bot credentials
 // carry scope "agent:send" and are valid only for the HTTP message-send path.
@@ -53,6 +77,9 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
 			recovery.Recovery(),
+			selector.Server(requireInternalPushToken).Match(func(ctx context.Context, operation string) bool {
+				return operation == "/api.im.v1.PushService/PushRunEventToUser"
+			}).Build(),
 			selector.Server(
 				jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
 					return []byte(authConf.JwtSecret), nil
@@ -67,7 +94,8 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 					"/api.im.v1.PushService/BatchPushToUsers",
 					"/api.im.v1.PushService/PushReceiptToUser",
 					"/api.im.v1.PushService/BatchPushReceiptToUsers",
-					"/api.im.v1.PushService/BatchPushReceiptsToUsers":
+					"/api.im.v1.PushService/BatchPushReceiptsToUsers",
+					"/api.im.v1.PushService/PushRunEventToUser":
 					return false
 				}
 				return true

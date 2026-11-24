@@ -10,6 +10,10 @@ data:
   mongodb:
     uri: "mongodb://127.0.0.1:27017"
     database: "nonoka_im"
+  redis:
+    addr: "127.0.0.1:6379"
+    read_timeout: 0.2s
+    write_timeout: 0.2s
   kafka:
     brokers:
       - "127.0.0.1:9092"
@@ -21,6 +25,14 @@ data:
     max_wait: 10s
     commit_batch_size: 100
     commit_flush_interval: 1s
+
+# Agent Worker pushes transient run events through the Gateway gRPC PushService.
+# In containers GATEWAY_GRPC_ADDR overrides this address.
+dispatch:
+  gateways:
+    - node_id: "gateway-0"
+      gateway_url: "ws://127.0.0.1:8000/ws"
+      gateway_grpc_addr: "127.0.0.1:9002"
 
 agent_worker:
   run_workers: 8

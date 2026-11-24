@@ -35,6 +35,7 @@ const (
 	Command_CMD_DELIVERY_RECEIPT Command = 8  // server -> client: delivery receipt
 	Command_CMD_SEND_RECEIPT     Command = 9  // server -> client: send receipt (msg_id/topic_seq confirmation)
 	Command_CMD_RECALL           Command = 10 // bi-directional: recall a message
+	Command_CMD_AGENT_RUN_EVENT  Command = 11 // server -> client: transient agent run stream event
 )
 
 // Enum value maps for Command.
@@ -51,6 +52,7 @@ var (
 		8:  "CMD_DELIVERY_RECEIPT",
 		9:  "CMD_SEND_RECEIPT",
 		10: "CMD_RECALL",
+		11: "CMD_AGENT_RUN_EVENT",
 	}
 	Command_value = map[string]int32{
 		"CMD_UNKNOWN":          0,
@@ -64,6 +66,7 @@ var (
 		"CMD_DELIVERY_RECEIPT": 8,
 		"CMD_SEND_RECEIPT":     9,
 		"CMD_RECALL":           10,
+		"CMD_AGENT_RUN_EVENT":  11,
 	}
 )
 
@@ -94,6 +97,303 @@ func (Command) EnumDescriptor() ([]byte, []int) {
 	return file_im_v1_packet_proto_rawDescGZIP(), []int{0}
 }
 
+// AgentRunEventType is the closed set of transient run stream events.
+type AgentRunEventType int32
+
+const (
+	AgentRunEventType_AGENT_RUN_EVENT_UNKNOWN     AgentRunEventType = 0
+	AgentRunEventType_AGENT_RUN_STARTED           AgentRunEventType = 1
+	AgentRunEventType_AGENT_RUN_DELTA             AgentRunEventType = 2
+	AgentRunEventType_AGENT_RUN_TOOL_STARTED      AgentRunEventType = 3
+	AgentRunEventType_AGENT_RUN_TOOL_FINISHED     AgentRunEventType = 4
+	AgentRunEventType_AGENT_RUN_APPROVAL_REQUIRED AgentRunEventType = 5
+	AgentRunEventType_AGENT_RUN_APPROVAL_RESOLVED AgentRunEventType = 6
+	AgentRunEventType_AGENT_RUN_COMPLETED         AgentRunEventType = 7
+	AgentRunEventType_AGENT_RUN_FAILED            AgentRunEventType = 8
+	AgentRunEventType_AGENT_RUN_CANCELLED         AgentRunEventType = 9
+	AgentRunEventType_AGENT_RUN_HEARTBEAT         AgentRunEventType = 10
+)
+
+// Enum value maps for AgentRunEventType.
+var (
+	AgentRunEventType_name = map[int32]string{
+		0:  "AGENT_RUN_EVENT_UNKNOWN",
+		1:  "AGENT_RUN_STARTED",
+		2:  "AGENT_RUN_DELTA",
+		3:  "AGENT_RUN_TOOL_STARTED",
+		4:  "AGENT_RUN_TOOL_FINISHED",
+		5:  "AGENT_RUN_APPROVAL_REQUIRED",
+		6:  "AGENT_RUN_APPROVAL_RESOLVED",
+		7:  "AGENT_RUN_COMPLETED",
+		8:  "AGENT_RUN_FAILED",
+		9:  "AGENT_RUN_CANCELLED",
+		10: "AGENT_RUN_HEARTBEAT",
+	}
+	AgentRunEventType_value = map[string]int32{
+		"AGENT_RUN_EVENT_UNKNOWN":     0,
+		"AGENT_RUN_STARTED":           1,
+		"AGENT_RUN_DELTA":             2,
+		"AGENT_RUN_TOOL_STARTED":      3,
+		"AGENT_RUN_TOOL_FINISHED":     4,
+		"AGENT_RUN_APPROVAL_REQUIRED": 5,
+		"AGENT_RUN_APPROVAL_RESOLVED": 6,
+		"AGENT_RUN_COMPLETED":         7,
+		"AGENT_RUN_FAILED":            8,
+		"AGENT_RUN_CANCELLED":         9,
+		"AGENT_RUN_HEARTBEAT":         10,
+	}
+)
+
+func (x AgentRunEventType) Enum() *AgentRunEventType {
+	p := new(AgentRunEventType)
+	*p = x
+	return p
+}
+
+func (x AgentRunEventType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AgentRunEventType) Descriptor() protoreflect.EnumDescriptor {
+	return file_im_v1_packet_proto_enumTypes[1].Descriptor()
+}
+
+func (AgentRunEventType) Type() protoreflect.EnumType {
+	return &file_im_v1_packet_proto_enumTypes[1]
+}
+
+func (x AgentRunEventType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AgentRunEventType.Descriptor instead.
+func (AgentRunEventType) EnumDescriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{1}
+}
+
+// AgentRunEvent is a transient progress event for one agent run. It is never
+// persisted as an IM message; the final answer still arrives through the normal
+// message pipeline. (run_id, seq) is the ordering and deduplication key.
+type AgentRunEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         uint64                 `protobuf:"varint,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Seq           uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	Type          AgentRunEventType      `protobuf:"varint,3,opt,name=type,proto3,enum=api.im.v1.AgentRunEventType" json:"type,omitempty"`
+	Topic         string                 `protobuf:"bytes,4,opt,name=topic,proto3" json:"topic,omitempty"`
+	AgentId       int64                  `protobuf:"varint,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	BotUserId     int64                  `protobuf:"varint,6,opt,name=bot_user_id,json=botUserId,proto3" json:"bot_user_id,omitempty"`
+	ActorUserId   int64                  `protobuf:"varint,7,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	TriggerMsgId  int64                  `protobuf:"varint,8,opt,name=trigger_msg_id,json=triggerMsgId,proto3" json:"trigger_msg_id,omitempty"`
+	Test          bool                   `protobuf:"varint,9,opt,name=test,proto3" json:"test,omitempty"`
+	Delta         string                 `protobuf:"bytes,10,opt,name=delta,proto3" json:"delta,omitempty"`
+	Tool          string                 `protobuf:"bytes,11,opt,name=tool,proto3" json:"tool,omitempty"`
+	ToolCallId    string                 `protobuf:"bytes,12,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	Summary       string                 `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
+	Status        string                 `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
+	ApprovalId    uint64                 `protobuf:"varint,15,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	ReplyMsgId    int64                  `protobuf:"varint,16,opt,name=reply_msg_id,json=replyMsgId,proto3" json:"reply_msg_id,omitempty"`
+	ErrorCode     string                 `protobuf:"bytes,17,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorClass    string                 `protobuf:"bytes,18,opt,name=error_class,json=errorClass,proto3" json:"error_class,omitempty"`
+	Retryable     bool                   `protobuf:"varint,19,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	InputTokens   int32                  `protobuf:"varint,20,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens  int32                  `protobuf:"varint,21,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	TimestampMs   int64                  `protobuf:"varint,22,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	ClientMsgId   string                 `protobuf:"bytes,23,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentRunEvent) Reset() {
+	*x = AgentRunEvent{}
+	mi := &file_im_v1_packet_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentRunEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentRunEvent) ProtoMessage() {}
+
+func (x *AgentRunEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_packet_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentRunEvent.ProtoReflect.Descriptor instead.
+func (*AgentRunEvent) Descriptor() ([]byte, []int) {
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *AgentRunEvent) GetRunId() uint64 {
+	if x != nil {
+		return x.RunId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetType() AgentRunEventType {
+	if x != nil {
+		return x.Type
+	}
+	return AgentRunEventType_AGENT_RUN_EVENT_UNKNOWN
+}
+
+func (x *AgentRunEvent) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetAgentId() int64 {
+	if x != nil {
+		return x.AgentId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetBotUserId() int64 {
+	if x != nil {
+		return x.BotUserId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetActorUserId() int64 {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetTriggerMsgId() int64 {
+	if x != nil {
+		return x.TriggerMsgId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetTest() bool {
+	if x != nil {
+		return x.Test
+	}
+	return false
+}
+
+func (x *AgentRunEvent) GetDelta() string {
+	if x != nil {
+		return x.Delta
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetTool() string {
+	if x != nil {
+		return x.Tool
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetToolCallId() string {
+	if x != nil {
+		return x.ToolCallId
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetApprovalId() uint64 {
+	if x != nil {
+		return x.ApprovalId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetReplyMsgId() int64 {
+	if x != nil {
+		return x.ReplyMsgId
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetErrorClass() string {
+	if x != nil {
+		return x.ErrorClass
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *AgentRunEvent) GetInputTokens() int32 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetOutputTokens() int32 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetTimestampMs() int64 {
+	if x != nil {
+		return x.TimestampMs
+	}
+	return 0
+}
+
+func (x *AgentRunEvent) GetClientMsgId() string {
+	if x != nil {
+		return x.ClientMsgId
+	}
+	return ""
+}
+
 // Packet is the unified wire format for all WebSocket messages.
 // The payload is self-describing via oneof — clients no longer need to
 // guess the serialization format for each command.
@@ -118,6 +418,7 @@ type Packet struct {
 	//	*Packet_SendReceipt
 	//	*Packet_RecallReq
 	//	*Packet_RecallNotice
+	//	*Packet_AgentRunEvent
 	//	*Packet_Error
 	Payload       isPacket_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -126,7 +427,7 @@ type Packet struct {
 
 func (x *Packet) Reset() {
 	*x = Packet{}
-	mi := &file_im_v1_packet_proto_msgTypes[0]
+	mi := &file_im_v1_packet_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -138,7 +439,7 @@ func (x *Packet) String() string {
 func (*Packet) ProtoMessage() {}
 
 func (x *Packet) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[0]
+	mi := &file_im_v1_packet_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -151,7 +452,7 @@ func (x *Packet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Packet.ProtoReflect.Descriptor instead.
 func (*Packet) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{0}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Packet) GetCmd() Command {
@@ -292,6 +593,15 @@ func (x *Packet) GetRecallNotice() *RecallNotice {
 	return nil
 }
 
+func (x *Packet) GetAgentRunEvent() *AgentRunEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*Packet_AgentRunEvent); ok {
+			return x.AgentRunEvent
+		}
+	}
+	return nil
+}
+
 func (x *Packet) GetError() *ErrorResponse {
 	if x != nil {
 		if x, ok := x.Payload.(*Packet_Error); ok {
@@ -365,6 +675,10 @@ type Packet_RecallNotice struct {
 	RecallNotice *RecallNotice `protobuf:"bytes,100,opt,name=recall_notice,json=recallNotice,proto3,oneof"`
 }
 
+type Packet_AgentRunEvent struct {
+	AgentRunEvent *AgentRunEvent `protobuf:"bytes,110,opt,name=agent_run_event,json=agentRunEvent,proto3,oneof"`
+}
+
 type Packet_Error struct {
 	// Unified error response (can be returned for any command).
 	Error *ErrorResponse `protobuf:"bytes,99,opt,name=error,proto3,oneof"`
@@ -396,6 +710,8 @@ func (*Packet_RecallReq) isPacket_Payload() {}
 
 func (*Packet_RecallNotice) isPacket_Payload() {}
 
+func (*Packet_AgentRunEvent) isPacket_Payload() {}
+
 func (*Packet_Error) isPacket_Payload() {}
 
 // AuthRequest is sent by the client to authenticate the WebSocket connection.
@@ -409,7 +725,7 @@ type AuthRequest struct {
 
 func (x *AuthRequest) Reset() {
 	*x = AuthRequest{}
-	mi := &file_im_v1_packet_proto_msgTypes[1]
+	mi := &file_im_v1_packet_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +737,7 @@ func (x *AuthRequest) String() string {
 func (*AuthRequest) ProtoMessage() {}
 
 func (x *AuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[1]
+	mi := &file_im_v1_packet_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +750,7 @@ func (x *AuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthRequest.ProtoReflect.Descriptor instead.
 func (*AuthRequest) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{1}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AuthRequest) GetToken() string {
@@ -463,7 +779,7 @@ type AuthResponse struct {
 
 func (x *AuthResponse) Reset() {
 	*x = AuthResponse{}
-	mi := &file_im_v1_packet_proto_msgTypes[2]
+	mi := &file_im_v1_packet_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -475,7 +791,7 @@ func (x *AuthResponse) String() string {
 func (*AuthResponse) ProtoMessage() {}
 
 func (x *AuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[2]
+	mi := &file_im_v1_packet_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -488,7 +804,7 @@ func (x *AuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthResponse.ProtoReflect.Descriptor instead.
 func (*AuthResponse) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{2}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AuthResponse) GetSuccess() bool {
@@ -524,7 +840,7 @@ type AckRequest struct {
 
 func (x *AckRequest) Reset() {
 	*x = AckRequest{}
-	mi := &file_im_v1_packet_proto_msgTypes[3]
+	mi := &file_im_v1_packet_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +852,7 @@ func (x *AckRequest) String() string {
 func (*AckRequest) ProtoMessage() {}
 
 func (x *AckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[3]
+	mi := &file_im_v1_packet_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +865,7 @@ func (x *AckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckRequest.ProtoReflect.Descriptor instead.
 func (*AckRequest) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{3}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AckRequest) GetMsgId() int64 {
@@ -586,7 +902,7 @@ type ErrorResponse struct {
 
 func (x *ErrorResponse) Reset() {
 	*x = ErrorResponse{}
-	mi := &file_im_v1_packet_proto_msgTypes[4]
+	mi := &file_im_v1_packet_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -598,7 +914,7 @@ func (x *ErrorResponse) String() string {
 func (*ErrorResponse) ProtoMessage() {}
 
 func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[4]
+	mi := &file_im_v1_packet_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -611,7 +927,7 @@ func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
 func (*ErrorResponse) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{4}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ErrorResponse) GetCode() int32 {
@@ -655,7 +971,7 @@ type ReadReceipt struct {
 
 func (x *ReadReceipt) Reset() {
 	*x = ReadReceipt{}
-	mi := &file_im_v1_packet_proto_msgTypes[5]
+	mi := &file_im_v1_packet_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -667,7 +983,7 @@ func (x *ReadReceipt) String() string {
 func (*ReadReceipt) ProtoMessage() {}
 
 func (x *ReadReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[5]
+	mi := &file_im_v1_packet_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -680,7 +996,7 @@ func (x *ReadReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadReceipt.ProtoReflect.Descriptor instead.
 func (*ReadReceipt) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{5}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReadReceipt) GetTopic() string {
@@ -717,7 +1033,7 @@ type DeliveryReceipt struct {
 
 func (x *DeliveryReceipt) Reset() {
 	*x = DeliveryReceipt{}
-	mi := &file_im_v1_packet_proto_msgTypes[6]
+	mi := &file_im_v1_packet_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -729,7 +1045,7 @@ func (x *DeliveryReceipt) String() string {
 func (*DeliveryReceipt) ProtoMessage() {}
 
 func (x *DeliveryReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[6]
+	mi := &file_im_v1_packet_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -742,7 +1058,7 @@ func (x *DeliveryReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeliveryReceipt.ProtoReflect.Descriptor instead.
 func (*DeliveryReceipt) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{6}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeliveryReceipt) GetTopic() string {
@@ -781,7 +1097,7 @@ type SendReceipt struct {
 
 func (x *SendReceipt) Reset() {
 	*x = SendReceipt{}
-	mi := &file_im_v1_packet_proto_msgTypes[7]
+	mi := &file_im_v1_packet_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -793,7 +1109,7 @@ func (x *SendReceipt) String() string {
 func (*SendReceipt) ProtoMessage() {}
 
 func (x *SendReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[7]
+	mi := &file_im_v1_packet_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -806,7 +1122,7 @@ func (x *SendReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendReceipt.ProtoReflect.Descriptor instead.
 func (*SendReceipt) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{7}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SendReceipt) GetClientMsgId() string {
@@ -855,7 +1171,7 @@ type RecallRequest struct {
 
 func (x *RecallRequest) Reset() {
 	*x = RecallRequest{}
-	mi := &file_im_v1_packet_proto_msgTypes[8]
+	mi := &file_im_v1_packet_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +1183,7 @@ func (x *RecallRequest) String() string {
 func (*RecallRequest) ProtoMessage() {}
 
 func (x *RecallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[8]
+	mi := &file_im_v1_packet_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +1196,7 @@ func (x *RecallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecallRequest.ProtoReflect.Descriptor instead.
 func (*RecallRequest) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{8}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RecallRequest) GetTopic() string {
@@ -917,7 +1233,7 @@ type RecallNotice struct {
 
 func (x *RecallNotice) Reset() {
 	*x = RecallNotice{}
-	mi := &file_im_v1_packet_proto_msgTypes[9]
+	mi := &file_im_v1_packet_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +1245,7 @@ func (x *RecallNotice) String() string {
 func (*RecallNotice) ProtoMessage() {}
 
 func (x *RecallNotice) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_packet_proto_msgTypes[9]
+	mi := &file_im_v1_packet_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1258,7 @@ func (x *RecallNotice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecallNotice.ProtoReflect.Descriptor instead.
 func (*RecallNotice) Descriptor() ([]byte, []int) {
-	return file_im_v1_packet_proto_rawDescGZIP(), []int{9}
+	return file_im_v1_packet_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RecallNotice) GetTopic() string {
@@ -984,7 +1300,37 @@ var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xf2\x06\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xc7\x05\n" +
+	"\rAgentRunEvent\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\x04R\x05runId\x12\x10\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\x120\n" +
+	"\x04type\x18\x03 \x01(\x0e2\x1c.api.im.v1.AgentRunEventTypeR\x04type\x12\x14\n" +
+	"\x05topic\x18\x04 \x01(\tR\x05topic\x12\x19\n" +
+	"\bagent_id\x18\x05 \x01(\x03R\aagentId\x12\x1e\n" +
+	"\vbot_user_id\x18\x06 \x01(\x03R\tbotUserId\x12\"\n" +
+	"\ractor_user_id\x18\a \x01(\x03R\vactorUserId\x12$\n" +
+	"\x0etrigger_msg_id\x18\b \x01(\x03R\ftriggerMsgId\x12\x12\n" +
+	"\x04test\x18\t \x01(\bR\x04test\x12\x14\n" +
+	"\x05delta\x18\n" +
+	" \x01(\tR\x05delta\x12\x12\n" +
+	"\x04tool\x18\v \x01(\tR\x04tool\x12 \n" +
+	"\ftool_call_id\x18\f \x01(\tR\n" +
+	"toolCallId\x12\x18\n" +
+	"\asummary\x18\r \x01(\tR\asummary\x12\x16\n" +
+	"\x06status\x18\x0e \x01(\tR\x06status\x12\x1f\n" +
+	"\vapproval_id\x18\x0f \x01(\x04R\n" +
+	"approvalId\x12 \n" +
+	"\freply_msg_id\x18\x10 \x01(\x03R\n" +
+	"replyMsgId\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x11 \x01(\tR\terrorCode\x12\x1f\n" +
+	"\verror_class\x18\x12 \x01(\tR\n" +
+	"errorClass\x12\x1c\n" +
+	"\tretryable\x18\x13 \x01(\bR\tretryable\x12!\n" +
+	"\finput_tokens\x18\x14 \x01(\x05R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\x15 \x01(\x05R\foutputTokens\x12!\n" +
+	"\ftimestamp_ms\x18\x16 \x01(\x03R\vtimestampMs\x12\"\n" +
+	"\rclient_msg_id\x18\x17 \x01(\tR\vclientMsgId\"\xb6\a\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +
@@ -1004,7 +1350,8 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\fsend_receipt\x18P \x01(\v2\x16.api.im.v1.SendReceiptH\x00R\vsendReceipt\x129\n" +
 	"\n" +
 	"recall_req\x18Z \x01(\v2\x18.api.im.v1.RecallRequestH\x00R\trecallReq\x12>\n" +
-	"\rrecall_notice\x18d \x01(\v2\x17.api.im.v1.RecallNoticeH\x00R\frecallNotice\x120\n" +
+	"\rrecall_notice\x18d \x01(\v2\x17.api.im.v1.RecallNoticeH\x00R\frecallNotice\x12B\n" +
+	"\x0fagent_run_event\x18n \x01(\v2\x18.api.im.v1.AgentRunEventH\x00R\ragentRunEvent\x120\n" +
 	"\x05error\x18c \x01(\v2\x18.api.im.v1.ErrorResponseH\x00R\x05errorB\t\n" +
 	"\apayload\"@\n" +
 	"\vAuthRequest\x12\x14\n" +
@@ -1048,7 +1395,7 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\x06msg_id\x18\x03 \x01(\x03R\x05msgId\x12\x1b\n" +
 	"\tsender_id\x18\x04 \x01(\x03R\bsenderId\x12\x1f\n" +
 	"\vrecalled_at\x18\x05 \x01(\x03R\n" +
-	"recalledAt*\xcd\x01\n" +
+	"recalledAt*\xe6\x01\n" +
 	"\aCommand\x12\x0f\n" +
 	"\vCMD_UNKNOWN\x10\x00\x12\x11\n" +
 	"\rCMD_HEARTBEAT\x10\x01\x12\f\n" +
@@ -1063,6 +1410,20 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\x10CMD_SEND_RECEIPT\x10\t\x12\x0e\n" +
 	"\n" +
 	"CMD_RECALL\x10\n" +
+	"\x12\x17\n" +
+	"\x13CMD_AGENT_RUN_EVENT\x10\v*\xb8\x02\n" +
+	"\x11AgentRunEventType\x12\x1b\n" +
+	"\x17AGENT_RUN_EVENT_UNKNOWN\x10\x00\x12\x15\n" +
+	"\x11AGENT_RUN_STARTED\x10\x01\x12\x13\n" +
+	"\x0fAGENT_RUN_DELTA\x10\x02\x12\x1a\n" +
+	"\x16AGENT_RUN_TOOL_STARTED\x10\x03\x12\x1b\n" +
+	"\x17AGENT_RUN_TOOL_FINISHED\x10\x04\x12\x1f\n" +
+	"\x1bAGENT_RUN_APPROVAL_REQUIRED\x10\x05\x12\x1f\n" +
+	"\x1bAGENT_RUN_APPROVAL_RESOLVED\x10\x06\x12\x17\n" +
+	"\x13AGENT_RUN_COMPLETED\x10\a\x12\x14\n" +
+	"\x10AGENT_RUN_FAILED\x10\b\x12\x17\n" +
+	"\x13AGENT_RUN_CANCELLED\x10\t\x12\x17\n" +
+	"\x13AGENT_RUN_HEARTBEAT\x10\n" +
 	"B\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
@@ -1077,47 +1438,51 @@ func file_im_v1_packet_proto_rawDescGZIP() []byte {
 	return file_im_v1_packet_proto_rawDescData
 }
 
-var file_im_v1_packet_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_im_v1_packet_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_im_v1_packet_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_im_v1_packet_proto_goTypes = []any{
 	(Command)(0),               // 0: api.im.v1.Command
-	(*Packet)(nil),             // 1: api.im.v1.Packet
-	(*AuthRequest)(nil),        // 2: api.im.v1.AuthRequest
-	(*AuthResponse)(nil),       // 3: api.im.v1.AuthResponse
-	(*AckRequest)(nil),         // 4: api.im.v1.AckRequest
-	(*ErrorResponse)(nil),      // 5: api.im.v1.ErrorResponse
-	(*ReadReceipt)(nil),        // 6: api.im.v1.ReadReceipt
-	(*DeliveryReceipt)(nil),    // 7: api.im.v1.DeliveryReceipt
-	(*SendReceipt)(nil),        // 8: api.im.v1.SendReceipt
-	(*RecallRequest)(nil),      // 9: api.im.v1.RecallRequest
-	(*RecallNotice)(nil),       // 10: api.im.v1.RecallNotice
-	(*SendMessageRequest)(nil), // 11: api.im.v1.SendMessageRequest
-	(*SendMessageReply)(nil),   // 12: api.im.v1.SendMessageReply
-	(*PullRequest)(nil),        // 13: api.im.v1.PullRequest
-	(*PullReply)(nil),          // 14: api.im.v1.PullReply
-	(*MessagePush)(nil),        // 15: api.im.v1.MessagePush
+	(AgentRunEventType)(0),     // 1: api.im.v1.AgentRunEventType
+	(*AgentRunEvent)(nil),      // 2: api.im.v1.AgentRunEvent
+	(*Packet)(nil),             // 3: api.im.v1.Packet
+	(*AuthRequest)(nil),        // 4: api.im.v1.AuthRequest
+	(*AuthResponse)(nil),       // 5: api.im.v1.AuthResponse
+	(*AckRequest)(nil),         // 6: api.im.v1.AckRequest
+	(*ErrorResponse)(nil),      // 7: api.im.v1.ErrorResponse
+	(*ReadReceipt)(nil),        // 8: api.im.v1.ReadReceipt
+	(*DeliveryReceipt)(nil),    // 9: api.im.v1.DeliveryReceipt
+	(*SendReceipt)(nil),        // 10: api.im.v1.SendReceipt
+	(*RecallRequest)(nil),      // 11: api.im.v1.RecallRequest
+	(*RecallNotice)(nil),       // 12: api.im.v1.RecallNotice
+	(*SendMessageRequest)(nil), // 13: api.im.v1.SendMessageRequest
+	(*SendMessageReply)(nil),   // 14: api.im.v1.SendMessageReply
+	(*PullRequest)(nil),        // 15: api.im.v1.PullRequest
+	(*PullReply)(nil),          // 16: api.im.v1.PullReply
+	(*MessagePush)(nil),        // 17: api.im.v1.MessagePush
 }
 var file_im_v1_packet_proto_depIdxs = []int32{
-	0,  // 0: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
-	2,  // 1: api.im.v1.Packet.auth_req:type_name -> api.im.v1.AuthRequest
-	3,  // 2: api.im.v1.Packet.auth_resp:type_name -> api.im.v1.AuthResponse
-	11, // 3: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
-	12, // 4: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
-	13, // 5: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
-	14, // 6: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
-	4,  // 7: api.im.v1.Packet.ack_req:type_name -> api.im.v1.AckRequest
-	15, // 8: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
-	6,  // 9: api.im.v1.Packet.read_receipt:type_name -> api.im.v1.ReadReceipt
-	7,  // 10: api.im.v1.Packet.delivery_receipt:type_name -> api.im.v1.DeliveryReceipt
-	8,  // 11: api.im.v1.Packet.send_receipt:type_name -> api.im.v1.SendReceipt
-	9,  // 12: api.im.v1.Packet.recall_req:type_name -> api.im.v1.RecallRequest
-	10, // 13: api.im.v1.Packet.recall_notice:type_name -> api.im.v1.RecallNotice
-	5,  // 14: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	1,  // 0: api.im.v1.AgentRunEvent.type:type_name -> api.im.v1.AgentRunEventType
+	0,  // 1: api.im.v1.Packet.cmd:type_name -> api.im.v1.Command
+	4,  // 2: api.im.v1.Packet.auth_req:type_name -> api.im.v1.AuthRequest
+	5,  // 3: api.im.v1.Packet.auth_resp:type_name -> api.im.v1.AuthResponse
+	13, // 4: api.im.v1.Packet.send_req:type_name -> api.im.v1.SendMessageRequest
+	14, // 5: api.im.v1.Packet.send_reply:type_name -> api.im.v1.SendMessageReply
+	15, // 6: api.im.v1.Packet.pull_req:type_name -> api.im.v1.PullRequest
+	16, // 7: api.im.v1.Packet.pull_reply:type_name -> api.im.v1.PullReply
+	6,  // 8: api.im.v1.Packet.ack_req:type_name -> api.im.v1.AckRequest
+	17, // 9: api.im.v1.Packet.notify:type_name -> api.im.v1.MessagePush
+	8,  // 10: api.im.v1.Packet.read_receipt:type_name -> api.im.v1.ReadReceipt
+	9,  // 11: api.im.v1.Packet.delivery_receipt:type_name -> api.im.v1.DeliveryReceipt
+	10, // 12: api.im.v1.Packet.send_receipt:type_name -> api.im.v1.SendReceipt
+	11, // 13: api.im.v1.Packet.recall_req:type_name -> api.im.v1.RecallRequest
+	12, // 14: api.im.v1.Packet.recall_notice:type_name -> api.im.v1.RecallNotice
+	2,  // 15: api.im.v1.Packet.agent_run_event:type_name -> api.im.v1.AgentRunEvent
+	7,  // 16: api.im.v1.Packet.error:type_name -> api.im.v1.ErrorResponse
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_packet_proto_init() }
@@ -1126,7 +1491,7 @@ func file_im_v1_packet_proto_init() {
 		return
 	}
 	file_im_v1_message_proto_init()
-	file_im_v1_packet_proto_msgTypes[0].OneofWrappers = []any{
+	file_im_v1_packet_proto_msgTypes[1].OneofWrappers = []any{
 		(*Packet_AuthReq)(nil),
 		(*Packet_AuthResp)(nil),
 		(*Packet_SendReq)(nil),
@@ -1140,6 +1505,7 @@ func file_im_v1_packet_proto_init() {
 		(*Packet_SendReceipt)(nil),
 		(*Packet_RecallReq)(nil),
 		(*Packet_RecallNotice)(nil),
+		(*Packet_AgentRunEvent)(nil),
 		(*Packet_Error)(nil),
 	}
 	type x struct{}
@@ -1147,8 +1513,8 @@ func file_im_v1_packet_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_packet_proto_rawDesc), len(file_im_v1_packet_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   10,
+			NumEnums:      2,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

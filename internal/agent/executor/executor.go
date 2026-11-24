@@ -16,6 +16,7 @@ import (
 	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/messaging"
+	"nonoka-im/internal/realtime"
 
 	"github.com/go-kratos/kratos/v2/log"
 )
@@ -31,6 +32,7 @@ type Executor struct {
 	MaxAttempts int
 	RunTimeout  time.Duration
 	Lease       time.Duration
+	Stream      realtime.RunEventSink
 	Log         *log.Helper
 }
 
@@ -79,8 +81,21 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	}()
 	defer func() { cancel(); <-hbDone }()
 
-	if err := e.Execute(ctx, run); err != nil && !errors.Is(err, domain.ErrRunState) && !errors.Is(err, context.Canceled) {
-		e.log().Errorf("execute run %d: %v", run.ID, err)
+	execErr := e.Execute(ctx, run)
+	if execErr != nil && !errors.Is(execErr, domain.ErrRunState) && !errors.Is(execErr, context.Canceled) {
+		e.log().Errorf("execute run %d: %v", run.ID, execErr)
+	}
+	// An explicit cancel clears attempt_id, so the heartbeat cancels the
+	// in-flight context and the harness cannot record a terminal event. Emit
+	// it from the executor after checking the durable state.
+	if current, err := e.Store.GetRun(context.WithoutCancel(parent), run.ID); err == nil && current.Status == domain.RunCancelled && current.ErrorCode == "cancelled" {
+		if e.Stream != nil {
+			_ = e.Stream.Publish(context.WithoutCancel(parent), realtime.RunEvent{
+				RunID: current.ID, Type: realtime.RunCancelled, Topic: current.Topic,
+				AgentID: current.AgentID, ActorUserID: current.ActorUserID, Test: current.Kind == domain.RunKindTest,
+				Status: domain.RunCancelled, ErrorCode: "cancelled", TimestampMs: time.Now().UnixMilli(),
+			}, []int64{current.ActorUserID})
+		}
 	}
 }
 
@@ -118,29 +133,38 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 	}()
 
-	msg, err := e.Reader.MessageForUser(ctx, run.ActorUserID, run.Topic, run.MsgID)
-	if err != nil {
-		if errors.Is(err, app.ErrMessageNotFound) {
-			return e.fail(ctx, run, port.ClassInvalidConfig, "message_unavailable", err, false, false)
+	isTest := run.Kind == domain.RunKindTest
+	var ev messaging.MessageEvent
+	if isTest {
+		ev = messaging.MessageEvent{
+			SchemaVersion: messaging.SchemaVersion, EventID: run.EventID,
+			Topic: run.Topic, SenderID: run.ActorUserID, Timestamp: time.Now().Unix(),
+			Content: run.InputText,
 		}
-		return e.fail(ctx, run, port.ClassTransientInfra, "message_unavailable", err, true, false)
-	}
-	ev := messaging.MessageEvent{
-		SchemaVersion: messaging.SchemaVersion,
-		EventID:       run.EventID,
-		MsgID:         run.MsgID,
-		TopicSeq:      run.TopicSeq,
-		Topic:         run.Topic,
-		SenderID:      run.ActorUserID,
-		Timestamp:     time.Now().Unix(),
-		Content:       string(msg.Content),
-	}
-
-	if err := e.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
-		if errors.Is(err, authz.ErrDenied) {
-			return e.cancel(ctx, run, "access_revoked")
+	} else {
+		msg, err := e.Reader.MessageForUser(ctx, run.ActorUserID, run.Topic, run.MsgID)
+		if err != nil {
+			if errors.Is(err, app.ErrMessageNotFound) {
+				return e.fail(ctx, run, port.ClassInvalidConfig, "message_unavailable", err, false, false)
+			}
+			return e.fail(ctx, run, port.ClassTransientInfra, "message_unavailable", err, true, false)
 		}
-		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
+		ev = messaging.MessageEvent{
+			SchemaVersion: messaging.SchemaVersion,
+			EventID:       run.EventID,
+			MsgID:         run.MsgID,
+			TopicSeq:      run.TopicSeq,
+			Topic:         run.Topic,
+			SenderID:      run.ActorUserID,
+			Timestamp:     time.Now().Unix(),
+			Content:       string(msg.Content),
+		}
+		if err := e.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
+			if errors.Is(err, authz.ErrDenied) {
+				return e.cancel(ctx, run, "access_revoked")
+			}
+			return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
+		}
 	}
 	agent, err := e.Store.GetAgent(ctx, run.AgentID)
 	if err != nil {
@@ -149,7 +173,7 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassTransientInfra, "agent_unavailable", err, true, false)
 	}
-	if agent.Status != "active" {
+	if !isTest && agent.Status != "active" {
 		return e.cancel(ctx, run, "agent_disabled")
 	}
 	if err := e.Authorizer.CanUseAgent(ctx, run.ActorUserID, agent.ID); err != nil {
@@ -158,23 +182,45 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 	}
-	if err := e.Authorizer.CanAccessTopic(ctx, agent.BotUserID, run.Topic); err != nil {
-		if errors.Is(err, authz.ErrDenied) {
-			return e.cancel(ctx, run, "access_revoked")
+	if !isTest {
+		if err := e.Authorizer.CanAccessTopic(ctx, agent.BotUserID, run.Topic); err != nil {
+			if errors.Is(err, authz.ErrDenied) {
+				return e.cancel(ctx, run, "access_revoked")
+			}
+			return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 		}
-		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 	}
 
-	versionNumber := agent.CurrentVersion
-	if run.AgentVersion > 0 {
-		versionNumber = run.AgentVersion
-	}
-	version, err := e.Store.GetVersion(ctx, agent.ID, versionNumber)
-	if err != nil {
-		if errors.Is(err, domain.ErrVersionNotFound) {
-			return e.fail(ctx, run, port.ClassInvalidConfig, "version_missing", err, false, false)
+	var version *domain.AgentVersion
+	if isTest {
+		var cfg domain.RunConfig
+		if err := json.Unmarshal([]byte(run.ConfigSnapshot), &cfg); err != nil {
+			return e.fail(ctx, run, port.ClassInvalidConfig, "invalid_config", err, false, false)
 		}
-		return e.fail(ctx, run, port.ClassTransientInfra, "version_unavailable", err, true, false)
+		tools, _ := json.Marshal(cfg.Tools)
+		presets, _ := json.Marshal(cfg.CapabilityPresets)
+		policies, _ := json.Marshal(cfg.ToolPolicies)
+		mcp, _ := json.Marshal(cfg.MCPBindings)
+		skills, _ := json.Marshal(cfg.Skills)
+		version = &domain.AgentVersion{
+			AgentID: agent.ID, Version: 0, Instruction: cfg.Instruction,
+			ModelServiceID: cfg.ModelServiceID, ModelID: cfg.ModelID,
+			Tools: string(tools), CapabilityPresets: string(presets),
+			ToolPolicies: string(policies), MaxTokens: cfg.MaxTokens,
+			MCPBindings: string(mcp), Skills: string(skills),
+		}
+	} else {
+		versionNumber := agent.CurrentVersion
+		if run.AgentVersion > 0 {
+			versionNumber = run.AgentVersion
+		}
+		version, err = e.Store.GetVersion(ctx, agent.ID, versionNumber)
+		if err != nil {
+			if errors.Is(err, domain.ErrVersionNotFound) {
+				return e.fail(ctx, run, port.ClassInvalidConfig, "version_missing", err, false, false)
+			}
+			return e.fail(ctx, run, port.ClassTransientInfra, "version_unavailable", err, true, false)
+		}
 	}
 	resolved, err := e.resolve(ctx, agent, version)
 	if err != nil {
@@ -183,6 +229,7 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassInvalidConfig, "invalid_config", err, false, false)
 	}
+	resolved.Test = isTest
 
 	if run.CheckpointID != "" {
 		return e.resume(ctx, ev, run, resolved)

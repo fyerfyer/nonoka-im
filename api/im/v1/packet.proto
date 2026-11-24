@@ -18,6 +18,51 @@ enum Command {
   CMD_DELIVERY_RECEIPT = 8; // server -> client: delivery receipt
   CMD_SEND_RECEIPT = 9;     // server -> client: send receipt (msg_id/topic_seq confirmation)
   CMD_RECALL = 10;          // bi-directional: recall a message
+  CMD_AGENT_RUN_EVENT = 11; // server -> client: transient agent run stream event
+}
+
+// AgentRunEventType is the closed set of transient run stream events.
+enum AgentRunEventType {
+  AGENT_RUN_EVENT_UNKNOWN = 0;
+  AGENT_RUN_STARTED = 1;
+  AGENT_RUN_DELTA = 2;
+  AGENT_RUN_TOOL_STARTED = 3;
+  AGENT_RUN_TOOL_FINISHED = 4;
+  AGENT_RUN_APPROVAL_REQUIRED = 5;
+  AGENT_RUN_APPROVAL_RESOLVED = 6;
+  AGENT_RUN_COMPLETED = 7;
+  AGENT_RUN_FAILED = 8;
+  AGENT_RUN_CANCELLED = 9;
+  AGENT_RUN_HEARTBEAT = 10;
+}
+
+// AgentRunEvent is a transient progress event for one agent run. It is never
+// persisted as an IM message; the final answer still arrives through the normal
+// message pipeline. (run_id, seq) is the ordering and deduplication key.
+message AgentRunEvent {
+  uint64 run_id = 1;
+  uint64 seq = 2;
+  AgentRunEventType type = 3;
+  string topic = 4;
+  int64 agent_id = 5;
+  int64 bot_user_id = 6;
+  int64 actor_user_id = 7;
+  int64 trigger_msg_id = 8;
+  bool test = 9;
+  string delta = 10;
+  string tool = 11;
+  string tool_call_id = 12;
+  string summary = 13;
+  string status = 14;
+  uint64 approval_id = 15;
+  int64 reply_msg_id = 16;
+  string error_code = 17;
+  string error_class = 18;
+  bool retryable = 19;
+  int32 input_tokens = 20;
+  int32 output_tokens = 21;
+  int64 timestamp_ms = 22;
+  string client_msg_id = 23;
 }
 
 // Packet is the unified wire format for all WebSocket messages.
@@ -57,6 +102,7 @@ message Packet {
     SendReceipt send_receipt = 80;
     RecallRequest recall_req = 90;
     RecallNotice recall_notice = 100;
+    AgentRunEvent agent_run_event = 110;
 
     // Unified error response (can be returned for any command).
     ErrorResponse error = 99;

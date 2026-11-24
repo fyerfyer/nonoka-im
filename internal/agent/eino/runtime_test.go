@@ -158,10 +158,18 @@ func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
-			Model string `json:"model"`
+			Model  string `json:"model"`
+			Stream bool   `json:"stream"`
 		}
 		_ = json.Unmarshal(body, &req)
 		gotModel = req.Model
+		if req.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"fixture-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"reply from fixture\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"fixture-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"fixture-model","choices":[{"index":0,"message":{"role":"assistant","content":"reply from fixture"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`))
 	}))
@@ -195,5 +203,42 @@ func TestRunRoutesToAgentOwnedEndpoint(t *testing.T) {
 func fakeFactory(m model.ToolCallingChatModel) ChatModelFactory {
 	return func(context.Context, port.ModelEndpoint, int) (model.ToolCallingChatModel, error) {
 		return m, nil
+	}
+}
+
+type streamingFakeModel struct {
+	fakeModel
+}
+
+func (f *streamingFakeModel) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	if strings.Contains(input[len(input)-1].Content, "CURRENT_INPUT_MARKER") {
+		return schema.StreamReaderFromArray([]*schema.Message{
+			schema.AssistantMessage("stream ", nil),
+			schema.AssistantMessage("answer", nil),
+		}), nil
+	}
+	return f.fakeModel.Stream(ctx, input)
+}
+
+func TestRunStreamsDeltas(t *testing.T) {
+	model := &streamingFakeModel{}
+	engine := &Engine{newModel: fakeFactory(model)}
+	var deltas []string
+	result, err := engine.Run(context.Background(), port.Input{
+		Instruction: "stream", Text: "CURRENT_INPUT_MARKER",
+		OnEvent: func(event port.StreamEvent) {
+			if event.Type == port.EventDelta {
+				deltas = append(deltas, event.Delta)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Text != "stream answer" {
+		t.Fatalf("unexpected final text: %q", result.Text)
+	}
+	if got := strings.Join(deltas, ""); got != "stream answer" {
+		t.Fatalf("delta stream mismatch: %q (%v)", got, deltas)
 	}
 }

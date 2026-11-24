@@ -3,6 +3,8 @@ import { realtimeClient, RealtimeEventType } from "@/lib/realtime";
 import { refreshConversations } from "@/hooks/useConversations";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
+import { useRunStreamStore } from "@/stores/runStreamStore";
+import type { RunEvent } from "@/lib/api/agents";
 import { ChatMessage, User } from "@/types";
 import { toast } from "sonner";
 
@@ -72,6 +74,10 @@ export function useRealtime() {
         useChatStore.getState().markTopicRead(detail.topic, detail.upToSeq);
       },
       recall: (e) => { const d = (e as CustomEvent).detail; useChatStore.getState().recallMessage(d.topic, d.topicSeq, d.msgId); },
+      agentRunEvent: (e) => {
+        const detail = (e as CustomEvent).detail as RunEvent;
+        useRunStreamStore.getState().applyEvent(detail);
+      },
       error: (e) => {
         const detail = (e as CustomEvent).detail;
         console.error("realtime error", detail);
@@ -126,6 +132,7 @@ function handleIncomingMessage(
 
   const isActive = chatStore.activeTopic === detail.topic;
   chatStore.appendMessage(detail.topic, msg);
+  useRunStreamStore.getState().onFinalMessage(msg);
 
   // A push for a conversation we only know as a stub would render as
   // "Unknown"; refresh from the server to fill in peer info.

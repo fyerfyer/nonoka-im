@@ -74,27 +74,40 @@
       "type": "agent",
       "relations": {
         "owner": {"this": {}},
+        "editor": {"this": {}},
         "viewer": {"this": {}},
         "user_grant": {"this": {}},
         "shared_group": {"this": {}},
-        "can_manage": {"computedUserset": {"relation": "owner"}},
+        "shared_group_editor": {"this": {}},
+        "can_manage": {"union": {"child": [
+          {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "editor"}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group_editor"}, "computedUserset": {"relation": "member"}}}
+        ]}},
         "can_view": {"union": {"child": [
           {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "editor"}},
           {"computedUserset": {"relation": "viewer"}},
           {"computedUserset": {"relation": "user_grant"}},
-          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}}
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group_editor"}, "computedUserset": {"relation": "member"}}}
         ]}},
         "can_use": {"union": {"child": [
           {"computedUserset": {"relation": "owner"}},
+          {"computedUserset": {"relation": "editor"}},
+          {"computedUserset": {"relation": "viewer"}},
           {"computedUserset": {"relation": "user_grant"}},
-          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}}
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group"}, "computedUserset": {"relation": "member"}}},
+          {"tupleToUserset": {"tupleset": {"relation": "shared_group_editor"}, "computedUserset": {"relation": "member"}}}
         ]}}
       },
       "metadata": {"relations": {
         "owner": {"directly_related_user_types": [{"type": "user"}]},
+        "editor": {"directly_related_user_types": [{"type": "user"}]},
         "viewer": {"directly_related_user_types": [{"type": "user"}]},
         "user_grant": {"directly_related_user_types": [{"type": "user"}]},
-        "shared_group": {"directly_related_user_types": [{"type": "group"}]}
+        "shared_group": {"directly_related_user_types": [{"type": "group"}]},
+        "shared_group_editor": {"directly_related_user_types": [{"type": "group"}]}
       }}
     }
   ]

@@ -30,6 +30,7 @@ import (
 	"nonoka-im/internal/messaging"
 	messagingim "nonoka-im/internal/messaging/im"
 	"nonoka-im/internal/metrics"
+	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/server"
 	"nonoka-im/internal/service"
 
@@ -306,8 +307,36 @@ func provideModelService(platform *platformdata.Store, az *authz.OpenFGA) *llm.S
 	return llm.NewService(platform, llm.EnvSealer{Key: sealKey}, az, gateway, baseURL)
 }
 
-func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA) *admin.RunService {
-	return admin.NewRunService(store, az)
+func provideRunEventBroadcaster(redisClient redis.UniversalClient, dispatch *conf.Dispatch, logger log.Logger) (*realtime.RunBroadcaster, func(), error) {
+	var addrs []string
+	if dispatch != nil {
+		for _, node := range dispatch.Gateways {
+			if node.GetGatewayGrpcAddr() != "" {
+				addrs = append(addrs, node.GetGatewayGrpcAddr())
+			}
+		}
+	}
+	if len(addrs) == 0 {
+		if addr := strings.TrimSpace(os.Getenv("GATEWAY_GRPC_ADDR")); addr != "" {
+			addrs = []string{addr}
+		}
+	}
+	var transport realtime.RunEventTransport
+	cleanup := func() {}
+	if len(addrs) > 0 {
+		pusher, err := realtime.NewGatewayPusher(addrs, logger)
+		if err != nil {
+			return nil, nil, err
+		}
+		transport = pusher
+		cleanup = func() { _ = pusher.Close() }
+	}
+	broadcaster := realtime.NewRunBroadcaster(realtime.NewRedisRunEventStore(redisClient), transport, nil, logger)
+	return broadcaster, cleanup, nil
+}
+
+func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA, redisClient redis.UniversalClient, publisher *realtime.RunBroadcaster) *admin.RunService {
+	return admin.NewRunService(store, az, realtime.NewRedisRunEventStore(redisClient), publisher)
 }
 
 func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA) *admin.ApprovalService {
@@ -441,6 +470,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideOutboxAdmin,
 		provideIdempotency,
 		provideAgentAdminService,
+		provideRunEventBroadcaster,
 		provideAgentRunService,
 		provideAgentApprovalService,
 		provideAgentMCPService,

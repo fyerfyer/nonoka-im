@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
+import { useRunStreamStore } from "@/stores/runStreamStore";
 import { useAgentNames } from "@/hooks/useAgentNames";
 import { MentionMember } from "@/lib/mentions";
 
@@ -46,6 +47,9 @@ export function MessageList({
       : undefined
   );
   const agentNames = useAgentNames();
+  const agentTyping = useRunStreamStore((s) =>
+    conversation?.topic ? s.typingTopics.get(conversation.topic) : undefined
+  );
 
   // After the user messages a bot, show a lightweight "working" hint until
   // the bot replies or the cap elapses. The timeout flag is only mutated
@@ -111,15 +115,18 @@ export function MessageList({
       const lastChanged = lastKey !== prevLastKeyRef.current;
       const lastMsg = messages[messages.length - 1];
       const isOwn =
-        !!lastMsg && !!currentUser && lastMsg.senderId === currentUser.userId;
+        !!lastMsg && !!currentUser && Number(lastMsg.senderId) === Number(currentUser.userId);
+      const isStreaming = !!lastMsg?.streaming;
 
       if (prepended) {
         // History was prepended: keep the viewport anchored on the
         // previously visible content instead of jumping.
         el.scrollTop += el.scrollHeight - prevHeightRef.current;
-      } else if (lastChanged && (nearBottomRef.current || isOwn)) {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      } else if (lastChanged && (nearBottomRef.current || isOwn || isStreaming)) {
+        bottomRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
         nearBottomRef.current = true;
+      } else if (isStreaming && nearBottomRef.current) {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" });
       }
     }
 
@@ -207,7 +214,7 @@ export function MessageList({
             })}
           </div>
         ))}
-        {agentPending && (
+        {(agentPending || !!agentTyping) && (
           <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
             Agent is processing…

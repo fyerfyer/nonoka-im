@@ -83,7 +83,26 @@ type AgentVersion struct {
 	MaxTokens         int
 	MCPBindings       string
 	Skills            string
+	PublishNote       string
+	PublishedBy       int64
+	PublishedAt       *time.Time
+	SourceRevision    int64
 	CreatedAt         time.Time
+}
+
+// RunConfig is the frozen draft configuration used by a test run. It mirrors
+// the fields that would become an AgentVersion on publish, but test runs never
+// create a version row.
+type RunConfig struct {
+	Instruction       string            `json:"instruction"`
+	ModelServiceID    int64             `json:"modelServiceId"`
+	ModelID           int64             `json:"modelId"`
+	Tools             []string          `json:"tools"`
+	CapabilityPresets []string          `json:"capabilityPresets"`
+	ToolPolicies      map[string]string `json:"toolPolicies"`
+	MaxTokens         int               `json:"maxTokens"`
+	MCPBindings       []MCPBinding      `json:"mcpBindings"`
+	Skills            []SkillBinding    `json:"skills"`
 }
 
 // AgentSpec is the editable draft configuration of an agent. It references a

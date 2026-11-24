@@ -43,7 +43,33 @@ type Input struct {
 	// ApprovalTools lists tool names whose calls interrupt for human
 	// confirmation instead of executing directly.
 	ApprovalTools []string
+	// OnEvent receives transient runtime progress. Implementations must not
+	// block model generation on slow consumers.
+	OnEvent EventSink
 }
+
+// StreamEventType is the transport-neutral runtime progress event type.
+type StreamEventType string
+
+const (
+	EventDelta        StreamEventType = "delta"
+	EventToolStarted  StreamEventType = "tool_started"
+	EventToolFinished StreamEventType = "tool_finished"
+	EventHeartbeat    StreamEventType = "heartbeat"
+)
+
+// StreamEvent is a transient progress signal emitted by the runtime.
+type StreamEvent struct {
+	Type       StreamEventType
+	Delta      string
+	Tool       string
+	ToolCallID string
+	Summary    string
+	Status     string
+}
+
+// EventSink consumes runtime progress events.
+type EventSink func(StreamEvent)
 type Turn struct {
 	ID            uint64
 	Input, Output string

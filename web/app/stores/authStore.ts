@@ -16,12 +16,15 @@ const initialState: AuthState = {
 export const useAuthStore = create<AuthStore>((set) => ({
   ...initialState,
   login: (token, refreshToken, user) => {
+    // Protojson encodes int64 as a string; normalize once so every numeric
+    // comparison in the app sees a number.
+    const normalized = { ...user, userId: Number(user.userId) };
     if (typeof window !== "undefined") {
       localStorage.setItem("token", token);
       localStorage.setItem("refreshToken", refreshToken);
-      localStorage.setItem("user", JSON.stringify(user));
+      localStorage.setItem("user", JSON.stringify(normalized));
     }
-    set({ token, user, isAuthenticated: true });
+    set({ token, user: normalized, isAuthenticated: true });
   },
   logout: () => {
     if (typeof window !== "undefined") {
@@ -44,7 +47,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       }
     }
     if (token && user) {
-      set({ token, user, isAuthenticated: true });
+      set({ token, user: { ...user, userId: Number(user.userId) }, isAuthenticated: true });
     } else {
       set(initialState);
     }

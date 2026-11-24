@@ -4976,7 +4976,296 @@ export namespace api {
                 CMD_SEND_RECEIPT = 9,
 
                 /** CMD_RECALL value */
-                CMD_RECALL = 10
+                CMD_RECALL = 10,
+
+                /** CMD_AGENT_RUN_EVENT value */
+                CMD_AGENT_RUN_EVENT = 11
+            }
+
+            /** AgentRunEventType enum. */
+            enum AgentRunEventType {
+
+                /** AGENT_RUN_EVENT_UNKNOWN value */
+                AGENT_RUN_EVENT_UNKNOWN = 0,
+
+                /** AGENT_RUN_STARTED value */
+                AGENT_RUN_STARTED = 1,
+
+                /** AGENT_RUN_DELTA value */
+                AGENT_RUN_DELTA = 2,
+
+                /** AGENT_RUN_TOOL_STARTED value */
+                AGENT_RUN_TOOL_STARTED = 3,
+
+                /** AGENT_RUN_TOOL_FINISHED value */
+                AGENT_RUN_TOOL_FINISHED = 4,
+
+                /** AGENT_RUN_APPROVAL_REQUIRED value */
+                AGENT_RUN_APPROVAL_REQUIRED = 5,
+
+                /** AGENT_RUN_APPROVAL_RESOLVED value */
+                AGENT_RUN_APPROVAL_RESOLVED = 6,
+
+                /** AGENT_RUN_COMPLETED value */
+                AGENT_RUN_COMPLETED = 7,
+
+                /** AGENT_RUN_FAILED value */
+                AGENT_RUN_FAILED = 8,
+
+                /** AGENT_RUN_CANCELLED value */
+                AGENT_RUN_CANCELLED = 9,
+
+                /** AGENT_RUN_HEARTBEAT value */
+                AGENT_RUN_HEARTBEAT = 10
+            }
+
+            /**
+             * Properties of an AgentRunEvent.
+             * @deprecated Use api.im.v1.AgentRunEvent.$Properties instead.
+             */
+            interface IAgentRunEvent extends api.im.v1.AgentRunEvent.$Properties {
+            }
+
+            /** Represents an AgentRunEvent. */
+            class AgentRunEvent {
+
+                /**
+                 * Constructs a new AgentRunEvent.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.AgentRunEvent.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** AgentRunEvent runId. */
+                runId: (number|Long);
+
+                /** AgentRunEvent seq. */
+                seq: (number|Long);
+
+                /** AgentRunEvent type. */
+                type: api.im.v1.AgentRunEventType;
+
+                /** AgentRunEvent topic. */
+                topic: string;
+
+                /** AgentRunEvent agentId. */
+                agentId: (number|Long);
+
+                /** AgentRunEvent botUserId. */
+                botUserId: (number|Long);
+
+                /** AgentRunEvent actorUserId. */
+                actorUserId: (number|Long);
+
+                /** AgentRunEvent triggerMsgId. */
+                triggerMsgId: (number|Long);
+
+                /** AgentRunEvent test. */
+                test: boolean;
+
+                /** AgentRunEvent delta. */
+                delta: string;
+
+                /** AgentRunEvent tool. */
+                tool: string;
+
+                /** AgentRunEvent toolCallId. */
+                toolCallId: string;
+
+                /** AgentRunEvent summary. */
+                summary: string;
+
+                /** AgentRunEvent status. */
+                status: string;
+
+                /** AgentRunEvent approvalId. */
+                approvalId: (number|Long);
+
+                /** AgentRunEvent replyMsgId. */
+                replyMsgId: (number|Long);
+
+                /** AgentRunEvent errorCode. */
+                errorCode: string;
+
+                /** AgentRunEvent errorClass. */
+                errorClass: string;
+
+                /** AgentRunEvent retryable. */
+                retryable: boolean;
+
+                /** AgentRunEvent inputTokens. */
+                inputTokens: number;
+
+                /** AgentRunEvent outputTokens. */
+                outputTokens: number;
+
+                /** AgentRunEvent timestampMs. */
+                timestampMs: (number|Long);
+
+                /** AgentRunEvent clientMsgId. */
+                clientMsgId: string;
+
+                /**
+                 * Creates a new AgentRunEvent instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns AgentRunEvent instance
+                 */
+                static create(properties: api.im.v1.AgentRunEvent.$Shape): api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape;
+                static create(properties?: api.im.v1.AgentRunEvent.$Properties): api.im.v1.AgentRunEvent;
+
+                /**
+                 * Encodes the specified AgentRunEvent message. Does not implicitly {@link api.im.v1.AgentRunEvent.verify|verify} messages.
+                 * @param message AgentRunEvent message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.AgentRunEvent.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified AgentRunEvent message, length delimited. Does not implicitly {@link api.im.v1.AgentRunEvent.verify|verify} messages.
+                 * @param message AgentRunEvent message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.AgentRunEvent.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes an AgentRunEvent message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape} AgentRunEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape;
+
+                /**
+                 * Decodes an AgentRunEvent message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape} AgentRunEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.AgentRunEvent & api.im.v1.AgentRunEvent.$Shape;
+
+                /**
+                 * Verifies an AgentRunEvent message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates an AgentRunEvent message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns AgentRunEvent
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.AgentRunEvent;
+
+                /**
+                 * Creates a plain object from an AgentRunEvent message. Also converts values to other types if specified.
+                 * @param message AgentRunEvent
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.AgentRunEvent, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this AgentRunEvent to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for AgentRunEvent
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace AgentRunEvent {
+
+                /** Properties of an AgentRunEvent. */
+                interface $Properties {
+
+                    /** AgentRunEvent runId */
+                    runId?: (number|Long|null);
+
+                    /** AgentRunEvent seq */
+                    seq?: (number|Long|null);
+
+                    /** AgentRunEvent type */
+                    type?: (api.im.v1.AgentRunEventType|null);
+
+                    /** AgentRunEvent topic */
+                    topic?: (string|null);
+
+                    /** AgentRunEvent agentId */
+                    agentId?: (number|Long|null);
+
+                    /** AgentRunEvent botUserId */
+                    botUserId?: (number|Long|null);
+
+                    /** AgentRunEvent actorUserId */
+                    actorUserId?: (number|Long|null);
+
+                    /** AgentRunEvent triggerMsgId */
+                    triggerMsgId?: (number|Long|null);
+
+                    /** AgentRunEvent test */
+                    test?: (boolean|null);
+
+                    /** AgentRunEvent delta */
+                    delta?: (string|null);
+
+                    /** AgentRunEvent tool */
+                    tool?: (string|null);
+
+                    /** AgentRunEvent toolCallId */
+                    toolCallId?: (string|null);
+
+                    /** AgentRunEvent summary */
+                    summary?: (string|null);
+
+                    /** AgentRunEvent status */
+                    status?: (string|null);
+
+                    /** AgentRunEvent approvalId */
+                    approvalId?: (number|Long|null);
+
+                    /** AgentRunEvent replyMsgId */
+                    replyMsgId?: (number|Long|null);
+
+                    /** AgentRunEvent errorCode */
+                    errorCode?: (string|null);
+
+                    /** AgentRunEvent errorClass */
+                    errorClass?: (string|null);
+
+                    /** AgentRunEvent retryable */
+                    retryable?: (boolean|null);
+
+                    /** AgentRunEvent inputTokens */
+                    inputTokens?: (number|null);
+
+                    /** AgentRunEvent outputTokens */
+                    outputTokens?: (number|null);
+
+                    /** AgentRunEvent timestampMs */
+                    timestampMs?: (number|Long|null);
+
+                    /** AgentRunEvent clientMsgId */
+                    clientMsgId?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of an AgentRunEvent. */
+                type $Shape = api.im.v1.AgentRunEvent.$Properties;
             }
 
             /**
@@ -5043,11 +5332,14 @@ export namespace api {
                 /** Packet recallNotice. */
                 recallNotice?: (api.im.v1.RecallNotice.$Properties|null);
 
+                /** Packet agentRunEvent. */
+                agentRunEvent?: (api.im.v1.AgentRunEvent.$Properties|null);
+
                 /** Packet error. */
                 error?: (api.im.v1.ErrorResponse.$Properties|null);
 
                 /** Packet payload. */
-                payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error");
+                payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error");
 
                 /**
                  * Creates a new Packet instance using the specified properties.
@@ -5178,11 +5470,14 @@ export namespace api {
                     /** Packet recallNotice */
                     recallNotice?: (api.im.v1.RecallNotice.$Properties|null);
 
+                    /** Packet agentRunEvent */
+                    agentRunEvent?: (api.im.v1.AgentRunEvent.$Properties|null);
+
                     /** Packet error */
                     error?: (api.im.v1.ErrorResponse.$Properties|null);
 
                     /** Packet payload */
-                    payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"error");
+                    payload?: ("authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error");
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];
@@ -5205,10 +5500,11 @@ export namespace api {
                   sendReceipt?: api.im.v1.SendReceipt.$Shape|null;
                   recallReq?: api.im.v1.RecallRequest.$Shape|null;
                   recallNotice?: api.im.v1.RecallNotice.$Shape|null;
+                  agentRunEvent?: api.im.v1.AgentRunEvent.$Shape|null;
                   error?: api.im.v1.ErrorResponse.$Shape|null;
                   $unknowns?: Uint8Array[];
                 } & (
-                  ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; error: api.im.v1.ErrorResponse.$Shape })
+                  ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; agentRunEvent?: null; error?: null }|{ payload?: "agentRunEvent"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent: api.im.v1.AgentRunEvent.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error: api.im.v1.ErrorResponse.$Shape })
                 );
             }
 
@@ -6431,6 +6727,9 @@ export namespace api {
 
                 /** Calls BatchPushReceiptsToUsers. */
                 batchPushReceiptsToUsers: api.im.v1.PushService.BatchPushReceiptsToUsers;
+
+                /** Calls PushRunEventToUser. */
+                pushRunEventToUser: api.im.v1.PushService.PushRunEventToUser;
             }
 
             namespace PushService {
@@ -6526,6 +6825,25 @@ export namespace api {
                   readonly path: "/api.im.v1.PushService/BatchPushReceiptsToUsers";
                   readonly requestType: "BatchPushReceiptsToUsersRequest";
                   readonly responseType: "BatchPushReceiptsToUsersReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.PushService#pushRunEventToUser}.
+                 * @param error Error, if any
+                 * @param [response] PushRunEventToUserReply
+                 */
+                type PushRunEventToUserCallback = (error: (Error|null), response?: api.im.v1.PushRunEventToUserReply) => void;
+
+                /** Calls PushRunEventToUser. */
+                type PushRunEventToUser = {
+                  (request: api.im.v1.IPushRunEventToUserRequest, callback: api.im.v1.PushService.PushRunEventToUserCallback): void;
+                  (request: api.im.v1.IPushRunEventToUserRequest): Promise<api.im.v1.PushRunEventToUserReply>;
+                  readonly name: "PushRunEventToUser";
+                  readonly path: "/api.im.v1.PushService/PushRunEventToUser";
+                  readonly requestType: "PushRunEventToUserRequest";
+                  readonly responseType: "PushRunEventToUserReply";
                   readonly requestStream: undefined;
                   readonly responseStream: undefined;
                 };
@@ -7876,6 +8194,252 @@ export namespace api {
 
                 /** Shape of a BatchPushReceiptsToUsersReply. */
                 type $Shape = api.im.v1.BatchPushReceiptsToUsersReply.$Properties;
+            }
+
+            /**
+             * Properties of a PushRunEventToUserRequest.
+             * @deprecated Use api.im.v1.PushRunEventToUserRequest.$Properties instead.
+             */
+            interface IPushRunEventToUserRequest extends api.im.v1.PushRunEventToUserRequest.$Properties {
+            }
+
+            /** Represents a PushRunEventToUserRequest. */
+            class PushRunEventToUserRequest {
+
+                /**
+                 * Constructs a new PushRunEventToUserRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.PushRunEventToUserRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** PushRunEventToUserRequest userId. */
+                userId: (number|Long);
+
+                /** PushRunEventToUserRequest event. */
+                event?: (api.im.v1.AgentRunEvent.$Properties|null);
+
+                /**
+                 * Creates a new PushRunEventToUserRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns PushRunEventToUserRequest instance
+                 */
+                static create(properties: api.im.v1.PushRunEventToUserRequest.$Shape): api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape;
+                static create(properties?: api.im.v1.PushRunEventToUserRequest.$Properties): api.im.v1.PushRunEventToUserRequest;
+
+                /**
+                 * Encodes the specified PushRunEventToUserRequest message. Does not implicitly {@link api.im.v1.PushRunEventToUserRequest.verify|verify} messages.
+                 * @param message PushRunEventToUserRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.PushRunEventToUserRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified PushRunEventToUserRequest message, length delimited. Does not implicitly {@link api.im.v1.PushRunEventToUserRequest.verify|verify} messages.
+                 * @param message PushRunEventToUserRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.PushRunEventToUserRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a PushRunEventToUserRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape} PushRunEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape;
+
+                /**
+                 * Decodes a PushRunEventToUserRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape} PushRunEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.PushRunEventToUserRequest & api.im.v1.PushRunEventToUserRequest.$Shape;
+
+                /**
+                 * Verifies a PushRunEventToUserRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a PushRunEventToUserRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns PushRunEventToUserRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.PushRunEventToUserRequest;
+
+                /**
+                 * Creates a plain object from a PushRunEventToUserRequest message. Also converts values to other types if specified.
+                 * @param message PushRunEventToUserRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.PushRunEventToUserRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this PushRunEventToUserRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for PushRunEventToUserRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace PushRunEventToUserRequest {
+
+                /** Properties of a PushRunEventToUserRequest. */
+                interface $Properties {
+
+                    /** PushRunEventToUserRequest userId */
+                    userId?: (number|Long|null);
+
+                    /** PushRunEventToUserRequest event */
+                    event?: (api.im.v1.AgentRunEvent.$Properties|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a PushRunEventToUserRequest. */
+                type $Shape = api.im.v1.PushRunEventToUserRequest.$Properties;
+            }
+
+            /**
+             * Properties of a PushRunEventToUserReply.
+             * @deprecated Use api.im.v1.PushRunEventToUserReply.$Properties instead.
+             */
+            interface IPushRunEventToUserReply extends api.im.v1.PushRunEventToUserReply.$Properties {
+            }
+
+            /** Represents a PushRunEventToUserReply. */
+            class PushRunEventToUserReply {
+
+                /**
+                 * Constructs a new PushRunEventToUserReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.PushRunEventToUserReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** PushRunEventToUserReply success. */
+                success: boolean;
+
+                /** PushRunEventToUserReply deliveredCount. */
+                deliveredCount: number;
+
+                /**
+                 * Creates a new PushRunEventToUserReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns PushRunEventToUserReply instance
+                 */
+                static create(properties: api.im.v1.PushRunEventToUserReply.$Shape): api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape;
+                static create(properties?: api.im.v1.PushRunEventToUserReply.$Properties): api.im.v1.PushRunEventToUserReply;
+
+                /**
+                 * Encodes the specified PushRunEventToUserReply message. Does not implicitly {@link api.im.v1.PushRunEventToUserReply.verify|verify} messages.
+                 * @param message PushRunEventToUserReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.PushRunEventToUserReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified PushRunEventToUserReply message, length delimited. Does not implicitly {@link api.im.v1.PushRunEventToUserReply.verify|verify} messages.
+                 * @param message PushRunEventToUserReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.PushRunEventToUserReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a PushRunEventToUserReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape} PushRunEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape;
+
+                /**
+                 * Decodes a PushRunEventToUserReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape} PushRunEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.PushRunEventToUserReply & api.im.v1.PushRunEventToUserReply.$Shape;
+
+                /**
+                 * Verifies a PushRunEventToUserReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a PushRunEventToUserReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns PushRunEventToUserReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.PushRunEventToUserReply;
+
+                /**
+                 * Creates a plain object from a PushRunEventToUserReply message. Also converts values to other types if specified.
+                 * @param message PushRunEventToUserReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.PushRunEventToUserReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this PushRunEventToUserReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for PushRunEventToUserReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace PushRunEventToUserReply {
+
+                /** Properties of a PushRunEventToUserReply. */
+                interface $Properties {
+
+                    /** PushRunEventToUserReply success */
+                    success?: (boolean|null);
+
+                    /** PushRunEventToUserReply deliveredCount */
+                    deliveredCount?: (number|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a PushRunEventToUserReply. */
+                type $Shape = api.im.v1.PushRunEventToUserReply.$Properties;
             }
 
             /** Represents a UserService */

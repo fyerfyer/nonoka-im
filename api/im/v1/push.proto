@@ -20,6 +20,9 @@ service PushService {
   // BatchPushReceiptsToUsers delivers MULTIPLE distinct send receipts to multiple users in one call.
   // This is used by MsgWorker to aggregate short-term receipts for the same user.
   rpc BatchPushReceiptsToUsers (BatchPushReceiptsToUsersRequest) returns (BatchPushReceiptsToUsersReply);
+  // PushRunEventToUser delivers one transient agent run stream event to all
+  // online devices of a user. It is called only by trusted Agent Workers.
+  rpc PushRunEventToUser (PushRunEventToUserRequest) returns (PushRunEventToUserReply);
 }
 
 // PushToUserRequest is sent by MsgWorker to Gateway.
@@ -81,4 +84,14 @@ message BatchPushReceiptsToUsersReply {
   int32 total_delivered = 1;
   // failed_items reports which user+receipt pairs could not be delivered.
   repeated ReceiptBatchItem failed_items = 2;
+}
+
+message PushRunEventToUserRequest {
+  int64 user_id = 1;
+  AgentRunEvent event = 2;
+}
+
+message PushRunEventToUserReply {
+  bool success = 1;
+  int32 delivered_count = 2;
 }

@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { agentApi, userApi, type ManagedAgent } from "@/lib/api";
+import { userApi } from "@/lib/api";
+import { agentApi, type ManagedAgent } from "@/lib/api/agents";
 import { User } from "@/types";
 import { getP2PTopic } from "@/lib/topic";
 import { useAuthStore } from "@/stores/authStore";

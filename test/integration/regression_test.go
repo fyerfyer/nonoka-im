@@ -130,13 +130,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 	nonCanonicalTopic := fmt.Sprintf("p2p_%d_%d", maxID, minID)
 
 	// Connect sender and publish messages while the receiver is offline.
-	sender := sdk.NewClient(sdk.Options{
-		GatewayURL:        testWSURL,
-		Token:             token1,
-		DeviceID:          "web-pull-norm-sender",
-		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    15 * time.Second,
-	})
+	sender := newTestSDKClient(t, token1, "web-pull-norm-sender")
 	defer sender.Close()
 
 	connectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -148,7 +142,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 	content := []byte("real e2e normalized pull")
 	for i := 0; i < 3; i++ {
 		sendCtx, sendCancel := context.WithTimeout(ctx, 5*time.Second)
-		_, err := sender.SendMessage(sendCtx, canonicalTopic, v1.MsgType_MSG_TYPE_TEXT, content)
+		_, err := sender.Messages.Send(sendCtx, sdk.SendRequest{Topic: canonicalTopic, Type: sdk.MessageTypeText, Content: content})
 		sendCancel()
 		if err != nil {
 			t.Fatalf("send message %d failed: %v", i, err)
@@ -173,13 +167,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 	}
 
 	// Now connect the receiver and pull using the non-canonical topic.
-	receiver := sdk.NewClient(sdk.Options{
-		GatewayURL:        testWSURL,
-		Token:             token2,
-		DeviceID:          "web-pull-norm-receiver",
-		HeartbeatInterval: 5 * time.Second,
-		RequestTimeout:    15 * time.Second,
-	})
+	receiver := newTestSDKClient(t, token2, "web-pull-norm-receiver")
 	defer receiver.Close()
 
 	connectCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
@@ -189,7 +177,7 @@ func TestGateway_Kafka_Pull_NormalizesP2PTopic(t *testing.T) {
 	cancel()
 
 	pullCtx, pullCancel := context.WithTimeout(ctx, 5*time.Second)
-	result, err := receiver.PullMessages(pullCtx, nonCanonicalTopic, 0, 50)
+	result, err := receiver.Messages.Pull(pullCtx, sdk.PullRequest{Topic: nonCanonicalTopic, LastSeq: 0, Limit: 50})
 	pullCancel()
 	if err != nil {
 		t.Fatalf("pull messages failed: %v", err)

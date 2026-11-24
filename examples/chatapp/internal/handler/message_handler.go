@@ -49,16 +49,16 @@ func (h *MessageHandler) HandleMessage(msg *sdk.Message) {
 	}
 
 	fmt.Printf("[📨] %s New message | Topic: %s | From: %d | Seq: %d | Status: %s %s | Content: %s\n",
-		direction, msg.Topic, msg.SenderID, msg.TopicSeq, statusIcon, msg.Status.String(), string(msg.Content))
+		direction, msg.Topic, msg.SenderID, msg.TopicSeq, statusIcon, string(msg.Status), string(msg.Content))
 }
 
 // deduplicateMessage updates an existing message if a match is found.
 // It returns true if a duplicate was found and updated.
 func (h *MessageHandler) deduplicateMessage(msg *sdk.Message) bool {
 	// First: match by clientMsgID (preferred, works for locally sent messages).
-	if msg.ClientMsgID != "" {
+	if msg.ClientMessageID != "" {
 		for _, existing := range h.messages {
-			if existing.ClientMsgID == msg.ClientMsgID {
+			if existing.ClientMessageID == msg.ClientMessageID {
 				h.mergeMessageFields(existing, msg)
 				return true
 			}
@@ -80,16 +80,16 @@ func (h *MessageHandler) deduplicateMessage(msg *sdk.Message) bool {
 
 // mergeMessageFields updates existing with server-assigned fields from incoming.
 func (h *MessageHandler) mergeMessageFields(existing, incoming *sdk.Message) {
-	if incoming.MsgID > 0 {
-		existing.MsgID = incoming.MsgID
+	if incoming.ID > 0 {
+		existing.ID = incoming.ID
 	}
 	if incoming.TopicSeq > 0 {
 		existing.TopicSeq = incoming.TopicSeq
 	}
-	if incoming.ClientMsgID != "" {
-		existing.ClientMsgID = incoming.ClientMsgID
+	if incoming.ClientMessageID != "" {
+		existing.ClientMessageID = incoming.ClientMessageID
 	}
-	if incoming.Status > existing.Status {
+	if statusRank(incoming.Status) > statusRank(existing.Status) {
 		existing.Status = incoming.Status
 	}
 }
@@ -101,7 +101,7 @@ func (h *MessageHandler) AddSendingMessage(topic string, senderID int64, content
 	msg := &sdk.Message{
 		Topic:     topic,
 		SenderID:  senderID,
-		MsgType:   sdk.MsgTypeText,
+		Type:      sdk.MessageTypeText,
 		Content:   []byte(content),
 		Timestamp: time.Now().Unix(),
 		Status:    sdk.MessageStatusSending,
@@ -121,12 +121,12 @@ func (h *MessageHandler) ConfirmSent(idx int, result *sdk.SendResult) {
 	}
 	msg := h.messages[idx]
 	oldStatus := msg.Status
-	msg.ClientMsgID = result.ClientMsgID
-	msg.MsgID = result.MsgID
+	msg.ClientMessageID = result.ClientMessageID
+	msg.ID = result.MessageID
 	msg.TopicSeq = result.TopicSeq
 	msg.Status = sdk.MessageStatusSent
 	fmt.Printf("[📤] Status update: %s -> %s (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
-		oldStatus.String(), msg.Status.String(), result.ClientMsgID, result.MsgID, result.TopicSeq)
+		string(oldStatus), string(msg.Status), result.ClientMessageID, result.MessageID, result.TopicSeq)
 }
 
 // ConfirmReceipt updates a sent message with server-assigned msg_id and topic_seq
@@ -137,19 +137,19 @@ func (h *MessageHandler) ConfirmReceipt(clientMsgID string, msgID int64, topic s
 	defer h.mu.Unlock()
 
 	for _, msg := range h.messages {
-		if msg.ClientMsgID == clientMsgID {
+		if msg.ClientMessageID == clientMsgID {
 			oldStatus := msg.Status
 			if msgID > 0 {
-				msg.MsgID = msgID
+				msg.ID = msgID
 			}
 			if topicSeq > 0 {
 				msg.TopicSeq = topicSeq
 			}
-			if msg.Status < sdk.MessageStatusSent {
+			if statusRank(msg.Status) < statusRank(sdk.MessageStatusSent) {
 				msg.Status = sdk.MessageStatusSent
 			}
 			fmt.Printf("[📤] Receipt update: %s -> %s (clientMsgID=%s, msgID=%d, topicSeq=%d)\n",
-				oldStatus.String(), msg.Status.String(), clientMsgID, msg.MsgID, msg.TopicSeq)
+				string(oldStatus), string(msg.Status), clientMsgID, msg.ID, msg.TopicSeq)
 			return
 		}
 	}
@@ -165,7 +165,7 @@ func (h *MessageHandler) MarkFailed(idx int) {
 	msg := h.messages[idx]
 	oldStatus := msg.Status
 	msg.Status = sdk.MessageStatusFailed
-	fmt.Printf("[📤] Status update: %s -> %s\n", oldStatus.String(), msg.Status.String())
+	fmt.Printf("[📤] Status update: %s -> %s\n", string(oldStatus), string(msg.Status))
 }
 
 // MarkDelivered marks a message as delivered by topicSeq.
@@ -176,11 +176,11 @@ func (h *MessageHandler) MarkDelivered(topic string, topicSeq uint64) {
 	for _, msg := range h.messages {
 		if msg.Topic == topic && msg.TopicSeq == topicSeq {
 			oldStatus := msg.Status
-			if msg.Status < sdk.MessageStatusDelivered {
+			if statusRank(msg.Status) < statusRank(sdk.MessageStatusDelivered) {
 				msg.Status = sdk.MessageStatusDelivered
 			}
 			fmt.Printf("[📤] Status update: %s -> %s (topic=%s, topicSeq=%d)\n",
-				oldStatus.String(), msg.Status.String(), topic, topicSeq)
+				string(oldStatus), string(msg.Status), topic, topicSeq)
 			return
 		}
 	}
@@ -263,12 +263,32 @@ func (h *MessageHandler) PrintStatusSummary() {
 	}
 
 	fmt.Println("\n=== Message Status Summary ===")
-	for status := sdk.MessageStatusSending; status <= sdk.MessageStatusFailed; status++ {
+	for _, status := range []sdk.MessageStatus{
+		sdk.MessageStatusSending, sdk.MessageStatusSent, sdk.MessageStatusDelivered,
+		sdk.MessageStatusRead, sdk.MessageStatusFailed,
+	} {
 		if count := counts[status]; count > 0 {
-			fmt.Printf("  %s %s: %d\n", statusToIcon(status), status.String(), count)
+			fmt.Printf("  %s %s: %d\n", statusToIcon(status), status, count)
 		}
 	}
 	fmt.Println("==============================")
+}
+
+func statusRank(status sdk.MessageStatus) int {
+	switch status {
+	case sdk.MessageStatusSending:
+		return 1
+	case sdk.MessageStatusSent:
+		return 2
+	case sdk.MessageStatusDelivered:
+		return 3
+	case sdk.MessageStatusRead:
+		return 4
+	case sdk.MessageStatusFailed:
+		return 5
+	default:
+		return 0
+	}
 }
 
 // statusToIcon returns an emoji icon for a message status.

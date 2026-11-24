@@ -39,6 +39,7 @@ import (
 	"nonoka-im/internal/messaging/httpclient"
 	messagingim "nonoka-im/internal/messaging/im"
 	messagingmongo "nonoka-im/internal/messaging/mongo"
+	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/server"
 
 	"github.com/cloudwego/eino/adk/middlewares/skill"
@@ -208,14 +209,45 @@ func main() {
 		panic(err)
 	}
 
+	gatewayGRPC := strings.TrimSpace(os.Getenv("GATEWAY_GRPC_ADDR"))
+	if gatewayGRPC == "" && bc.Dispatch != nil {
+		for _, node := range bc.Dispatch.Gateways {
+			if node.GetGatewayGrpcAddr() != "" {
+				gatewayGRPC = node.GetGatewayGrpcAddr()
+				break
+			}
+		}
+	}
+	var runTransport realtime.RunEventTransport
+	if gatewayGRPC != "" {
+		pusher, err := realtime.NewGatewayPusher([]string{gatewayGRPC}, logger)
+		if err != nil {
+			panic(err)
+		}
+		runTransport = pusher
+	}
+	broadcaster := realtime.NewRunBroadcaster(
+		realtime.NewRedisRunEventStore(dataLayer.Redis),
+		runTransport,
+		func(ctx context.Context, event realtime.RunEvent) error {
+			return store.AppendRunStep(ctx, &domain.AgentRunStep{
+				RunID: event.RunID, Seq: event.Seq, Type: string(event.Type), Tool: event.Tool,
+				ToolCallID: event.ToolCallID, Summary: event.Summary, Status: event.Status,
+				CreatedAt: time.Now(),
+			})
+		},
+		logger,
+	)
+
 	harness := &app.Harness{
 		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),
+		Stream: broadcaster, Audience: directory, Log: log.NewHelper(logger),
 	}
 	exec := &executor.Executor{
 		Store: store, Registry: registry, Models: modelSvc, Authorizer: az, Harness: harness,
 		Reader:      toolsBackend.Reader,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
-		Lease: aw.Lease.AsDuration(), Log: log.NewHelper(logger),
+		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Log: log.NewHelper(logger),
 	}
 	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, logger)
 	dispatcher := &worker.Dispatcher{Store: store, Authorizer: az, Reader: toolsBackend.Reader, Log: log.NewHelper(logger)}

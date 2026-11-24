@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -10,9 +11,22 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	pb "nonoka-im/api/im/v1"
 	"nonoka-im/internal/metrics"
 )
+
+// InternalPushTokenHeader authenticates trusted Agent Worker -> Gateway run
+// event pushes. It is deliberately separate from user JWTs.
+const InternalPushTokenHeader = "x-nonoka-internal-token"
+
+func internalPushContext(ctx context.Context) context.Context {
+	token := os.Getenv("INTERNAL_PUSH_TOKEN")
+	if token == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, InternalPushTokenHeader, token)
+}
 
 const (
 	// maxDynamicConnAge is the maximum lifetime of a dynamically discovered gateway
@@ -139,6 +153,47 @@ func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.Me
 	}
 
 	return p.pushToUserStatic(ctx, userID, msg)
+}
+
+// PushRunEventToUser delivers a transient agent run event to one user's
+// online devices. It follows the same routing/fallback rules as message push.
+func (p *GatewayPusher) PushRunEventToUser(ctx context.Context, userID int64, event RunEvent) (int32, error) {
+	ctx = internalPushContext(ctx)
+	req := &pb.PushRunEventToUserRequest{UserId: userID, Event: event.ToProto()}
+	if p.router != nil {
+		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
+		if err == nil {
+			aliveMap, aliveErr := p.router.GetAliveNodesMap(ctx)
+			if aliveErr == nil {
+				for nodeID := range nodeMap {
+					node, ok := aliveMap[nodeID]
+					if !ok || node.GrpcAddr == "" {
+						continue
+					}
+					gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
+					if err != nil {
+						continue
+					}
+					resp, err := gc.client.PushRunEventToUser(ctx, req)
+					if err == nil && resp.GetDeliveredCount() > 0 {
+						return resp.GetDeliveredCount(), nil
+					}
+				}
+				return 0, fmt.Errorf("push run event to user %d failed: no online session", userID)
+			}
+		}
+	}
+	p.connMu.RLock()
+	conns := make([]*gatewayConn, len(p.staticConns))
+	copy(conns, p.staticConns)
+	p.connMu.RUnlock()
+	for _, gc := range conns {
+		resp, err := gc.client.PushRunEventToUser(ctx, req)
+		if err == nil && resp.GetDeliveredCount() > 0 {
+			return resp.GetDeliveredCount(), nil
+		}
+	}
+	return 0, fmt.Errorf("push run event to user %d failed on all gateways", userID)
 }
 
 // pushToUserStatic pushes to a single user using the static gateway list.

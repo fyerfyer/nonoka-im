@@ -131,7 +131,7 @@ func (app *ChatApp) SendMessage(topic, text string) (*sdk.SendResult, error) {
 }
 
 // GetConversation returns the conversation for a topic.
-func (app *ChatApp) GetConversation(topic string) *sdk.Conversation {
+func (app *ChatApp) GetConversation(topic string) *sdk.ConversationClient {
 	return app.client.GetConversation(topic)
 }
 

@@ -2,907 +2,647 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
+	v1 "nonoka-im/api/im/v1"
+
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
-	v1 "nonoka-im/api/im/v1"
 )
 
-// ReadReceiptHandler is called when a read receipt is received.
-type ReadReceiptHandler func(topic string, upToSeq uint64, readerID int64)
+type RealtimeEventType string
 
-// DeliveryReceiptHandler is called when a delivery receipt is received.
-type DeliveryReceiptHandler func(topic string, topicSeq uint64, msgID int64)
+const (
+	RealtimeConnected       RealtimeEventType = "connected"
+	RealtimeAuthed          RealtimeEventType = "authed"
+	RealtimeDisconnected    RealtimeEventType = "disconnected"
+	RealtimeReconnecting    RealtimeEventType = "reconnecting"
+	RealtimeMessage         RealtimeEventType = "message"
+	RealtimeSendReceipt     RealtimeEventType = "send_receipt"
+	RealtimeDeliveryReceipt RealtimeEventType = "delivery_receipt"
+	RealtimeReadReceipt     RealtimeEventType = "read_receipt"
+	RealtimeRecall          RealtimeEventType = "recall"
+	RealtimeAgentRunEvent   RealtimeEventType = "agent_run_event"
+	RealtimeError           RealtimeEventType = "error"
+)
 
-// RealtimeOptions configures the realtime (WebSocket) client.
-type RealtimeOptions struct {
-	GatewayURL           string
-	GatewayURLs          []string
-	GatewaySelector      GatewaySelector
-	UserID               int64
-	Token                string
-	DeviceID             string
-	HeartbeatInterval    time.Duration
-	HeartbeatTimeout     time.Duration
-	RequestTimeout       time.Duration
-	ReconnectInterval    time.Duration
-	AutoReconnect        bool
-	MaxReconnectAttempts int
-	AutoAck              bool
-	OnMessage            MessageHandler
-	OnDisconnect         DisconnectHandler
-	OnConnect            ConnectHandler
-	OnReadReceipt        ReadReceiptHandler
-	OnDeliveryReceipt    DeliveryReceiptHandler
-	OnSendReceipt        SendReceiptHandler
+type SendReceipt struct {
+	ClientMessageID string
+	MessageID       int64
+	Topic           string
+	TopicSeq        uint64
+	Timestamp       int64
 }
 
-// RealtimeClient manages WebSocket connection, heartbeat, reconnection, and message handling.
-// It can be used independently without the higher-level Application layer.
+type DeliveryReceipt struct {
+	Topic     string
+	TopicSeq  uint64
+	MessageID int64
+}
+
+type ReadReceipt struct {
+	Topic    string
+	UpToSeq  uint64
+	ReaderID int64
+}
+
+type RecallNotice struct {
+	Topic      string
+	TopicSeq   uint64
+	MessageID  int64
+	SenderID   int64
+	RecalledAt int64
+}
+
+// RealtimeEvent is the typed event emitted by the WebSocket client. Exactly
+// one payload field is set.
+type RealtimeEvent struct {
+	Type            RealtimeEventType
+	Message         *Message
+	SendReceipt     *SendReceipt
+	DeliveryReceipt *DeliveryReceipt
+	ReadReceipt     *ReadReceipt
+	Recall          *RecallNotice
+	RunEvent        *RunEvent
+	Err             error
+}
+
 type RealtimeClient struct {
-	opts RealtimeOptions
+	cfg      Config
+	dispatch v1.DispatchServiceHTTPClient
 
-	// WebSocket
-	wsConn *websocket.Conn
-	connID string
-	state  atomic.Int32 // 0=disconnected, 1=connecting, 2=connected, 3=authed
-	userID atomic.Int64
+	mu               sync.Mutex
+	ws               *websocket.Conn
+	writeMu          sync.Mutex
+	seq              uint64
+	pending          map[uint64]chan *v1.Packet
+	subs             map[uint64]chan RealtimeEvent
+	nextSub          uint64
+	done             chan struct{}
+	closed           bool
+	authed           bool
+	reconnectAttempt int
+	timer            *time.Timer
 
-	// Gateway URL management for multi-gateway deployments
-	gatewayURLs    []string
-	gatewayIndex   int
-	connectAttempt int
-	urlMu          sync.Mutex
-
-	// Write protection for wsConn
-	writeMu sync.Mutex
-
-	// Request-response correlation
-	seqGen    atomic.Uint64
-	pending   map[uint64]chan *v1.Packet
-	pendingMu sync.RWMutex
-
-	// Heartbeat tracking for detecting one-way network failures (#31)
-	lastHeartbeatAck atomic.Int64 // UnixNano of last heartbeat ack
-	heartbeatMissed  atomic.Int32 // consecutive missed heartbeats
-
-	// Background goroutine management
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-
-	// Message deduplication for push notifications
-	seenSeqs   map[string]uint64 // topic -> last seen seq
-	seenSeqsMu sync.RWMutex
-
-	// Reconnect callback (for Application layer to pull offline messages)
-	onReconnect func()
+	heartbeatTimer *time.Timer
+	heartbeatStop  chan struct{}
+	closeOnce      sync.Once
 }
 
-const (
-	rtStateDisconnected int32 = 0
-	rtStateConnecting   int32 = 1
-	rtStateConnected    int32 = 2
-	rtStateAuthed       int32 = 3
-	rtStateReconnecting int32 = 4
-)
-
-// ConnectionState represents the current connection state as a string.
-type ConnectionState string
-
-const (
-	ConnectionStateDisconnected ConnectionState = "disconnected"
-	ConnectionStateConnecting   ConnectionState = "connecting"
-	ConnectionStateConnected    ConnectionState = "connected"
-	ConnectionStateAuthed       ConnectionState = "authed"
-	ConnectionStateReconnecting ConnectionState = "reconnecting"
-)
-
-// State returns the current connection state.
-func (rt *RealtimeClient) State() ConnectionState {
-	switch rt.state.Load() {
-	case rtStateConnecting:
-		return ConnectionStateConnecting
-	case rtStateConnected:
-		return ConnectionStateConnected
-	case rtStateAuthed:
-		return ConnectionStateAuthed
-	case rtStateReconnecting:
-		return ConnectionStateReconnecting
-	default:
-		return ConnectionStateDisconnected
-	}
-}
-
-// IsReconnecting returns true if the client is in the reconnecting state.
-func (rt *RealtimeClient) IsReconnecting() bool {
-	return rt.state.Load() == rtStateReconnecting
-}
-
-// NewRealtimeClient creates a new RealtimeClient with the given options.
-func NewRealtimeClient(opts RealtimeOptions) *RealtimeClient {
-	if opts.GatewayURL == "" && len(opts.GatewayURLs) == 0 {
-		opts.GatewayURL = "ws://localhost:8000/ws"
-	}
-	if opts.GatewaySelector == "" {
-		opts.GatewaySelector = GatewaySelectorRoundRobin
-	}
-	if opts.DeviceID == "" {
-		opts.DeviceID = "sdk-default"
-	}
-	if opts.HeartbeatInterval <= 0 {
-		opts.HeartbeatInterval = 30 * time.Second
-	}
-	if opts.HeartbeatTimeout <= 0 {
-		opts.HeartbeatTimeout = 60 * time.Second
-	}
-	if opts.RequestTimeout <= 0 {
-		opts.RequestTimeout = 10 * time.Second
-	}
-	if opts.ReconnectInterval <= 0 {
-		opts.ReconnectInterval = 5 * time.Second
-	}
-
-	urls := gatewayList(opts.GatewayURL, opts.GatewayURLs, nil)
+func newRealtimeClient(cfg Config, dispatch v1.DispatchServiceHTTPClient) *RealtimeClient {
 	return &RealtimeClient{
-		opts:        opts,
-		gatewayURLs: urls,
-		pending:     make(map[uint64]chan *v1.Packet),
-		seenSeqs:    make(map[string]uint64),
-		stopCh:      make(chan struct{}),
+		cfg: cfg, dispatch: dispatch, pending: map[uint64]chan *v1.Packet{},
+		subs: map[uint64]chan RealtimeEvent{}, done: make(chan struct{}),
 	}
 }
 
-// SetGatewayURLs updates the list of gateway URLs at runtime. This is typically
-// called after the SDK discovers available gateways from the DispatchService.
-// The next connection/reconnection will pick from this list according to the
-// configured selector.
-func (rt *RealtimeClient) SetGatewayURLs(urls []string) {
-	rt.urlMu.Lock()
-	defer rt.urlMu.Unlock()
-	rt.gatewayURLs = gatewayList(rt.opts.GatewayURL, rt.opts.GatewayURLs, urls)
-	rt.gatewayIndex = 0
-	rt.connectAttempt = 0
+// Events returns one ordered realtime event subscription. Multiple callers
+// receive independent copies; each channel is closed after Close.
+func (c *RealtimeClient) Events() <-chan RealtimeEvent {
+	events, _ := c.Subscribe()
+	return events
 }
 
-// nextGatewayURL returns the URL to use for the current connection attempt.
-func (rt *RealtimeClient) nextGatewayURL() string {
-	rt.urlMu.Lock()
-	defer rt.urlMu.Unlock()
-
-	if len(rt.gatewayURLs) == 0 {
-		return rt.opts.GatewayURL
+// Subscribe returns an independent event channel and a cancel function.
+func (c *RealtimeClient) Subscribe() (<-chan RealtimeEvent, func()) {
+	c.mu.Lock()
+	if c.closed {
+		ch := make(chan RealtimeEvent)
+		close(ch)
+		c.mu.Unlock()
+		return ch, func() {}
 	}
-
-	url, idx := selectGatewayURL(rt.gatewayURLs, rt.opts.GatewaySelector, rt.opts.UserID, rt.connectAttempt)
-	rt.gatewayIndex = idx
-	return url
+	c.nextSub++
+	id := c.nextSub
+	ch := make(chan RealtimeEvent, 256)
+	c.subs[id] = ch
+	c.mu.Unlock()
+	cancel := func() {
+		c.mu.Lock()
+		if existing, ok := c.subs[id]; ok {
+			delete(c.subs, id)
+			close(existing)
+		}
+		c.mu.Unlock()
+	}
+	return ch, cancel
 }
 
-// rotateGateway moves to the next gateway in the list. It is called after a
-// connection failure so the next attempt tries a different entry.
-func (rt *RealtimeClient) rotateGateway() {
-	rt.urlMu.Lock()
-	defer rt.urlMu.Unlock()
-	if len(rt.gatewayURLs) > 0 {
-		rt.connectAttempt++
+// IsConnected reports whether the WebSocket is currently open and authed.
+func (c *RealtimeClient) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ws != nil && c.authed
+}
+
+// State returns a human-readable connection state.
+func (c *RealtimeClient) State() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch {
+	case c.closed:
+		return "closed"
+	case c.ws == nil:
+		return "disconnected"
+	case c.authed:
+		return "authed"
+	default:
+		return "connected"
 	}
 }
 
-// Connect establishes a WebSocket connection to the gateway and authenticates.
-func (rt *RealtimeClient) Connect(ctx context.Context) error {
-	if rt.state.Load() >= rtStateConnected {
+// Connect opens and authenticates the WebSocket. It is safe to call again
+// after a disconnect.
+func (c *RealtimeClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return ErrClosed
+	}
+	if c.ws != nil && c.authed {
+		c.mu.Unlock()
 		return ErrAlreadyConnected
 	}
+	c.mu.Unlock()
+	return c.connect(ctx)
+}
 
-	if err := rt.connectAndAuth(ctx); err != nil {
+func (c *RealtimeClient) connect(ctx context.Context) error {
+	urls, err := c.gatewayURLs(ctx)
+	if err != nil {
 		return err
 	}
-
-	// Start background workers after successful connection + auth
-	rt.wg.Add(2)
-	go rt.heartbeatLoop()
-	go rt.readLoop()
-
-	// Start reconnection monitor if auto-reconnect is enabled
-	if rt.opts.AutoReconnect {
-		rt.wg.Add(1)
-		go rt.reconnectMonitor()
+	token, err := c.token(ctx)
+	if err != nil {
+		return err
 	}
+	var lastErr error
+	for _, gatewayURL := range urls {
+		if gatewayURL == "" {
+			continue
+		}
+		conn, _, dialErr := websocket.DefaultDialer.DialContext(ctx, gatewayURL, nil)
+		if dialErr != nil {
+			lastErr = dialErr
+			continue
+		}
+		c.mu.Lock()
+		c.ws = conn
+		c.authed = false
+		c.reconnectAttempt = 0
+		c.mu.Unlock()
+		c.emit(RealtimeEvent{Type: RealtimeConnected})
+		go c.readLoop(conn)
+		if authErr := c.authenticate(ctx, token); authErr != nil {
+			_ = conn.Close()
+			c.mu.Lock()
+			if c.ws == conn {
+				c.ws = nil
+			}
+			c.mu.Unlock()
+			if refreshed, refreshErr := c.refresh(ctx); refreshErr == nil && refreshed != token {
+				token = refreshed
+				if retryErr := c.connectOnce(ctx, gatewayURL, token); retryErr == nil {
+					return nil
+				}
+			}
+			lastErr = authErr
+			continue
+		}
+		c.startHeartbeat()
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no gateway URL available")
+	}
+	return lastErr
+}
 
+func (c *RealtimeClient) connectOnce(ctx context.Context, gatewayURL, token string) error {
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, gatewayURL, nil)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.ws = conn
+	c.authed = false
+	c.mu.Unlock()
+	c.emit(RealtimeEvent{Type: RealtimeConnected})
+	go c.readLoop(conn)
+	if err := c.authenticate(ctx, token); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	c.startHeartbeat()
 	return nil
 }
 
-// connectAndAuth establishes the WebSocket connection and authenticates.
-func (rt *RealtimeClient) connectAndAuth(ctx context.Context) error {
-	// Determine if this is a reconnection attempt
-	currentState := rt.state.Load()
-	wasAuthed := currentState == rtStateAuthed
-	isReconnecting := currentState == rtStateReconnecting
-	targetState := rtStateConnecting
-	if wasAuthed || isReconnecting {
-		targetState = rtStateReconnecting
+func (c *RealtimeClient) gatewayURLs(ctx context.Context) ([]string, error) {
+	if len(c.cfg.Realtime.GatewayURLs) > 0 {
+		return c.cfg.Realtime.GatewayURLs, nil
 	}
-
-	// Accept starting from disconnected or reconnecting state.
-	startState := rtStateDisconnected
-	if isReconnecting {
-		startState = rtStateReconnecting
+	token, err := c.token(ctx)
+	if err != nil {
+		return nil, err
 	}
-
-	if !rt.state.CompareAndSwap(startState, targetState) {
-		current := rt.state.Load()
-		if current == rtStateConnecting || current == rtStateReconnecting {
-			return ErrAlreadyConnected
-		}
-		// If already connected/authed, close connection first then reconnect.
-		// Use closeConnection instead of Close to avoid wg.Wait deadlock
-		// when called from within a goroutine (e.g. reconnectMonitor).
-		rt.closeConnection()
-		if !rt.state.CompareAndSwap(rtStateDisconnected, targetState) {
-			return ErrAlreadyConnected
-		}
+	userID := userIDFromToken(token)
+	if userID <= 0 || c.dispatch == nil {
+		return nil, fmt.Errorf("gateway URLs are required")
 	}
-
-	// Try the selected gateway, falling back to others on dial/auth failure.
-	var lastErr error
-	attempts := len(rt.gatewayURLs)
-	if attempts == 0 {
-		attempts = 1
+	reply, err := c.dispatch.Gateway(ctx, &v1.GetGatewayRequest{UserId: userID})
+	if err != nil {
+		return nil, apiErrorFromKratos(err)
 	}
-
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			rt.rotateGateway()
-		}
-		gatewayURL := rt.nextGatewayURL()
-
-		dialer := websocket.Dialer{
-			HandshakeTimeout: 10 * time.Second,
-		}
-
-		wsConn, _, err := dialer.DialContext(ctx, gatewayURL, nil)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		rt.wsConn = wsConn
-		rt.connID = uuid.New().String()
-		rt.state.Store(rtStateConnected)
-
-		// Authenticate if token is provided
-		if rt.opts.Token != "" {
-			if err := rt.authenticate(ctx); err != nil {
-				rt.wsConn.Close()
-				rt.wsConn = nil
-				rt.state.Store(rtStateDisconnected)
-				lastErr = err
-				continue
-			}
-		}
-
-		return nil
+	if reply.GetGatewayUrl() != "" {
+		return []string{reply.GetGatewayUrl()}, nil
 	}
-
-	rt.state.Store(rtStateDisconnected)
-	if lastErr != nil {
-		return fmt.Errorf("dial gateway failed: %w", lastErr)
-	}
-	return fmt.Errorf("dial gateway failed: no gateway available")
+	return reply.GetGatewayUrls(), nil
 }
 
-// authenticate sends an auth request and reads the response directly from WebSocket.
-func (rt *RealtimeClient) authenticate(ctx context.Context) error {
-	seq := rt.nextSeq()
-	req := &v1.Packet{
-		Cmd: v1.Command_CMD_AUTH,
-		Seq: seq,
-		Payload: &v1.Packet_AuthReq{
-			AuthReq: &v1.AuthRequest{
-				Token:    rt.opts.Token,
-				DeviceId: rt.opts.DeviceID,
-			},
-		},
+func (c *RealtimeClient) token(ctx context.Context) (string, error) {
+	if c.cfg.TokenSource == nil {
+		return "", fmt.Errorf("%w: token source is required", ErrInvalidConfiguration)
 	}
+	return c.cfg.TokenSource.Token(ctx)
+}
 
-	if err := rt.sendPacket(req); err != nil {
+func (c *RealtimeClient) refresh(ctx context.Context) (string, error) {
+	if refreshable, ok := c.cfg.TokenSource.(RefreshableTokenSource); ok {
+		return refreshable.Refresh(ctx)
+	}
+	return "", errors.New("token source is not refreshable")
+}
+
+func (c *RealtimeClient) authenticate(ctx context.Context, token string) error {
+	packet := &v1.Packet{
+		Cmd:     v1.Command_CMD_AUTH,
+		Seq:     c.nextSeq(),
+		Payload: &v1.Packet_AuthReq{AuthReq: &v1.AuthRequest{Token: token, DeviceId: c.cfg.Realtime.DeviceID}},
+	}
+	reply, err := c.request(ctx, packet, 10*time.Second)
+	if err != nil {
 		return err
 	}
+	if reply.GetAuthResp() == nil || !reply.GetAuthResp().GetSuccess() {
+		return fmt.Errorf("%w: auth rejected", ErrAuthFailed)
+	}
+	c.mu.Lock()
+	c.authed = true
+	c.mu.Unlock()
+	c.emit(RealtimeEvent{Type: RealtimeAuthed})
+	return nil
+}
 
-	// Read auth response directly (readLoop is not running yet)
+func (c *RealtimeClient) readLoop(conn *websocket.Conn) {
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		rt.wsConn.SetReadDeadline(time.Now().Add(rt.opts.RequestTimeout))
-		_, data, err := rt.wsConn.ReadMessage()
+		_, data, err := conn.ReadMessage()
 		if err != nil {
-			return fmt.Errorf("%w: read auth response failed: %v", ErrAuthFailed, err)
+			c.handleDisconnect(conn, err)
+			return
 		}
-
 		var packet v1.Packet
 		if err := proto.Unmarshal(data, &packet); err != nil {
-			continue // skip invalid packets
-		}
-
-		if packet.Cmd == v1.Command_CMD_HEARTBEAT {
+			c.emit(RealtimeEvent{Type: RealtimeError, Err: err})
 			continue
 		}
-
-		if packet.Seq != seq {
-			continue
-		}
-
-		if err := rt.checkError(&packet); err != nil {
-			return fmt.Errorf("%w: %v", ErrAuthFailed, err)
-		}
-
-		authResp := packet.GetAuthResp()
-		if authResp == nil || !authResp.Success {
-			return ErrAuthFailed
-		}
-
-		rt.userID.Store(authResp.UserId)
-		rt.state.Store(rtStateAuthed)
-		// Clear the read deadline set during authentication so readLoop can block
-		// indefinitely for normal message reading.
-		rt.wsConn.SetReadDeadline(time.Time{})
-		if rt.opts.OnConnect != nil {
-			go rt.opts.OnConnect()
-		}
-		return nil
+		c.handlePacket(&packet)
 	}
 }
 
-// SendMessage sends a message to the specified topic via WebSocket.
-// It returns the server ACK with the assigned message metadata.
-func (rt *RealtimeClient) SendMessage(ctx context.Context, topic string, msgType v1.MsgType, content []byte, clientMsgID string) (*SendResult, error) {
-	return rt.SendMessageWithMentions(ctx, topic, msgType, content, clientMsgID, nil)
-}
-
-// SendMessageWithMentions is SendMessage with @mention recipients attached.
-func (rt *RealtimeClient) SendMessageWithMentions(ctx context.Context, topic string, msgType v1.MsgType, content []byte, clientMsgID string, mentionedUserIDs []int64) (*SendResult, error) {
-	if rt.state.Load() != rtStateAuthed {
-		return nil, ErrNotConnected
-	}
-
-	seq := rt.nextSeq()
-	req := &v1.Packet{
-		Cmd: v1.Command_CMD_PUBLISH,
-		Seq: seq,
-		Payload: &v1.Packet_SendReq{
-			SendReq: &v1.SendMessageRequest{
-				Topic:            topic,
-				MsgType:          msgType,
-				Content:          content,
-				ClientMsgId:      clientMsgID,
-				MentionedUserIds: mentionedUserIDs,
-			},
-		},
-	}
-
-	respCh := rt.registerPending(seq)
-	defer rt.unregisterPending(seq)
-
-	if err := rt.sendPacket(req); err != nil {
-		return nil, err
-	}
-
-	select {
-	case resp, ok := <-respCh:
-		if !ok {
-			return nil, ErrRequestTimeout
-		}
-		if err := rt.checkError(resp); err != nil {
-			return nil, err
-		}
-		reply := resp.GetSendReply()
-		if reply == nil {
-			return nil, ErrServerError
-		}
-		return &SendResult{
-			ClientMsgID: reply.ClientMsgId,
-			MsgID:       reply.MsgId,
-			Timestamp:   reply.Timestamp,
-			TopicSeq:    reply.TopicSeq,
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(rt.opts.RequestTimeout):
-		return nil, ErrRequestTimeout
-	}
-}
-
-// PullMessages pulls offline messages for a topic starting from lastSeq.
-func (rt *RealtimeClient) PullMessages(ctx context.Context, topic string, lastSeq uint64, limit int32) (*PullResult, error) {
-	if rt.state.Load() != rtStateAuthed {
-		return nil, ErrNotConnected
-	}
-
-	seq := rt.nextSeq()
-	req := &v1.Packet{
-		Cmd: v1.Command_CMD_PULL,
-		Seq: seq,
-		Payload: &v1.Packet_PullReq{
-			PullReq: &v1.PullRequest{
-				Topic:   topic,
-				LastSeq: lastSeq,
-				Limit:   limit,
-			},
-		},
-	}
-
-	respCh := rt.registerPending(seq)
-	defer rt.unregisterPending(seq)
-
-	if err := rt.sendPacket(req); err != nil {
-		return nil, err
-	}
-
-	select {
-	case resp, ok := <-respCh:
-		if !ok {
-			return nil, ErrRequestTimeout
-		}
-		if err := rt.checkError(resp); err != nil {
-			return nil, err
-		}
-		reply := resp.GetPullReply()
-		if reply == nil {
-			return nil, ErrServerError
-		}
-		return &PullResult{
-			Messages: toSDKMessages(reply.Messages),
-			HasMore:  reply.HasMore,
-			NextSeq:  reply.NextSeq,
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(rt.opts.RequestTimeout):
-		return nil, ErrRequestTimeout
-	}
-}
-
-// Acknowledge sends an ACK for a received message.
-func (rt *RealtimeClient) Acknowledge(msgID int64, topic string, topicSeq uint64) error {
-	if rt.state.Load() != rtStateAuthed {
-		return ErrNotConnected
-	}
-
-	seq := rt.nextSeq()
-	req := &v1.Packet{
-		Cmd: v1.Command_CMD_ACK,
-		Seq: seq,
-		Payload: &v1.Packet_AckReq{
-			AckReq: &v1.AckRequest{
-				MsgId:    msgID,
-				Topic:    topic,
-				TopicSeq: topicSeq,
-			},
-		},
-	}
-
-	return rt.sendPacket(req)
-}
-
-// SendReadReceipt sends a read receipt to the server for messages up to the given seq.
-func (rt *RealtimeClient) SendReadReceipt(topic string, upToSeq uint64) error {
-	if rt.state.Load() != rtStateAuthed {
-		return ErrNotConnected
-	}
-
-	seq := rt.nextSeq()
-	req := &v1.Packet{
-		Cmd: v1.Command_CMD_READ_RECEIPT,
-		Seq: seq,
-		Payload: &v1.Packet_ReadReceipt{
-			ReadReceipt: &v1.ReadReceipt{
-				Topic:    topic,
-				UpToSeq:  upToSeq,
-				ReaderId: rt.UserID(),
-			},
-		},
-	}
-
-	return rt.sendPacket(req)
-}
-
-// UserID returns the authenticated user ID (0 if not authenticated).
-func (rt *RealtimeClient) UserID() int64 {
-	return rt.userID.Load()
-}
-
-// IsConnected returns true if the client is connected (but not necessarily authed).
-func (rt *RealtimeClient) IsConnected() bool {
-	return rt.state.Load() >= rtStateConnected
-}
-
-// IsAuthed returns true if the client is authenticated.
-func (rt *RealtimeClient) IsAuthed() bool {
-	return rt.state.Load() == rtStateAuthed
-}
-
-// UpdateToken updates the authentication token. If the client is already
-// connected, it triggers a reconnection with the new token.
-func (rt *RealtimeClient) UpdateToken(token string) {
-	rt.opts.Token = token
-	// If already connected, close and let reconnectMonitor handle reconnection
-	if rt.state.Load() >= rtStateConnected {
-		rt.closeConnection()
-	}
-}
-
-// Disconnect closes the WebSocket connection without stopping background goroutines.
-// This is useful for simulating a network drop to test reconnection behavior.
-func (rt *RealtimeClient) Disconnect() {
-	rt.closeConnection()
-}
-
-// Close closes the client connection and stops all background goroutines.
-func (rt *RealtimeClient) Close() error {
-	rt.closeOnce.Do(func() {
-		close(rt.stopCh)
-		rt.closeConnection()
-	})
-	rt.wg.Wait()
-	return nil
-}
-
-// closeConnection closes the WebSocket connection without stopping background workers.
-func (rt *RealtimeClient) closeConnection() {
-	if rt.wsConn != nil {
-		rt.wsConn.Close()
-	}
-	rt.state.Store(rtStateDisconnected)
-}
-
-// sendPacket marshals and sends a packet over WebSocket.
-// It holds the writeMu for the entire check-write sequence to avoid races with Close.
-func (rt *RealtimeClient) sendPacket(packet *v1.Packet) error {
-	data, err := proto.Marshal(packet)
-	if err != nil {
-		return fmt.Errorf("marshal packet: %w", err)
-	}
-
-	rt.writeMu.Lock()
-	defer rt.writeMu.Unlock()
-
-	conn := rt.wsConn
-	if conn == nil {
-		return ErrNotConnected
-	}
-
-	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		return fmt.Errorf("write websocket: %w", err)
-	}
-	return nil
-}
-
-// nextSeq generates the next sequence number for request-response correlation.
-func (rt *RealtimeClient) nextSeq() uint64 {
-	return rt.seqGen.Add(1)
-}
-
-// registerPending registers a response channel for the given seq.
-func (rt *RealtimeClient) registerPending(seq uint64) chan *v1.Packet {
-	ch := make(chan *v1.Packet, 1)
-	rt.pendingMu.Lock()
-	rt.pending[seq] = ch
-	rt.pendingMu.Unlock()
-	return ch
-}
-
-// unregisterPending removes the pending response channel and closes it
-// to wake up any waiting goroutines (#8).
-func (rt *RealtimeClient) unregisterPending(seq uint64) {
-	rt.pendingMu.Lock()
-	ch, ok := rt.pending[seq]
-	if ok {
-		delete(rt.pending, seq)
-		// Drain any buffered packet to prevent blocked writers, then close.
-		select {
-		case <-ch:
-		default:
-		}
-		close(ch)
-	}
-	rt.pendingMu.Unlock()
-}
-
-// dispatchResponse routes a response packet to its pending request channel.
-// It safely handles channels that may have been closed by unregisterPending.
-func (rt *RealtimeClient) dispatchResponse(packet *v1.Packet) {
-	rt.pendingMu.RLock()
-	ch, ok := rt.pending[packet.Seq]
-	rt.pendingMu.RUnlock()
-	if !ok {
+func (c *RealtimeClient) handlePacket(packet *v1.Packet) {
+	if packet.GetCmd() == v1.Command_CMD_HEARTBEAT {
 		return
 	}
-	// Use recover to handle the case where the channel was closed
-	// between the RLock and the send attempt.
-	func() {
-		defer func() {
-			if recover() != nil {
-				// Channel was closed, ignore
-			}
-		}()
+	if ch, ok := c.pendingFor(packet.GetSeq()); ok {
 		select {
 		case ch <- packet:
 		default:
 		}
-	}()
+		return
+	}
+	switch packet.GetCmd() {
+	case v1.Command_CMD_NOTIFY:
+		push := packet.GetNotify()
+		if push == nil {
+			return
+		}
+		message := &Message{
+			ID: push.GetMsgId(), Topic: push.GetTopic(), SenderID: push.GetSenderId(),
+			Type: MessageType(push.GetMsgType()), Content: push.GetContent(),
+			Timestamp: push.GetTimestamp(), TopicSeq: push.GetTopicSeq(),
+			ClientMessageID: push.GetClientMsgId(), MentionedUserIDs: push.GetMentionedUserIds(),
+			Recalled: push.GetRecalled(), Status: MessageStatusDelivered,
+		}
+		if !c.cfg.Realtime.DisableAutoAck {
+			c.sendAck(message.ID, message.Topic, message.TopicSeq)
+		}
+		c.emit(RealtimeEvent{Type: RealtimeMessage, Message: message})
+	case v1.Command_CMD_SEND_RECEIPT:
+		receipt := packet.GetSendReceipt()
+		if receipt != nil {
+			c.emit(RealtimeEvent{Type: RealtimeSendReceipt, SendReceipt: &SendReceipt{
+				ClientMessageID: receipt.GetClientMsgId(), MessageID: receipt.GetMsgId(),
+				Topic: receipt.GetTopic(), TopicSeq: receipt.GetTopicSeq(), Timestamp: receipt.GetTimestamp(),
+			}})
+		}
+	case v1.Command_CMD_DELIVERY_RECEIPT:
+		receipt := packet.GetDeliveryReceipt()
+		if receipt != nil {
+			c.emit(RealtimeEvent{Type: RealtimeDeliveryReceipt, DeliveryReceipt: &DeliveryReceipt{
+				Topic: receipt.GetTopic(), TopicSeq: receipt.GetTopicSeq(), MessageID: receipt.GetMsgId(),
+			}})
+		}
+	case v1.Command_CMD_READ_RECEIPT:
+		receipt := packet.GetReadReceipt()
+		if receipt != nil {
+			c.emit(RealtimeEvent{Type: RealtimeReadReceipt, ReadReceipt: &ReadReceipt{
+				Topic: receipt.GetTopic(), UpToSeq: receipt.GetUpToSeq(), ReaderID: receipt.GetReaderId(),
+			}})
+		}
+	case v1.Command_CMD_RECALL:
+		notice := packet.GetRecallNotice()
+		if notice != nil {
+			c.emit(RealtimeEvent{Type: RealtimeRecall, Recall: &RecallNotice{
+				Topic: notice.GetTopic(), TopicSeq: notice.GetTopicSeq(), MessageID: notice.GetMsgId(),
+				SenderID: notice.GetSenderId(), RecalledAt: notice.GetRecalledAt(),
+			}})
+		}
+	case v1.Command_CMD_AGENT_RUN_EVENT:
+		if event := packet.GetAgentRunEvent(); event != nil {
+			c.emit(RealtimeEvent{Type: RealtimeAgentRunEvent, RunEvent: runEventFromProto(event)})
+		}
+	}
 }
 
-// checkError checks if a packet contains an error response.
-func (rt *RealtimeClient) checkError(packet *v1.Packet) error {
-	errResp := packet.GetError()
-	if errResp == nil {
+func runEventFromProto(event *v1.AgentRunEvent) *RunEvent {
+	typeMap := map[v1.AgentRunEventType]RunEventType{
+		v1.AgentRunEventType_AGENT_RUN_STARTED:           RunEventStarted,
+		v1.AgentRunEventType_AGENT_RUN_DELTA:             RunEventDelta,
+		v1.AgentRunEventType_AGENT_RUN_TOOL_STARTED:      RunEventToolStarted,
+		v1.AgentRunEventType_AGENT_RUN_TOOL_FINISHED:     RunEventToolFinished,
+		v1.AgentRunEventType_AGENT_RUN_APPROVAL_REQUIRED: RunEventApprovalRequired,
+		v1.AgentRunEventType_AGENT_RUN_APPROVAL_RESOLVED: RunEventApprovalResolved,
+		v1.AgentRunEventType_AGENT_RUN_COMPLETED:         RunEventCompleted,
+		v1.AgentRunEventType_AGENT_RUN_FAILED:            RunEventFailed,
+		v1.AgentRunEventType_AGENT_RUN_CANCELLED:         RunEventCancelled,
+		v1.AgentRunEventType_AGENT_RUN_HEARTBEAT:         RunEventHeartbeat,
+	}
+	return &RunEvent{
+		RunID: event.GetRunId(), Seq: event.GetSeq(), Type: typeMap[event.GetType()],
+		Topic: event.GetTopic(), AgentID: event.GetAgentId(), BotUserID: event.GetBotUserId(),
+		ActorUserID: event.GetActorUserId(), TriggerMsgID: event.GetTriggerMsgId(), Test: event.GetTest(),
+		Delta: event.GetDelta(), Tool: event.GetTool(), ToolCallID: event.GetToolCallId(),
+		Summary: event.GetSummary(), Status: event.GetStatus(), ApprovalID: event.GetApprovalId(),
+		ReplyMsgID: event.GetReplyMsgId(), ClientMessageID: event.GetClientMsgId(),
+		ErrorCode: event.GetErrorCode(), ErrorClass: event.GetErrorClass(),
+		Retryable: event.GetRetryable(), InputTokens: int(event.GetInputTokens()),
+		OutputTokens: int(event.GetOutputTokens()), TimestampMs: event.GetTimestampMs(),
+	}
+}
+
+func (c *RealtimeClient) handleDisconnect(conn *websocket.Conn, reason error) {
+	c.mu.Lock()
+	if c.ws != conn {
+		c.mu.Unlock()
+		return
+	}
+	c.ws = nil
+	c.authed = false
+	closed := c.closed
+	c.mu.Unlock()
+	c.stopHeartbeat()
+	c.emit(RealtimeEvent{Type: RealtimeDisconnected, Err: reason})
+	if closed || c.cfg.Realtime.DisableAutoReconnect {
+		c.closeEvents()
+		return
+	}
+	c.scheduleReconnect()
+}
+
+func (c *RealtimeClient) scheduleReconnect() {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	attempt := c.reconnectAttempt
+	c.reconnectAttempt++
+	maxAttempts := c.cfg.Realtime.MaxReconnectAttempts
+	c.mu.Unlock()
+	if maxAttempts > 0 && attempt >= maxAttempts {
+		c.emit(RealtimeEvent{Type: RealtimeError, Err: fmt.Errorf("sdk: max reconnect attempts reached")})
+		c.closeEvents()
+		return
+	}
+	delay := c.cfg.Realtime.ReconnectInterval * time.Duration(1<<minInt(attempt, 5))
+	if delay > c.cfg.Realtime.MaxReconnectDelay {
+		delay = c.cfg.Realtime.MaxReconnectDelay
+	}
+	c.emit(RealtimeEvent{Type: RealtimeReconnecting})
+	c.mu.Lock()
+	if c.timer != nil {
+		c.timer.Stop()
+	}
+	c.timer = time.AfterFunc(delay, func() {
+		if err := c.connect(context.Background()); err != nil {
+			c.emit(RealtimeEvent{Type: RealtimeError, Err: err})
+			c.scheduleReconnect()
+		}
+	})
+	c.mu.Unlock()
+}
+
+func (c *RealtimeClient) startHeartbeat() {
+	c.stopHeartbeat()
+	stop := make(chan struct{})
+	c.mu.Lock()
+	c.heartbeatStop = stop
+	c.mu.Unlock()
+	interval := c.cfg.Realtime.HeartbeatInterval
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	c.mu.Lock()
+	c.heartbeatTimer = time.AfterFunc(interval, func() { c.heartbeatLoop(stop, interval) })
+	c.mu.Unlock()
+}
+
+func (c *RealtimeClient) heartbeatLoop(stop chan struct{}, interval time.Duration) {
+	select {
+	case <-stop:
+		return
+	case <-c.done:
+		return
+	default:
+	}
+	packet := &v1.Packet{Cmd: v1.Command_CMD_HEARTBEAT, Seq: c.nextSeq()}
+	_ = c.writePacket(packet)
+	c.mu.Lock()
+	if c.heartbeatStop == stop {
+		c.heartbeatTimer = time.AfterFunc(interval, func() { c.heartbeatLoop(stop, interval) })
+	}
+	c.mu.Unlock()
+}
+
+func (c *RealtimeClient) stopHeartbeat() {
+	c.mu.Lock()
+	if c.heartbeatStop != nil {
+		close(c.heartbeatStop)
+		c.heartbeatStop = nil
+	}
+	if c.heartbeatTimer != nil {
+		c.heartbeatTimer.Stop()
+		c.heartbeatTimer = nil
+	}
+	c.mu.Unlock()
+}
+
+func (c *RealtimeClient) sendAck(messageID int64, topic string, seq uint64) {
+	packet := &v1.Packet{
+		Cmd: v1.Command_CMD_ACK, Seq: c.nextSeq(),
+		Payload: &v1.Packet_AckReq{AckReq: &v1.AckRequest{MsgId: messageID, Topic: topic, TopicSeq: seq}},
+	}
+	_ = c.writePacket(packet)
+}
+
+func (c *RealtimeClient) SendReadReceipt(topic string, upToSeq uint64) error {
+	packet := &v1.Packet{
+		Cmd: v1.Command_CMD_READ_RECEIPT, Seq: c.nextSeq(),
+		Payload: &v1.Packet_ReadReceipt{ReadReceipt: &v1.ReadReceipt{Topic: topic, UpToSeq: upToSeq}},
+	}
+	return c.writePacket(packet)
+}
+
+func (c *RealtimeClient) Recall(topic string, topicSeq uint64, messageID int64) error {
+	packet := &v1.Packet{
+		Cmd: v1.Command_CMD_RECALL, Seq: c.nextSeq(),
+		Payload: &v1.Packet_RecallReq{RecallReq: &v1.RecallRequest{Topic: topic, TopicSeq: topicSeq, MsgId: messageID}},
+	}
+	return c.writePacket(packet)
+}
+
+func (c *RealtimeClient) request(ctx context.Context, packet *v1.Packet, timeout time.Duration) (*v1.Packet, error) {
+	ch := make(chan *v1.Packet, 1)
+	c.mu.Lock()
+	c.pending[packet.GetSeq()] = ch
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.pending, packet.GetSeq())
+		c.mu.Unlock()
+	}()
+	if err := c.writePacket(packet); err != nil {
+		return nil, err
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return nil, fmt.Errorf("%w: request timeout", ErrRequestTimeout)
+	case reply := <-ch:
+		if reply.GetError() != nil {
+			return nil, &APIError{Code: fmt.Sprintf("%d", reply.GetError().GetCode()), Message: reply.GetError().GetMessage(), Retryable: reply.GetError().GetRetryable()}
+		}
+		return reply, nil
+	}
+}
+
+func (c *RealtimeClient) writePacket(packet *v1.Packet) error {
+	data, err := proto.Marshal(packet)
+	if err != nil {
+		return err
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.mu.Lock()
+	conn := c.ws
+	c.mu.Unlock()
+	if conn == nil {
+		return ErrNotConnected
+	}
+	return conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+func (c *RealtimeClient) pendingFor(seq uint64) (chan *v1.Packet, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ch, ok := c.pending[seq]
+	return ch, ok
+}
+
+func (c *RealtimeClient) nextSeq() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seq++
+	return c.seq
+}
+
+func (c *RealtimeClient) emit(event RealtimeEvent) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	subs := make([]chan RealtimeEvent, 0, len(c.subs))
+	for _, ch := range c.subs {
+		subs = append(subs, ch)
+	}
+	c.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- event:
+		default:
+			// Slow consumers can recover via the run events endpoint.
+		}
+	}
+}
+
+func (c *RealtimeClient) closeEvents() {
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closed = true
+		subs := make([]chan RealtimeEvent, 0, len(c.subs))
+		for id, ch := range c.subs {
+			subs = append(subs, ch)
+			delete(c.subs, id)
+		}
+		c.mu.Unlock()
+		close(c.done)
+		for _, ch := range subs {
+			close(ch)
+		}
+	})
+}
+
+// Close stops reconnect/heartbeat and closes the WebSocket.
+func (c *RealtimeClient) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
-	return &ServerError{
-		Code:       errResp.Code,
-		Message:    errResp.Message,
-		Retryable:  errResp.Retryable,
-		RetryAfter: time.Duration(errResp.RetryAfterMs) * time.Millisecond,
+	conn := c.ws
+	c.ws = nil
+	if c.timer != nil {
+		c.timer.Stop()
 	}
+	c.mu.Unlock()
+	c.stopHeartbeat()
+	c.closeEvents()
+	if conn != nil {
+		return conn.Close()
+	}
+	return nil
 }
 
-// heartbeatLoop sends periodic heartbeats to keep the connection alive.
-// It waits for the server's heartbeat echo and closes the connection if
-// the response is not received within 2 * HeartbeatInterval (#31).
-func (rt *RealtimeClient) heartbeatLoop() {
-	defer rt.wg.Done()
-
-	ticker := time.NewTicker(rt.opts.HeartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if rt.state.Load() < rtStateConnected {
-				continue
-			}
-			seq := rt.nextSeq()
-			req := &v1.Packet{
-				Cmd: v1.Command_CMD_HEARTBEAT,
-				Seq: seq,
-			}
-			respCh := rt.registerPending(seq)
-			if err := rt.sendPacket(req); err != nil {
-				rt.unregisterPending(seq)
-				continue
-			}
-
-			select {
-			case _, ok := <-respCh:
-				if ok {
-					rt.lastHeartbeatAck.Store(time.Now().UnixNano())
-					rt.heartbeatMissed.Store(0)
-				}
-				// else: channel was closed by unregisterPending (timeout path)
-			case <-time.After(rt.opts.HeartbeatTimeout):
-				// Heartbeat timeout - close connection to trigger reconnect
-				rt.unregisterPending(seq)
-				missed := rt.heartbeatMissed.Add(1)
-				if missed >= 2 {
-					// Two consecutive missed heartbeats: force disconnect
-					rt.closeConnection()
-					if rt.opts.OnDisconnect != nil {
-						go rt.opts.OnDisconnect(fmt.Errorf("heartbeat timeout: %d consecutive misses", missed))
-					}
-				}
-			case <-rt.stopCh:
-				rt.unregisterPending(seq)
-				return
-			}
-		case <-rt.stopCh:
-			return
-		}
+func minInt(a, b int) int {
+	if a < b {
+		return a
 	}
-}
-
-// readLoop reads packets from the WebSocket connection.
-func (rt *RealtimeClient) readLoop() {
-	defer rt.wg.Done()
-
-	for {
-		select {
-		case <-rt.stopCh:
-			return
-		default:
-		}
-
-		if rt.wsConn == nil {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		_, data, err := rt.wsConn.ReadMessage()
-		if err != nil {
-			if rt.state.Load() >= rtStateConnected {
-				rt.state.Store(rtStateDisconnected)
-				if rt.opts.OnDisconnect != nil {
-					go rt.opts.OnDisconnect(fmt.Errorf("websocket read error: %w", err))
-				}
-			}
-			time.Sleep(rt.opts.ReconnectInterval)
-			continue
-		}
-
-		var packet v1.Packet
-		if err := proto.Unmarshal(data, &packet); err != nil {
-			continue
-		}
-
-		rt.handlePacket(&packet)
-	}
-}
-
-// handlePacket processes incoming packets.
-func (rt *RealtimeClient) handlePacket(packet *v1.Packet) {
-	switch packet.Cmd {
-	case v1.Command_CMD_HEARTBEAT:
-		// Heartbeat echo from server, dispatch to pending request (#31)
-		rt.dispatchResponse(packet)
-
-	case v1.Command_CMD_AUTH:
-		rt.dispatchResponse(packet)
-
-	case v1.Command_CMD_PUBLISH:
-		rt.dispatchResponse(packet)
-
-	case v1.Command_CMD_PULL:
-		rt.dispatchResponse(packet)
-
-	case v1.Command_CMD_NOTIFY:
-		rt.handlePush(packet)
-
-	case v1.Command_CMD_ACK:
-		rt.dispatchResponse(packet)
-
-	case v1.Command_CMD_READ_RECEIPT:
-		rt.handleReadReceipt(packet)
-
-	case v1.Command_CMD_DELIVERY_RECEIPT:
-		rt.handleDeliveryReceipt(packet)
-
-	case v1.Command_CMD_SEND_RECEIPT:
-		rt.handleSendReceipt(packet)
-
-	default:
-		rt.dispatchResponse(packet)
-	}
-}
-
-// handleReadReceipt processes server-pushed read receipts.
-func (rt *RealtimeClient) handleReadReceipt(packet *v1.Packet) {
-	receipt := packet.GetReadReceipt()
-	if receipt == nil {
-		return
-	}
-
-	if rt.opts.OnReadReceipt != nil {
-		go rt.opts.OnReadReceipt(receipt.Topic, receipt.UpToSeq, receipt.ReaderId)
-	}
-}
-
-// handleDeliveryReceipt processes server-pushed delivery receipts.
-func (rt *RealtimeClient) handleDeliveryReceipt(packet *v1.Packet) {
-	receipt := packet.GetDeliveryReceipt()
-	if receipt == nil {
-		return
-	}
-
-	if rt.opts.OnDeliveryReceipt != nil {
-		go rt.opts.OnDeliveryReceipt(receipt.Topic, receipt.TopicSeq, receipt.MsgId)
-	}
-}
-
-// handleSendReceipt processes server-pushed send receipts (msg_id/topic_seq confirmation).
-func (rt *RealtimeClient) handleSendReceipt(packet *v1.Packet) {
-	receipt := packet.GetSendReceipt()
-	if receipt == nil {
-		return
-	}
-
-	if rt.opts.OnSendReceipt != nil {
-		go rt.opts.OnSendReceipt(receipt.ClientMsgId, receipt.MsgId, receipt.Topic, receipt.TopicSeq)
-	}
-}
-
-// handlePush handles server push notifications.
-func (rt *RealtimeClient) handlePush(packet *v1.Packet) {
-	notify := packet.GetNotify()
-	if notify == nil {
-		// Defensive: the packet cmd says NOTIFY but payload is not a MessagePush.
-		// This should not happen with well-formed server packets.
-		return
-	}
-	_ = notify.Topic // silence unused warning if any
-
-	// Deduplication: skip if we've already seen this seq for this topic
-	rt.seenSeqsMu.RLock()
-	lastSeen, ok := rt.seenSeqs[notify.Topic]
-	rt.seenSeqsMu.RUnlock()
-
-	if ok && notify.TopicSeq <= lastSeen {
-		return
-	}
-
-	rt.seenSeqsMu.Lock()
-	rt.seenSeqs[notify.Topic] = notify.TopicSeq
-	rt.seenSeqsMu.Unlock()
-
-	// Send ACK if enabled
-	if rt.opts.AutoAck && rt.state.Load() == rtStateAuthed {
-		_ = rt.Acknowledge(notify.MsgId, notify.Topic, notify.TopicSeq)
-	}
-
-	// Notify user handler
-	if rt.opts.OnMessage != nil {
-		go rt.opts.OnMessage(toSDKMessage(notify))
-	}
-}
-
-// reconnectMonitor monitors the connection and reconnects if needed.
-func (rt *RealtimeClient) reconnectMonitor() {
-	defer rt.wg.Done()
-
-	reconnectAttempts := 0
-	for {
-		select {
-		case <-rt.stopCh:
-			return
-		default:
-		}
-
-		if rt.state.Load() == rtStateAuthed {
-			time.Sleep(rt.opts.ReconnectInterval)
-			continue
-		}
-
-		if rt.opts.MaxReconnectAttempts > 0 && reconnectAttempts >= rt.opts.MaxReconnectAttempts {
-			if rt.opts.OnDisconnect != nil {
-				go rt.opts.OnDisconnect(fmt.Errorf("max reconnection attempts exceeded"))
-			}
-			return
-		}
-
-		// Only attempt reconnect if we are in disconnected state.
-		// Use CAS to atomically transition to reconnecting.
-		if !rt.state.CompareAndSwap(rtStateDisconnected, rtStateReconnecting) {
-			// Another goroutine is already handling connection or reconnection.
-			time.Sleep(rt.opts.ReconnectInterval)
-			continue
-		}
-
-		reconnectAttempts++
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		err := rt.connectAndAuth(ctx)
-		cancel()
-
-		if err == nil {
-			reconnectAttempts = 0
-			// Notify Application layer to pull offline messages
-			if rt.onReconnect != nil {
-				go rt.onReconnect()
-			}
-		} else {
-			time.Sleep(rt.opts.ReconnectInterval)
-		}
-	}
-}
-
-// setOnReconnect sets the callback invoked after successful reconnection.
-func (rt *RealtimeClient) setOnReconnect(fn func()) {
-	rt.onReconnect = fn
+	return b
 }

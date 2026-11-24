@@ -18,8 +18,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GroupMembersDialog } from "./GroupMembersDialog";
+import { AgentApprovalInbox } from "@/components/agents/AgentApprovalInbox";
 import { useChatStore } from "@/stores/chatStore";
-import { ArrowLeft, Bot, MoreVertical, Users } from "lucide-react";
+import { useAgentNames } from "@/hooks/useAgentNames";
+import { ArrowLeft, Bell, Bot, MoreVertical, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +39,7 @@ export function ChatHeader({
   const router = useRouter();
   const [membersOpen, setMembersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
   const group = useChatStore((s) =>
     conversation?.type === "group" ? s.groups.get(conversation.topic) : undefined
   );
@@ -45,9 +48,16 @@ export function ChatHeader({
       ? s.memberNames.get(conversation.topic)?.size
       : undefined
   );
+  const agentNames = useAgentNames();
+  const peerAgent =
+    conversation?.type === "p2p"
+      ? agentNames.get(Number(conversation.peerId))
+      : undefined;
+  const peerIsBot = conversation?.peerIsBot || !!peerAgent;
 
   const title = conversation
-    ? conversation.name ||
+    ? peerAgent?.name ||
+      conversation.name ||
       (conversation.type === "p2p"
         ? conversation.peerUsername || "Unknown"
         : "Group")
@@ -57,11 +67,12 @@ export function ChatHeader({
     conversation,
     connectionState,
     peerOnline,
-    memberCount
+    memberCount,
+    peerIsBot
   );
   const isPeerOnline =
     conversation?.type === "p2p" &&
-    !conversation.peerIsBot &&
+    !peerIsBot &&
     connectionState === "authed" &&
     peerOnline === true;
 
@@ -102,7 +113,7 @@ export function ChatHeader({
               <h2 className="max-w-[180px] truncate text-sm font-semibold sm:max-w-xs">
                 {title}
               </h2>
-              {conversation.peerIsBot && (
+              {peerIsBot && (
                 <Badge variant="secondary" className="px-1.5 text-[10px]">
                   <Bot className="h-2.5 w-2.5" />
                   AI
@@ -138,7 +149,16 @@ export function ChatHeader({
           </div>
         )}
       </div>
-      {conversation?.type === "group" && (
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Pending approvals"
+          onClick={() => setApprovalsOpen(true)}
+        >
+          <Bell className="h-5 w-5" />
+        </Button>
+        {conversation?.type === "group" && (
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -161,7 +181,16 @@ export function ChatHeader({
             />
           )}
         </>
-      )}
+        )}
+      </div>
+      <Dialog open={approvalsOpen} onOpenChange={setApprovalsOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pending approvals</DialogTitle>
+          </DialogHeader>
+          <AgentApprovalInbox />
+        </DialogContent>
+      </Dialog>
       {/* Read-only peer profile (P2P only). */}
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
         <DialogContent className="sm:max-w-xs">
@@ -185,7 +214,7 @@ export function ChatHeader({
                   isPeerOnline ? "text-emerald-600" : "text-muted-foreground"
                 )}
               >
-                {conversation?.peerIsBot
+                {peerIsBot
                   ? "AI / Ready"
                   : connectionState === "authed"
                     ? isPeerOnline
@@ -205,7 +234,8 @@ function getSubtitle(
   conversation: Conversation | undefined,
   state: ConnectionState,
   peerOnline: boolean | undefined,
-  memberCount: number | undefined
+  memberCount: number | undefined,
+  peerIsBot: boolean
 ): string {
   if (state !== "authed") return getConnectionLabel(state);
   if (conversation?.type === "group") {
@@ -213,7 +243,7 @@ function getSubtitle(
       ? `${memberCount} member${memberCount === 1 ? "" : "s"}`
       : "Group conversation";
   }
-  if (conversation?.peerIsBot) return "AI / Ready";
+  if (peerIsBot) return "AI / Ready";
   if (peerOnline === undefined) return "Checking status...";
   return peerOnline ? "Online" : "Offline";
 }
