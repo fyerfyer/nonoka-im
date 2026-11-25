@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	agentmetrics "nonoka-im/internal/agent/metrics"
@@ -29,11 +30,15 @@ func ObserveMiddleware(metrics *agentmetrics.Metrics) compose.ToolMiddleware {
 				}
 				callID = input.CallID
 			}
-			ctx, span := tracer.Start(ctx, "execute_tool "+name, trace.WithAttributes(
+			attrs := []attribute.KeyValue{
 				attribute.String("gen_ai.operation.name", "execute_tool"),
 				attribute.String("gen_ai.tool.name", name),
 				attribute.String("gen_ai.tool.type", "extension"),
-			))
+			}
+			if strings.HasPrefix(name, "mcp_") {
+				attrs = append(attrs, attribute.String("mcp.method.name", "tools/call"))
+			}
+			ctx, span := tracer.Start(ctx, "execute_tool "+name, trace.WithAttributes(attrs...))
 			if callID != "" {
 				span.SetAttributes(attribute.String("gen_ai.tool.call.id", callID))
 			}

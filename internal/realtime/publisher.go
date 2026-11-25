@@ -6,6 +6,9 @@ import (
 	"sync"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RunEventTransport pushes a run event to all live connections of one user.
@@ -45,6 +48,15 @@ func (b *RunBroadcaster) Publish(ctx context.Context, event RunEvent, recipients
 	event = b.assignSeq(ctx, event)
 	if b.OnEvent != nil {
 		b.OnEvent(event)
+	}
+	if event.Type.IsDurable() {
+		var span trace.Span
+		ctx, span = otel.Tracer("nonoka-im/realtime").Start(ctx, "agent.stream.publish",
+			trace.WithAttributes(
+				attribute.String("agent.run_id", fmt.Sprintf("%d", event.RunID)),
+				attribute.String("agent.event.type", string(event.Type)),
+			))
+		defer span.End()
 	}
 	if event.Type.IsDurable() && b.Steps != nil {
 		if err := b.Steps(ctx, event); err != nil {
