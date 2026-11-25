@@ -31,12 +31,24 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create messages dedup index: %w", err)
 	}
 
+	if err := s.createIndex(ctx, CollectionMessages, "messages_topic_time", mongo.IndexModel{
+		Keys: bson.D{{Key: "topic", Value: 1}, {Key: "timestamp", Value: -1}},
+	}); err != nil {
+		return fmt.Errorf("create messages topic/time index: %w", err)
+	}
+
 	// Index for inbox: user_id + topic + topic_seq
 	if err := s.createIndex(ctx, CollectionInboxes, "inbox_unique", mongo.IndexModel{
 		Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "topic", Value: 1}, {Key: "topic_seq", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	}); err != nil {
 		return fmt.Errorf("create inbox index: %w", err)
+	}
+
+	if err := s.createIndex(ctx, CollectionInboxes, "inbox_topic_time", mongo.IndexModel{
+		Keys: bson.D{{Key: "topic", Value: 1}, {Key: "timestamp", Value: -1}},
+	}); err != nil {
+		return fmt.Errorf("create inbox topic/time index: %w", err)
 	}
 
 	// Unique index on client_msg_id + user_id for inbox deduplication.

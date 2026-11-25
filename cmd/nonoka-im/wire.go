@@ -263,12 +263,12 @@ func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.
 	}
 }
 
-func provideSearchClient(searchConf *conf.Search) *search.Client {
-	return search.FromConfig(searchConf)
+func provideSearchIndex(searchConf *conf.Search, db *mongo.Database) (imapp.SearchIndex, error) {
+	return search.NewIndex(searchConf, db)
 }
 
-func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchClient *search.Client, logger log.Logger) *imapp.QueryService {
-	return &imapp.QueryService{Reader: storage, Search: searchClient, Authorizer: authorizer, Log: log.NewHelper(logger)}
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchIndex imapp.SearchIndex, logger log.Logger) *imapp.QueryService {
+	return &imapp.QueryService{Reader: storage, Search: searchIndex, Authorizer: authorizer, Log: log.NewHelper(logger)}
 }
 
 func provideIMConversationService(repo imdata.ConversationRepo) *imapp.ConversationService {
@@ -556,7 +556,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		gateway.NewDomainProducer,
 		provideFileStore,
 		provideIMMessageService,
-		provideSearchClient,
+		provideSearchIndex,
 		provideIMQueryService,
 		provideIMConversationService,
 		provideIMGroupService,

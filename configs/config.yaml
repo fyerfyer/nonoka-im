@@ -87,6 +87,7 @@ msgworker:
 # Optional Meilisearch-backed message search. Leave url empty to disable.
 search:
   enabled: true
+  backend: mongo
   url: "http://127.0.0.1:7700"
   index: "messages"
   timeout: 5s

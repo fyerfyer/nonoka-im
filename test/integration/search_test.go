@@ -12,6 +12,7 @@ import (
 	agentapp "nonoka-im/internal/agent/app"
 	agenttools "nonoka-im/internal/agent/tools"
 	agentdata "nonoka-im/internal/data/agent"
+	imapp "nonoka-im/internal/im/app"
 	"nonoka-im/internal/im/domain"
 	"nonoka-im/internal/im/search"
 	messagingim "nonoka-im/internal/messaging/im"
@@ -161,6 +162,55 @@ func TestAgentSearchTool_RecordsCitations(t *testing.T) {
 	if citations[0].Topic != topic || citations[0].Snippet == "" {
 		t.Fatalf("unexpected citation: %+v", citations[0])
 	}
+}
+
+// TestMessageSearch_MongoBackend verifies the zero-dependency fallback works
+// against the existing content_text projection without Meilisearch.
+func TestMessageSearch_MongoBackend(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	_, aliceID := registerAndLogin(t, "mongo-search-alice", "123456")
+	_, bobID := registerAndLogin(t, "mongo-search-bob", "123456")
+	_, eveID := registerAndLogin(t, "mongo-search-eve", "123456")
+	topic := fmt.Sprintf("p2p_%d_%d", aliceID, bobID)
+	ctx := context.Background()
+	for _, pair := range []struct {
+		userID int64
+		topic  string
+	}{{aliceID, topic}, {bobID, topic}} {
+		if err := ts.openFGA.EnsureTopicForSend(ctx, pair.userID, pair.topic); err != nil {
+			t.Fatalf("grant topic: %v", err)
+		}
+	}
+	if _, err := ts.messageApp.HandleIncoming(ctx, domain.Message{
+		Topic: topic, SenderID: bobID, Type: domain.MessageTypeText,
+		Content: []byte("mongo fallback keyword"), ClientMsgID: "mongo-search-1", Timestamp: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("persist text: %v", err)
+	}
+	if _, err := ts.messageApp.HandleIncoming(ctx, domain.Message{
+		Topic: topic, SenderID: bobID, Type: domain.MessageTypeImage,
+		Content:     []byte(`{"file_id":"mongo-file","name":"diagram-mongo.png","mime":"image/png","size":1}`),
+		ClientMsgID: "mongo-search-2", Timestamp: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("persist image: %v", err)
+	}
+
+	query := &imapp.QueryService{Reader: ts.storage, Search: search.NewMongoIndex(ts.mongoDB), Authorizer: ts.openFGA}
+	hits, _, err := query.SearchMessages(ctx, aliceID, topic, "fallback", domain.SearchFilter{}, 20, 0)
+	if err != nil || len(hits) != 1 || hits[0].Snippet == "" {
+		t.Fatalf("mongo search: hits=%+v err=%v", hits, err)
+	}
+	fileHits, _, err := query.SearchMessages(ctx, aliceID, topic, "", domain.SearchFilter{HasFile: true}, 20, 0)
+	if err != nil || len(fileHits) != 1 || !fileHits[0].HasFile {
+		t.Fatalf("mongo has_file: hits=%+v err=%v", fileHits, err)
+	}
+	if _, _, err := query.SearchMessages(ctx, eveID, topic, "fallback", domain.SearchFilter{}, 20, 0); err == nil {
+		t.Fatal("expected cross-topic search denial")
+	}
+	// The HTTP layer still uses the Meilisearch backend in this test server;
+	// the Mongo adapter is exercised directly above.
 }
 
 func waitForSearch(t *testing.T, token, topic, query string, want int) {

@@ -188,13 +188,16 @@ func main() {
 	}
 
 	messageStorage := mongostore.NewStore(mongoDB, logger)
-	searchClient := search.FromConfig(bc.Search)
-	if searchClient.Enabled() {
-		if err := searchClient.EnsureIndex(ctx); err != nil {
+	searchIndex, err := search.NewIndex(bc.Search, mongoDB)
+	if err != nil {
+		logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search backend disabled: %v", err))
+	}
+	if client, ok := searchIndex.(*search.Client); ok && client.Enabled() {
+		if err := client.EnsureIndex(ctx); err != nil {
 			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search index setup deferred: %v", err))
 		}
 	}
-	query := &imapp.QueryService{Reader: messageStorage, Search: searchClient, Authorizer: az, Log: log.NewHelper(logger)}
+	query := &imapp.QueryService{Reader: messageStorage, Search: searchIndex, Authorizer: az, Log: log.NewHelper(logger)}
 	fileStore := mongostore.NewFileStore(mongoDB)
 	toolsBackend := &app.MessageTools{
 		Reader:     adapters.Messages{Reader: messagingim.NewReader(query)},
@@ -284,7 +287,7 @@ func main() {
 		Quota:  quotaService, Notifier: quotaNotifier,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
 		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Metrics: agentMetrics,
-		SearchEnabled: searchClient.Enabled(), Log: log.NewHelper(logger),
+		SearchEnabled: searchIndex != nil, Log: log.NewHelper(logger),
 	}
 	auditSvc := audit.NewService(registry)
 	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, auditSvc, logger)

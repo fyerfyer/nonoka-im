@@ -829,8 +829,12 @@ type Search struct {
 	MaxContentBytes int32                `protobuf:"varint,5,opt,name=max_content_bytes,json=maxContentBytes,proto3" json:"max_content_bytes,omitempty"`
 	RelayInterval   *durationpb.Duration `protobuf:"bytes,6,opt,name=relay_interval,json=relayInterval,proto3" json:"relay_interval,omitempty"`
 	RelayBatchSize  int32                `protobuf:"varint,7,opt,name=relay_batch_size,json=relayBatchSize,proto3" json:"relay_batch_size,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// backend selects the search adapter: "mongo", "meilisearch" or a custom
+	// build-time implementation. Empty infers meilisearch when url is set,
+	// otherwise mongo.
+	Backend       string `protobuf:"bytes,8,opt,name=backend,proto3" json:"backend,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Search) Reset() {
@@ -910,6 +914,13 @@ func (x *Search) GetRelayBatchSize() int32 {
 		return x.RelayBatchSize
 	}
 	return 0
+}
+
+func (x *Search) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
 }
 
 // AgentWorker configures the agent job application. Kafka and Data sections
@@ -1730,7 +1741,7 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\vhealth_addr\x18\x01 \x01(\tR\n" +
 	"healthAddr\x12!\n" +
 	"\fmetrics_addr\x18\x02 \x01(\tR\vmetricsAddr\x120\n" +
-	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\x97\x02\n" +
+	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\xb1\x02\n" +
 	"\x06Search\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x14\n" +
@@ -1738,7 +1749,8 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\atimeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12*\n" +
 	"\x11max_content_bytes\x18\x05 \x01(\x05R\x0fmaxContentBytes\x12@\n" +
 	"\x0erelay_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\rrelayInterval\x12(\n" +
-	"\x10relay_batch_size\x18\a \x01(\x05R\x0erelayBatchSize\"\xe6\x05\n" +
+	"\x10relay_batch_size\x18\a \x01(\x05R\x0erelayBatchSize\x12\x18\n" +
+	"\abackend\x18\b \x01(\tR\abackend\"\xe6\x05\n" +
 	"\vAgentWorker\x12\x1f\n" +
 	"\vrun_workers\x18\x01 \x01(\x05R\n" +
 	"runWorkers\x12:\n" +

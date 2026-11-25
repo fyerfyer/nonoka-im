@@ -28,6 +28,9 @@ func FromConfig(c *conf.Search) *Client {
 	if raw := strings.TrimSpace(os.Getenv("MEILISEARCH_ENABLED")); raw != "" {
 		enabled = raw == "1" || strings.EqualFold(raw, "true")
 	}
+	if raw := strings.TrimSpace(os.Getenv("SEARCH_ENABLED")); raw != "" {
+		enabled = raw == "1" || strings.EqualFold(raw, "true")
+	}
 	if !enabled {
 		return &Client{}
 	}

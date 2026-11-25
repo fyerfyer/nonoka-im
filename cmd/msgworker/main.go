@@ -96,8 +96,9 @@ func main() {
 	if bc.Data.Mongodb.WriteConcern != "" {
 		storage.SetWriteConcern(bc.Data.Mongodb.WriteConcern)
 	}
-	searchClient := search.FromConfig(bc.Search)
-	if searchClient.Enabled() {
+	var searchClient *search.Client
+	if search.IsMeilisearch(bc.Search) {
+		searchClient = search.FromConfig(bc.Search)
 		storage.SetSearchEnabled(true)
 		if err := searchClient.EnsureIndex(ctx); err != nil {
 			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search index setup deferred: %v", err))
@@ -177,7 +178,7 @@ func main() {
 	consumer := kafkax.NewConsumer(consumerCfg, nil, logger)
 	worker := imconsumer.NewWorker(consumer, messages, push, outbox, logger, m)
 	var searchRelay *search.Relay
-	if searchClient.Enabled() {
+	if searchClient != nil && searchClient.Enabled() {
 		searchRelay = &search.Relay{
 			Repo: storage, Index: searchClient, Log: log.NewHelper(logger),
 			Stats: func(pending, failed int64, age time.Duration) {

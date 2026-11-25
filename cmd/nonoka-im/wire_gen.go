@@ -88,8 +88,13 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
-	client := provideSearchClient(search)
-	queryService := provideIMQueryService(store, openFGA, client, logger)
+	searchIndex, err := provideSearchIndex(search, database)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	queryService := provideIMQueryService(store, openFGA, searchIndex, logger)
 	serviceMessageService := service.NewMessageService(messageService, queryService, logger)
 	string2 := provideNodeIDString()
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
@@ -360,12 +365,12 @@ func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.
 	}
 }
 
-func provideSearchClient(searchConf *conf.Search) *search.Client {
-	return search.FromConfig(searchConf)
+func provideSearchIndex(searchConf *conf.Search, db *mongo.Database) (app.SearchIndex, error) {
+	return search.NewIndex(searchConf, db)
 }
 
-func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchClient *search.Client, logger log.Logger) *app.QueryService {
-	return &app.QueryService{Reader: storage, Search: searchClient, Authorizer: authorizer, Log: log.NewHelper(logger)}
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchIndex app.SearchIndex, logger log.Logger) *app.QueryService {
+	return &app.QueryService{Reader: storage, Search: searchIndex, Authorizer: authorizer, Log: log.NewHelper(logger)}
 }
 
 func provideIMConversationService(repo imdata.ConversationRepo) *app.ConversationService {

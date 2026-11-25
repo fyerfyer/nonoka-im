@@ -21,7 +21,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 - **灵活分派策略**：DispatchService 支持一致性哈希（默认）与最小连接数策略，Gateway 节点通过 Redis 心跳自动发现。
 - **官方 Web 客户端**：基于 Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui 构建，支持单聊、群聊、用户搜索、会话列表与实时消息推送（[web/app](web/app)）。
 - **Agent 平台**：Bifrost 单一 LLM gateway；扁平模型目录、per-Agent virtual key、月度硬预算、user/agent 每日 runs/cost/token 配额、并发/工具轮次限制、append-only 审计和可解释的 run 成本。
-- **消息搜索与引用**：可选 Meilisearch 后端按 topic 做 keyword search；消息写入通过事务 outbox 同步索引；Agent `search_messages` 复用同一服务，回答通过 `agent_run_citations` 记录来源，聊天 UI 渲染 source chips 并可跳转原消息。未配置搜索时 API 返回 `SEARCH_UNAVAILABLE`，不影响 IM 收发。
+- **消息搜索与引用**：按 topic 做 keyword search。默认使用 MongoDB `content_text` fallback（零额外依赖），可切换 Meilisearch 获得更好的分词/排序，也可实现 `SearchIndex` 接入自定义后端；消息写入通过事务 outbox 同步 Meilisearch 索引。Agent `search_messages` 复用同一服务，回答通过 `agent_run_citations` 记录来源，聊天 UI 渲染 source chips 并可跳转原消息。未启用搜索时 API 返回 `SEARCH_UNAVAILABLE`，不影响 IM 收发。
 - **运营可观测性**：Agent run/queue/tool/MCP/approval/stream metrics、OTLP trace（demo 默认 Jaeger）、Run detail trace link、Admin DLQ 列表与幂等批量 replay，以及 Prometheus 告警规则和可选通用 JSON webhook。
 - **附件链路**：JWT 上传/下载 + 短 TTL 签名媒体 URL；Composer 支持粘贴/拖拽/多附件 tray；视觉模型走多模态 image part，非视觉模型明确降级。
 - **Go SDK 与示例应用**：提供开箱即用的 Go SDK（[pkg/sdk](pkg/sdk)）以及完整聊天示例（[examples/chatapp](examples/chatapp)）。

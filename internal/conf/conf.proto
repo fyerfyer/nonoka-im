@@ -186,6 +186,10 @@ message Search {
   int32 max_content_bytes = 5;
   google.protobuf.Duration relay_interval = 6;
   int32 relay_batch_size = 7;
+  // backend selects the search adapter: "mongo", "meilisearch" or a custom
+  // build-time implementation. Empty infers meilisearch when url is set,
+  // otherwise mongo.
+  string backend = 8;
 }
 
 // AgentWorker configures the agent job application. Kafka and Data sections

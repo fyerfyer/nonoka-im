@@ -40,6 +40,29 @@ result, err := conv.SendText(ctx, "hello!")
 WebSocket it falls back to the HTTP API, which returns only the accepted client
 message ID.
 
+## Message search
+
+Search is scoped to one conversation and uses whatever backend the server has
+configured (MongoDB fallback, Meilisearch, or a custom server adapter). The SDK
+only sees the stable search contract:
+
+```go
+result, err := client.Messages.Search(ctx, sdk.SearchRequest{
+    Topic:   "p2p_1_2",
+    Query:   "incident",
+    HasFile: false,
+    Limit:   20,
+})
+if errors.Is(err, sdk.ErrSearchUnavailable) {
+    // The deployment has no search backend.
+}
+for _, hit := range result.Hits {
+    fmt.Println(hit.MessageID, hit.TopicSeq, hit.Snippet)
+}
+```
+
+`Query` may be empty only when `HasFile` is true (browse attachments).
+
 ## Resources
 
 | Field           | Capabilities                                                                    |

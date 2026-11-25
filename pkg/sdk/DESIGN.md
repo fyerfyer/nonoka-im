@@ -8,6 +8,8 @@
 - Explicit token sources, typed errors, cursor pagination and idempotent sends.
 - A run stream that survives reconnects and falls back to HTTP replay.
 - Topic-scoped keyword search and run-source lookup for citations.
+- Search stays backend-agnostic: the SDK calls `/v1/message/search`; MongoDB,
+  Meilisearch and custom server adapters are implementation details.
 
 ## Layers
 

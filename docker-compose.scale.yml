@@ -152,6 +152,7 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
     ports: ["8001:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-1"]
     volumes: [./configs:/data/conf:ro]
@@ -184,6 +185,7 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
     ports: ["8002:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-2"]
     volumes: [./configs:/data/conf:ro]
@@ -200,6 +202,7 @@ services:
       METRICS_ADDR: 0.0.0.0:9001
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
     command: ["/app/msgworker", "-conf", "/data/conf/config.scale.yaml"]
     volumes: [./configs:/data/conf:ro]
     depends_on:
@@ -246,6 +249,7 @@ services:
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     command: ["/app/agent-worker", "-conf", "/app/configs/agent-worker.yaml"]
     volumes:

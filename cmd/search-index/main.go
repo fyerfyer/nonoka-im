@@ -37,14 +37,6 @@ func main() {
 	if bc.Data == nil || bc.Data.Mongodb == nil {
 		panic("mongodb config is required")
 	}
-	client := search.FromConfig(bc.Search)
-	if !client.Enabled() {
-		fmt.Fprintln(os.Stderr, "MEILISEARCH_URL / search.url is not configured")
-		os.Exit(2)
-	}
-	if err := client.EnsureIndex(context.Background()); err != nil {
-		panic(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	mongoClient, err := mongo.Connect(options.Client().ApplyURI(bc.Data.Mongodb.Uri))
@@ -53,9 +45,26 @@ func main() {
 	}
 	defer func() { _ = mongoClient.Disconnect(context.Background()) }()
 	db := mongoClient.Database(bc.Data.Mongodb.Database)
-	n, err := search.Backfill(ctx, db, client, batch)
-	if err != nil {
-		panic(err)
+
+	switch search.Backend(bc.Search) {
+	case search.BackendMongo:
+		n, err := search.BackfillContentText(ctx, db, batch)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("filled content_text for %d messages (mongo backend)\n", n)
+	case search.BackendMeilisearch:
+		client := search.FromConfig(bc.Search)
+		if err := client.EnsureIndex(ctx); err != nil {
+			panic(err)
+		}
+		n, err := search.Backfill(ctx, db, client, batch)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("indexed %d documents into %s\n", n, client.Index)
+	default:
+		fmt.Fprintln(os.Stderr, "search is disabled; set search.enabled/backend or MEILISEARCH_URL")
+		os.Exit(2)
 	}
-	fmt.Printf("indexed %d documents into %s\n", n, client.Index)
 }
