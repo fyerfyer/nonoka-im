@@ -31,10 +31,11 @@ type Registry interface {
 }
 
 // ModelResolver resolves the platform model reference frozen into an agent
-// version. It must reject disabled services/models and never fall back to a
-// global provider credential.
+// version plus the per-agent or playground virtual key. It must reject
+// disabled/uncurated models and never fall back to a global provider
+// credential.
 type ModelResolver interface {
-	Resolve(ctx context.Context, serviceID, modelID int64) (port.ModelEndpoint, error)
+	ResolveForRun(ctx context.Context, agentID, modelID int64, test bool) (port.ModelEndpoint, error)
 }
 
 // Authorizer is the subset of the authorization boundary the executor needs.

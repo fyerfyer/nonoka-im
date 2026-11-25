@@ -10,7 +10,7 @@
 // The main entry point is Client. Resources are grouped by domain:
 //
 //	Auth, Users, Conversations, Messages, Groups, Files,
-//	Agents, LLM, MCP, Skills, Runs, Realtime
+//	Agents, Models, Quotas, Audit, MCP, Skills, Runs, Realtime
 //
 // Public types never expose generated protobuf types. HTTP writes use stable
 // client message IDs; realtime events and RunStream are typed and ordered.

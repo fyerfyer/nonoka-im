@@ -5,15 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"strings"
 
+	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/llm"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AgentHTTP is the thin transport adapter for agent management resources.
@@ -25,18 +31,19 @@ type AgentHTTP struct {
 	mcp       *admin.MCPService
 	skills    *admin.SkillService
 	models    *llm.Service
+	quota     *app.QuotaService
+	auditor   *audit.Service
 	idem      *httpapi.Idempotency
 }
 
-func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, models *llm.Service, idem *httpapi.Idempotency) *AgentHTTP {
-	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, models: models, idem: idem}
+func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, models *llm.Service, quota *app.QuotaService, auditor *audit.Service, idem *httpapi.Idempotency) *AgentHTTP {
+	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, models: models, quota: quota, auditor: auditor, idem: idem}
 }
 
 type agentRequest struct {
 	Name              string            `json:"name"`
 	Description       string            `json:"description"`
 	Instruction       string            `json:"instruction"`
-	ModelServiceID    int64             `json:"modelServiceId"`
 	ModelID           int64             `json:"modelId"`
 	Tools             []string          `json:"tools"`
 	CapabilityPresets []string          `json:"capabilityPresets"`
@@ -65,8 +72,8 @@ type agentRequest struct {
 func (r *agentRequest) input() admin.Input {
 	input := admin.Input{
 		Name: r.Name, Description: r.Description, Instruction: r.Instruction,
-		ModelServiceID: r.ModelServiceID, ModelID: r.ModelID,
-		Tools: r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
+		ModelID: r.ModelID,
+		Tools:   r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
 		MaxTokens: r.MaxTokens, Revision: r.Revision, Status: r.Status, Kind: r.Kind,
 		Target: r.Target, Role: r.Role, Enabled: r.Enabled, Note: r.Note,
 		Version: r.Version, Message: r.Message,
@@ -115,6 +122,7 @@ func (s *AgentHTTP) handle(c khttp.Context, fn func(context.Context, http.Respon
 			httpapi.Write(c.Response(), ctx, &httpapi.Error{Status: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "authentication required"})
 			return nil, nil
 		}
+		ctx = audit.WithRequestMeta(ctx, requestMeta(ctx, c.Request()))
 		if s.idem == nil {
 			if err := fn(ctx, c.Response(), c.Request()); err != nil {
 				httpapi.Write(c.Response(), ctx, agentHTTPError(err))
@@ -131,6 +139,26 @@ func (s *AgentHTTP) handle(c khttp.Context, fn func(context.Context, http.Respon
 	})
 	_, err := h(c, nil)
 	return err
+}
+
+func requestMeta(ctx context.Context, r *http.Request) audit.RequestMeta {
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TRUST_PROXY_HEADERS")), "true") {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		}
+	}
+	traceID := ""
+	if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
+		traceID = sc.TraceID().String()
+	}
+	return audit.RequestMeta{
+		RequestID: httpapi.RequestID(ctx), TraceID: traceID, IP: ip,
+		UserAgent: r.UserAgent(),
+	}
 }
 
 func decodeAgent(r *http.Request, dst *agentRequest) error {
@@ -153,6 +181,10 @@ func agentHTTPError(err error) *httpapi.Error {
 		return httpapi.BadRequest("INVALID_MCP_TARGET", err.Error())
 	case errors.Is(err, admin.ErrAdminRequired):
 		return httpapi.Forbidden("platform admin required")
+	case errors.Is(err, app.ErrForbidden):
+		return httpapi.Forbidden("platform admin required")
+	case errors.Is(err, app.ErrInvalidInput):
+		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
 	case errors.Is(err, admin.ErrNeedsAuth), errors.Is(err, domain.ErrMCPAuthRequired):
 		return httpapi.Conflict("MCP_AUTH_REQUIRED", err.Error())
 	case errors.Is(err, admin.ErrForbidden), errors.Is(err, authz.ErrDenied), errors.Is(err, llm.ErrForbidden):
@@ -161,12 +193,12 @@ func agentHTTPError(err error) *httpapi.Error {
 		return httpapi.NotFound(err.Error())
 	case errors.Is(err, llm.ErrInvalidInput):
 		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
-	case errors.Is(err, domain.ErrModelServiceConflict):
-		return httpapi.Conflict("MODEL_SERVICE_EXISTS", err.Error())
-	case errors.Is(err, domain.ErrModelServiceInUse):
-		return httpapi.Conflict("MODEL_SERVICE_IN_USE", err.Error())
-	case errors.Is(err, domain.ErrModelNotFound), errors.Is(err, domain.ErrModelServiceNotFound):
+	case errors.Is(err, domain.ErrModelNotFound):
 		return httpapi.NotFound(err.Error())
+	case errors.Is(err, domain.ErrModelDisabled), errors.Is(err, domain.ErrModelNotCurated):
+		return httpapi.BadRequest("MODEL_UNAVAILABLE", err.Error())
+	case errors.Is(err, domain.ErrGatewayKeyNotFound):
+		return httpapi.Conflict("GATEWAY_KEY_MISSING", "agent gateway key is not configured; publish the agent first")
 	case errors.Is(err, llm.ErrGatewayRejected), errors.Is(err, llm.ErrGatewayUnavailable):
 		return &httpapi.Error{Status: http.StatusBadGateway, Code: "MODEL_GATEWAY_ERROR", Message: err.Error()}
 	case errors.Is(err, domain.ErrDraftConflict):

@@ -42,36 +42,41 @@ message ID.
 
 ## Resources
 
-| Field | Capabilities |
-| --- | --- |
-| `Auth` | register, login, refresh, logout |
-| `Users` | search, presence |
-| `Conversations` | list, mark read, lightweight topic clients |
-| `Messages` | idempotent send, pull history/offline |
-| `Groups` | create, list, members |
-| `Files` | upload, download, share |
-| `Agents` | CRUD, draft, publish, restore, versions, shares, draft test, runs, tool catalog |
-| `LLM` | LLM services, models, gateway sync |
-| `MCP` | register, discover, test, review, connections |
-| `Skills` | create/version/review |
-| `Runs` | get, events replay, cancel, retry, approve/reject, stream |
-| `Realtime` | typed WebSocket events, reconnect, auto-ack |
+| Field           | Capabilities                                                                    |
+| --------------- | ------------------------------------------------------------------------------- |
+| `Auth`          | register, login, refresh, logout                                                |
+| `Users`         | search, presence                                                                |
+| `Conversations` | list, mark read, lightweight topic clients                                      |
+| `Messages`      | idempotent send, pull history/offline                                           |
+| `Groups`        | create, list, members                                                           |
+| `Files`         | upload, download, share                                                         |
+| `Agents`        | CRUD, draft, publish, restore, versions, shares, draft test, runs, tool catalog |
+| `Agents`        | CRUD, draft, publish, restore, versions, shares, draft test, runs, tool catalog |
+| `Models`        | read-only Bifrost catalog, administration sync/curation                         |
+| `Quotas`        | admin user/agent quota CRUD and top usage                                       |
+| `Audit`         | admin append-only audit event query                                             |
+| `MCP`           | register, discover, test, review, connections                                   |
+| `Skills`        | create/version/review                                                           |
+| `Runs`          | get, events replay, cancel, retry, approve/reject, stream                       |
+| `Realtime`      | typed WebSocket events, reconnect, auto-ack                                     |
 
-## Agent configuration and LLM services
+## Agent configuration and models
 
 ```go
-services, canManage, err := client.LLM.Services(ctx)
+models, canManage, err := client.Models.List(ctx)
 presets, tools, err := client.Agents.Tools(ctx)
 
 agent, err := client.Agents.Create(ctx, sdk.AgentInput{
     Name: "Research Assistant", Instruction: "Be concise.",
-    LLMServiceID: services[0].ID, LLMModelID: services[0].Models[0].ID,
+    ModelID: models[0].ID,
     CapabilityPresets: []string{"im.read"}, ToolPolicies: map[string]string{},
 })
 versions, err := client.Agents.Versions(ctx, agent.ID)
 ```
-`LLM` is intentionally the model-service resource name; `Agent` keeps the
-reference fields `LLMServiceID` / `LLMModelID`.
+
+Agents select one curated model ID; provider credentials, routing and
+virtual-key lifetimes stay in Bifrost. Use `Models.Sync` / `Models.Update`
+behind a platform-admin token.
 
 ## Typed errors
 

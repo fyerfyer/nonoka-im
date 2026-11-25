@@ -57,6 +57,8 @@ export interface ChatMessage {
   approval?: ApprovalState;
   errorCode?: string;
   errorClass?: string;
+  errorMessage?: string;
+  retryAfterAt?: string;
 }
 
 export interface Conversation {

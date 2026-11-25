@@ -16,7 +16,12 @@ type Message struct {
 	ID        int64
 	SenderID  int64
 	Timestamp int64
+	Type      int32
 	Content   []byte
+	FileID    string
+	FileName  string
+	Mime      string
+	Size      int64
 }
 
 // MessageReader is the authorized IM read surface used by the agent tools.

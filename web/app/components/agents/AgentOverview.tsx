@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Coins, MessageSquare, ShieldAlert, Sparkles } from "lucide-react";
 import type { ManagedAgent } from "@/lib/api/agents";
-import { agentRunsQuery, approvalsQuery, catalogQuery } from "@/lib/queries/agents";
+import { agentRunsQuery, agentUsageQuery, approvalsQuery } from "@/lib/queries/agents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,24 +20,13 @@ export function AgentOverview({
   onOpenHistory: () => void;
 }) {
   const runs = useQuery(agentRunsQuery(agent.id));
+  const usage = useQuery(agentUsageQuery(agent.id, 7));
   const approvals = useQuery(approvalsQuery("pending"));
-  const catalog = useQuery(catalogQuery);
   const recent = (runs.data?.items ?? []).slice(0, 5);
-  const totalTokens = (runs.data?.items ?? []).reduce(
-    (sum, run) => sum + (run.totalTokens || 0),
-    0
-  );
-  const model = catalog.data?.services
-    .flatMap((service) => service.models)
-    .find((item) => item.id === agent.published?.modelId);
-  const estimatedCost = (runs.data?.items ?? []).reduce((sum, run) => {
-    if (!model) return sum;
-    return (
-      sum +
-      ((run.inputTokens || 0) / 1_000_000) * model.inputPricePerMtok +
-      ((run.outputTokens || 0) / 1_000_000) * model.outputPricePerMtok
-    );
-  }, 0);
+  const totalTokens =
+    (usage.data?.total.inputTokens ?? 0) + (usage.data?.total.outputTokens ?? 0);
+  const estimatedCost = usage.data?.total.costUsd;
+  const totalRuns = usage.data?.total.runs ?? 0;
   const pendingApprovals = (approvals.data?.items ?? []).filter(
     (approval) => approval.approverId === agent.ownerUserId
   ).length;
@@ -56,10 +45,10 @@ export function AgentOverview({
       hint: agent.draft ? `Revision ${agent.draft.revision}` : "No draft",
     },
     {
-      label: "Recent spend",
-      value: model ? `$${estimatedCost.toFixed(4)}` : "-",
+      label: "7-day spend",
+      value: estimatedCost !== undefined ? `$${estimatedCost.toFixed(4)}` : "-",
       icon: Coins,
-      hint: `${totalTokens.toLocaleString()} tokens · ${runs.data?.items.length ?? 0} runs`,
+      hint: `${totalTokens.toLocaleString()} tokens · ${totalRuns} runs`,
     },
     {
       label: "Pending approvals",

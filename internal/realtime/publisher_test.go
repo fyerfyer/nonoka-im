@@ -7,7 +7,7 @@ import (
 )
 
 type recordingTransport struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	delivered map[int64][]RunEvent
 }
 

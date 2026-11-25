@@ -12724,6 +12724,8 @@ export const api = $root.api = (() => {
                  * @property {number|null} [outputTokens] AgentRunEvent outputTokens
                  * @property {number|Long|null} [timestampMs] AgentRunEvent timestampMs
                  * @property {string|null} [clientMsgId] AgentRunEvent clientMsgId
+                 * @property {string|null} [errorMessage] AgentRunEvent errorMessage
+                 * @property {number|Long|null} [retryAfterAtMs] AgentRunEvent retryAfterAtMs
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -12940,6 +12942,22 @@ export const api = $root.api = (() => {
                 AgentRunEvent.prototype.clientMsgId = "";
 
                 /**
+                 * AgentRunEvent errorMessage.
+                 * @member {string} errorMessage
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.errorMessage = "";
+
+                /**
+                 * AgentRunEvent retryAfterAtMs.
+                 * @member {number|Long} retryAfterAtMs
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.retryAfterAtMs = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
                  * Creates a new AgentRunEvent instance using the specified properties.
                  * @function create
                  * @memberof api.im.v1.AgentRunEvent
@@ -13017,6 +13035,10 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 22, wireType 0 =*/176).int64(message.timestampMs);
                     if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
                         writer.uint32(/* id 23, wireType 2 =*/186).string(message.clientMsgId);
+                    if (message.errorMessage != null && $Object.hasOwnProperty.call(message, "errorMessage"))
+                        writer.uint32(/* id 24, wireType 2 =*/194).string(message.errorMessage);
+                    if (message.retryAfterAtMs != null && $Object.hasOwnProperty.call(message, "retryAfterAtMs"))
+                        writer.uint32(/* id 25, wireType 0 =*/200).int64(message.retryAfterAtMs);
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -13271,6 +13293,24 @@ export const api = $root.api = (() => {
                                     delete message.clientMsgId;
                                 continue;
                             }
+                        case 24: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.errorMessage = value;
+                                else
+                                    delete message.errorMessage;
+                                continue;
+                            }
+                        case 25: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.retryAfterAtMs = value;
+                                else
+                                    delete message.retryAfterAtMs;
+                                continue;
+                            }
                         }
                         reader.skipType(wireType, _depth, tag);
                         if (!reader.discardUnknown) {
@@ -13397,6 +13437,12 @@ export const api = $root.api = (() => {
                     if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
                         if (!$util.isString(message.clientMsgId))
                             return "clientMsgId: string expected";
+                    if (message.errorMessage != null && $Object.hasOwnProperty.call(message, "errorMessage"))
+                        if (!$util.isString(message.errorMessage))
+                            return "errorMessage: string expected";
+                    if (message.retryAfterAtMs != null && $Object.hasOwnProperty.call(message, "retryAfterAtMs"))
+                        if (!$util.isInteger(message.retryAfterAtMs) && !(message.retryAfterAtMs && $util.isInteger(message.retryAfterAtMs.low) && $util.isInteger(message.retryAfterAtMs.high)))
+                            return "retryAfterAtMs: integer|Long expected";
                     return null;
                 };
 
@@ -13600,6 +13646,19 @@ export const api = $root.api = (() => {
                     if (object.clientMsgId != null)
                         if (typeof object.clientMsgId !== "string" || object.clientMsgId.length)
                             message.clientMsgId = $String(object.clientMsgId);
+                    if (object.errorMessage != null)
+                        if (typeof object.errorMessage !== "string" || object.errorMessage.length)
+                            message.errorMessage = $String(object.errorMessage);
+                    if (object.retryAfterAtMs != null)
+                        if (typeof object.retryAfterAtMs === "object" ? object.retryAfterAtMs.low || object.retryAfterAtMs.high : $Number(object.retryAfterAtMs) !== 0)
+                            if ($util.Long)
+                                message.retryAfterAtMs = $util.Long.fromValue(object.retryAfterAtMs, false);
+                            else if (typeof object.retryAfterAtMs === "string")
+                                message.retryAfterAtMs = $parseInt(object.retryAfterAtMs, 10);
+                            else if (typeof object.retryAfterAtMs === "number")
+                                message.retryAfterAtMs = object.retryAfterAtMs;
+                            else if (typeof object.retryAfterAtMs === "object")
+                                message.retryAfterAtMs = new $util.LongBits(object.retryAfterAtMs.low >>> 0, object.retryAfterAtMs.high >>> 0).toNumber();
                     return message;
                 };
 
@@ -13680,6 +13739,12 @@ export const api = $root.api = (() => {
                         } else
                             object.timestampMs = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
                         object.clientMsgId = "";
+                        object.errorMessage = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.retryAfterAtMs = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.retryAfterAtMs = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
                     }
                     if (message.runId != null && $Object.hasOwnProperty.call(message, "runId"))
                         if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
@@ -13772,6 +13837,15 @@ export const api = $root.api = (() => {
                             object.timestampMs = options.longs === $String ? $util.Long.prototype.toString.call(message.timestampMs) : options.longs === $Number ? new $util.LongBits(message.timestampMs.low >>> 0, message.timestampMs.high >>> 0).toNumber() : message.timestampMs;
                     if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
                         object.clientMsgId = message.clientMsgId;
+                    if (message.errorMessage != null && $Object.hasOwnProperty.call(message, "errorMessage"))
+                        object.errorMessage = message.errorMessage;
+                    if (message.retryAfterAtMs != null && $Object.hasOwnProperty.call(message, "retryAfterAtMs"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.retryAfterAtMs = typeof message.retryAfterAtMs === "number" ? $BigInt(message.retryAfterAtMs) : $util.Long.fromBits(message.retryAfterAtMs.low >>> 0, message.retryAfterAtMs.high >>> 0, false).toBigInt();
+                        else if (typeof message.retryAfterAtMs === "number")
+                            object.retryAfterAtMs = options.longs === $String ? $String(message.retryAfterAtMs) : message.retryAfterAtMs;
+                        else
+                            object.retryAfterAtMs = options.longs === $String ? $util.Long.prototype.toString.call(message.retryAfterAtMs) : options.longs === $Number ? new $util.LongBits(message.retryAfterAtMs.low >>> 0, message.retryAfterAtMs.high >>> 0).toNumber() : message.retryAfterAtMs;
                     return object;
                 };
 

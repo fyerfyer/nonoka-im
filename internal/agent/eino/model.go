@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"sync/atomic"
 
@@ -19,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/port"
 )
 
@@ -31,7 +33,7 @@ const modelRetryMax = 2
 
 type modelCacheKey struct {
 	baseURL    string
-	apiKeyHash [32]byte
+	virtualKey [32]byte
 	modelName  string
 	maxTokens  int
 }
@@ -48,7 +50,8 @@ func (r *Engine) chatModel(ctx context.Context, in port.Input) (model.ToolCallin
 	if maxTokens <= 0 {
 		maxTokens = 4096
 	}
-	key := modelCacheKey{baseURL: baseURL, apiKeyHash: sha256.Sum256([]byte(apiKey)), modelName: modelName, maxTokens: maxTokens}
+	virtualKey := strings.TrimSpace(endpoint.VirtualKey)
+	key := modelCacheKey{baseURL: baseURL, virtualKey: sha256.Sum256([]byte(virtualKey)), modelName: modelName, maxTokens: maxTokens}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.models == nil {
@@ -60,9 +63,14 @@ func (r *Engine) chatModel(ctx context.Context, in port.Input) (model.ToolCallin
 	var m model.ToolCallingChatModel
 	var err error
 	if r.newModel != nil {
-		m, err = r.newModel(ctx, port.ModelEndpoint{BaseURL: baseURL, APIKey: apiKey, Model: modelName, MaxTokens: maxTokens}, maxTokens)
+		m, err = r.newModel(ctx, port.ModelEndpoint{BaseURL: baseURL, APIKey: apiKey, VirtualKey: virtualKey, Model: modelName, MaxTokens: maxTokens}, maxTokens)
 	} else {
-		m, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{APIKey: apiKey, BaseURL: baseURL, Model: modelName, MaxCompletionTokens: &maxTokens})
+		cfg := &openai.ChatModelConfig{APIKey: apiKey, BaseURL: baseURL, Model: modelName, MaxCompletionTokens: &maxTokens}
+		if virtualKey != "" {
+			cfg.APIKey = "bifrost-virtual-key"
+			cfg.HTTPClient = &http.Client{Transport: &bifrostTransport{base: http.DefaultTransport, vk: virtualKey}}
+		}
+		m, err = openai.NewChatModel(ctx, cfg)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create model %q: %w", modelName, err)
@@ -81,6 +89,12 @@ func retryableModelError(_ context.Context, err error) bool {
 		return false
 	}
 	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	var budgetErr *domain.BudgetError
+	var rateErr *domain.RateLimitError
+	var classed *port.Error
+	if errors.As(err, &budgetErr) || errors.As(err, &rateErr) || errors.As(err, &classed) {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -108,7 +122,7 @@ func retryableModelError(_ context.Context, err error) bool {
 // capturing prompts, outputs, tool arguments, or provider error text. Usage is
 // only counted for ChatModel component events: the runner also reports the
 // final message at the agent level, which would double-count tokens.
-func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool) callbacks.Handler {
+func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool, state *runState) callbacks.Handler {
 	tracer := otel.Tracer("nonoka-im/agent/eino")
 	return callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
@@ -127,6 +141,7 @@ func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool) callbacks.Hand
 			// that misclassifies a later tool error as a model error.
 			modelError.Store(false)
 			recordModelUsage(usage, output)
+			state.recordUsage(ctx, *usage)
 			if span, ok := ctx.Value(spanContextKey{}).(trace.Span); ok {
 				span.End()
 			}
@@ -149,6 +164,7 @@ func modelSpanHandler(usage *port.Usage, modelError *atomic.Bool) callbacks.Hand
 				recordModelUsage(usage, chunk)
 			}
 			output.Close()
+			state.recordUsage(ctx, *usage)
 			if span, ok := ctx.Value(spanContextKey{}).(trace.Span); ok {
 				span.End()
 			}

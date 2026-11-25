@@ -2,7 +2,7 @@ import type { AgentFormValues } from "@/lib/schemas/agent";
 import type { AgentInput, Catalog } from "@/lib/api/agents";
 
 export const emptyCatalog: Catalog = {
-  services: [],
+  models: [],
   canManageModels: false,
   presets: [],
   tools: [],
@@ -11,13 +11,12 @@ export const emptyCatalog: Catalog = {
 };
 
 export function defaultAgentForm(catalog: Catalog): AgentFormValues {
-  const service = catalog.services.find((s) => s.enabled);
-  const model = service?.models.find((m) => m.enabled);
+  const model = catalog.models.find((m) => m.enabled && m.curated) ??
+    catalog.models.find((m) => m.enabled);
   return {
     name: "",
     description: "",
     instruction: "",
-    modelServiceId: service?.id ?? 0,
     modelId: model?.id ?? 0,
     tools: [],
     capabilityPresets: catalog.presets
@@ -35,7 +34,6 @@ export function toAgentInput(values: AgentFormValues): AgentInput {
     name: values.name.trim(),
     description: values.description.trim(),
     instruction: values.instruction,
-    modelServiceId: values.modelServiceId,
     modelId: values.modelId,
     tools: values.tools,
     capabilityPresets: values.capabilityPresets,

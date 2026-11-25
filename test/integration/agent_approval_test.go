@@ -281,11 +281,10 @@ func TestBotSendDisabledAgent(t *testing.T) {
 	tokenOwner, _ := registerAndLogin(t, "bot-send-owner", "123456")
 
 	create := httpPostAuth(t, testBaseURL+"/v1/agents", tokenOwner, map[string]any{
-		"name":           "bot-send-agent",
-		"instruction":    "test agent",
-		"tools":          []string{"send_message"},
-		"modelServiceId": testModelServiceID,
-		"modelId":        testModelID,
+		"name":        "bot-send-agent",
+		"instruction": "test agent",
+		"tools":       []string{"send_message"},
+		"modelId":     testModelID,
 	})
 	createBody, _ := io.ReadAll(create.Body)
 	create.Body.Close()

@@ -34,7 +34,9 @@ const (
 // stream-oriented (multipart form / raw bytes) instead of JSON RPC:
 //   - POST /v1/files           (JWT required) multipart field "file",
 //     or raw body with ?name=<filename>
-//   - GET  /v1/files/{file_id} (public: the unguessable id is the credential)
+//   - GET  /v1/files/{file_id} (JWT required)
+//   - POST /v1/files/{file_id}/sign (JWT required; returns a short-TTL signed URL)
+//   - GET  /v1/media/{file_id} (signed uid/exp/sig query; still re-checks access)
 type FileServiceClient interface {
 	UploadFile(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadFileReply, error)
 	DownloadFile(ctx context.Context, in *DownloadFileRequest, opts ...grpc.CallOption) (*DownloadFileReply, error)
@@ -79,7 +81,9 @@ func (c *fileServiceClient) DownloadFile(ctx context.Context, in *DownloadFileRe
 // stream-oriented (multipart form / raw bytes) instead of JSON RPC:
 //   - POST /v1/files           (JWT required) multipart field "file",
 //     or raw body with ?name=<filename>
-//   - GET  /v1/files/{file_id} (public: the unguessable id is the credential)
+//   - GET  /v1/files/{file_id} (JWT required)
+//   - POST /v1/files/{file_id}/sign (JWT required; returns a short-TTL signed URL)
+//   - GET  /v1/media/{file_id} (signed uid/exp/sig query; still re-checks access)
 type FileServiceServer interface {
 	UploadFile(context.Context, *UploadFileRequest) (*UploadFileReply, error)
 	DownloadFile(context.Context, *DownloadFileRequest) (*DownloadFileReply, error)

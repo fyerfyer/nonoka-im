@@ -88,7 +88,7 @@ received:
 	// Agent CRUD through the new resource module.
 	agent, err := sender.Agents.Create(ctx, sdk.AgentInput{
 		Name: "sdk-created-agent", Instruction: "test sdk agent",
-		LLMServiceID: testModelServiceID, LLMModelID: testModelID,
+		ModelID:           testModelID,
 		CapabilityPresets: []string{"im.read"}, ToolPolicies: map[string]string{},
 	})
 	if err != nil {

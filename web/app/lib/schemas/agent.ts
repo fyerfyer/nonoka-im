@@ -32,7 +32,6 @@ export const agentFormSchema = z.object({
     .trim()
     .min(1, "Instructions are required")
     .max(20000, "Instructions must be at most 20000 characters"),
-  modelServiceId: z.number().int().positive("Select a model service"),
   modelId: z.number().int().positive("Select a model"),
   tools: z.array(z.string()),
   capabilityPresets: z.array(z.string()),

@@ -10,10 +10,11 @@ export const agentKeys = {
     [...agentKeys.all, "version", id, version] as const,
   runs: (id: number) => [...agentKeys.all, "runs", id] as const,
   run: (id: number) => [...agentKeys.all, "run", id] as const,
+  usage: (id: number) => [...agentKeys.all, "usage", id] as const,
   shares: (id: number) => [...agentKeys.all, "shares", id] as const,
   approvals: (status: string) => [...agentKeys.all, "approvals", status] as const,
   catalog: () => [...agentKeys.all, "catalog"] as const,
-  modelServices: () => [...agentKeys.all, "model-services"] as const,
+  models: () => [...agentKeys.all, "models"] as const,
   mcpServers: () => [...agentKeys.all, "mcp-servers"] as const,
   skills: () => [...agentKeys.all, "skills"] as const,
 };
@@ -60,6 +61,14 @@ export const agentRunQuery = (runId: number) =>
     refetchInterval: 2000,
   });
 
+export const agentUsageQuery = (id: number, days = 7) =>
+  queryOptions({
+    queryKey: [...agentKeys.usage(id), days] as const,
+    queryFn: () => agentApi.agentUsage(id, days),
+    enabled: id > 0,
+    refetchInterval: 15000,
+  });
+
 export const agentSharesQuery = (id: number) =>
   queryOptions({
     queryKey: agentKeys.shares(id),
@@ -77,15 +86,15 @@ export const approvalsQuery = (status = "pending") =>
 export const catalogQuery = queryOptions({
   queryKey: agentKeys.catalog(),
   queryFn: async () => {
-    const [services, tools, mcps, skills] = await Promise.all([
-      agentApi.listModelServices(),
+    const [models, tools, mcps, skills] = await Promise.all([
+      agentApi.listModels(),
       agentApi.agentTools(),
       agentApi.listMCPServers(),
       agentApi.listSkills(),
     ]);
     return {
-      services: services.services,
-      canManageModels: services.canManage,
+      models: models.models,
+      canManageModels: models.canManage,
       presets: tools.presets,
       tools: tools.tools,
       mcps: mcps.servers,

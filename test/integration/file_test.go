@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -175,6 +176,128 @@ func TestFile_UploadSizeLimit(t *testing.T) {
 	}
 
 	t.Log("upload size limit verified")
+}
+
+// TestFile_SignedMediaURL verifies short-TTL media URLs work for <img> without
+// an Authorization header, while still re-checking file authorization.
+func TestFile_SignedMediaURL(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+
+	token1, user1 := registerAndLogin(t, "signed-a", "123456")
+	token2, user2 := registerAndLogin(t, "signed-b", "123456")
+	_ = user1
+	content := []byte("signed media bytes")
+	up := uploadFileMultipart(t, token1, "pic.png", "image/png", content)
+	defer up.Body.Close()
+	if up.StatusCode != http.StatusOK {
+		t.Fatalf("upload: %d", up.StatusCode)
+	}
+	var uploaded v1.UploadFileReply
+	if err := json.NewDecoder(up.Body).Decode(&uploaded); err != nil {
+		t.Fatalf("decode upload: %v", err)
+	}
+
+	signResp := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/sign", token1, map[string]any{})
+	signBody, _ := io.ReadAll(signResp.Body)
+	signResp.Body.Close()
+	if signResp.StatusCode != http.StatusOK {
+		t.Fatalf("sign: %d %s", signResp.StatusCode, signBody)
+	}
+	var signed struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(signBody, &signed); err != nil || signed.URL == "" {
+		t.Fatalf("decode signed url: %v %s", err, signBody)
+	}
+
+	// No Authorization header: this is the browser <img> path.
+	resp, err := http.Get(testBaseURL + signed.URL)
+	if err != nil {
+		t.Fatalf("signed GET: %v", err)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !bytes.Equal(got, content) {
+		t.Fatalf("signed GET: %d %q", resp.StatusCode, got)
+	}
+
+	// A recipient without a share cannot mint a URL.
+	deny := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/sign", token2, map[string]any{})
+	deny.Body.Close()
+	if deny.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-recipient sign: %d", deny.StatusCode)
+	}
+	share := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/share", token1, map[string]any{
+		"user_ids": []int64{user2}, "enabled": true,
+	})
+	share.Body.Close()
+	if share.StatusCode != http.StatusOK {
+		t.Fatalf("share: %d", share.StatusCode)
+	}
+	allow := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/sign", token2, map[string]any{})
+	allowBody, _ := io.ReadAll(allow.Body)
+	allow.Body.Close()
+	if allow.StatusCode != http.StatusOK {
+		t.Fatalf("recipient sign after share: %d", allow.StatusCode)
+	}
+	var recipientSigned struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(allowBody, &recipientSigned); err != nil || recipientSigned.URL == "" {
+		t.Fatalf("decode recipient signed url: %v %s", err, allowBody)
+	}
+
+	// Tampering with the signed uid must be rejected.
+	parsed, err := url.Parse(testBaseURL + recipientSigned.URL)
+	if err != nil {
+		t.Fatalf("parse signed url: %v", err)
+	}
+	q := parsed.Query()
+	q.Set("uid", fmt.Sprintf("%d", user1))
+	parsed.RawQuery = q.Encode()
+	tampered, err := http.Get(parsed.String())
+	if err != nil {
+		t.Fatalf("tampered GET: %v", err)
+	}
+	tampered.Body.Close()
+	if tampered.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("tampered signature: %d", tampered.StatusCode)
+	}
+
+	// Revoking the share invalidates already-minted URLs on download.
+	revoke := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/share", token1, map[string]any{
+		"user_ids": []int64{user2}, "enabled": false,
+	})
+	revoke.Body.Close()
+	if revoke.StatusCode != http.StatusOK {
+		t.Fatalf("revoke share: %d", revoke.StatusCode)
+	}
+	afterRevoke, err := http.Get(testBaseURL + recipientSigned.URL)
+	if err != nil {
+		t.Fatalf("revoked share GET: %v", err)
+	}
+	afterRevoke.Body.Close()
+	if afterRevoke.StatusCode != http.StatusForbidden {
+		t.Fatalf("revoked share signed url: %d", afterRevoke.StatusCode)
+	}
+
+	// Expired signatures are rejected.
+	ts.fileSvc.SignedTTL = -time.Second
+	expired := httpPostAuth(t, testBaseURL+"/v1/files/"+uploaded.FileId+"/sign", token1, map[string]any{})
+	var expiredSigned struct {
+		URL string `json:"url"`
+	}
+	_ = json.NewDecoder(expired.Body).Decode(&expiredSigned)
+	expired.Body.Close()
+	exp, err := http.Get(testBaseURL + expiredSigned.URL)
+	if err != nil {
+		t.Fatalf("expired GET: %v", err)
+	}
+	exp.Body.Close()
+	if exp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expired signed url: %d", exp.StatusCode)
+	}
 }
 
 // TestFile_MediaMessageEndToEnd verifies an IMAGE message can be sent with

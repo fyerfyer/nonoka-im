@@ -12,7 +12,7 @@ nonoka-im 是一个 Go 实现的即时通讯（IM）系统，基于 Kratos v2 �
 
 - `cmd/nonoka-im` — 网关主服务：gRPC + HTTP server、WebSocket server、Redis 心跳节点注册，wire 依赖注入。
 - `cmd/msgworker` — Kafka 消费者：消费 `im-messages` → 生成 topic_seq / msg_id → MongoDB 落库 → 推回在线客户端。
-- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（通过 Bifrost 的 OpenAI 兼容 API）执行 agent，经 OpenFGA 鉴权后通过内部 HTTP 把回复发回 IM。使用 `-conf configs/agent-worker.yaml` + Kratos `internal/conf`，环境变量只做覆盖与 secret 注入。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；探针端点由 `internal/server.ProbeServer` 提供 `/healthz`、`/readyz`、`/metrics`。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 只引用平台 `model_service_id + model_id`，不再保存任意 `base_url`/`api_key`；provider key、模型路由与预算由 Bifrost 管理，平台管理员通过 `/v1/model-services` 维护映射。平台管理员身份存 OpenFGA `platform:global#admin`，启动时由 `AGENT_ADMIN_USER_IDS` 幂等写入。MCP/Skill 支持用户自助登记与上传；共享/公开资源需要管理员审核，共享 Agent 必须使用 per-user MCP connection，私有 MCP/Skill 不允许绑定到已共享 Agent。Agent 管理 UI 位于 `/agents`（目录/向导）与 `/agents/{id}?tab=overview|build|tools|test|runs`；分享收在 header 的 Share 弹窗，版本历史收在 header 的 History 弹窗，平台管理在 `/admin/agents`。Access 角色为 viewer/editor/owner，OpenFGA 使用 `editor`/`shared_group_editor`，owner 独占删除与分享变更。草稿测试使用 `agent_runs.config_snapshot`，不发布、不写 IM。Streaming 使用 `port.StreamEvent` → `realtime.RunEvent` → Gateway `CMD_AGENT_RUN_EVENT`；Redis 保存每个 run 最近 500 条事件（15m TTL）供 `GET /v1/agent-runs/{id}/events?afterSeq=` 重连回放，非 delta 事件落 `agent_run_steps`。Gateway 内部 `PushRunEventToUser` 使用 `INTERNAL_PUSH_TOKEN`。
+- `cmd/agent-worker` — AI agent worker：消费 Kafka `agent-events`，用 CloudWeGo Eino（通过 Bifrost 的 OpenAI 兼容 API）执行 agent，经 OpenFGA 鉴权后通过内部 HTTP 把回复发回 IM。使用 `-conf configs/agent-worker.yaml` + Kratos `internal/conf`，环境变量只做覆盖与 secret 注入。消费与执行解耦：consumer 只把触发事件落成 queued run（`agent_runs`），模型执行由 run worker 池（`AGENT_RUN_WORKERS`，默认 8）经 queued-run 重放拉起；stale running run 由 sweeper 回收（`AGENT_STALE_RUN_TIMEOUT`/`AGENT_MAX_ATTEMPTS`）；探针端点由 `internal/server.ProbeServer` 提供 `/healthz`、`/readyz`、`/metrics`。写类 MCP 工具会中断为卡片审批（`MSG_TYPE_AGENT_CARD`），经 `/v1/agent-approvals/{id}/approve|reject` 后从 PostgreSQL checkpoint 恢复。Agent 只引用扁平 `model_catalog` 的 `model_id`，不保存 `base_url`/`api_key`；Bifrost 是唯一 LLM gateway，per-Agent virtual key 在首次发布时创建、模型变更时更新 allowlist、删除 Agent 时回收（失败进 `gateway_key_cleanup`）。Nonoka 负责 user/agent 每日 runs/cost/tokens、Agent 并发与 max tool turns；Bifrost 负责 provider 路由、per-Agent 月度硬预算与全局 customer 预算。平台管理员身份存 OpenFGA `platform:global#admin`，启动时由 `AGENT_ADMIN_USER_IDS` 幂等写入。MCP/Skill 支持用户自助登记与上传；共享/公开资源需要管理员审核，共享 Agent 必须使用 per-user MCP connection，私有 MCP/Skill 不允许绑定到已共享 Agent。Agent 管理 UI 位于 `/agents`（目录/向导）与 `/agents/{id}?tab=overview|build|tools|test|runs`；分享收在 header 的 Share 弹窗，版本历史收在 header 的 History 弹窗，平台管理/配额/审计在 `/admin`。Access 角色为 viewer/editor/owner，OpenFGA 使用 `editor`/`shared_group_editor`，owner 独占删除与分享变更。草稿测试使用 `agent_runs.config_snapshot`，不发布、不写 IM。Streaming 使用 `port.StreamEvent` → `realtime.RunEvent` → Gateway `CMD_AGENT_RUN_EVENT`；Redis 保存每个 run 最近 500 条事件（15m TTL）供 `GET /v1/agent-runs/{id}/events?afterSeq=` 重连回放，非 delta 事件落 `agent_run_steps`。Gateway 内部 `PushRunEventToUser` 使用 `INTERNAL_PUSH_TOKEN`。敏感动作写入 append-only `audit_events`（before/after 白名单脱敏，不记录 prompt/正文/密钥）。
 - `cmd/authz-migrate` — 一次性工具：向 OpenFGA 写授权模型 / 历史数据回填。
 
 ### 核心包（internal/）
@@ -23,7 +23,8 @@ nonoka-im 是一个 Go 实现的即时通讯（IM）系统，基于 Kratos v2 �
 - `data/` — 数据访问：PostgreSQL repos（gorm）、Redis、MongoDB 装配；按 `im` / `agent` / `platform` 子域组织。repository 接口由消费侧定义，data 只做实现和 domain↔row 映射。
 - `im/` — IM bounded context：`domain`（纯实体）、`app`（Message/Query/Push/Outbox/Conversation/Group/File usecase + ports）、`storage/mongo`（Mongo repository/索引/附件）、`consumer`（Kafka adapter + Kratos worker）、`push`（realtime 适配器 + 重试队列）、`seq`、`group`。`internal/msgworker` 已删除。
 - `agent/` — Agent 平台，已按 ports & adapters 组织：`domain`（纯实体/值对象）、`port`（Runtime 端口 + Run/Resume DTO + `ModelEndpoint` + 错误分类）、`app`（Harness/审批/finalize）、`eino`（Eino 适配器）、`tools/catalog`（工具元数据/风险/默认策略/CapabilityPreset/输入 schema/脱敏摘要）、`tools/builtin`（内置工具实现）、`mcp`（受控 MCP 连接、发现、SSRF Guard、per-user 凭据、健康检查）、`skills`（Skill middleware Backend）、`skillspec`（SKILL.md 解析/校验）、`store`（Eino CheckPointStore 的 PostgreSQL 适配）、`worker/executor/sweeper`（job runtime）、`event`（Kafka event/outbox 类型）、`credential`（JWT/api_key 加密）、`metrics`。内置工具 9 个：search_messages、get_conversation_context、send_message、read_file、get_topic_info、get_my_info、list_my_groups、get_group_members，以及隐藏系统工具 get_current_time。
-- `llm/` — 平台 LLM Service：只保留 Bifrost 接缝、只读模型目录与运行时端点解析。Provider key、Base URL、路由和预算统一在 Bifrost 管理；`model_services` 仅保存 gateway URL/加密 virtual key 映射，`model_models` 是从 `/v1/models` 同步的目录。
+- `llm/` — 平台 LLM 接缝：Bifrost 管理 API 客户端、扁平 `model_catalog` 同步/策展、运行时模型端点解析，以及 per-Agent/playground virtual key 生命周期与回收队列。Provider key、路由和预算统一在 Bifrost；Nonoka 不维护第二套 LLM 控制面。
+- `audit/` — append-only 审计 usecase：actor/action/resource/before-after（白名单脱敏）/request-id/trace-id/ip；PostgreSQL adapter 在 `data/platform`，保留期清理由 agent-worker 执行。
 - `realtime/` — 共享 Gateway 路由 / Pusher / RunStream 契约；连接与推送适配器。
 - `messaging/` — IM 集成契约：根包只放 DTO/接口；`messaging/im`、`messaging/mongo`、`messaging/httpclient`、`messaging/kafka` 放适配器。agent 不传递依赖 IM storage。
 - `kafka/` — 共享 Kafka consumer/publisher、trace、DLQ 约定。
@@ -122,6 +123,11 @@ app := kratos.New(
 
 Go 1.25，Kratos v2.9.2，wire（DI），gorm + PostgreSQL，go-redis v9，mongo-driver v2，segmentio/kafka-go，gorilla/websocket，OpenFGA。前端 pnpm 10 + Node 20。
 
+### 分支命名
+
+- 分支名不要带阶段标签（`p0` / `p1` / `phase1` 等），阶段属于 TODO 文档，不属于 git 历史。
+- 使用 `feat/<topic>`、`fix/<topic>`、`refactor/<topic>`、`test/<topic>` 或 `chore/<topic>`，例如 `feat/trust-security`。
+
 - `make init` — 安装 protoc 插件 / kratos / wire。
 - `make api` / `make config` — 改 proto 后重新生成（`api/**` / `internal/**`）；前端 proto 用 `pnpm proto:gen`（在 `web/app/`）。
 - `make generate` — `go generate ./...`（含 wire）+ `go mod tidy`。**改了 wire 注入后必须跑。**
@@ -163,13 +169,13 @@ agent 相关功能使用真实 LLM 测试：API Key 从项目根目录 `.env` �
 
 功能开发完成后，**不能只跑测试就结束**，必须做端到端验收：
 
-1. `make demo` 启动完整栈（postgres / redis / mongo / kafka / openfga / nonoka-im / msgworker / agent-worker / web，前端在 http://localhost:3000，后端 HTTP 8000）。agent-worker 默认随栈启动；未配置 `DEEPSEEK_API_KEY` 时 Bifrost 没有可用 provider，Agent 无法运行（日志告警），不影响 IM 功能。
+1. `make demo` 启动完整栈（postgres / redis / mongo / kafka / openfga / nonoka-im / msgworker / agent-worker / web，前端在 http://localhost:3001，后端 HTTP 8000）。agent-worker 默认随栈启动；未配置 `DEEPSEEK_API_KEY` 时 Bifrost 没有可用 provider，Agent 无法运行（日志告警），不影响 IM 功能。
 2. 确认各容器正常启动。
 3. 用 **Playwright** 在浏览器里实测：注册 / 登录等基本流程 + 本次新实现的功能，确认真实可用。
 4. 有问题先看日志排查：`docker compose -f docker-compose.yml logs <service>`（如 `nonoka-im`、`msgworker`、`web`、`agent-worker`），或按需看其他日志。
 5. 验收完成后 `make demo-down` 清理。
 
-多网关场景用 `make demo-scale`（双 gateway + nginx LB(18000) + 3 msgworker + agent-worker，前端仍在 3000）；运行前需先 `make demo-down`，两者端口冲突。所有运行配置统一放在 `configs/`（demo 用 `config.docker.yaml`，scale 用 `config.scale.yaml` + `nginx-scale.conf`）。
+多网关场景用 `make demo-scale`（双 gateway + nginx LB(18000) + 3 msgworker + agent-worker，前端仍在 3001）；运行前需先 `make demo-down`，两者端口冲突。所有运行配置统一放在 `configs/`（demo 用 `config.docker.yaml`，scale 用 `config.scale.yaml` + `nginx-scale.conf`）。
 
 ## 代码约定
 

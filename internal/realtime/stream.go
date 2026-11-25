@@ -73,6 +73,8 @@ type RunEvent struct {
 	ClientMessageID string `json:"clientMessageId,omitempty"`
 	ErrorCode       string `json:"errorCode,omitempty"`
 	ErrorClass      string `json:"errorClass,omitempty"`
+	ErrorMessage    string `json:"errorMessage,omitempty"`
+	RetryAfterAt    string `json:"retryAfterAt,omitempty"`
 	Retryable       bool   `json:"retryable,omitempty"`
 	InputTokens     int    `json:"inputTokens,omitempty"`
 	OutputTokens    int    `json:"outputTokens,omitempty"`

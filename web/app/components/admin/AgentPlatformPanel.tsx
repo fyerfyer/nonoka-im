@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import {
   agentApi,
-  type ModelService,
+  type Model,
   type MCPServer,
   type Skill,
   type SkillVersion,
@@ -36,7 +36,7 @@ function errorText(err: unknown): string {
 
 interface PlatformPanelProps {
   catalog: {
-    services: ModelService[];
+    models: Model[];
     presets: CapabilityPreset[];
     tools: ToolDefinition[];
     mcps: MCPServer[];
@@ -46,7 +46,7 @@ interface PlatformPanelProps {
 }
 
 export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
-  const [services, setServices] = useState<ModelService[]>(catalog.services);
+  const [models, setModels] = useState<Model[]>(catalog.models);
   const [canManage, setCanManage] = useState(false);
   const [servers, setServers] = useState<MCPServer[]>(catalog.mcps);
   const [skills, setSkills] = useState<Skill[]>(catalog.skills);
@@ -71,12 +71,12 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
 
   const load = useCallback(async () => {
     const [svc, mcp, sk] = await Promise.allSettled([
-      agentApi.listModelServices(),
+      agentApi.listModels(),
       agentApi.listMCPServers(),
       agentApi.listSkills(),
     ]);
     if (svc.status === "fulfilled") {
-      setServices(svc.value.services);
+      setModels(svc.value.models);
       setCanManage(svc.value.canManage);
     }
     if (mcp.status === "fulfilled") setServers(mcp.value.servers);
@@ -172,28 +172,90 @@ export function AgentPlatformPanel({ catalog, onChanged }: PlatformPanelProps) {
             <ExternalLink /> Open Bifrost
           </a>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            Only enabled + curated models can be selected by agents. Unknown
+            models stay disabled until an operator curates them.
+          </span>
+          {canManage && (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              onClick={() => act(async () => { await agentApi.syncModels(); }, "Model catalog synced")}
+            >
+              <RefreshCw /> Sync from Bifrost
+            </Button>
+          )}
+        </div>
         <div className="divide-y rounded-lg border">
-          {services.length === 0 ? (
+          {models.length === 0 ? (
             <p className="py-4 text-center text-xs text-muted-foreground">
-              No models available. Configure a provider and virtual key in Bifrost.
+              No models available. Configure a provider in Bifrost, then sync the
+              catalog.
             </p>
           ) : (
-            services.map((service) => (
-              <div key={service.id} className="space-y-2 px-3 py-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{service.displayName || service.name}</span>
-                  <Badge variant="secondary" className="text-[10px]">{service.gatewayType}</Badge>
-                  <Badge variant="secondary" className={cn("text-[10px]", service.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400" : "")}>{service.enabled ? "enabled" : "disabled"}</Badge>
-                  <span className="ml-auto text-[10px] text-muted-foreground">read-only catalog</span>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {service.models.map((model) => (
-                    <Badge key={model.id} variant="secondary" className="text-[10px]">
-                      {model.displayName || model.modelKey}
-                      {model.supportsVision ? " · vision" : ""}
-                    </Badge>
-                  ))}
-                </div>
+            models.map((model) => (
+              <div key={model.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                {model.icon && <span aria-hidden>{model.icon}</span>}
+                <span className="font-medium">{model.displayName || model.modelKey}</span>
+                <span className="text-[10px] text-muted-foreground">{model.provider}</span>
+                <Badge variant="secondary" className={cn("text-[10px]", model.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400" : "")}>
+                  {model.enabled ? "enabled" : "disabled"}
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">{model.curated ? "curated" : "uncurated"}</Badge>
+                {model.supportsVision && <Badge variant="secondary" className="text-[10px]">vision</Badge>}
+                {model.recommended && <Badge variant="secondary" className="text-[10px]">recommended</Badge>}
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  ${model.inputPricePerMtok.toFixed(2)} / ${model.outputPricePerMtok.toFixed(2)} per Mtok
+                </span>
+                {canManage && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="xs"
+                      variant={model.enabled ? "ghost" : "outline"}
+                      disabled={busy}
+                      onClick={() => act(() => agentApi.updateModel(model.id, { enabled: !model.enabled }), model.enabled ? "Model disabled" : "Model enabled")}
+                    >
+                      {model.enabled ? <PowerOff /> : <Power />}
+                      {model.enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => act(() => agentApi.updateModel(model.id, { supportsVision: !model.supportsVision }), "Vision capability updated")}
+                    >
+                      {model.supportsVision ? "No vision" : "Vision"}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        const name = window.prompt("Model display name", model.displayName);
+                        if (name && name.trim()) {
+                          void act(() => agentApi.updateModel(model.id, { displayName: name.trim() }), "Model renamed");
+                        }
+                      }}
+                    >
+                      Rename
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        const icon = window.prompt("Model icon (emoji or short label)", model.icon || "");
+                        if (icon !== null) {
+                          void act(() => agentApi.updateModel(model.id, { icon }), "Model icon updated");
+                        }
+                      }}
+                    >
+                      Icon
+                    </Button>
+                  </div>
+                )}
               </div>
             ))
           )}

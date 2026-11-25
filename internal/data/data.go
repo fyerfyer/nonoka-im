@@ -49,11 +49,18 @@ func (d *Data) IsBotUser(ctx context.Context, id int64) (bool, error) {
 // CleanTestData truncates all domain tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
-	return d.db.Exec(`TRUNCATE TABLE users, group_members, conversations, groups,
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL nonoka.audit_purge = 'on'").Error; err != nil {
+			return err
+		}
+		return tx.Exec(`TRUNCATE TABLE users, group_members, conversations, groups,
 		agent_runs, agent_turns, agent_sessions, agent_context_snapshots,
 		agent_versions, agents, mcp_servers, mcp_tools, mcp_connections, skills, skill_versions, agent_checkpoints,
 		agent_approvals, agent_tool_invocations, idempotency_keys,
-		model_services, model_models RESTART IDENTITY CASCADE`).Error
+		model_catalog, agent_gateway_keys, platform_gateway_keys, gateway_key_cleanup,
+		agent_quotas, agent_usage_daily, agent_usage_events, agent_quota_notices,
+		audit_events RESTART IDENTITY CASCADE`).Error
+	})
 }
 
 // NewData opens PostgreSQL and Redis and applies versioned migrations. The

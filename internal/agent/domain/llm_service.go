@@ -2,71 +2,91 @@ package domain
 
 import "time"
 
-// ModelService is a platform-managed model access point. A Bifrost-backed
-// service maps to one Bifrost virtual key: the gateway owns provider keys and
-// routing, while this row keeps only the inference endpoint and the sealed
-// virtual key value needed by the agent runtime.
-type ModelService struct {
-	ID           uint64
-	Name         string
-	DisplayName  string
-	GatewayType  string // "bifrost" or "openai_compatible"
-	BaseURL      string
-	GatewayKeyID string
-	APIKeyEnc    string
-	Enabled      bool
-	CreatedBy    int64
+// Model is one curated entry in the platform model catalog. The catalog is a
+// local, read-only projection of the Bifrost /v1/models response: provider
+// credentials and routing stay in Bifrost, while display/capability/pricing
+// curation and enablement live here.
+//
+// ModelKey is the full gateway model identifier used in inference requests
+// (for example "deepseek/deepseek-flash"). GatewayModelKey is the provider
+// local name used in a Bifrost virtual-key allowlist (for example
+// "deepseek-flash").
+type Model struct {
+	ID                         uint64
+	ModelKey                   string
+	Provider                   string
+	GatewayModelKey            string
+	DisplayName                string
+	Icon                       string
+	ContextWindow              int
+	MaxOutputTokens            int
+	SupportsTools              bool
+	SupportsVision             bool
+	SupportsReasoning          bool
+	InputPricePerMTok          float64
+	OutputPricePerMTok         float64
+	InputCacheReadPricePerMTok float64
+	Enabled                    bool
+	Curated                    bool
+	Recommended                bool
+	SortOrder                  int
+	LastSyncedAt               *time.Time
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+}
+
+// ModelCuration is the editable, platform-owned part of a catalog entry.
+// Provider routing, pricing and context limits come from Bifrost sync.
+type ModelCuration struct {
+	DisplayName       string
+	Icon              string
+	SupportsTools     *bool
+	SupportsVision    *bool
+	SupportsReasoning *bool
+	Enabled           *bool
+	Recommended       *bool
+	SortOrder         *int
+}
+
+const (
+	GatewayKeyActive         = "active"
+	GatewayKeyDegraded       = "degraded"
+	GatewayKeyRevokedPending = "revoked_pending"
+	GatewayKeyRevoked        = "revoked"
+)
+
+// AgentGatewayKey is the per-agent Bifrost virtual key. The sealed value is
+// internal-only and must never cross the API/SDK boundary.
+type AgentGatewayKey struct {
+	AgentID      int64
+	VirtualKeyID string
+	ValueEnc     string
+	Status       string
+	LastError    string
+	SpecHash     string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
-// Model is one selectable model under a ModelService.
-type Model struct {
-	ID                 uint64
-	ServiceID          uint64
-	ModelKey           string
-	DisplayName        string
-	ContextWindow      int
-	MaxOutputTokens    int
-	SupportsTools      bool
-	SupportsVision     bool
-	SupportsReasoning  bool
-	InputPricePerMTok  float64
-	OutputPricePerMTok float64
-	Enabled            bool
-	LastSyncedAt       *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+// PlatformGatewayKey is a platform-owned key such as the shared playground
+// sandbox key.
+type PlatformGatewayKey struct {
+	Kind         string
+	VirtualKeyID string
+	ValueEnc     string
+	Status       string
+	LastError    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
-// ModelServiceSpec is the editable configuration of a model service.
-type ModelServiceSpec struct {
-	Name         string
-	DisplayName  string
-	GatewayType  string
-	BaseURL      string
-	GatewayKeyID string
-	APIKey       string
-	UpdateAPIKey bool
-	Enabled      *bool
-	// ProviderModels selects the Bifrost provider/model allowlist when a
-	// Bifrost virtual key is created. When empty, allow_all_providers is used.
-	ProviderModels map[string][]string
-	AllowAll       bool
-}
-
-// ModelSpec is one manually configured model entry (openai_compatible mode or
-// a Bifrost model that is not returned by the gateway catalog).
-type ModelSpec struct {
-	ServiceID          uint64
-	ModelKey           string
-	DisplayName        string
-	ContextWindow      int
-	MaxOutputTokens    int
-	SupportsTools      bool
-	SupportsVision     bool
-	SupportsReasoning  bool
-	InputPricePerMTok  float64
-	OutputPricePerMTok float64
-	Enabled            bool
+// GatewayKeyCleanup is a failed virtual-key revocation that the worker retries.
+type GatewayKeyCleanup struct {
+	VirtualKeyID  string
+	AgentID       int64
+	Reason        string
+	Attempts      int
+	NextAttemptAt time.Time
+	LastError     string
+	CreatedAt     time.Time
 }

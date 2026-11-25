@@ -8,21 +8,23 @@ import (
 )
 
 type catalogStub struct {
-	service domain.ModelService
-	model   domain.Model
-	err     error
+	model domain.Model
+	err   error
 }
 
-func (c catalogStub) Lookup(context.Context, int64, int64) (domain.ModelService, domain.Model, error) {
-	return c.service, c.model, c.err
+func (c catalogStub) Lookup(context.Context, int64) (*domain.Model, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	m := c.model
+	return &m, nil
 }
 
 func TestValidateInputUsesModelCatalog(t *testing.T) {
 	svc := &AgentService{Models: catalogStub{
-		service: domain.ModelService{ID: 1, Name: "bifrost", Enabled: true},
-		model:   domain.Model{ID: 2, ServiceID: 1, ModelKey: "deepseek/deepseek-chat", Enabled: true, MaxOutputTokens: 8192},
+		model: domain.Model{ID: 2, ModelKey: "deepseek/deepseek-chat", Enabled: true, Curated: true, MaxOutputTokens: 8192},
 	}}
-	in := &Input{Name: "catalog-agent", Instruction: "be helpful", ModelServiceID: 1, ModelID: 2, Tools: []string{"send_message", "get_group_members"}}
+	in := &Input{Name: "catalog-agent", Instruction: "be helpful", ModelID: 2, Tools: []string{"send_message", "get_group_members"}}
 	if err := svc.validateInput(context.Background(), in); err != nil {
 		t.Fatalf("catalog tools rejected: %v", err)
 	}

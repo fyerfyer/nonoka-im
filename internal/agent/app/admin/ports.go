@@ -121,7 +121,14 @@ type UserDirectory interface {
 // ModelCatalog validates platform model references and resolves the model
 // display metadata used by the management API.
 type ModelCatalog interface {
-	Lookup(ctx context.Context, serviceID, modelID int64) (domain.ModelService, domain.Model, error)
+	Lookup(ctx context.Context, modelID int64) (*domain.Model, error)
+}
+
+// GatewayKeys owns per-agent Bifrost virtual-key lifecycle.
+type GatewayKeys interface {
+	EnsureAgentKey(ctx context.Context, agentID int64, models []domain.Model) error
+	RevokeAgentKey(ctx context.Context, agentID int64) error
+	AgentKeyStatus(ctx context.Context, agentID int64) (string, error)
 }
 
 // Input is the transport-neutral agent draft request.
@@ -129,7 +136,6 @@ type Input struct {
 	Name              string
 	Description       string
 	Instruction       string
-	ModelServiceID    int64
 	ModelID           int64
 	Tools             []string
 	CapabilityPresets []string

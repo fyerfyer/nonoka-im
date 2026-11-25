@@ -238,6 +238,9 @@ func (s *AgentHTTP) Test(c khttp.Context) error {
 		if err != nil {
 			return err
 		}
+		if s.quota != nil {
+			_ = s.quota.RecordTestRun(ctx, extractUserIDFromContext(ctx), agent.ID)
+		}
 		writeAgentJSON(w, http.StatusAccepted, runView(run))
 		return nil
 	})

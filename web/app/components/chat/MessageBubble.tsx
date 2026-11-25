@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
-import { absoluteFileUrl, formatSize, parseMediaContent } from "@/lib/media";
+import { formatSize, parseMediaContent, MediaMeta } from "@/lib/media";
+import { useAuthedMedia } from "@/hooks/useAuthedMedia";
 import { segmentMentions, MentionMember } from "@/lib/mentions";
 import { AgentApprovalCard, MSG_TYPE_AGENT_CARD } from "./AgentApprovalCard";
 import { agentApi } from "@/lib/api/agents";
@@ -20,6 +21,9 @@ import {
   Square,
   Wrench,
   ShieldAlert,
+  Download,
+  RotateCcw,
+  X,
 } from "lucide-react";
 
 const MSG_TYPE_IMAGE = 2;
@@ -65,6 +69,7 @@ export function MessageBubble({
   };
 
   const canRecall = isMe && onRecall && message.status !== "recalled" && !message.recalled;
+  const isMedia = message.msgType === MSG_TYPE_IMAGE || message.msgType === MSG_TYPE_FILE;
   const canCopy =
     !message.recalled &&
     message.msgType !== MSG_TYPE_IMAGE &&
@@ -135,9 +140,11 @@ export function MessageBubble({
           title={new Date(message.timestamp * 1000).toLocaleString()}
           className={cn(
             "relative rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-all",
-            isMe
-              ? "bg-primary text-primary-foreground rounded-br-md"
-              : "bg-muted rounded-bl-md"
+            isMedia && "bg-transparent px-0 py-0 shadow-none",
+            !isMedia &&
+              (isMe
+                ? "bg-primary text-primary-foreground rounded-br-md"
+                : "bg-muted rounded-bl-md")
           )}
         >
           <MessageBody
@@ -161,9 +168,9 @@ export function MessageBubble({
             </div>
           )}
           {message.streamStatus === "failed" && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
-              {message.errorCode || "Agent run failed"}
+            <p className="mt-2 flex items-start gap-1 text-xs text-destructive">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{message.errorMessage || message.errorCode || "Agent run failed"}</span>
             </p>
           )}
           {message.streamStatus === "cancelled" && (
@@ -253,37 +260,10 @@ function MessageBody({
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
       );
     }
-    const href = absoluteFileUrl(meta.url);
     if (message.msgType === MSG_TYPE_IMAGE) {
-      return (
-        <a href={href} target="_blank" rel="noopener noreferrer" title={meta.name}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={href}
-            alt={meta.name}
-            className="max-h-60 max-w-full rounded-lg"
-          />
-        </a>
-      );
+      return <ImageMessage meta={meta} />;
     }
-    return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-2 rounded-lg bg-background/60 px-1 py-1"
-      >
-        <FileIcon className="h-5 w-5 shrink-0" />
-        <span className="min-w-0">
-          <span className="block max-w-[200px] truncate text-sm underline underline-offset-2">
-            {meta.name}
-          </span>
-          <span className="block text-[10px] opacity-70">
-            {formatSize(meta.size)}
-          </span>
-        </span>
-      </a>
-    );
+    return <FileMessage meta={meta} />;
   }
 
   if (message.msgType === MSG_TYPE_AGENT_CARD) {
@@ -317,6 +297,83 @@ function MessageBody({
         )
       )}
     </p>
+  );
+}
+
+function ImageMessage({ meta }: { meta: MediaMeta }) {
+  const { src, loading, error, retry } = useAuthedMedia(meta.fileId ?? null, meta.url);
+  const [open, setOpen] = useState(false);
+  if (loading) {
+    return <div className="h-40 w-56 animate-pulse rounded-xl bg-muted" />;
+  }
+  if (error || !src) {
+    return (
+      <div className="flex w-56 flex-col items-start gap-1 rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1 text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          Image failed to load
+        </span>
+        <span className="truncate" title={meta.name}>{meta.name}</span>
+        <button className="flex items-center gap-1 hover:underline" onClick={retry}>
+          <RotateCcw className="h-3 w-3" /> Retry
+        </button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button type="button" className="block overflow-hidden rounded-xl" onClick={() => setOpen(true)} title={meta.name}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={meta.name} className="max-h-64 max-w-full bg-muted object-contain" />
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setOpen(false)}>
+          <button className="absolute right-5 top-5 rounded-full bg-black/50 p-2 text-white" onClick={() => setOpen(false)} title="Close">
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={meta.name} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function FileMessage({ meta }: { meta: MediaMeta }) {
+  const { src, loading, error, retry } = useAuthedMedia(meta.fileId ?? null, meta.url);
+  if (loading) {
+    return <div className="h-14 w-60 animate-pulse rounded-xl bg-muted" />;
+  }
+  if (error || !src) {
+    return (
+      <div className="flex w-60 flex-col gap-1 rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1 text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" /> File unavailable
+        </span>
+        <span className="truncate" title={meta.name}>{meta.name}</span>
+        <button className="flex items-center gap-1 hover:underline" onClick={retry}>
+          <RotateCcw className="h-3 w-3" /> Retry
+        </button>
+      </div>
+    );
+  }
+  return (
+    <a
+      href={src}
+      download={meta.name}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex w-60 items-center gap-3 rounded-xl border bg-card p-2.5 text-left shadow-sm"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <FileIcon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium">{meta.name}</span>
+        <span className="block text-[10px] text-muted-foreground">{formatSize(meta.size)}</span>
+      </span>
+      <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
+    </a>
   );
 }
 

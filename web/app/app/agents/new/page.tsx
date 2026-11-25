@@ -43,7 +43,7 @@ export default function NewAgentPage() {
     if (catalog.data) {
       const defaults = defaultAgentForm(catalog.data);
       const current = form.getValues();
-      if (!current.modelServiceId) {
+      if (!current.modelId) {
         form.reset({ ...defaults, name: current.name, description: current.description });
       }
     }
@@ -65,7 +65,7 @@ export default function NewAgentPage() {
       step === 0
         ? ["name", "description"]
         : step === 1
-          ? ["modelServiceId", "modelId", "instruction", "maxTokens"]
+          ? ["modelId", "instruction", "maxTokens"]
           : [];
     if (fields.length > 0 && !(await form.trigger(fields))) return;
     setStep((current) => Math.min(current + 1, STEPS.length - 1));
@@ -145,9 +145,9 @@ export default function NewAgentPage() {
                 <Summary label="Name" value={values.name} />
                 <Summary label="Description" value={values.description || "-"} />
                 <Summary
-                  label="Model service"
+                  label="Model"
                   value={
-                    catalogData.services.find((s) => s.id === values.modelServiceId)
+                    catalogData.models.find((m) => m.id === values.modelId)
                       ?.displayName || "-"
                   }
                 />

@@ -50,8 +50,8 @@ agent_worker:
   bootstrap_name: "Nonoka Assistant"
   bootstrap_instruction: "You are the Nonoka IM assistant. Use concise, helpful answers."
   # Bootstrap-only preference for the first Bifrost model. Runtime model access
-  # always comes from the model_services/model_models tables.
-  bootstrap_model: "deepseek/deepseek-chat"
+  # always comes from the curated model_catalog table.
+  bootstrap_model: "deepseek/deepseek-flash"
 
 observability:
   health_addr: ":8090"

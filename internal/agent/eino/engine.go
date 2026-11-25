@@ -2,6 +2,7 @@ package eino
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -92,6 +93,9 @@ func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summ
 		if event == nil {
 			continue
 		}
+		if err := state.usageError(); err != nil {
+			return port.Result{}, err
+		}
 		if event.Err != nil {
 			// Summary generation failures already wrap ErrSummary (see
 			// summaryTracker), so the harness can route them to the fallback
@@ -148,7 +152,42 @@ func runLoop(iterator *adk.AsyncIterator[*adk.AgentEvent], state *runState, summ
 	if strings.TrimSpace(final) == "" {
 		return port.Result{}, fmt.Errorf("empty model response")
 	}
+	if err := state.usageError(); err != nil {
+		return port.Result{}, err
+	}
 	return port.Result{Text: strings.TrimSpace(final), Status: port.StatusCompleted, Summary: state.summary, SummaryThroughTurnID: summaryThrough, Usage: state.usage}, nil
+}
+
+func userMessage(text string, attachments []port.Attachment) *schema.Message {
+	images := make([]port.Attachment, 0, len(attachments))
+	for _, a := range attachments {
+		if a.Kind == "image" && len(a.Data) > 0 {
+			images = append(images, a)
+		}
+	}
+	if len(images) == 0 {
+		return schema.UserMessage(text)
+	}
+	if strings.TrimSpace(text) == "" {
+		text = "Please look at the attached image."
+	}
+	parts := make([]schema.MessageInputPart, 0, len(images)+1)
+	parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: text})
+	for _, a := range images {
+		data := base64.StdEncoding.EncodeToString(a.Data)
+		mime := a.Mime
+		if mime == "" {
+			mime = "image/png"
+		}
+		parts = append(parts, schema.MessageInputPart{
+			Type: schema.ChatMessagePartTypeImageURL,
+			Image: &schema.MessageInputImage{
+				MessagePartCommon: schema.MessagePartCommon{Base64Data: &data, MIMEType: mime},
+				Detail:            schema.ImageURLDetailAuto,
+			},
+		})
+	}
+	return &schema.Message{Role: schema.User, UserInputMultiContent: parts}
 }
 
 func rootInterruptContext(contexts []*adk.InterruptCtx) *adk.InterruptCtx {
@@ -172,7 +211,7 @@ func (r *Engine) Run(ctx context.Context, in port.Input) (port.Result, error) {
 	for _, t := range in.History {
 		msgs = append(msgs, schema.UserMessage(t.Input), schema.AssistantMessage(t.Output, nil))
 	}
-	msgs = append(msgs, schema.UserMessage(in.Text))
+	msgs = append(msgs, userMessage(in.Text, in.Attachments))
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, RunID: in.RunID, AttemptID: in.AttemptID, EventID: in.EventID, Topic: in.Topic})
 	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: true}
 	if r.checkpoints != nil && in.CheckPointID != "" {
@@ -180,7 +219,7 @@ func (r *Engine) Run(ctx context.Context, in port.Input) (port.Result, error) {
 	}
 	runner := adk.NewRunner(toolCtx, runnerCfg)
 	opts := []adk.AgentRunOption{adk.WithCallbacks(
-		modelSpanHandler(&state.usage, &state.modelError),
+		modelSpanHandler(&state.usage, &state.modelError, state),
 		toolEventCallbacks(in.OnEvent, r.summarizeArgs),
 	)}
 	if in.CheckPointID != "" {
@@ -210,7 +249,7 @@ func (r *Engine) Resume(ctx context.Context, in port.ResumeInput) (port.Result, 
 	iterator, err := runner.ResumeWithParams(toolCtx, in.CheckPointID, &adk.ResumeParams{
 		Targets: map[string]any{in.InterruptID: approvalDecision{Approved: in.Approved}},
 	}, adk.WithCallbacks(
-		modelSpanHandler(&state.usage, &state.modelError),
+		modelSpanHandler(&state.usage, &state.modelError, state),
 		toolEventCallbacks(in.OnEvent, r.summarizeArgs),
 	))
 	if err != nil {

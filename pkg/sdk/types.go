@@ -126,31 +126,36 @@ type TokenPair struct {
 
 // ---------- Agent platform ----------
 
-type LLMModel struct {
-	ID                 int64   `json:"id"`
-	ServiceID          int64   `json:"serviceId"`
-	ModelKey           string  `json:"modelKey"`
-	DisplayName        string  `json:"displayName"`
-	ContextWindow      int     `json:"contextWindow"`
-	MaxOutputTokens    int     `json:"maxOutputTokens"`
-	SupportsTools      bool    `json:"supportsTools"`
-	SupportsVision     bool    `json:"supportsVision"`
-	SupportsReasoning  bool    `json:"supportsReasoning"`
-	InputPricePerMtok  float64 `json:"inputPricePerMtok"`
-	OutputPricePerMtok float64 `json:"outputPricePerMtok"`
-	Enabled            bool    `json:"enabled"`
+type Model struct {
+	ID                         int64   `json:"id"`
+	ModelKey                   string  `json:"modelKey"`
+	Provider                   string  `json:"provider"`
+	GatewayModelKey            string  `json:"gatewayModelKey"`
+	DisplayName                string  `json:"displayName"`
+	Icon                       string  `json:"icon,omitempty"`
+	ContextWindow              int     `json:"contextWindow"`
+	MaxOutputTokens            int     `json:"maxOutputTokens"`
+	SupportsTools              bool    `json:"supportsTools"`
+	SupportsVision             bool    `json:"supportsVision"`
+	SupportsReasoning          bool    `json:"supportsReasoning"`
+	InputPricePerMtok          float64 `json:"inputPricePerMtok"`
+	OutputPricePerMtok         float64 `json:"outputPricePerMtok"`
+	InputCacheReadPricePerMtok float64 `json:"inputCacheReadPricePerMtok"`
+	Enabled                    bool    `json:"enabled"`
+	Curated                    bool    `json:"curated"`
+	Recommended                bool    `json:"recommended"`
+	SortOrder                  int     `json:"sortOrder"`
 }
 
-type LLMService struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	DisplayName  string     `json:"displayName"`
-	GatewayType  string     `json:"gatewayType"`
-	BaseURL      string     `json:"baseUrl,omitempty"`
-	GatewayKeyID string     `json:"gatewayKeyId,omitempty"`
-	Enabled      bool       `json:"enabled"`
-	HasAPIKey    bool       `json:"hasApiKey"`
-	Models       []LLMModel `json:"models"`
+type ModelCuration struct {
+	DisplayName       string `json:"displayName,omitempty"`
+	Icon              string `json:"icon,omitempty"`
+	SupportsTools     *bool  `json:"supportsTools,omitempty"`
+	SupportsVision    *bool  `json:"supportsVision,omitempty"`
+	SupportsReasoning *bool  `json:"supportsReasoning,omitempty"`
+	Enabled           *bool  `json:"enabled,omitempty"`
+	Recommended       *bool  `json:"recommended,omitempty"`
+	SortOrder         *int   `json:"sortOrder,omitempty"`
 }
 
 type CapabilityPreset struct {
@@ -179,8 +184,7 @@ type ToolDefinition struct {
 
 type AgentDraft struct {
 	Instruction       string            `json:"instruction"`
-	LLMServiceID      int64             `json:"modelServiceId"`
-	LLMModelID        int64             `json:"modelId"`
+	ModelID           int64             `json:"modelId"`
 	Tools             []string          `json:"tools"`
 	CapabilityPresets []string          `json:"capabilityPresets"`
 	ToolPolicies      map[string]string `json:"toolPolicies"`
@@ -211,9 +215,8 @@ type AgentVersion struct {
 	AgentID           int64             `json:"agentId"`
 	Version           int64             `json:"version"`
 	Instruction       string            `json:"instruction"`
-	LLMServiceID      int64             `json:"modelServiceId"`
-	LLMModelID        int64             `json:"modelId"`
-	LLMModelKey       string            `json:"modelKey"`
+	ModelID           int64             `json:"modelId"`
+	ModelKey          string            `json:"modelKey"`
 	Tools             []string          `json:"tools"`
 	CapabilityPresets []string          `json:"capabilityPresets"`
 	ToolPolicies      map[string]string `json:"toolPolicies"`
@@ -230,9 +233,8 @@ type AgentVersion struct {
 type AgentVersionSummary struct {
 	ID             uint64     `json:"id"`
 	Version        int64      `json:"version"`
-	LLMServiceID   int64      `json:"modelServiceId"`
-	LLMModelID     int64      `json:"modelId"`
-	LLMModelKey    string     `json:"modelKey"`
+	ModelID        int64      `json:"modelId"`
+	ModelKey       string     `json:"modelKey"`
 	PublishNote    string     `json:"publishNote"`
 	PublishedBy    int64      `json:"publishedBy"`
 	PublishedAt    *time.Time `json:"publishedAt,omitempty"`

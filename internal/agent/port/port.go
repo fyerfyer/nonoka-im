@@ -13,11 +13,18 @@ import (
 // ModelEndpoint is the resolved platform model access point for one run. The
 // agent runtime never reads arbitrary per-agent URLs or provider credentials.
 type ModelEndpoint struct {
-	BaseURL       string
-	APIKey        string
-	Model         string
-	MaxTokens     int
-	ContextWindow int
+	BaseURL            string
+	APIKey             string
+	VirtualKey         string
+	Model              string
+	ModelKey           string
+	ModelID            uint64
+	Provider           string
+	MaxTokens          int
+	ContextWindow      int
+	SupportsVision     bool
+	InputPricePerMTok  float64
+	OutputPricePerMTok float64
 }
 
 type Input struct {
@@ -46,6 +53,25 @@ type Input struct {
 	// OnEvent receives transient runtime progress. Implementations must not
 	// block model generation on slow consumers.
 	OnEvent EventSink
+	// Guard enforces per-run token/cost budgets and records usage. Nil disables
+	// accounting (tests and legacy callers).
+	Guard UsageGuard
+	// MaxToolTurns caps model iterations for this run. Zero uses the adapter
+	// default.
+	MaxToolTurns int
+	// Attachments carries the current trigger message's images/files. Only the
+	// current message is multimodal; historical attachments are text
+	// placeholders.
+	Attachments []Attachment
+}
+
+// Attachment is one authorized attachment supplied to the runtime.
+type Attachment struct {
+	Kind   string // image | file
+	FileID string
+	Name   string
+	Mime   string
+	Data   []byte
 }
 
 // StreamEventType is the transport-neutral runtime progress event type.
@@ -75,6 +101,15 @@ type Turn struct {
 	Input, Output string
 }
 type Usage struct{ InputTokens, OutputTokens, TotalTokens int }
+
+// UsageGuard observes model/tool execution for one run. AfterModel receives the
+// cumulative usage of the run; implementations can settle deltas and abort the
+// next model/tool call when a daily budget is exhausted.
+type UsageGuard interface {
+	BeforeModel(ctx context.Context, turn int) error
+	AfterModel(ctx context.Context, cumulative Usage) error
+	BeforeTool(ctx context.Context, tool string) error
+}
 
 // MCPTool selects one tool from a bound MCP server for this run. It aliases
 // the domain value object so the run contract does not duplicate it.

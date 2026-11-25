@@ -11,7 +11,9 @@ option go_package = "nonoka-im/api/im/v1;v1";
 // stream-oriented (multipart form / raw bytes) instead of JSON RPC:
 //   - POST /v1/files           (JWT required) multipart field "file",
 //                              or raw body with ?name=<filename>
-//   - GET  /v1/files/{file_id} (public: the unguessable id is the credential)
+//   - GET  /v1/files/{file_id} (JWT required)
+//   - POST /v1/files/{file_id}/sign (JWT required; returns a short-TTL signed URL)
+//   - GET  /v1/media/{file_id} (signed uid/exp/sig query; still re-checks access)
 service FileService {
   rpc UploadFile (UploadFileRequest) returns (UploadFileReply) {}
   rpc DownloadFile (DownloadFileRequest) returns (DownloadFileReply) {}

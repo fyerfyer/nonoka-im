@@ -1,7 +1,7 @@
 import { User, Group, GroupMember } from "@/types";
 import { useChatStore } from "@/stores/chatStore";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export interface ApiError {
@@ -294,6 +294,25 @@ export interface UploadedFile {
   mime: string;
 }
 
+// isAllowedAttachmentURL restricts authenticated blob downloads to the API's
+// own attachment/media routes. Message JSON is untrusted: never send a bearer
+// token to an arbitrary URL supplied by another user.
+function isAllowedAttachmentURL(url: string): boolean {
+  try {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const base = new URL(API_BASE_URL, origin);
+    const parsed = new URL(url, base);
+    if (parsed.origin !== base.origin) return false;
+    return (
+      parsed.pathname.startsWith("/v1/files/") ||
+      parsed.pathname.startsWith("/v1/media/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const fileApi = {
   upload: async (file: File): Promise<UploadedFile> => {
     const form = new FormData();
@@ -301,7 +320,7 @@ export const fileApi = {
     const res = await fetch(`${API_BASE_URL}/v1/files`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        Authorization: `Bearer ${getToken() || ""}`,
       },
       body: form,
     });
@@ -312,6 +331,77 @@ export const fileApi = {
       throw new Error(body?.message || `upload failed (${res.status})`);
     }
     return (await res.json()) as UploadedFile;
+  },
+
+  // uploadWithProgress uses XHR because fetch does not expose upload progress.
+  uploadWithProgress: (
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<UploadedFile> =>
+    new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("file", file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}/v1/files`);
+      xhr.setRequestHeader("Authorization", `Bearer ${getToken() || ""}`);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+      xhr.onerror = () => reject(new Error("upload failed: network error"));
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          try {
+            const body = JSON.parse(xhr.responseText) as { message?: string };
+            reject(new Error(body.message || `upload failed (${xhr.status})`));
+          } catch {
+            reject(new Error(`upload failed (${xhr.status})`));
+          }
+          return;
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadedFile);
+        } catch {
+          reject(new Error("invalid upload response"));
+        }
+      };
+      xhr.send(form);
+    }),
+
+  // sign returns a short-TTL URL that <img>/<a> can use without an
+  // Authorization header. The server still re-checks file access on download.
+  sign: async (
+    fileId: string
+  ): Promise<{ url: string; expiresAt: string }> => {
+    const res = await fetch(
+      `${API_BASE_URL}/v1/files/${encodeURIComponent(fileId)}/sign`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken() || ""}` },
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`sign failed (${res.status})`);
+    }
+    return (await res.json()) as { url: string; expiresAt: string };
+  },
+
+  // download fetches a file with the bearer token and returns a blob URL.
+  downloadBlob: async (url: string): Promise<string> => {
+    if (!isAllowedAttachmentURL(url)) {
+      throw new Error("untrusted attachment URL");
+    }
+    const absolute = url.startsWith("http")
+      ? url
+      : `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
+    const res = await fetch(absolute, {
+      headers: { Authorization: `Bearer ${getToken() || ""}` },
+    });
+    if (!res.ok) {
+      throw new Error(`download failed (${res.status})`);
+    }
+    return URL.createObjectURL(await res.blob());
   },
 };
 

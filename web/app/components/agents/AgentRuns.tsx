@@ -97,6 +97,7 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                 <th>Status</th>
                 <th>Error</th>
                 <th>Tokens</th>
+                <th>Cost</th>
                 <th>Duration</th>
                 <th>Created</th>
                 <th className="pr-4 text-right">Actions</th>
@@ -131,6 +132,11 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                     {run.errorCode || "-"}
                   </td>
                   <td className="text-xs">{run.totalTokens}</td>
+                  <td className="text-xs">
+                    {typeof run.estimatedCostUsd === "number" && run.estimatedCostUsd > 0
+                      ? `$${run.estimatedCostUsd.toFixed(6)}`
+                      : "-"}
+                  </td>
                   <td className="text-xs">{formatDuration(run.startedAt, run.finishedAt)}</td>
                   <td className="text-xs text-muted-foreground">
                     {formatTime(run.createdAt)}
@@ -245,7 +251,29 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                     {detail.data.inputTokens} in · {detail.data.outputTokens} out
                   </dd>
                 </div>
+                <div>
+                  <dt className="text-muted-foreground">Model</dt>
+                  <dd className="truncate" title={detail.data.modelKey}>{detail.data.modelKey || "-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Estimated cost</dt>
+                  <dd>
+                    {typeof detail.data.estimatedCostUsd === "number"
+                      ? `$${detail.data.estimatedCostUsd.toFixed(6)}`
+                      : "-"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Retry after</dt>
+                  <dd>{detail.data.retryAfterAt ? formatTime(detail.data.retryAfterAt) : "-"}</dd>
+                </div>
               </dl>
+
+              {detail.data.lastError && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                  {detail.data.lastError}
+                </p>
+              )}
 
               {detail.data.outputText && (
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm whitespace-pre-wrap">

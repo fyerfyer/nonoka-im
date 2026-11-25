@@ -9,6 +9,7 @@ import (
 
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/skillspec"
+	"nonoka-im/internal/audit"
 )
 
 var skillSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -26,10 +27,11 @@ type SkillInput struct {
 type SkillService struct {
 	Store PlatformStore
 	Authz Authorizer
+	Audit *audit.Service
 }
 
-func NewSkillService(store PlatformStore, az Authorizer) *SkillService {
-	return &SkillService{Store: store, Authz: az}
+func NewSkillService(store PlatformStore, az Authorizer, auditor *audit.Service) *SkillService {
+	return &SkillService{Store: store, Authz: az, Audit: auditor}
 }
 
 func (s *SkillService) isAdmin(ctx context.Context, userID int64) bool {
@@ -87,7 +89,15 @@ func (s *SkillService) Create(ctx context.Context, userID int64, input SkillInpu
 		return nil, nil, err
 	}
 	skill, err = s.Store.GetSkillByID(ctx, skill.ID)
-	return skill, version, err
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "skill.create", "skill", uintKey(skill.ID), nil, map[string]any{
+		"skill": skillAuditFields(*skill), "version": skillVersionAuditFields(*version),
+	}); err != nil {
+		return nil, nil, err
+	}
+	return skill, version, nil
 }
 
 func (s *SkillService) AddVersion(ctx context.Context, userID int64, skillID uint64, content string) (*domain.SkillVersion, error) {
@@ -106,11 +116,18 @@ func (s *SkillService) AddVersion(ctx context.Context, userID int64, skillID uin
 	if skill.Visibility != domain.VisibilityPrivate {
 		review = domain.ReviewPending
 	}
-	return s.Store.CreateSkillVersion(ctx, domain.SkillVersion{
+	version, err := s.Store.CreateSkillVersion(ctx, domain.SkillVersion{
 		SkillID: skill.ID, Version: skill.LatestVersion + 1, Content: content,
 		FrontMatter: marshalFrontMatter(fm), Checksum: checksum,
 		Status: domain.SkillVersionPublished, ReviewStatus: review, CreatedBy: userID,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "skill.version", "skill", uintKey(skillID), nil, skillVersionAuditFields(*version)); err != nil {
+		return nil, err
+	}
+	return version, nil
 }
 
 func (s *SkillService) UpdateMeta(ctx context.Context, userID int64, id uint64, displayName, description, visibility string) (*domain.Skill, error) {
@@ -137,7 +154,14 @@ func (s *SkillService) UpdateMeta(ctx context.Context, userID int64, id uint64, 
 	if err := s.Store.UpdateSkillMeta(ctx, id, strings.TrimSpace(displayName), strings.TrimSpace(description), visibility, review); err != nil {
 		return nil, err
 	}
-	return s.Store.GetSkillByID(ctx, id)
+	updated, err := s.Store.GetSkillByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "skill.update", "skill", uintKey(id), skillAuditFields(*skill), skillAuditFields(*updated)); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *SkillService) ReviewSkill(ctx context.Context, userID int64, id uint64, approved bool) error {
@@ -148,7 +172,12 @@ func (s *SkillService) ReviewSkill(ctx context.Context, userID int64, id uint64,
 	if approved {
 		status = domain.ReviewApproved
 	}
-	return s.Store.SetSkillReview(ctx, id, status)
+	before, _ := s.Store.GetSkillByID(ctx, id)
+	if err := s.Store.SetSkillReview(ctx, id, status); err != nil {
+		return err
+	}
+	after, _ := s.Store.GetSkillByID(ctx, id)
+	return recordAudit(ctx, s.Audit, userID, "skill.review", "skill", uintKey(id), skillAuditPtr(before), skillAuditPtr(after))
 }
 
 func (s *SkillService) ReviewVersion(ctx context.Context, userID int64, skillID uint64, version int64, approved bool, reason string) error {
@@ -159,7 +188,12 @@ func (s *SkillService) ReviewVersion(ctx context.Context, userID int64, skillID 
 	if approved {
 		status = domain.ReviewApproved
 	}
-	return s.Store.SetSkillVersionReview(ctx, skillID, version, status, reason, userID)
+	if err := s.Store.SetSkillVersionReview(ctx, skillID, version, status, reason, userID); err != nil {
+		return err
+	}
+	return recordAudit(ctx, s.Audit, userID, "skill.version_review", "skill", uintKey(skillID), nil, map[string]any{
+		"version": version, "reviewStatus": status, "reason": reason,
+	})
 }
 
 func (s *SkillService) Delete(ctx context.Context, userID int64, id uint64) error {
@@ -170,7 +204,10 @@ func (s *SkillService) Delete(ctx context.Context, userID int64, id uint64) erro
 	if !s.canManage(ctx, userID, skill) {
 		return ErrForbidden
 	}
-	return s.Store.DeleteSkill(ctx, id)
+	if err := s.Store.DeleteSkill(ctx, id); err != nil {
+		return err
+	}
+	return recordAudit(ctx, s.Audit, userID, "skill.delete", "skill", uintKey(id), skillAuditFields(*skill), nil)
 }
 
 // CanManage reports whether the caller may edit/review this skill (owner or

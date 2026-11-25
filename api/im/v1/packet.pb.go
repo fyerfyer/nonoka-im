@@ -175,32 +175,34 @@ func (AgentRunEventType) EnumDescriptor() ([]byte, []int) {
 // persisted as an IM message; the final answer still arrives through the normal
 // message pipeline. (run_id, seq) is the ordering and deduplication key.
 type AgentRunEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         uint64                 `protobuf:"varint,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Seq           uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	Type          AgentRunEventType      `protobuf:"varint,3,opt,name=type,proto3,enum=api.im.v1.AgentRunEventType" json:"type,omitempty"`
-	Topic         string                 `protobuf:"bytes,4,opt,name=topic,proto3" json:"topic,omitempty"`
-	AgentId       int64                  `protobuf:"varint,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	BotUserId     int64                  `protobuf:"varint,6,opt,name=bot_user_id,json=botUserId,proto3" json:"bot_user_id,omitempty"`
-	ActorUserId   int64                  `protobuf:"varint,7,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
-	TriggerMsgId  int64                  `protobuf:"varint,8,opt,name=trigger_msg_id,json=triggerMsgId,proto3" json:"trigger_msg_id,omitempty"`
-	Test          bool                   `protobuf:"varint,9,opt,name=test,proto3" json:"test,omitempty"`
-	Delta         string                 `protobuf:"bytes,10,opt,name=delta,proto3" json:"delta,omitempty"`
-	Tool          string                 `protobuf:"bytes,11,opt,name=tool,proto3" json:"tool,omitempty"`
-	ToolCallId    string                 `protobuf:"bytes,12,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
-	Summary       string                 `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
-	Status        string                 `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
-	ApprovalId    uint64                 `protobuf:"varint,15,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
-	ReplyMsgId    int64                  `protobuf:"varint,16,opt,name=reply_msg_id,json=replyMsgId,proto3" json:"reply_msg_id,omitempty"`
-	ErrorCode     string                 `protobuf:"bytes,17,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
-	ErrorClass    string                 `protobuf:"bytes,18,opt,name=error_class,json=errorClass,proto3" json:"error_class,omitempty"`
-	Retryable     bool                   `protobuf:"varint,19,opt,name=retryable,proto3" json:"retryable,omitempty"`
-	InputTokens   int32                  `protobuf:"varint,20,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
-	OutputTokens  int32                  `protobuf:"varint,21,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
-	TimestampMs   int64                  `protobuf:"varint,22,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
-	ClientMsgId   string                 `protobuf:"bytes,23,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunId          uint64                 `protobuf:"varint,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Seq            uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	Type           AgentRunEventType      `protobuf:"varint,3,opt,name=type,proto3,enum=api.im.v1.AgentRunEventType" json:"type,omitempty"`
+	Topic          string                 `protobuf:"bytes,4,opt,name=topic,proto3" json:"topic,omitempty"`
+	AgentId        int64                  `protobuf:"varint,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	BotUserId      int64                  `protobuf:"varint,6,opt,name=bot_user_id,json=botUserId,proto3" json:"bot_user_id,omitempty"`
+	ActorUserId    int64                  `protobuf:"varint,7,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	TriggerMsgId   int64                  `protobuf:"varint,8,opt,name=trigger_msg_id,json=triggerMsgId,proto3" json:"trigger_msg_id,omitempty"`
+	Test           bool                   `protobuf:"varint,9,opt,name=test,proto3" json:"test,omitempty"`
+	Delta          string                 `protobuf:"bytes,10,opt,name=delta,proto3" json:"delta,omitempty"`
+	Tool           string                 `protobuf:"bytes,11,opt,name=tool,proto3" json:"tool,omitempty"`
+	ToolCallId     string                 `protobuf:"bytes,12,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
+	Summary        string                 `protobuf:"bytes,13,opt,name=summary,proto3" json:"summary,omitempty"`
+	Status         string                 `protobuf:"bytes,14,opt,name=status,proto3" json:"status,omitempty"`
+	ApprovalId     uint64                 `protobuf:"varint,15,opt,name=approval_id,json=approvalId,proto3" json:"approval_id,omitempty"`
+	ReplyMsgId     int64                  `protobuf:"varint,16,opt,name=reply_msg_id,json=replyMsgId,proto3" json:"reply_msg_id,omitempty"`
+	ErrorCode      string                 `protobuf:"bytes,17,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorClass     string                 `protobuf:"bytes,18,opt,name=error_class,json=errorClass,proto3" json:"error_class,omitempty"`
+	Retryable      bool                   `protobuf:"varint,19,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	InputTokens    int32                  `protobuf:"varint,20,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens   int32                  `protobuf:"varint,21,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	TimestampMs    int64                  `protobuf:"varint,22,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	ClientMsgId    string                 `protobuf:"bytes,23,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	ErrorMessage   string                 `protobuf:"bytes,24,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	RetryAfterAtMs int64                  `protobuf:"varint,25,opt,name=retry_after_at_ms,json=retryAfterAtMs,proto3" json:"retry_after_at_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AgentRunEvent) Reset() {
@@ -392,6 +394,20 @@ func (x *AgentRunEvent) GetClientMsgId() string {
 		return x.ClientMsgId
 	}
 	return ""
+}
+
+func (x *AgentRunEvent) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *AgentRunEvent) GetRetryAfterAtMs() int64 {
+	if x != nil {
+		return x.RetryAfterAtMs
+	}
+	return 0
 }
 
 // Packet is the unified wire format for all WebSocket messages.
@@ -1300,7 +1316,7 @@ var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\xc7\x05\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\x97\x06\n" +
 	"\rAgentRunEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\x04R\x05runId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x120\n" +
@@ -1330,7 +1346,9 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\finput_tokens\x18\x14 \x01(\x05R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x15 \x01(\x05R\foutputTokens\x12!\n" +
 	"\ftimestamp_ms\x18\x16 \x01(\x03R\vtimestampMs\x12\"\n" +
-	"\rclient_msg_id\x18\x17 \x01(\tR\vclientMsgId\"\xb6\a\n" +
+	"\rclient_msg_id\x18\x17 \x01(\tR\vclientMsgId\x12#\n" +
+	"\rerror_message\x18\x18 \x01(\tR\ferrorMessage\x12)\n" +
+	"\x11retry_after_at_ms\x18\x19 \x01(\x03R\x0eretryAfterAtMs\"\xb6\a\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +

@@ -54,6 +54,7 @@ docs/
 .claude/
 /DESIGN.md
 .codegraph/
+TODO.md
 
 # Frontend
 web/app/node_modules/

@@ -41,6 +41,8 @@ type Harness struct {
 	Authorizer  authz.Authorizer
 	Sender      ReplySender
 	Builder     agentcontext.Builder
+	Files       FileReader
+	Quota       *QuotaService
 	MaxAttempts int
 	Stream      realtime.RunEventSink
 	Audience    RunAudience
@@ -137,6 +139,15 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 	in.CheckPointID = checkpointIDForRun(run.ID)
 	in.ApprovalTools = agent.ApprovalTools
 	in.OnEvent = h.eventSink(ctx, run, agent)
+	h.attachCurrentMessage(ctx, &in, ev, agent)
+	if h.Quota != nil {
+		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model, runKind(run))
+		if gerr != nil {
+			return h.failRun(ctx, run, gerr)
+		}
+		in.Guard = guard
+		in.MaxToolTurns = maxTurns
+	}
 	res, err := h.Runtime.Run(ctx, in)
 	if errors.Is(err, port.ErrSummary) {
 		res, err = h.Runtime.Run(ctx, builder.Fallback(in))
@@ -245,25 +256,34 @@ func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, a
 	h.emitRunEvent(ctx, run, agent, realtime.RunEvent{Type: realtime.RunStarted, Status: domain.RunRunning}, true)
 	stopHeartbeat := h.startHeartbeat(ctx, run, agent, 10*time.Second)
 	defer stopHeartbeat()
+	resumeIn := port.Input{
+		Instruction:   agent.Instruction,
+		Model:         agent.Model,
+		AllowedTools:  agent.Tools,
+		RestrictTools: agent.RestrictTools,
+		MCPTools:      agent.MCPTools,
+		Skills:        agent.Skills,
+		ApprovalTools: agent.ApprovalTools,
+		EventID:       run.EventID,
+		RunID:         run.ID,
+		AttemptID:     run.AttemptID,
+		AgentID:       agent.ID,
+		ActorUserID:   run.ActorUserID,
+		BotID:         agent.BotID,
+		Topic:         run.Topic,
+		CheckPointID:  run.CheckpointID,
+		OnEvent:       h.eventSink(ctx, run, agent),
+	}
+	if h.Quota != nil {
+		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model, runKind(run))
+		if gerr != nil {
+			return h.failRun(ctx, run, gerr)
+		}
+		resumeIn.Guard = guard
+		resumeIn.MaxToolTurns = maxTurns
+	}
 	res, err := h.Runtime.Resume(ctx, port.ResumeInput{
-		Input: port.Input{
-			Instruction:   agent.Instruction,
-			Model:         agent.Model,
-			AllowedTools:  agent.Tools,
-			RestrictTools: agent.RestrictTools,
-			MCPTools:      agent.MCPTools,
-			Skills:        agent.Skills,
-			ApprovalTools: agent.ApprovalTools,
-			EventID:       run.EventID,
-			RunID:         run.ID,
-			AttemptID:     run.AttemptID,
-			AgentID:       agent.ID,
-			ActorUserID:   run.ActorUserID,
-			BotID:         agent.BotID,
-			Topic:         run.Topic,
-			CheckPointID:  run.CheckpointID,
-			OnEvent:       h.eventSink(ctx, run, agent),
-		},
+		Input:       resumeIn,
 		InterruptID: approval.ToolCallID,
 		Approved:    approved,
 	})
@@ -318,9 +338,16 @@ func (h *Harness) failRun(parent context.Context, run *domain.AgentRun, err erro
 		code = "tool_error"
 	case port.ClassSideEffect:
 		code = domain.FailureCodeManualRetry
+	case port.ClassQuota:
+		code = "quota_exceeded"
+	case port.ClassBudget:
+		code = "budget_exceeded"
+	case port.ClassRateLimit:
+		code = "rate_limited"
 	}
 	if ferr := h.Store.FailRun(ctx, run, domain.Failure{
 		Class: string(class), Code: code, Message: err.Error(), Retryable: retryable,
+		RetryAfter: failureRetryAfter(err),
 	}, h.MaxAttempts, nil); ferr != nil {
 		if errors.Is(ferr, domain.ErrRunState) {
 			return err
@@ -329,7 +356,7 @@ func (h *Harness) failRun(parent context.Context, run *domain.AgentRun, err erro
 	}
 	h.emitRunEvent(ctx, run, ResolvedAgent{ID: run.AgentID}, realtime.RunEvent{
 		Type: realtime.RunFailed, ErrorCode: code, ErrorClass: string(class),
-		Retryable: retryable, Status: domain.RunFailed,
+		ErrorMessage: PublicFailureMessage(code, err.Error()), RetryAfterAt: failureRetryAt(err), Retryable: retryable, Status: domain.RunFailed,
 	}, false)
 	return err
 }
@@ -393,8 +420,7 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 	}
 	values := map[string]interface{}{
 		"status": domain.RunCompleted, "reply_msg_id": replyMsgID,
-		"input_tokens": res.Usage.InputTokens, "output_tokens": res.Usage.OutputTokens,
-		"total_tokens": res.Usage.TotalTokens, "finished_at": time.Now(),
+		"model_key": agent.Model.ModelKey, "finished_at": time.Now(),
 	}
 	if agent.Test {
 		values["output_text"] = res.Text
@@ -444,6 +470,78 @@ func withRetry(ctx context.Context, op func(context.Context) error) error {
 		}
 	}
 	return err
+}
+
+const maxInlineImageBytes = 4 << 20
+
+// attachCurrentMessage turns the triggering IMAGE message into a multimodal
+// part. Non-vision models get an explicit degradation note and no image bytes.
+func (h *Harness) attachCurrentMessage(ctx context.Context, in *port.Input, ev messaging.MessageEvent, agent ResolvedAgent) {
+	if ev.MsgType != messaging.MessageTypeImage || ev.FileID == "" {
+		return
+	}
+	if !agent.Model.SupportsVision {
+		in.Text = strings.TrimSpace(in.Text + "\n[The user sent an image (" + ev.FileName + "), but the selected model cannot view images. Do not claim to see it; tell the user you cannot view images.]")
+		return
+	}
+	if h.Files == nil || h.Authorizer == nil {
+		in.Text += "\n[Image unavailable: attachment reader is not configured.]"
+		return
+	}
+	if err := h.Authorizer.CanReadFile(ctx, ev.SenderID, ev.FileID); err != nil {
+		in.Text += "\n[Image unavailable: the sender is not allowed to read this attachment.]"
+		return
+	}
+	if ev.Size > maxInlineImageBytes {
+		in.Text += "\n[Image skipped: the attachment is larger than the 4MB inline image limit.]"
+		return
+	}
+	if ev.Mime != "" && !strings.HasPrefix(strings.ToLower(ev.Mime), "image/") {
+		in.Text += "\n[Attachment skipped: it is not an image.]"
+		return
+	}
+	file, err := h.Files.ReadFile(ctx, ev.FileID)
+	if err != nil {
+		in.Text += "\n[Image unavailable: failed to read the attachment.]"
+		return
+	}
+	if len(file.Data) > maxInlineImageBytes {
+		in.Text += "\n[Image skipped: the attachment is larger than the 4MB inline image limit.]"
+		return
+	}
+	in.Attachments = append(in.Attachments, port.Attachment{
+		Kind: "image", FileID: ev.FileID, Name: file.Name, Mime: file.Mime, Data: file.Data,
+	})
+}
+
+func failureRetryAfter(err error) time.Duration {
+	var quotaErr *domain.QuotaError
+	if errors.As(err, &quotaErr) {
+		return quotaErr.RetryAfter
+	}
+	var budgetErr *domain.BudgetError
+	if errors.As(err, &budgetErr) {
+		return budgetErr.RetryAfter
+	}
+	var rateErr *domain.RateLimitError
+	if errors.As(err, &rateErr) {
+		return rateErr.RetryAfter
+	}
+	return 0
+}
+
+func failureRetryAt(err error) string {
+	if d := failureRetryAfter(err); d > 0 {
+		return time.Now().Add(d).UTC().Format(time.RFC3339)
+	}
+	return ""
+}
+
+func runKind(run *domain.AgentRun) string {
+	if run != nil && run.Kind == domain.RunKindTest {
+		return domain.RunKindTest
+	}
+	return domain.RunKindIM
 }
 
 func stableClientID(eventID string, agentID int64) string {

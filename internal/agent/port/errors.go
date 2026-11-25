@@ -3,6 +3,8 @@ package port
 import (
 	"context"
 	"errors"
+
+	"nonoka-im/internal/agent/domain"
 )
 
 // ErrorClass classifies a failed run so the worker can decide between an
@@ -19,6 +21,9 @@ const (
 	ClassTimeout        ErrorClass = "timeout"
 	ClassCanceled       ErrorClass = "canceled"
 	ClassInternal       ErrorClass = "internal"
+	ClassQuota          ErrorClass = "quota"
+	ClassBudget         ErrorClass = "budget"
+	ClassRateLimit      ErrorClass = "rate_limit"
 	// ClassSideEffect marks a run whose write tool already committed an
 	// external effect. It is terminal and requires an explicit operator retry.
 	ClassSideEffect ErrorClass = "side_effect_committed"
@@ -62,6 +67,12 @@ func Classify(err error) (ErrorClass, bool) {
 		return ClassCanceled, false
 	case errors.Is(err, context.DeadlineExceeded):
 		return ClassTimeout, true
+	case errors.As(err, new(*domain.QuotaError)):
+		return ClassQuota, false
+	case errors.As(err, new(*domain.BudgetError)):
+		return ClassBudget, false
+	case errors.As(err, new(*domain.RateLimitError)):
+		return ClassRateLimit, false
 	case errors.Is(err, ErrAuthDenied):
 		return ClassAuthDenied, false
 	case errors.Is(err, ErrInvalidConfig):

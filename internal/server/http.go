@@ -68,6 +68,9 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 			"/api.im.v1.DispatchService/Gateway":
 			return false
 		}
+		if strings.HasPrefix(operation, "/v1/media/") {
+			return false
+		}
 		return true
 	}).Build())
 	middlewares = append(middlewares, func(next middleware.Handler) middleware.Handler {
@@ -153,6 +156,8 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.POST("/v1/files", file.UploadHTTP)
 		r.GET("/v1/files/{file_id}", file.DownloadHTTP)
 		r.POST("/v1/files/{file_id}/share", file.ShareHTTP)
+		r.POST("/v1/files/{file_id}/sign", file.SignHTTP)
+		r.GET("/v1/media/{file_id}", file.DownloadSignedHTTP)
 	}
 	if agents != nil {
 		r := srv.Route("/")
@@ -170,6 +175,13 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.PUT("/v1/agents/{id}/shares", agents.Share)
 		r.GET("/v1/agents/{id}/shares", agents.Shares)
 		r.GET("/v1/agents/{id}/runs", agents.Runs)
+		r.GET("/v1/agents/{id}/usage", agents.AgentUsage)
+		r.GET("/v1/admin/quotas", agents.ListQuotas)
+		r.PUT("/v1/admin/quotas/{scope}/{key}", agents.UpdateQuota)
+		r.DELETE("/v1/admin/quotas/{scope}/{key}", agents.ResetQuota)
+		r.GET("/v1/admin/usage/top", agents.TopUsage)
+		r.GET("/v1/admin/audit-events", agents.ListAuditEvents)
+		r.GET("/v1/admin/audit-events/{id}", agents.GetAuditEvent)
 		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
 		r.GET("/v1/agent-runs/{id}/events", agents.RunEvents)
 		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
@@ -201,16 +213,9 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.POST("/v1/skills/{id}/review", agents.ReviewSkill)
 		r.POST("/v1/skills/{id}/versions/{version}/review", agents.ReviewSkillVersion)
 		r.GET("/v1/agent-tools", agents.AgentTools)
-		r.GET("/v1/model-services", agents.ListModelServices)
-		r.POST("/v1/model-services", agents.CreateModelService)
-		r.PATCH("/v1/model-services/{id}", agents.UpdateModelService)
-		r.DELETE("/v1/model-services/{id}", agents.DeleteModelService)
-		r.POST("/v1/model-services/{id}/sync", agents.SyncModelService)
-		r.GET("/v1/model-services/{id}/models", agents.ListModels)
-		r.POST("/v1/model-services/{id}/models", agents.CreateModel)
-		r.PATCH("/v1/model-models/{id}", agents.UpdateModel)
-		r.DELETE("/v1/model-models/{id}", agents.DeleteModel)
-		r.GET("/v1/model-gateway/models", agents.ListGatewayModels)
+		r.GET("/v1/models", agents.ListModels)
+		r.POST("/v1/models/sync", agents.SyncModels)
+		r.PATCH("/v1/models/{id}", agents.UpdateModel)
 	}
 	if outbox != nil {
 		r := srv.Route("/")

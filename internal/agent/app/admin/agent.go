@@ -9,6 +9,7 @@ import (
 
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/tools/catalog"
+	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -19,14 +20,16 @@ type AgentService struct {
 	Store    Store
 	Platform PlatformStore
 	Models   ModelCatalog
+	Keys     GatewayKeys
 	Authz    Authorizer
 	Groups   GroupDirectory
 	Users    UserDirectory
+	Audit    *audit.Service
 	Log      *log.Helper
 }
 
-func NewAgentService(store Store, platform PlatformStore, models ModelCatalog, az Authorizer, groups GroupDirectory, users UserDirectory, logger log.Logger) *AgentService {
-	return &AgentService{Store: store, Platform: platform, Models: models, Authz: az, Groups: groups, Users: users, Log: log.NewHelper(logger)}
+func NewAgentService(store Store, platform PlatformStore, models ModelCatalog, keys GatewayKeys, az Authorizer, groups GroupDirectory, users UserDirectory, auditor *audit.Service, logger log.Logger) *AgentService {
+	return &AgentService{Store: store, Platform: platform, Models: models, Keys: keys, Authz: az, Groups: groups, Users: users, Audit: auditor, Log: log.NewHelper(logger)}
 }
 
 func (s *AgentService) List(ctx context.Context, userID int64, limit, offset int) ([]domain.Agent, int64, int, error) {
@@ -97,13 +100,20 @@ func (s *AgentService) Create(ctx context.Context, userID int64, input Input) (*
 	policiesJSON, _ := json.Marshal(input.ToolPolicies)
 	spec := domain.AgentSpec{
 		Name: input.Name, Description: input.Description, Instruction: input.Instruction,
-		ModelServiceID: input.ModelServiceID, ModelID: input.ModelID, Tools: string(toolsJSON),
+		ModelID: input.ModelID, Tools: string(toolsJSON),
 		CapabilityPresets: string(presetsJSON), ToolPolicies: string(policiesJSON),
 		MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON,
 	}
-	return s.Store.CreateAgent(ctx, userID, spec, func(ctx context.Context, id int64) error {
+	agent, err := s.Store.CreateAgent(ctx, userID, spec, func(ctx context.Context, id int64) error {
 		return s.Authz.SetAgentOwner(ctx, id, userID)
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.record(ctx, userID, "agent.create", "agent", strconv.FormatInt(agent.ID, 10), nil, agentAuditFields(*agent)); err != nil {
+		return nil, err
+	}
+	return agent, nil
 }
 
 func (s *AgentService) UpdateDraft(ctx context.Context, userID, agentID int64, input Input) (*domain.Agent, error) {
@@ -126,11 +136,18 @@ func (s *AgentService) UpdateDraft(ctx context.Context, userID, agentID int64, i
 	policiesJSON, _ := json.Marshal(input.ToolPolicies)
 	spec := domain.AgentSpec{
 		Name: input.Name, Description: input.Description, Instruction: input.Instruction,
-		ModelServiceID: input.ModelServiceID, ModelID: input.ModelID, Tools: string(toolsJSON),
+		ModelID: input.ModelID, Tools: string(toolsJSON),
 		CapabilityPresets: string(presetsJSON), ToolPolicies: string(policiesJSON),
 		MaxTokens: input.MaxTokens, MCPBindings: mcpJSON, Skills: skillsJSON,
 	}
-	return s.Store.UpdateDraft(ctx, agentID, input.Revision, spec, false)
+	updated, err := s.Store.UpdateDraft(ctx, agentID, input.Revision, spec, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.record(ctx, userID, "agent.update_draft", "agent", strconv.FormatInt(agentID, 10), agentAuditFields(*agent), agentAuditFields(*updated)); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision int64, note string) (*domain.AgentVersion, error) {
@@ -148,12 +165,15 @@ func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision in
 	if s.Models == nil {
 		return nil, fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
 	}
-	service, model, err := s.Models.Lookup(ctx, agent.DraftModelServiceID, agent.DraftModelID)
+	model, err := s.Models.Lookup(ctx, agent.DraftModelID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
-	if !service.Enabled || !model.Enabled {
-		return nil, fmt.Errorf("%w: selected model service/model is disabled", ErrInvalidInput)
+	if !model.Enabled {
+		return nil, fmt.Errorf("%w: selected model is disabled", ErrInvalidInput)
+	}
+	if !model.Curated {
+		return nil, fmt.Errorf("%w: selected model is not curated", ErrInvalidInput)
 	}
 	if model.MaxOutputTokens > 0 && agent.DraftMaxTokens > model.MaxOutputTokens {
 		return nil, fmt.Errorf("%w: max_tokens exceeds the current model limit %d", ErrInvalidInput, model.MaxOutputTokens)
@@ -207,7 +227,50 @@ func (s *AgentService) Publish(ctx context.Context, userID, agentID, revision in
 		}
 		return nil, fmt.Errorf("bind tool %q: %w", bindTool, bindErr)
 	}
+	if err := s.ensureGatewayKey(ctx, agentID); err != nil {
+		if rerr := s.Store.RollbackPublish(ctx, agentID, version.Version); rerr != nil {
+			return nil, fmt.Errorf("ensure agent gateway key: %w (rollback failed: %v)", err, rerr)
+		}
+		return nil, fmt.Errorf("ensure agent gateway key: %w", err)
+	}
+	if err := s.record(ctx, userID, "gateway_key.ensure", "agent", strconv.FormatInt(agentID, 10), nil, map[string]any{"status": "active"}); err != nil {
+		return nil, err
+	}
+	if err := s.record(ctx, userID, "agent.publish", "agent", strconv.FormatInt(agentID, 10), agentAuditFields(*agent), versionAuditFields(*version)); err != nil {
+		return nil, err
+	}
 	return version, nil
+}
+
+// ensureGatewayKey keeps the per-agent Bifrost key allowlist in sync with every
+// published version. Keeping older version models avoids breaking in-flight
+// runs when an agent changes models.
+func (s *AgentService) ensureGatewayKey(ctx context.Context, agentID int64) error {
+	if s.Keys == nil || s.Models == nil {
+		return nil
+	}
+	versions, err := s.Store.ListVersions(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	seen := map[int64]bool{}
+	models := make([]domain.Model, 0, len(versions))
+	for i := range versions {
+		id := versions[i].ModelID
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		model, err := s.Models.Lookup(ctx, id)
+		if err != nil {
+			continue
+		}
+		models = append(models, *model)
+	}
+	if len(models) == 0 {
+		return fmt.Errorf("agent %d has no published model", agentID)
+	}
+	return s.Keys.EnsureAgentKey(ctx, agentID, models)
 }
 
 func (s *AgentService) Versions(ctx context.Context, userID, agentID int64) ([]domain.AgentVersion, error) {
@@ -237,6 +300,9 @@ func (s *AgentService) Restore(ctx context.Context, userID, agentID, version, re
 	}
 	agent, err := s.Store.RestoreDraft(ctx, agentID, version, revision)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.record(ctx, userID, "agent.restore", "agent", strconv.FormatInt(agentID, 10), nil, agentAuditFields(*agent)); err != nil {
 		return nil, err
 	}
 	return agent, nil
@@ -282,25 +348,28 @@ func (s *AgentService) TestSnapshot(ctx context.Context, userID, agentID int64) 
 			return nil, domain.RunConfig{}, fmt.Errorf("%w: invalid draft skills", ErrInvalidInput)
 		}
 	}
-	if strings.TrimSpace(agent.DraftInstruction) == "" || agent.DraftModelServiceID <= 0 || agent.DraftModelID <= 0 {
+	if strings.TrimSpace(agent.DraftInstruction) == "" || agent.DraftModelID <= 0 {
 		return nil, domain.RunConfig{}, fmt.Errorf("%w: draft needs an instruction and model", ErrInvalidInput)
 	}
 	if s.Models == nil {
 		return nil, domain.RunConfig{}, fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
 	}
-	service, model, err := s.Models.Lookup(ctx, agent.DraftModelServiceID, agent.DraftModelID)
+	model, err := s.Models.Lookup(ctx, agent.DraftModelID)
 	if err != nil {
 		return nil, domain.RunConfig{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
-	if !service.Enabled || !model.Enabled {
-		return nil, domain.RunConfig{}, fmt.Errorf("%w: selected model service/model is disabled", ErrInvalidInput)
+	if !model.Enabled {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: selected model is disabled", ErrInvalidInput)
+	}
+	if !model.Curated {
+		return nil, domain.RunConfig{}, fmt.Errorf("%w: selected model is not curated", ErrInvalidInput)
 	}
 	if agent.DraftMaxTokens > 0 && model.MaxOutputTokens > 0 && agent.DraftMaxTokens > model.MaxOutputTokens {
 		return nil, domain.RunConfig{}, fmt.Errorf("%w: max tokens exceeds model limit %d", ErrInvalidInput, model.MaxOutputTokens)
 	}
 	return agent, domain.RunConfig{
-		Instruction: agent.DraftInstruction, ModelServiceID: agent.DraftModelServiceID,
-		ModelID: agent.DraftModelID, Tools: tools, CapabilityPresets: presets,
+		Instruction: agent.DraftInstruction,
+		ModelID:     agent.DraftModelID, Tools: tools, CapabilityPresets: presets,
 		ToolPolicies: policies, MaxTokens: agent.DraftMaxTokens,
 		MCPBindings: mcpBindings, Skills: skills,
 	}, nil
@@ -313,7 +382,12 @@ func (s *AgentService) SetStatus(ctx context.Context, userID, agentID int64, sta
 	if status != "active" && status != "disabled" {
 		return fmt.Errorf("%w: invalid agent status", ErrInvalidInput)
 	}
-	return s.Store.SetAgentStatus(ctx, agentID, status)
+	before, _ := s.Store.GetAgent(ctx, agentID)
+	if err := s.Store.SetAgentStatus(ctx, agentID, status); err != nil {
+		return err
+	}
+	after, _ := s.Store.GetAgent(ctx, agentID)
+	return s.record(ctx, userID, "agent.status", "agent", strconv.FormatInt(agentID, 10), auditAgentPtr(before), auditAgentPtr(after))
 }
 
 func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, target, role string, enabled bool) error {
@@ -375,9 +449,13 @@ func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, t
 		return err
 	}
 	if kind == "group" && !enabled {
-		return s.Authz.SetGroupMember(ctx, target, agent.BotUserID, false)
+		if err := s.Authz.SetGroupMember(ctx, target, agent.BotUserID, false); err != nil {
+			return err
+		}
 	}
-	return nil
+	return s.record(ctx, userID, "agent.share", "agent", strconv.FormatInt(agentID, 10), nil, map[string]any{
+		"kind": kind, "target": target, "role": role, "enabled": enabled,
+	})
 }
 
 func (s *AgentService) Shares(ctx context.Context, userID, agentID int64) ([]authz.AgentShare, error) {
@@ -391,6 +469,7 @@ func (s *AgentService) Delete(ctx context.Context, userID, agentID int64) error 
 	if err := s.requireOwner(ctx, userID, agentID); err != nil {
 		return err
 	}
+	before, _ := s.Store.GetAgent(ctx, agentID)
 	toolNames, err := s.Store.DeleteAgent(ctx, agentID)
 	if err != nil {
 		return err
@@ -398,7 +477,29 @@ func (s *AgentService) Delete(ctx context.Context, userID, agentID int64) error 
 	if err := s.Authz.DeleteAgentTuples(ctx, agentID, toolNames); err != nil {
 		s.Log.Warnf("delete agent FGA tuples: agent_id=%d err=%v", agentID, err)
 	}
+	revokeStatus := "not_managed"
+	if s.Keys != nil {
+		if err := s.Keys.RevokeAgentKey(ctx, agentID); err != nil {
+			revokeStatus = "revoked_pending"
+			s.Log.Warnf("revoke agent gateway key: agent_id=%d err=%v (queued for cleanup)", agentID, err)
+		} else {
+			revokeStatus = "revoked"
+		}
+	}
+	if err := s.record(ctx, userID, "gateway_key.revoke", "agent", strconv.FormatInt(agentID, 10), nil, map[string]any{"status": revokeStatus}); err != nil {
+		return err
+	}
+	if err := s.record(ctx, userID, "agent.delete", "agent", strconv.FormatInt(agentID, 10), auditAgentPtr(before), nil); err != nil {
+		return err
+	}
 	return nil
+}
+
+func auditAgentPtr(a *domain.Agent) map[string]any {
+	if a == nil {
+		return nil
+	}
+	return agentAuditFields(*a)
 }
 
 func (s *AgentService) VerifyBotSend(ctx context.Context, agentID, botID int64, topic string) error {
@@ -566,21 +667,21 @@ func (s *AgentService) validateInput(ctx context.Context, input *Input) error {
 	if len(input.Name) == 0 || len(input.Name) > 100 || input.Instruction == "" || len(input.Instruction) > 20000 || len(input.Description) > 4000 {
 		return fmt.Errorf("%w: invalid agent name, description or instruction", ErrInvalidInput)
 	}
-	if input.ModelServiceID <= 0 || input.ModelID <= 0 {
-		return fmt.Errorf("%w: a model service and model are required", ErrInvalidInput)
+	if input.ModelID <= 0 {
+		return fmt.Errorf("%w: a model is required", ErrInvalidInput)
 	}
 	if s.Models == nil {
 		return fmt.Errorf("%w: model catalog unavailable", ErrInvalidInput)
 	}
-	service, model, err := s.Models.Lookup(ctx, input.ModelServiceID, input.ModelID)
+	model, err := s.Models.Lookup(ctx, input.ModelID)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
-	if !service.Enabled {
-		return fmt.Errorf("%w: model service %q is disabled", ErrInvalidInput, service.Name)
-	}
 	if !model.Enabled {
 		return fmt.Errorf("%w: model %q is disabled", ErrInvalidInput, model.ModelKey)
+	}
+	if !model.Curated {
+		return fmt.Errorf("%w: model %q is not curated", ErrInvalidInput, model.ModelKey)
 	}
 	if input.MaxTokens < 0 || input.MaxTokens > 128000 {
 		return fmt.Errorf("%w: invalid max_tokens", ErrInvalidInput)

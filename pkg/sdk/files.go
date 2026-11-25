@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type FilesResource struct {
@@ -87,6 +88,41 @@ func (r *FilesResource) Download(ctx context.Context, fileID string) ([]byte, st
 		return nil, "", err
 	}
 	return data, resp.Header.Get("Content-Type"), nil
+}
+
+// Sign returns a short-TTL URL that browsers can use without an Authorization
+// header. The download endpoint still re-checks file authorization.
+func (r *FilesResource) Sign(ctx context.Context, fileID string) (string, time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.baseURL+"/v1/files/"+fileID+"/sign", nil)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if token, tokenErr := r.token(ctx); tokenErr != nil {
+		return "", time.Time{}, tokenErr
+	} else if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", time.Time{}, &APIError{Code: "API_UNREACHABLE", Message: err.Error(), Retryable: true}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", time.Time{}, decodeAPIError(resp)
+	}
+	var out struct {
+		URL       string    `json:"url"`
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", time.Time{}, err
+	}
+	// Normalize like Upload so callers can use the URL directly without
+	// knowing whether the API returned an absolute or relative path.
+	if out.URL != "" && !strings.HasPrefix(out.URL, "http") {
+		out.URL = r.baseURL + out.URL
+	}
+	return out.URL, out.ExpiresAt, nil
 }
 
 func (r *FilesResource) Share(ctx context.Context, fileID string, userIDs []int64, enabled bool) error {

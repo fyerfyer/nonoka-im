@@ -1,6 +1,8 @@
 package realtime
 
 import (
+	"time"
+
 	pb "nonoka-im/api/im/v1"
 )
 
@@ -37,8 +39,10 @@ func (e RunEvent) ToProto() *pb.AgentRunEvent {
 		TriggerMsgId: e.TriggerMsgID, Test: e.Test, Delta: e.Delta, Tool: e.Tool,
 		ToolCallId: e.ToolCallID, Summary: e.Summary, Status: e.Status,
 		ApprovalId: e.ApprovalID, ReplyMsgId: e.ReplyMsgID, ErrorCode: e.ErrorCode,
-		ErrorClass: e.ErrorClass, Retryable: e.Retryable, InputTokens: int32(e.InputTokens),
-		OutputTokens: int32(e.OutputTokens), TimestampMs: e.TimestampMs, ClientMsgId: e.ClientMessageID,
+		ErrorClass: e.ErrorClass, ErrorMessage: e.ErrorMessage, Retryable: e.Retryable,
+		InputTokens: int32(e.InputTokens), OutputTokens: int32(e.OutputTokens),
+		TimestampMs: e.TimestampMs, ClientMsgId: e.ClientMessageID,
+		RetryAfterAtMs: parseRetryAt(e.RetryAfterAt),
 	}
 }
 
@@ -57,8 +61,27 @@ func FromProto(event *pb.AgentRunEvent) RunEvent {
 		TriggerMsgID: event.GetTriggerMsgId(), Test: event.GetTest(), Delta: event.GetDelta(),
 		Tool: event.GetTool(), ToolCallID: event.GetToolCallId(), Summary: event.GetSummary(),
 		Status: event.GetStatus(), ApprovalID: event.GetApprovalId(), ReplyMsgID: event.GetReplyMsgId(),
-		ErrorCode: event.GetErrorCode(), ErrorClass: event.GetErrorClass(), Retryable: event.GetRetryable(),
+		ErrorCode: event.GetErrorCode(), ErrorClass: event.GetErrorClass(), ErrorMessage: event.GetErrorMessage(),
+		Retryable: event.GetRetryable(), RetryAfterAt: formatRetryAt(event.GetRetryAfterAtMs()),
 		InputTokens: int(event.GetInputTokens()), OutputTokens: int(event.GetOutputTokens()),
 		TimestampMs: event.GetTimestampMs(), ClientMessageID: event.GetClientMsgId(),
 	}
+}
+
+func parseRetryAt(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+func formatRetryAt(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
 }

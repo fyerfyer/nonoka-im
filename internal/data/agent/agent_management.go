@@ -29,7 +29,7 @@ func (s *Store) CreateAgent(ctx context.Context, ownerID int64, spec domain.Agen
 		row := AgentRow{
 			BotUserID: bot.ID, OwnerUserID: ownerID, Name: spec.Name, Description: spec.Description,
 			Status: "draft", DraftInstruction: spec.Instruction, DraftTools: spec.Tools,
-			DraftModelServiceID: spec.ModelServiceID, DraftModelID: spec.ModelID,
+			DraftModelID:           spec.ModelID,
 			DraftCapabilityPresets: spec.CapabilityPresets, DraftToolPolicies: spec.ToolPolicies,
 			DraftMaxTokens: spec.MaxTokens, DraftMCPBindings: spec.MCPBindings, DraftSkills: spec.Skills,
 			DraftRevision: 1,
@@ -97,6 +97,21 @@ func (s *Store) ListAgents(ctx context.Context, limit, offset int) ([]domain.Age
 	return out, total, nil
 }
 
+// ListPublishedAgents returns agents that have at least one published version.
+// The worker uses it to backfill missing Bifrost keys after migration or a
+// gateway outage.
+func (s *Store) ListPublishedAgents(ctx context.Context) ([]domain.Agent, error) {
+	var rows []AgentRow
+	if err := s.db.WithContext(ctx).Where("current_version > 0").Order("id asc").Find(&rows).Error; err != nil {
+		return nil, transientOrDomain(err)
+	}
+	out := make([]domain.Agent, 0, len(rows))
+	for i := range rows {
+		out = append(out, rows[i].toDomain())
+	}
+	return out, nil
+}
+
 func (s *Store) ActiveAgentsByBot(ctx context.Context, ids []int64) ([]domain.Agent, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -129,7 +144,7 @@ func (s *Store) UpdateDraft(ctx context.Context, id, revision int64, spec domain
 	updates := map[string]any{
 		"name": spec.Name, "description": spec.Description,
 		"draft_instruction": spec.Instruction, "draft_tools": spec.Tools,
-		"draft_model_service_id": spec.ModelServiceID, "draft_model_id": spec.ModelID,
+		"draft_model_id":           spec.ModelID,
 		"draft_capability_presets": spec.CapabilityPresets, "draft_tool_policies": spec.ToolPolicies,
 		"draft_max_tokens": spec.MaxTokens, "draft_mcp_bindings": spec.MCPBindings,
 		"draft_skills": spec.Skills, "draft_revision": gorm.Expr("draft_revision + 1"),
@@ -182,7 +197,7 @@ func (s *Store) RestoreDraft(ctx context.Context, id, version, expectedRevision 
 		}
 		updates := map[string]any{
 			"draft_instruction": source.Instruction, "draft_tools": source.Tools,
-			"draft_model_service_id": source.ModelServiceID, "draft_model_id": source.ModelID,
+			"draft_model_id":           source.ModelID,
 			"draft_capability_presets": source.CapabilityPresets, "draft_tool_policies": source.ToolPolicies,
 			"draft_max_tokens": source.MaxTokens, "draft_mcp_bindings": source.MCPBindings,
 			"draft_skills": source.Skills, "draft_revision": gorm.Expr("draft_revision + 1"),
@@ -209,11 +224,23 @@ func (s *Store) Publish(ctx context.Context, id, revision int64, note string, pu
 		if row.DraftRevision != revision {
 			return ErrDraftConflict
 		}
-		if row.DraftModelServiceID <= 0 || row.DraftModelID <= 0 {
-			return fmt.Errorf("agent %d has no model service/model selected", id)
+		// Publishing the same draft revision twice is idempotent. This makes a
+		// retry after a post-commit audit/transport failure return the already
+		// published version instead of creating a duplicate.
+		var existing AgentVersionRow
+		existingErr := tx.Where("agent_id = ? AND source_revision = ?", id, revision).First(&existing).Error
+		if existingErr == nil {
+			result = existing.toDomain()
+			return nil
+		}
+		if !errors.Is(existingErr, gorm.ErrRecordNotFound) {
+			return existingErr
+		}
+		if row.DraftModelID <= 0 {
+			return fmt.Errorf("agent %d has no model selected", id)
 		}
 		var modelKey string
-		if err := tx.Table("model_models").Where("id = ? AND service_id = ?", row.DraftModelID, row.DraftModelServiceID).Pluck("model_key", &modelKey).Error; err != nil {
+		if err := tx.Table("model_catalog").Where("id = ?", row.DraftModelID).Pluck("model_key", &modelKey).Error; err != nil {
 			return err
 		}
 		if modelKey == "" {
@@ -222,7 +249,7 @@ func (s *Store) Publish(ctx context.Context, id, revision int64, note string, pu
 		now := time.Now()
 		version := AgentVersionRow{
 			AgentID: id, Version: row.CurrentVersion + 1, Instruction: row.DraftInstruction,
-			ModelServiceID: row.DraftModelServiceID, ModelID: row.DraftModelID, ModelKey: modelKey,
+			ModelID: row.DraftModelID, ModelKey: modelKey,
 			Tools: row.DraftTools, CapabilityPresets: row.DraftCapabilityPresets,
 			ToolPolicies: row.DraftToolPolicies, MaxTokens: row.DraftMaxTokens,
 			MCPBindings: row.DraftMCPBindings, Skills: row.DraftSkills,
@@ -412,6 +439,8 @@ func (s *Store) SetRunAction(ctx context.Context, id uint64, action string, ackn
 		updates["finished_at"] = nil
 		updates["error_code"] = ""
 		updates["error_class"] = ""
+		updates["last_error"] = ""
+		updates["retry_after_at"] = nil
 		updates["attempts"] = 0
 		updates["next_attempt_at"] = time.Now()
 		if acknowledgeSideEffect {
@@ -462,7 +491,7 @@ func (s *Store) cancelRun(ctx context.Context, id uint64) error {
 // frozen built-in tool snapshot supplied by the composition root; the data
 // layer deliberately does not know the tool catalog. It returns created=false
 // (without error) when the agent already exists.
-func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction string, modelServiceID, modelID int64, modelKey string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error) {
+func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, name, instruction string, modelID int64, modelKey string, maxTokens int, toolsJSON string, grant func(context.Context, int64) error) (bool, error) {
 	if id <= 0 || ownerID <= 0 {
 		return false, fmt.Errorf("bootstrap agent and owner IDs required")
 	}
@@ -498,7 +527,7 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 		row := AgentRow{
 			ID: id, BotUserID: botID, OwnerUserID: ownerID, Name: name, Status: "active",
 			CurrentVersion: 1, DraftInstruction: instruction, DraftTools: toolsJSON,
-			DraftModelServiceID: modelServiceID, DraftModelID: modelID,
+			DraftModelID:   modelID,
 			DraftMaxTokens: maxTokens, DraftRevision: 1,
 		}
 		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
@@ -512,7 +541,7 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 		now := time.Now()
 		version := AgentVersionRow{
 			AgentID: id, Version: 1, Instruction: instruction,
-			ModelServiceID: modelServiceID, ModelID: modelID, ModelKey: modelKey,
+			ModelID: modelID, ModelKey: modelKey,
 			Tools: row.DraftTools, MaxTokens: maxTokens, PublishedBy: ownerID,
 			PublishedAt: &now, SourceRevision: 1,
 		}
