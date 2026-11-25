@@ -62,6 +62,7 @@ type SearchIndexRepository interface {
 	FailSearchIndexTask(ctx context.Context, id string, taskErr error, backoff time.Duration) error
 	AbandonSearchIndexTask(ctx context.Context, id string) error
 	SearchIndexStats(ctx context.Context) (pending, failed int64, oldestAge time.Duration, err error)
+	PrunePublishedSearchTasks(ctx context.Context) error
 }
 
 // MessageReader is the authorized read surface used by pull/recall/receipts.

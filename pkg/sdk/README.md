@@ -47,7 +47,7 @@ message ID.
 | `Auth`          | register, login, refresh, logout                                                |
 | `Users`         | search, presence                                                                |
 | `Conversations` | list, mark read, lightweight topic clients                                      |
-| `Messages`      | idempotent send, pull history/offline                                           |
+| `Messages`      | idempotent send, pull history/offline, topic-scoped keyword search              |
 | `Groups`        | create, list, members                                                           |
 | `Files`         | upload, download, share                                                         |
 | `Agents`        | CRUD, draft, publish, restore, versions, shares, runs, tool catalog |

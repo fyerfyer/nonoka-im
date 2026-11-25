@@ -21,12 +21,13 @@ const (
 // Relay drains the durable search-index outbox into Meilisearch. It is a
 // derived-index worker: failures never block message delivery or agent runs.
 type Relay struct {
-	Repo    app.SearchIndexRepository
-	Index   *Client
-	Log     *log.Helper
-	Stats   func(pending, failed int64, oldestAge time.Duration)
-	OnError func()
-	ready   bool
+	Repo      app.SearchIndexRepository
+	Index     *Client
+	Log       *log.Helper
+	Stats     func(pending, failed int64, oldestAge time.Duration)
+	OnError   func()
+	ready     bool
+	lastPrune time.Time
 }
 
 func (r *Relay) Run(ctx context.Context, interval time.Duration) {
@@ -46,6 +47,12 @@ func (r *Relay) Run(ctx context.Context, interval time.Duration) {
 			if r.Stats != nil {
 				if pending, failed, age, err := r.Repo.SearchIndexStats(ctx); err == nil {
 					r.Stats(pending, failed, age)
+				}
+			}
+			if r.lastPrune.IsZero() || time.Since(r.lastPrune) > 10*time.Minute {
+				r.lastPrune = time.Now()
+				if err := r.Repo.PrunePublishedSearchTasks(ctx); err != nil && r.Log != nil {
+					r.Log.Warnf("prune search index tasks: %v", err)
 				}
 			}
 		}

@@ -91,6 +91,26 @@ services:
     depends_on:
       openfga-migrate: {condition: service_completed_successfully}
     networks: [nonoka]
+  meilisearch:
+    image: getmeili/meilisearch:v1.12.0
+    hostname: meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    volumes: [meilisearch_data:/meili_data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health | grep -q available"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [nonoka]
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    hostname: jaeger
+    environment: {COLLECTOR_OTLP_ENABLED: "true"}
+    ports: ["127.0.0.1:16686:16686", "127.0.0.1:4318:4318"]
+    networks: [nonoka]
   bifrost:
     image: maximhq/bifrost:v2.4.0
     hostname: bifrost
@@ -130,6 +150,8 @@ services:
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
       OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
     ports: ["8001:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-1"]
     volumes: [./configs:/data/conf:ro]
@@ -160,6 +182,8 @@ services:
       OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
       OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
     ports: ["8002:8000"]
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.scale.yaml", "-node-id", "gateway-2"]
     volumes: [./configs:/data/conf:ro]
@@ -172,7 +196,10 @@ services:
     networks: [nonoka]
   msgworker:
     build: {context: ., dockerfile: Dockerfile}
-    environment: {METRICS_ADDR: 0.0.0.0:9001}
+    environment:
+      METRICS_ADDR: 0.0.0.0:9001
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
     command: ["/app/msgworker", "-conf", "/data/conf/config.scale.yaml"]
     volumes: [./configs:/data/conf:ro]
     depends_on:
@@ -217,6 +244,9 @@ services:
       # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     command: ["/app/agent-worker", "-conf", "/app/configs/agent-worker.yaml"]
     volumes:
       - ./configs/agent-worker.yaml:/app/configs/agent-worker.yaml:ro
@@ -253,6 +283,7 @@ volumes:
   mongodb_data:
   openfga_data:
   bifrost_data:
+  meilisearch_data:
 networks:
   nonoka:
     driver: bridge

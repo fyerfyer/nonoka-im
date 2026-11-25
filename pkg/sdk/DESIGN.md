@@ -7,6 +7,7 @@
 - Stable public types; generated protobuf types stay internal.
 - Explicit token sources, typed errors, cursor pagination and idempotent sends.
 - A run stream that survives reconnects and falls back to HTTP replay.
+- Topic-scoped keyword search and run-source lookup for citations.
 
 ## Layers
 
