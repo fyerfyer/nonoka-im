@@ -65,6 +65,17 @@ func (s *Store) GetRunByReplyMsgID(ctx context.Context, msgID int64) (*domain.Ag
 	return &run, nil
 }
 
+// GetRunByReplyClientMsgID is the fallback join used while the message worker
+// has not assigned the final msg_id yet (the HTTP send ACK is Kafka-only).
+func (s *Store) GetRunByReplyClientMsgID(ctx context.Context, clientMsgID string) (*domain.AgentRun, error) {
+	var row AgentRunRow
+	if err := s.db.WithContext(ctx).Where("reply_client_msg_id = ?", clientMsgID).Order("id desc").First(&row).Error; err != nil {
+		return nil, notFoundOrTransient(err, domain.ErrRunNotFound)
+	}
+	run := row.toDomain()
+	return &run, nil
+}
+
 func trimSnippet(s string) string {
 	const max = 240
 	if len(s) <= max {

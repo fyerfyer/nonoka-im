@@ -105,6 +105,7 @@ type AgentRunRow struct {
 	LeaseUntil       *time.Time `gorm:"column:lease_until"`
 	NextAttemptAt    *time.Time `gorm:"column:next_attempt_at"`
 	ReplyMsgID       int64      `gorm:"column:reply_msg_id"`
+	ReplyClientMsgID string     `gorm:"column:reply_client_msg_id;size:128;not null;default:''"`
 	CheckpointID     string     `gorm:"column:checkpoint_id;size:64"`
 	SideEffectAt     *time.Time `gorm:"column:side_effect_at"`
 	InputTokens      int        `gorm:"column:input_tokens"`
@@ -128,7 +129,7 @@ func agentRunRowFromDomain(run domain.AgentRun) AgentRunRow {
 		TopicSeq: run.TopicSeq, Status: run.Status, ErrorCode: run.ErrorCode, ErrorClass: run.ErrorClass,
 		LastError: run.LastError, Attempts: run.Attempts, AttemptID: run.AttemptID,
 		LeaseUntil: run.LeaseUntil, NextAttemptAt: run.NextAttemptAt, ReplyMsgID: run.ReplyMsgID,
-		CheckpointID: run.CheckpointID,
+		ReplyClientMsgID: run.ReplyClientMsgID, CheckpointID: run.CheckpointID,
 		SideEffectAt: run.SideEffectAt, InputTokens: run.InputTokens,
 		OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
 		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, TraceID: run.TraceID, RetryAfterAt: run.RetryAfterAt,
@@ -144,7 +145,7 @@ func (r AgentRunRow) toDomain() domain.AgentRun {
 		TopicSeq: r.TopicSeq, Status: r.Status, ErrorCode: r.ErrorCode, ErrorClass: r.ErrorClass,
 		LastError: r.LastError, Attempts: r.Attempts, AttemptID: r.AttemptID,
 		LeaseUntil: r.LeaseUntil, NextAttemptAt: r.NextAttemptAt, ReplyMsgID: r.ReplyMsgID,
-		CheckpointID: r.CheckpointID,
+		ReplyClientMsgID: r.ReplyClientMsgID, CheckpointID: r.CheckpointID,
 		SideEffectAt: r.SideEffectAt, InputTokens: r.InputTokens,
 		OutputTokens: r.OutputTokens, TotalTokens: r.TotalTokens,
 		ModelKey: r.ModelKey, EstimatedCostUSD: r.EstimatedCostUSD, TraceID: r.TraceID, RetryAfterAt: r.RetryAfterAt,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -84,5 +85,48 @@ func (c *Client) send(ctx context.Context, topic, content, clientID string, msgT
 	if err := json.NewDecoder(resp.Body).Decode(&ack); err != nil {
 		return 0, err
 	}
-	return ack.MsgID, nil
+	if ack.MsgID != 0 {
+		return ack.MsgID, nil
+	}
+	return c.lookupMessageID(ctx, topic, clientID, token), nil
+}
+
+// lookupMessageID resolves the durable msg_id after the HTTP send ACK, which
+// only confirms Kafka acceptance. The internal agent reply needs the real ID so
+// its run can be linked back from the chat message (citations/source chips).
+func (c *Client) lookupMessageID(ctx context.Context, topic, clientID, token string) int64 {
+	httpClient := c.HTTP
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	endpoint := fmt.Sprintf("%s/v1/message/pull?topic=%s&limit=50", strings.TrimRight(c.BaseURL, "/"), url.QueryEscape(topic))
+	for attempt := 0; attempt < 15; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return 0
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := httpClient.Do(req)
+		if err == nil {
+			var page struct {
+				Messages []struct {
+					MsgID       int64  `json:"msgId,string"`
+					ClientMsgID string `json:"clientMsgId"`
+				} `json:"messages"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&page)
+			resp.Body.Close()
+			for _, message := range page.Messages {
+				if message.ClientMsgID == clientID && message.MsgID != 0 {
+					return message.MsgID
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return 0
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return 0
 }

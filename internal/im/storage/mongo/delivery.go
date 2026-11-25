@@ -122,6 +122,19 @@ func (s *Store) RecallMessage(ctx context.Context, topic string, topicSeq uint64
 	if window > 0 {
 		filter["created_at"] = bson.M{"$gte": time.Now().Add(-window)}
 	}
+	if msgID == 0 {
+		// The recall request may identify a message by seq only. Resolve the
+		// msg_id so the derived search index can delete the exact document.
+		var row struct {
+			MsgID int64 `bson:"msg_id"`
+		}
+		for _, name := range []string{CollectionMessages, CollectionInboxes, CollectionMentionInboxes} {
+			if err := s.collection(name).FindOne(ctx, filter).Decode(&row); err == nil && row.MsgID != 0 {
+				msgID = row.MsgID
+				break
+			}
+		}
+	}
 	update := bson.M{"$set": bson.M{"recalled": true, "content": []byte(""), "recalled_at": time.Now()}}
 	matched := int64(0)
 	for _, name := range []string{CollectionMessages, CollectionInboxes, CollectionMentionInboxes} {

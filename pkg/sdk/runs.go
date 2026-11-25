@@ -21,6 +21,25 @@ func (r *RunsResource) Get(ctx context.Context, runID uint64) (*AgentRun, error)
 	return &out, nil
 }
 
+// ByReply resolves the agent answer message to its run and citations.
+func (r *RunsResource) ByReply(ctx context.Context, msgID int64) (*AgentRun, error) {
+	var out AgentRun
+	if err := r.http.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/agent-runs/by-reply/%d", msgID), nil, nil, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ByClient resolves the stable reply client_msg_id to its run and citations.
+func (r *RunsResource) ByClient(ctx context.Context, clientMsgID string) (*AgentRun, error) {
+	var out AgentRun
+	path := "/v1/agent-runs/by-client/" + url.PathEscape(clientMsgID)
+	if err := r.http.doJSON(ctx, http.MethodGet, path, nil, nil, &out, true); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Events returns replayable run events after a sequence number. The final
 // answer still comes from the IM message referenced by completed.replyMsgId.
 func (r *RunsResource) Events(ctx context.Context, runID, afterSeq uint64) ([]RunEvent, uint64, error) {

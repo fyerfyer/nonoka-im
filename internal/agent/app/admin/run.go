@@ -54,9 +54,18 @@ func (s *RunService) Get(ctx context.Context, userID int64, runID uint64) (*doma
 }
 
 // GetByReply resolves the agent answer message to its run and sources.
-func (s *RunService) GetByReply(ctx context.Context, userID, msgID int64) (*domain.AgentRun, []domain.AgentRunCitation, error) {
-	run, err := s.Store.GetRunByReplyMsgID(ctx, msgID)
-	if err != nil {
+func (s *RunService) GetByReply(ctx context.Context, userID, msgID int64, clientMsgID string) (*domain.AgentRun, []domain.AgentRunCitation, error) {
+	var (
+		run *domain.AgentRun
+		err error
+	)
+	if msgID > 0 {
+		run, err = s.Store.GetRunByReplyMsgID(ctx, msgID)
+	}
+	if (run == nil || err != nil) && clientMsgID != "" {
+		run, err = s.Store.GetRunByReplyClientMsgID(ctx, clientMsgID)
+	}
+	if err != nil || run == nil {
 		return nil, nil, ErrNotFound
 	}
 	if userID != run.ActorUserID && s.Authz.CanManageAgent(ctx, userID, run.AgentID) != nil {

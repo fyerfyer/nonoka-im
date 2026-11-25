@@ -153,6 +153,9 @@ func (s *QueryService) RecentMessages(ctx context.Context, userID int64, topic s
 // SearchMessages performs an authorized keyword search inside one topic.
 // Topic is mandatory: cross-conversation search is intentionally deferred.
 func (s *QueryService) SearchMessages(ctx context.Context, userID int64, topic, query string, filter domain.SearchFilter, limit, offset int) ([]domain.SearchHit, bool, error) {
+	if userID <= 0 {
+		return nil, false, ErrAuthRequired
+	}
 	if s.Search == nil {
 		return nil, false, ErrSearchUnavailable
 	}

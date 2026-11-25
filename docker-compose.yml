@@ -228,6 +228,9 @@ services:
       AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      AGENT_OUTBOX_ALERT_WEBHOOK: ${AGENT_OUTBOX_ALERT_WEBHOOK:-}
+      AGENT_OUTBOX_ALERT_MIN_INTERVAL: ${AGENT_OUTBOX_ALERT_MIN_INTERVAL:-15m}
+      AGENT_OUTBOX_ALERT_MAX_AGE: ${AGENT_OUTBOX_ALERT_MAX_AGE:-5m}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -257,6 +260,9 @@ services:
     environment:
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      AGENT_OUTBOX_ALERT_WEBHOOK: ${AGENT_OUTBOX_ALERT_WEBHOOK:-}
+      AGENT_OUTBOX_ALERT_MIN_INTERVAL: ${AGENT_OUTBOX_ALERT_MIN_INTERVAL:-15m}
+      AGENT_OUTBOX_ALERT_MAX_AGE: ${AGENT_OUTBOX_ALERT_MAX_AGE:-5m}
     command: ["/app/msgworker", "-conf", "/data/conf/config.docker.yaml"]
 
   # Agent worker runs as part of the full demo stack. Agents without their own

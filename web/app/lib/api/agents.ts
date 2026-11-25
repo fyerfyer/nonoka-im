@@ -254,6 +254,7 @@ export interface AgentRun {
   errorClass?: string;
   attempts?: number;
   replyMsgId?: number;
+  replyClientMsgId?: string;
   steps?: AgentRunStep[];
   toolInvocations?: ToolInvocation[];
   citations?: RunCitation[];
@@ -444,6 +445,8 @@ export const agentApi = {
     ),
   runByReply: (msgId: number) =>
     api.get<AgentRun>(`/v1/agent-runs/by-reply/${msgId}`),
+  runByClientMsgId: (clientMsgId: string) =>
+    api.get<AgentRun>(`/v1/agent-runs/by-client/${encodeURIComponent(clientMsgId)}`),
   runDetail: (id: number) => api.get<AgentRun>(`/v1/agent-runs/${id}`),
   runEvents: (id: number, afterSeq = 0) =>
     api.get<{ events: RunEvent[]; nextSeq: number }>(

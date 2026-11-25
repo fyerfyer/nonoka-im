@@ -69,7 +69,7 @@ test-deps-down:
 .PHONY: test-release-gate
 # release gate: claim fencing, stale-run recovery, outbox outage, shutdown release, search/citations
 test-release-gate: test-deps-up
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestOutbox_KafkaOutageNoLoss|TestReleaseRunOnShutdown|TestMessageSearch|TestAgentSearchTool' -count=1 -timeout 600s; \
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestAgentQueue_|TestOutbox_KafkaOutageNoLoss|TestReleaseRunOnShutdown|TestMessageSearch|TestAgentSearchTool' -count=1 -timeout 600s; \
 	status=$$?; $(MAKE) test-deps-down; exit $$status
 
 .PHONY: test-auth

@@ -294,29 +294,30 @@ type AgentShare struct {
 }
 
 type AgentRun struct {
-	ID              uint64           `json:"id"`
-	EventID         string           `json:"eventId"`
-	AgentID         int64            `json:"agentId"`
-	AgentVersion    int64            `json:"agentVersion"`
-	SessionID       uint64           `json:"sessionId,omitempty"`
-	ActorUserID     int64            `json:"actorUserId"`
-	Topic           string           `json:"topic"`
-	MsgID           int64            `json:"msgId"`
-	TopicSeq        uint64           `json:"topicSeq"`
-	Status          string           `json:"status"`
-	ErrorCode       string           `json:"errorCode,omitempty"`
-	ErrorClass      string           `json:"errorClass,omitempty"`
-	Attempts        int              `json:"attempts"`
-	ReplyMsgID      int64            `json:"replyMsgId,omitempty"`
-	Steps           []AgentRunStep   `json:"steps,omitempty"`
-	ToolInvocations []ToolInvocation `json:"toolInvocations,omitempty"`
-	InputTokens     int              `json:"inputTokens"`
-	OutputTokens    int              `json:"outputTokens"`
-	TotalTokens     int              `json:"totalTokens"`
-	TraceID         string           `json:"traceId,omitempty"`
-	CreatedAt       time.Time        `json:"createdAt"`
-	StartedAt       *time.Time       `json:"startedAt,omitempty"`
-	FinishedAt      *time.Time       `json:"finishedAt,omitempty"`
+	ID               uint64           `json:"id"`
+	EventID          string           `json:"eventId"`
+	AgentID          int64            `json:"agentId"`
+	AgentVersion     int64            `json:"agentVersion"`
+	SessionID        uint64           `json:"sessionId,omitempty"`
+	ActorUserID      int64            `json:"actorUserId"`
+	Topic            string           `json:"topic"`
+	MsgID            int64            `json:"msgId"`
+	TopicSeq         uint64           `json:"topicSeq"`
+	Status           string           `json:"status"`
+	ErrorCode        string           `json:"errorCode,omitempty"`
+	ErrorClass       string           `json:"errorClass,omitempty"`
+	Attempts         int              `json:"attempts"`
+	ReplyMsgID       int64            `json:"replyMsgId,omitempty"`
+	ReplyClientMsgID string           `json:"replyClientMsgId,omitempty"`
+	Steps            []AgentRunStep   `json:"steps,omitempty"`
+	ToolInvocations  []ToolInvocation `json:"toolInvocations,omitempty"`
+	InputTokens      int              `json:"inputTokens"`
+	OutputTokens     int              `json:"outputTokens"`
+	TotalTokens      int              `json:"totalTokens"`
+	TraceID          string           `json:"traceId,omitempty"`
+	CreatedAt        time.Time        `json:"createdAt"`
+	StartedAt        *time.Time       `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time       `json:"finishedAt,omitempty"`
 }
 
 type AgentRunStep struct {

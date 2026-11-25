@@ -36,7 +36,7 @@ func GetRunContext(ctx context.Context) (RunContext, bool) {
 }
 
 type SearchRequest struct {
-	Query string `json:"query" jsonschema:"required" jsonschema_description:"Keyword or phrase to search for."`
+	Query string `json:"query" jsonschema_description:"Keyword or phrase to search for; may be empty only when has_file is true."`
 	Limit int    `json:"limit,omitempty" jsonschema_description:"Maximum results (1-20, default 10)."`
 	// Since filters to messages sent at or after this unix time (seconds).
 	// Zero means no time filter.

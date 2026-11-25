@@ -62,11 +62,16 @@ export function MessageBubble({
   const citations = message.citations ?? loadedCitations;
 
   const loadSources = async () => {
-    if (!message.msgId || loadingSources) return;
+    if ((!message.msgId && !message.clientMsgId) || loadingSources) return;
     setLoadingSources(true);
     try {
-      const run = await agentApi.runByReply(Number(message.msgId));
-      setLoadedCitations(run.citations ?? []);
+      if (message.clientMsgId) {
+        const run = await agentApi.runByClientMsgId(message.clientMsgId);
+        setLoadedCitations(run.citations ?? []);
+      } else {
+        const run = await agentApi.runByReply(Number(message.msgId));
+        setLoadedCitations(run.citations ?? []);
+      }
     } catch {
       setLoadedCitations([]);
     } finally {
@@ -175,7 +180,7 @@ export function MessageBubble({
           {citations && citations.length > 0 && (
             <SourceChips citations={citations} onJump={onJumpToCitation} />
           )}
-          {!citations && senderIsAgent && !message.streaming && message.msgId && (
+          {!citations && senderIsAgent && !message.streaming && (message.msgId || message.clientMsgId) && (
             <button
               type="button"
               className="mt-1 text-[10px] text-muted-foreground underline-offset-2 hover:underline"

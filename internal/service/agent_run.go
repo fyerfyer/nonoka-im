@@ -59,7 +59,27 @@ func (s *AgentHTTP) RunByReply(c khttp.Context) error {
 		if err != nil || msgID <= 0 {
 			return invalidAgentInput("invalid message id")
 		}
-		run, citations, err := s.runs.GetByReply(ctx, extractUserIDFromContext(ctx), msgID)
+		clientMsgID := c.Request().URL.Query().Get("clientMsgId")
+		run, citations, err := s.runs.GetByReply(ctx, extractUserIDFromContext(ctx), msgID, clientMsgID)
+		if err != nil {
+			return err
+		}
+		view := runView(run)
+		view.Citations = citationViews(citations)
+		writeAgentJSON(w, http.StatusOK, view)
+		return nil
+	})
+}
+
+// RunByClient resolves the stable client_msg_id used by the agent reply. It is
+// the reliable join when the message worker has not assigned msg_id yet.
+func (s *AgentHTTP) RunByClient(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+		clientMsgID := c.Vars().Get("clientMsgId")
+		if clientMsgID == "" || len(clientMsgID) > 128 {
+			return invalidAgentInput("invalid client message id")
+		}
+		run, citations, err := s.runs.GetByReply(ctx, extractUserIDFromContext(ctx), 0, clientMsgID)
 		if err != nil {
 			return err
 		}

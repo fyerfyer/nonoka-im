@@ -36,25 +36,26 @@ const (
 // AgentRun is one triggered execution. EventID+AgentID is the idempotency
 // boundary for Kafka redelivery.
 type AgentRun struct {
-	ID            uint64
-	EventID       string
-	AgentID       int64
-	AgentVersion  int64
-	SessionID     uint64
-	ActorUserID   int64
-	Topic         string
-	MsgID         int64
-	TopicSeq      uint64
-	Status        string
-	ErrorCode     string
-	ErrorClass    string
-	LastError     string
-	Attempts      int
-	AttemptID     string
-	LeaseUntil    *time.Time
-	NextAttemptAt *time.Time
-	ReplyMsgID    int64
-	CheckpointID  string
+	ID               uint64
+	EventID          string
+	AgentID          int64
+	AgentVersion     int64
+	SessionID        uint64
+	ActorUserID      int64
+	Topic            string
+	MsgID            int64
+	TopicSeq         uint64
+	Status           string
+	ErrorCode        string
+	ErrorClass       string
+	LastError        string
+	Attempts         int
+	AttemptID        string
+	LeaseUntil       *time.Time
+	NextAttemptAt    *time.Time
+	ReplyMsgID       int64
+	ReplyClientMsgID string
+	CheckpointID     string
 	// SideEffectAt records that a write tool already produced an external
 	// effect during this run. Retryable failures after this point are forced
 	// terminal until an operator explicitly acknowledges the risk.

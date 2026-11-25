@@ -15,13 +15,21 @@ import (
 func FromConfig(c *conf.Search) *Client {
 	url := ""
 	index := ""
+	enabled := true
 	timeout := 5 * time.Second
 	if c != nil {
 		url = c.GetUrl()
 		index = c.GetIndex()
+		enabled = c.GetEnabled()
 		if c.GetTimeout() != nil && c.GetTimeout().AsDuration() > 0 {
 			timeout = c.GetTimeout().AsDuration()
 		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("MEILISEARCH_ENABLED")); raw != "" {
+		enabled = raw == "1" || strings.EqualFold(raw, "true")
+	}
+	if !enabled {
+		return &Client{}
 	}
 	if v := strings.TrimSpace(os.Getenv("MEILISEARCH_URL")); v != "" {
 		url = v

@@ -415,7 +415,7 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 		snapshot = &domain.AgentContextSnapshot{SessionID: run.SessionID, LastTurnID: res.SummaryThroughTurnID, AgentVersion: agent.Version, Summary: res.Summary, SummaryTokens: agentcontext.EstimateTokens(res.Summary)}
 	}
 	values := map[string]interface{}{
-		"status": domain.RunCompleted, "reply_msg_id": replyMsgID,
+		"status": domain.RunCompleted, "reply_msg_id": replyMsgID, "reply_client_msg_id": clientID,
 		"model_key": agent.Model.ModelKey, "finished_at": time.Now(),
 	}
 	// The reply is already delivered at this point; losing the commit would

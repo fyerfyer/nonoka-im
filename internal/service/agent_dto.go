@@ -90,6 +90,7 @@ type RunView struct {
 	LeaseUntil       *time.Time           `json:"leaseUntil,omitempty"`
 	NextAttemptAt    *time.Time           `json:"nextAttemptAt,omitempty"`
 	ReplyMsgID       int64                `json:"replyMsgId,omitempty"`
+	ReplyClientMsgID string               `json:"replyClientMsgId,omitempty"`
 	CheckpointID     string               `json:"checkpointId,omitempty"`
 	Steps            []AgentRunStepView   `json:"steps,omitempty"`
 	ToolInvocations  []ToolInvocationView `json:"toolInvocations,omitempty"`
@@ -209,7 +210,8 @@ func runView(run *domain.AgentRun) RunView {
 		SessionID: run.SessionID, ActorUserID: run.ActorUserID, Topic: run.Topic, MsgID: run.MsgID,
 		TopicSeq: run.TopicSeq, Status: run.Status, ErrorCode: run.ErrorCode, ErrorClass: run.ErrorClass,
 		Attempts: run.Attempts, LeaseUntil: run.LeaseUntil, NextAttemptAt: run.NextAttemptAt,
-		ReplyMsgID: run.ReplyMsgID, CheckpointID: run.CheckpointID, SideEffectAt: run.SideEffectAt,
+		ReplyMsgID: run.ReplyMsgID, ReplyClientMsgID: run.ReplyClientMsgID,
+		CheckpointID: run.CheckpointID, SideEffectAt: run.SideEffectAt,
 		InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
 		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, TraceID: run.TraceID,
 		RetryAfterAt: run.RetryAfterAt, LastError: app.PublicFailureMessage(run.ErrorCode, run.LastError),
