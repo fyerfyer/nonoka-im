@@ -9,6 +9,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 import { useAgentNames } from "@/hooks/useAgentNames";
 import { MentionMember } from "@/lib/mentions";
+import type { RunCitation } from "@/lib/api/agents";
 
 const NEAR_BOTTOM_PX = 100;
 // Cap the "Agent is processing" hint so a silently-failed run never leaves
@@ -22,6 +23,7 @@ interface MessageListProps {
   onLoadMore?: () => void;
   onRecall?: (message: ChatMessage) => void;
   onRetry?: (message: ChatMessage) => void;
+  onJumpToSeq?: (seq: number) => Promise<void>;
   members?: MentionMember[];
 }
 
@@ -32,6 +34,7 @@ export function MessageList({
   onLoadMore,
   onRecall,
   onRetry,
+  onJumpToSeq,
   members,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -159,6 +162,25 @@ export function MessageList({
     };
   }, [onLoadMore, loadingMore, conversation?.topic]);
 
+  const jumpToCitation = async (citation: RunCitation) => {
+    const selector = `[data-msg-seq="${citation.topicSeq}"]`;
+    let target = scrollRef.current?.querySelector<HTMLElement>(selector);
+    if (!target && onJumpToSeq) {
+      await onJumpToSeq(Number(citation.topicSeq));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      target = scrollRef.current?.querySelector<HTMLElement>(selector);
+    }
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const previous = target.style.outline;
+    target.style.outline = "2px solid var(--primary)";
+    target.style.outlineOffset = "3px";
+    setTimeout(() => {
+      target!.style.outline = previous;
+      target!.style.outlineOffset = "";
+    }, 1600);
+  };
+
   const groupedMessages = groupByDate(messages);
 
   if (!conversation) {
@@ -191,24 +213,29 @@ export function MessageList({
                 conversation.type === "group" &&
                 !isMe &&
                 (!prev || prev.senderId !== msg.senderId);
-              const sender = showSender
-                ? resolveSender(msg.senderId, conversation, memberNames, agentNames)
-                : undefined;
+              const sender = resolveSender(msg.senderId, conversation, memberNames, agentNames);
+              const senderName = showSender ? sender.name : undefined;
               return (
-                <MessageBubble
+                <div
                   key={msg.clientMsgId}
-                  message={msg}
-                  isMe={isMe}
-                  showSender={showSender}
-                  senderName={sender?.name}
-                  senderIsAgent={sender?.isAgent}
-                  members={members}
-                  currentUserId={
-                    currentUser ? Number(currentUser.userId) : undefined
-                  }
-                  onRecall={() => onRecall?.(msg)}
-                  onRetry={() => onRetry?.(msg)}
-                />
+                  data-msg-id={msg.msgId}
+                  data-msg-seq={msg.topicSeq}
+                >
+                  <MessageBubble
+                    message={msg}
+                    isMe={isMe}
+                    showSender={showSender}
+                    senderName={senderName}
+                    senderIsAgent={sender.isAgent}
+                    members={members}
+                    currentUserId={
+                      currentUser ? Number(currentUser.userId) : undefined
+                    }
+                    onRecall={() => onRecall?.(msg)}
+                    onRetry={() => onRetry?.(msg)}
+                    onJumpToCitation={jumpToCitation}
+                  />
+                </div>
               );
             })}
           </div>

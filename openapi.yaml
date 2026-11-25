@@ -286,6 +286,56 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.PullReply'
+    /v1/message/search:
+        get:
+            tags:
+                - MessageService
+            description: |-
+                SearchMessages performs keyword search inside one conversation. Search is
+                 optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+            operationId: MessageService_SearchMessages
+            parameters:
+                - name: topic
+                  in: query
+                  schema:
+                    type: string
+                - name: query
+                  in: query
+                  schema:
+                    type: string
+                - name: senderId
+                  in: query
+                  schema:
+                    type: string
+                - name: since
+                  in: query
+                  schema:
+                    type: string
+                - name: until
+                  in: query
+                  schema:
+                    type: string
+                - name: hasFile
+                  in: query
+                  schema:
+                    type: boolean
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: offset
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.im.v1.SearchMessagesReply'
     /v1/message/send:
         post:
             tags:
@@ -548,6 +598,36 @@ components:
                     type: string
                 password:
                     type: string
+        api.im.v1.SearchMessage:
+            type: object
+            properties:
+                msgId:
+                    type: string
+                topic:
+                    type: string
+                topicSeq:
+                    type: string
+                senderId:
+                    type: string
+                timestamp:
+                    type: string
+                msgType:
+                    type: integer
+                    format: int32
+                hasFile:
+                    type: boolean
+                snippet:
+                    type: string
+            description: SearchMessage is one authorized search hit.
+        api.im.v1.SearchMessagesReply:
+            type: object
+            properties:
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.im.v1.SearchMessage'
+                hasMore:
+                    type: boolean
         api.im.v1.SearchUsersReply:
             type: object
             properties:

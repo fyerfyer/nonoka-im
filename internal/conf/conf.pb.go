@@ -32,6 +32,7 @@ type Bootstrap struct {
 	Msgworker     *MsgworkerConfig       `protobuf:"bytes,6,opt,name=msgworker,proto3" json:"msgworker,omitempty"`
 	AgentWorker   *AgentWorker           `protobuf:"bytes,7,opt,name=agent_worker,json=agentWorker,proto3" json:"agent_worker,omitempty"`
 	Observability *Observability         `protobuf:"bytes,8,opt,name=observability,proto3" json:"observability,omitempty"`
+	Search        *Search                `protobuf:"bytes,9,opt,name=search,proto3" json:"search,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,6 +119,13 @@ func (x *Bootstrap) GetAgentWorker() *AgentWorker {
 func (x *Bootstrap) GetObservability() *Observability {
 	if x != nil {
 		return x.Observability
+	}
+	return nil
+}
+
+func (x *Bootstrap) GetSearch() *Search {
+	if x != nil {
+		return x.Search
 	}
 	return nil
 }
@@ -808,6 +816,102 @@ func (x *Observability) GetOtlpTracesEndpoint() string {
 	return ""
 }
 
+// Search configures the optional Meilisearch-backed message index. Leaving URL
+// empty disables search without affecting message delivery.
+type Search struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Url     string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	Index   string                 `protobuf:"bytes,3,opt,name=index,proto3" json:"index,omitempty"`
+	Timeout *durationpb.Duration   `protobuf:"bytes,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// MaxContentBytes caps the text sent to the search index. Longer messages
+	// keep their full body in MongoDB but are searchable only up to this prefix.
+	MaxContentBytes int32                `protobuf:"varint,5,opt,name=max_content_bytes,json=maxContentBytes,proto3" json:"max_content_bytes,omitempty"`
+	RelayInterval   *durationpb.Duration `protobuf:"bytes,6,opt,name=relay_interval,json=relayInterval,proto3" json:"relay_interval,omitempty"`
+	RelayBatchSize  int32                `protobuf:"varint,7,opt,name=relay_batch_size,json=relayBatchSize,proto3" json:"relay_batch_size,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Search) Reset() {
+	*x = Search{}
+	mi := &file_conf_conf_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Search) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Search) ProtoMessage() {}
+
+func (x *Search) ProtoReflect() protoreflect.Message {
+	mi := &file_conf_conf_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Search.ProtoReflect.Descriptor instead.
+func (*Search) Descriptor() ([]byte, []int) {
+	return file_conf_conf_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *Search) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *Search) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *Search) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *Search) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+func (x *Search) GetMaxContentBytes() int32 {
+	if x != nil {
+		return x.MaxContentBytes
+	}
+	return 0
+}
+
+func (x *Search) GetRelayInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RelayInterval
+	}
+	return nil
+}
+
+func (x *Search) GetRelayBatchSize() int32 {
+	if x != nil {
+		return x.RelayBatchSize
+	}
+	return 0
+}
+
 // AgentWorker configures the agent job application. Kafka and Data sections
 // are reused; secrets stay environment-only.
 type AgentWorker struct {
@@ -833,7 +937,7 @@ type AgentWorker struct {
 
 func (x *AgentWorker) Reset() {
 	*x = AgentWorker{}
-	mi := &file_conf_conf_proto_msgTypes[11]
+	mi := &file_conf_conf_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -845,7 +949,7 @@ func (x *AgentWorker) String() string {
 func (*AgentWorker) ProtoMessage() {}
 
 func (x *AgentWorker) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[11]
+	mi := &file_conf_conf_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -858,7 +962,7 @@ func (x *AgentWorker) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentWorker.ProtoReflect.Descriptor instead.
 func (*AgentWorker) Descriptor() ([]byte, []int) {
-	return file_conf_conf_proto_rawDescGZIP(), []int{11}
+	return file_conf_conf_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AgentWorker) GetRunWorkers() int32 {
@@ -977,7 +1081,7 @@ type Server_HTTP struct {
 
 func (x *Server_HTTP) Reset() {
 	*x = Server_HTTP{}
-	mi := &file_conf_conf_proto_msgTypes[12]
+	mi := &file_conf_conf_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -989,7 +1093,7 @@ func (x *Server_HTTP) String() string {
 func (*Server_HTTP) ProtoMessage() {}
 
 func (x *Server_HTTP) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[12]
+	mi := &file_conf_conf_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1037,7 +1141,7 @@ type Server_GRPC struct {
 
 func (x *Server_GRPC) Reset() {
 	*x = Server_GRPC{}
-	mi := &file_conf_conf_proto_msgTypes[13]
+	mi := &file_conf_conf_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1049,7 +1153,7 @@ func (x *Server_GRPC) String() string {
 func (*Server_GRPC) ProtoMessage() {}
 
 func (x *Server_GRPC) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[13]
+	mi := &file_conf_conf_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1203,7 @@ type Data_Database struct {
 
 func (x *Data_Database) Reset() {
 	*x = Data_Database{}
-	mi := &file_conf_conf_proto_msgTypes[14]
+	mi := &file_conf_conf_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1111,7 +1215,7 @@ func (x *Data_Database) String() string {
 func (*Data_Database) ProtoMessage() {}
 
 func (x *Data_Database) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[14]
+	mi := &file_conf_conf_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1174,7 +1278,7 @@ type Data_Redis struct {
 
 func (x *Data_Redis) Reset() {
 	*x = Data_Redis{}
-	mi := &file_conf_conf_proto_msgTypes[15]
+	mi := &file_conf_conf_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1186,7 +1290,7 @@ func (x *Data_Redis) String() string {
 func (*Data_Redis) ProtoMessage() {}
 
 func (x *Data_Redis) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[15]
+	mi := &file_conf_conf_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1349,7 @@ type Data_MongoDB struct {
 
 func (x *Data_MongoDB) Reset() {
 	*x = Data_MongoDB{}
-	mi := &file_conf_conf_proto_msgTypes[16]
+	mi := &file_conf_conf_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1257,7 +1361,7 @@ func (x *Data_MongoDB) String() string {
 func (*Data_MongoDB) ProtoMessage() {}
 
 func (x *Data_MongoDB) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[16]
+	mi := &file_conf_conf_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1326,7 +1430,7 @@ type Data_Kafka struct {
 
 func (x *Data_Kafka) Reset() {
 	*x = Data_Kafka{}
-	mi := &file_conf_conf_proto_msgTypes[17]
+	mi := &file_conf_conf_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1442,7 @@ func (x *Data_Kafka) String() string {
 func (*Data_Kafka) ProtoMessage() {}
 
 func (x *Data_Kafka) ProtoReflect() protoreflect.Message {
-	mi := &file_conf_conf_proto_msgTypes[17]
+	mi := &file_conf_conf_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1617,7 @@ var File_conf_conf_proto protoreflect.FileDescriptor
 const file_conf_conf_proto_rawDesc = "" +
 	"\n" +
 	"\x0fconf/conf.proto\x12\n" +
-	"kratos.api\x1a\x1egoogle/protobuf/duration.proto\"\xa2\x03\n" +
+	"kratos.api\x1a\x1egoogle/protobuf/duration.proto\"\xce\x03\n" +
 	"\tBootstrap\x12*\n" +
 	"\x06server\x18\x01 \x01(\v2\x12.kratos.api.ServerR\x06server\x12$\n" +
 	"\x04data\x18\x02 \x01(\v2\x10.kratos.api.DataR\x04data\x12$\n" +
@@ -1522,7 +1626,8 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\agateway\x18\x05 \x01(\v2\x19.kratos.api.GatewayConfigR\agateway\x129\n" +
 	"\tmsgworker\x18\x06 \x01(\v2\x1b.kratos.api.MsgworkerConfigR\tmsgworker\x12:\n" +
 	"\fagent_worker\x18\a \x01(\v2\x17.kratos.api.AgentWorkerR\vagentWorker\x12?\n" +
-	"\robservability\x18\b \x01(\v2\x19.kratos.api.ObservabilityR\robservability\"\xb8\x02\n" +
+	"\robservability\x18\b \x01(\v2\x19.kratos.api.ObservabilityR\robservability\x12*\n" +
+	"\x06search\x18\t \x01(\v2\x12.kratos.api.SearchR\x06search\"\xb8\x02\n" +
 	"\x06Server\x12+\n" +
 	"\x04http\x18\x01 \x01(\v2\x17.kratos.api.Server.HTTPR\x04http\x12+\n" +
 	"\x04grpc\x18\x02 \x01(\v2\x17.kratos.api.Server.GRPCR\x04grpc\x1ai\n" +
@@ -1625,7 +1730,15 @@ const file_conf_conf_proto_rawDesc = "" +
 	"\vhealth_addr\x18\x01 \x01(\tR\n" +
 	"healthAddr\x12!\n" +
 	"\fmetrics_addr\x18\x02 \x01(\tR\vmetricsAddr\x120\n" +
-	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\xe6\x05\n" +
+	"\x14otlp_traces_endpoint\x18\x03 \x01(\tR\x12otlpTracesEndpoint\"\x97\x02\n" +
+	"\x06Search\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x14\n" +
+	"\x05index\x18\x03 \x01(\tR\x05index\x123\n" +
+	"\atimeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12*\n" +
+	"\x11max_content_bytes\x18\x05 \x01(\x05R\x0fmaxContentBytes\x12@\n" +
+	"\x0erelay_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\rrelayInterval\x12(\n" +
+	"\x10relay_batch_size\x18\a \x01(\x05R\x0erelayBatchSize\"\xe6\x05\n" +
 	"\vAgentWorker\x12\x1f\n" +
 	"\vrun_workers\x18\x01 \x01(\x05R\n" +
 	"runWorkers\x12:\n" +
@@ -1659,7 +1772,7 @@ func file_conf_conf_proto_rawDescGZIP() []byte {
 	return file_conf_conf_proto_rawDescData
 }
 
-var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_conf_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_conf_conf_proto_goTypes = []any{
 	(*Bootstrap)(nil),           // 0: kratos.api.Bootstrap
 	(*Server)(nil),              // 1: kratos.api.Server
@@ -1672,14 +1785,15 @@ var file_conf_conf_proto_goTypes = []any{
 	(*Gateway)(nil),             // 8: kratos.api.Gateway
 	(*MsgworkerConfig)(nil),     // 9: kratos.api.MsgworkerConfig
 	(*Observability)(nil),       // 10: kratos.api.Observability
-	(*AgentWorker)(nil),         // 11: kratos.api.AgentWorker
-	(*Server_HTTP)(nil),         // 12: kratos.api.Server.HTTP
-	(*Server_GRPC)(nil),         // 13: kratos.api.Server.GRPC
-	(*Data_Database)(nil),       // 14: kratos.api.Data.Database
-	(*Data_Redis)(nil),          // 15: kratos.api.Data.Redis
-	(*Data_MongoDB)(nil),        // 16: kratos.api.Data.MongoDB
-	(*Data_Kafka)(nil),          // 17: kratos.api.Data.Kafka
-	(*durationpb.Duration)(nil), // 18: google.protobuf.Duration
+	(*Search)(nil),              // 11: kratos.api.Search
+	(*AgentWorker)(nil),         // 12: kratos.api.AgentWorker
+	(*Server_HTTP)(nil),         // 13: kratos.api.Server.HTTP
+	(*Server_GRPC)(nil),         // 14: kratos.api.Server.GRPC
+	(*Data_Database)(nil),       // 15: kratos.api.Data.Database
+	(*Data_Redis)(nil),          // 16: kratos.api.Data.Redis
+	(*Data_MongoDB)(nil),        // 17: kratos.api.Data.MongoDB
+	(*Data_Kafka)(nil),          // 18: kratos.api.Data.Kafka
+	(*durationpb.Duration)(nil), // 19: google.protobuf.Duration
 }
 var file_conf_conf_proto_depIdxs = []int32{
 	1,  // 0: kratos.api.Bootstrap.server:type_name -> kratos.api.Server
@@ -1688,50 +1802,53 @@ var file_conf_conf_proto_depIdxs = []int32{
 	7,  // 3: kratos.api.Bootstrap.dispatch:type_name -> kratos.api.Dispatch
 	5,  // 4: kratos.api.Bootstrap.gateway:type_name -> kratos.api.GatewayConfig
 	9,  // 5: kratos.api.Bootstrap.msgworker:type_name -> kratos.api.MsgworkerConfig
-	11, // 6: kratos.api.Bootstrap.agent_worker:type_name -> kratos.api.AgentWorker
+	12, // 6: kratos.api.Bootstrap.agent_worker:type_name -> kratos.api.AgentWorker
 	10, // 7: kratos.api.Bootstrap.observability:type_name -> kratos.api.Observability
-	12, // 8: kratos.api.Server.http:type_name -> kratos.api.Server.HTTP
-	13, // 9: kratos.api.Server.grpc:type_name -> kratos.api.Server.GRPC
-	14, // 10: kratos.api.Data.database:type_name -> kratos.api.Data.Database
-	15, // 11: kratos.api.Data.redis:type_name -> kratos.api.Data.Redis
-	16, // 12: kratos.api.Data.mongodb:type_name -> kratos.api.Data.MongoDB
-	17, // 13: kratos.api.Data.kafka:type_name -> kratos.api.Data.Kafka
-	18, // 14: kratos.api.Auth.token_ttl:type_name -> google.protobuf.Duration
-	18, // 15: kratos.api.Auth.refresh_token_ttl:type_name -> google.protobuf.Duration
-	18, // 16: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
-	18, // 17: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
-	18, // 18: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
-	18, // 19: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
-	18, // 20: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
-	6,  // 21: kratos.api.GatewayConfig.msg_rate_limit:type_name -> kratos.api.RateLimit
-	4,  // 22: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
-	18, // 23: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
-	18, // 24: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
-	18, // 25: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
-	18, // 26: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
-	18, // 27: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
-	18, // 28: kratos.api.AgentWorker.run_timeout:type_name -> google.protobuf.Duration
-	18, // 29: kratos.api.AgentWorker.lease:type_name -> google.protobuf.Duration
-	18, // 30: kratos.api.AgentWorker.heartbeat:type_name -> google.protobuf.Duration
-	18, // 31: kratos.api.AgentWorker.queued_poll:type_name -> google.protobuf.Duration
-	18, // 32: kratos.api.AgentWorker.sweep_interval:type_name -> google.protobuf.Duration
-	18, // 33: kratos.api.AgentWorker.dispatch_timeout:type_name -> google.protobuf.Duration
-	18, // 34: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
-	18, // 35: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	18, // 36: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
-	18, // 37: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
-	18, // 38: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
-	18, // 39: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
-	18, // 40: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
-	18, // 41: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
-	18, // 42: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
-	18, // 43: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
-	18, // 44: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
-	45, // [45:45] is the sub-list for method output_type
-	45, // [45:45] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	11, // 8: kratos.api.Bootstrap.search:type_name -> kratos.api.Search
+	13, // 9: kratos.api.Server.http:type_name -> kratos.api.Server.HTTP
+	14, // 10: kratos.api.Server.grpc:type_name -> kratos.api.Server.GRPC
+	15, // 11: kratos.api.Data.database:type_name -> kratos.api.Data.Database
+	16, // 12: kratos.api.Data.redis:type_name -> kratos.api.Data.Redis
+	17, // 13: kratos.api.Data.mongodb:type_name -> kratos.api.Data.MongoDB
+	18, // 14: kratos.api.Data.kafka:type_name -> kratos.api.Data.Kafka
+	19, // 15: kratos.api.Auth.token_ttl:type_name -> google.protobuf.Duration
+	19, // 16: kratos.api.Auth.refresh_token_ttl:type_name -> google.protobuf.Duration
+	19, // 17: kratos.api.GatewayConfig.heartbeat_interval:type_name -> google.protobuf.Duration
+	19, // 18: kratos.api.GatewayConfig.heartbeat_timeout:type_name -> google.protobuf.Duration
+	19, // 19: kratos.api.GatewayConfig.read_timeout:type_name -> google.protobuf.Duration
+	19, // 20: kratos.api.GatewayConfig.write_timeout:type_name -> google.protobuf.Duration
+	19, // 21: kratos.api.GatewayConfig.recall_window:type_name -> google.protobuf.Duration
+	6,  // 22: kratos.api.GatewayConfig.msg_rate_limit:type_name -> kratos.api.RateLimit
+	4,  // 23: kratos.api.Dispatch.gateways:type_name -> kratos.api.GatewayNode
+	19, // 24: kratos.api.Dispatch.heartbeat_interval:type_name -> google.protobuf.Duration
+	19, // 25: kratos.api.Dispatch.node_ttl:type_name -> google.protobuf.Duration
+	19, // 26: kratos.api.MsgworkerConfig.session_cache_ttl:type_name -> google.protobuf.Duration
+	19, // 27: kratos.api.MsgworkerConfig.receipt_batch_timeout:type_name -> google.protobuf.Duration
+	19, // 28: kratos.api.MsgworkerConfig.group_batch_timeout:type_name -> google.protobuf.Duration
+	19, // 29: kratos.api.Search.timeout:type_name -> google.protobuf.Duration
+	19, // 30: kratos.api.Search.relay_interval:type_name -> google.protobuf.Duration
+	19, // 31: kratos.api.AgentWorker.run_timeout:type_name -> google.protobuf.Duration
+	19, // 32: kratos.api.AgentWorker.lease:type_name -> google.protobuf.Duration
+	19, // 33: kratos.api.AgentWorker.heartbeat:type_name -> google.protobuf.Duration
+	19, // 34: kratos.api.AgentWorker.queued_poll:type_name -> google.protobuf.Duration
+	19, // 35: kratos.api.AgentWorker.sweep_interval:type_name -> google.protobuf.Duration
+	19, // 36: kratos.api.AgentWorker.dispatch_timeout:type_name -> google.protobuf.Duration
+	19, // 37: kratos.api.Server.HTTP.timeout:type_name -> google.protobuf.Duration
+	19, // 38: kratos.api.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	19, // 39: kratos.api.Data.Database.conn_max_lifetime:type_name -> google.protobuf.Duration
+	19, // 40: kratos.api.Data.Redis.read_timeout:type_name -> google.protobuf.Duration
+	19, // 41: kratos.api.Data.Redis.write_timeout:type_name -> google.protobuf.Duration
+	19, // 42: kratos.api.Data.Kafka.batch_timeout:type_name -> google.protobuf.Duration
+	19, // 43: kratos.api.Data.Kafka.write_timeout:type_name -> google.protobuf.Duration
+	19, // 44: kratos.api.Data.Kafka.read_timeout:type_name -> google.protobuf.Duration
+	19, // 45: kratos.api.Data.Kafka.max_wait:type_name -> google.protobuf.Duration
+	19, // 46: kratos.api.Data.Kafka.commit_interval:type_name -> google.protobuf.Duration
+	19, // 47: kratos.api.Data.Kafka.commit_flush_interval:type_name -> google.protobuf.Duration
+	48, // [48:48] is the sub-list for method output_type
+	48, // [48:48] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_conf_conf_proto_init() }
@@ -1745,7 +1862,7 @@ func file_conf_conf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_conf_conf_proto_rawDesc), len(file_conf_conf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

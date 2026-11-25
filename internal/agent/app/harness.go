@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	agentcontext "nonoka-im/internal/agent/context"
 	"nonoka-im/internal/agent/domain"
+	agentmetrics "nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/authz"
@@ -30,6 +31,7 @@ type RunStore interface {
 	CompleteRun(ctx context.Context, run *domain.AgentRun, turn *domain.AgentTurn, snapshot *domain.AgentContextSnapshot, values map[string]interface{}) error
 	FailRun(ctx context.Context, run *domain.AgentRun, failure domain.Failure, maxAttempts int, update map[string]interface{}) error
 	UpdateRunFenced(ctx context.Context, runID uint64, attemptID string, values map[string]interface{}) error
+	ListRunCitations(ctx context.Context, runID uint64) ([]domain.AgentRunCitation, error)
 	CreateApproval(ctx context.Context, row *domain.AgentApproval) error
 	// ParkRunForApproval atomically records the approval and parks the run.
 	ParkRunForApproval(ctx context.Context, run *domain.AgentRun, approval *domain.AgentApproval, checkpointID string) (*domain.AgentApproval, error)
@@ -46,6 +48,7 @@ type Harness struct {
 	MaxAttempts int
 	Stream      realtime.RunEventSink
 	Audience    RunAudience
+	Metrics     *agentmetrics.Metrics
 	Log         *log.Helper
 }
 
@@ -183,7 +186,9 @@ func (h *Harness) parkForApproval(parent context.Context, ev messaging.MessageEv
 		AttemptID:   run.AttemptID,
 		CreatedAt:   now,
 	}
-	saved, err := h.Store.ParkRunForApproval(ctx, run, approval, checkpointIDForRun(run.ID))
+	parkCtx, parkSpan := otel.Tracer("nonoka-im/agent/harness").Start(ctx, "agent.approval.park")
+	saved, err := h.Store.ParkRunForApproval(parkCtx, run, approval, checkpointIDForRun(run.ID))
+	parkSpan.End()
 	if err != nil {
 		return err
 	}
@@ -334,6 +339,9 @@ func (h *Harness) failRun(parent context.Context, run *domain.AgentRun, err erro
 	case port.ClassRateLimit:
 		code = "rate_limited"
 	}
+	if h.Metrics != nil {
+		h.Metrics.ObserveRunFailure(string(class), code)
+	}
 	if ferr := h.Store.FailRun(ctx, run, domain.Failure{
 		Class: string(class), Code: code, Message: err.Error(), Retryable: retryable,
 		RetryAfter: failureRetryAfter(err),
@@ -391,7 +399,9 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 	sendCtx := tools.WithRunContext(ctx, tools.RunContext{AgentID: agent.ID, BotID: agent.BotID, ActorUserID: ev.SenderID, Topic: ev.Topic, EventID: ev.EventID})
 	sendCtx, sendCancel := context.WithTimeout(context.WithoutCancel(sendCtx), 10*time.Second)
 	defer sendCancel()
-	replyMsgID, err := h.Sender.SendWithReceipt(sendCtx, ev.Topic, res.Text, clientID)
+	replyCtx, replySpan := otel.Tracer("nonoka-im/agent/harness").Start(sendCtx, "agent.reply.submit")
+	replyMsgID, err := h.Sender.SendWithReceipt(replyCtx, ev.Topic, res.Text, clientID)
+	replySpan.End()
 	if err != nil {
 		class, retryable := port.Classify(err)
 		_ = h.Store.FailRun(finishCtx, run, domain.Failure{
@@ -423,6 +433,14 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 		Type: realtime.RunCompleted, ReplyMsgID: replyMsgID, Status: domain.RunCompleted,
 		InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens,
 		ClientMessageID: clientID,
+	}
+	if citations, err := h.Store.ListRunCitations(finishCtx, run.ID); err == nil {
+		completed.Citations = toRunCitations(citations)
+	}
+	if h.Metrics != nil {
+		cost := (float64(res.Usage.InputTokens)*agent.Model.InputPricePerMTok +
+			float64(res.Usage.OutputTokens)*agent.Model.OutputPricePerMTok) / 1_000_000
+		h.Metrics.ObserveUsage(agent.ID, agent.Model.ModelKey, res.Usage.InputTokens, res.Usage.OutputTokens, cost)
 	}
 	h.emitRunEvent(ctx, run, agent, completed, false)
 	return nil
@@ -516,6 +534,20 @@ func failureRetryAt(err error) string {
 		return time.Now().Add(d).UTC().Format(time.RFC3339)
 	}
 	return ""
+}
+
+func toRunCitations(rows []domain.AgentRunCitation) []realtime.RunCitation {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]realtime.RunCitation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, realtime.RunCitation{
+			MsgID: row.MsgID, Topic: row.Topic, TopicSeq: row.TopicSeq,
+			SenderID: row.SenderID, Snippet: row.Snippet,
+		})
+	}
+	return out
 }
 
 func stableClientID(eventID string, agentID int64) string {

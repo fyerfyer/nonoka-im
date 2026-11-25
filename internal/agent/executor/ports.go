@@ -20,6 +20,7 @@ type Store interface {
 	ApprovalForRun(ctx context.Context, runID uint64) (*domain.AgentApproval, error)
 	ConsumeApproval(ctx context.Context, id uint64, attemptID string) (string, bool, error)
 	UpdateRunFenced(ctx context.Context, id uint64, attemptID string, values map[string]interface{}) error
+	ReleaseRun(ctx context.Context, id uint64, attemptID string) (bool, error)
 	DeleteCheckpoint(ctx context.Context, checkpointID string) error
 	FailRun(ctx context.Context, run *domain.AgentRun, failure domain.Failure, maxAttempts int, update map[string]interface{}) error
 }

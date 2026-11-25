@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -112,6 +113,35 @@ func (r *MessagesResource) Pull(ctx context.Context, req PullRequest) (*PullResu
 		})
 	}
 	return &PullResult{Messages: out, HasMore: reply.GetHasMore(), NextSeq: reply.GetNextSeq()}, nil
+}
+
+// Search performs a keyword search inside one topic. It returns
+// ErrSearchUnavailable when the deployment has no search backend.
+func (r *MessagesResource) Search(ctx context.Context, req SearchRequest) (*SearchResult, error) {
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	reply, err := r.proto.SearchMessages(ctx, &v1.SearchMessagesRequest{
+		Topic: req.Topic, Query: req.Query, SenderId: req.SenderID,
+		Since: req.Since, Until: req.Until, HasFile: req.HasFile,
+		Limit: req.Limit, Offset: req.Offset,
+	})
+	if err != nil {
+		mapped := apiErrorFromKratos(err)
+		if IsCode(mapped, "SEARCH_UNAVAILABLE") {
+			return nil, fmt.Errorf("%w: %v", ErrSearchUnavailable, mapped)
+		}
+		return nil, mapped
+	}
+	out := &SearchResult{HasMore: reply.GetHasMore(), Hits: make([]*SearchHit, 0, len(reply.GetMessages()))}
+	for _, hit := range reply.GetMessages() {
+		out.Hits = append(out.Hits, &SearchHit{
+			MessageID: hit.GetMsgId(), Topic: hit.GetTopic(), TopicSeq: hit.GetTopicSeq(),
+			SenderID: hit.GetSenderId(), Timestamp: hit.GetTimestamp(),
+			MsgType: MessageType(hit.GetMsgType()), HasFile: hit.GetHasFile(), Snippet: hit.GetSnippet(),
+		})
+	}
+	return out, nil
 }
 
 // sendWebSocket publishes through the live connection and waits for the

@@ -75,6 +75,38 @@ func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) 
 	return &v1.PullReply{Messages: messages, HasMore: result.HasMore, NextSeq: result.NextSeq}, nil
 }
 
+func (s *MessageService) SearchMessages(ctx context.Context, req *v1.SearchMessagesRequest) (*v1.SearchMessagesReply, error) {
+	if req.Topic == "" {
+		return nil, kerrors.BadRequest("TOPIC_REQUIRED", "topic is required for search")
+	}
+	hits, hasMore, err := s.query.SearchMessages(ctx, extractUserIDFromContext(ctx), req.Topic, req.Query, domain.SearchFilter{
+		SenderID: req.SenderId, Since: req.Since, Until: req.Until, HasFile: req.HasFile,
+	}, int(req.Limit), int(req.Offset))
+	if err != nil {
+		switch {
+		case errors.Is(err, app.ErrSearchUnavailable):
+			return nil, kerrors.ServiceUnavailable("SEARCH_UNAVAILABLE", "search is not configured")
+		case errors.Is(err, app.ErrInvalidSearchQuery):
+			return nil, kerrors.BadRequest("INVALID_SEARCH_QUERY", "query or has_file filter is required")
+		case errors.Is(err, app.ErrTopicDenied), errors.Is(err, app.ErrInvalidTopic):
+			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
+		case errors.Is(err, app.ErrAuthRequired):
+			return nil, kerrors.Unauthorized("AUTH_REQUIRED", "authentication required")
+		default:
+			s.log.Warnf("search messages failed: user_id=%d topic=%s err=%v", extractUserIDFromContext(ctx), req.Topic, err)
+			return nil, kerrors.InternalServer("SEARCH_FAILED", "search failed")
+		}
+	}
+	messages := make([]*v1.SearchMessage, 0, len(hits))
+	for _, hit := range hits {
+		messages = append(messages, &v1.SearchMessage{
+			MsgId: hit.MsgID, Topic: hit.Topic, TopicSeq: hit.TopicSeq, SenderId: hit.SenderID,
+			Timestamp: hit.Timestamp, MsgType: hit.MsgType, HasFile: hit.HasFile, Snippet: hit.Snippet,
+		})
+	}
+	return &v1.SearchMessagesReply{Messages: messages, HasMore: hasMore}, nil
+}
+
 func messageError(err error) error {
 	switch {
 	case errors.Is(err, app.ErrAuthRequired):

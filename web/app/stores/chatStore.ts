@@ -34,6 +34,7 @@ interface ChatStore {
   appendStreamDelta: (topic: string, runId: number, delta: string) => void;
   removeMessage: (topic: string, clientMsgId: string) => void;
   hasMessageID: (topic: string, msgId: number) => boolean;
+  setMessageCitations: (topic: string, msgId: number, citations: ChatMessage["citations"]) => void;
   hasClientMessageID: (topic: string, clientMessageId: string) => boolean;
   recallMessage: (topic: string, topicSeq: number, msgId?: number) => void;
   setMessagesLoading: (topic: string, flag: boolean) => void;
@@ -233,6 +234,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (!conv) return state;
       const messages = conv.messages.filter((m) => m.clientMsgId !== clientMsgId);
       if (messages.length === conv.messages.length) return state;
+      map.set(topic, { ...conv, messages });
+      return { conversations: map };
+    }),
+  setMessageCitations: (topic, msgId, citations) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const idx = conv.messages.findIndex((m) => Number(m.msgId) === msgId);
+      if (idx < 0) return state;
+      const messages = [...conv.messages];
+      messages[idx] = { ...messages[idx], citations };
       map.set(topic, { ...conv, messages });
       return { conversations: map };
     }),

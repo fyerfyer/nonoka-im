@@ -34,6 +34,9 @@ type Worker struct {
 	RunWorkers int
 	QueuedPoll time.Duration
 	QueueSize  int
+	// StopGrace bounds how long Stop waits for in-flight runs to release their
+	// safe leases before returning. The sweeper handles anything left behind.
+	StopGrace  time.Duration
 	Background []func(context.Context)
 
 	work     chan uint64
@@ -102,6 +105,20 @@ func (w *Worker) Stop(context.Context) error {
 			_ = w.Consumer.Stop()
 		}
 	})
+	grace := w.StopGrace
+	if grace <= 0 {
+		grace = 30 * time.Second
+	}
+	done := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(grace):
+		w.log().Warnf("agent worker shutdown grace elapsed; leaving remaining leases to the sweeper")
+	}
 	return nil
 }
 
@@ -151,6 +168,9 @@ func (w *Worker) replayLoop(ctx context.Context) {
 			}
 			if w.Metrics != nil {
 				w.Metrics.QueueDepth.Set(float64(len(runs)))
+				if queued, oldest, err := w.Store.QueueStats(ctx); err == nil {
+					w.Metrics.SetQueueStats(queued, oldest.Seconds())
+				}
 			}
 			for i := range runs {
 				select {

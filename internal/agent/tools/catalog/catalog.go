@@ -146,7 +146,7 @@ func BuiltinDefinitions() []Definition {
 		{
 			Key: "search_messages", Name: "search_messages", Description: "Search the current conversation history.",
 			Category: "im.read", Risk: "read_only", DefaultPolicy: PolicyAuto, DefaultEnabled: true,
-			Presets: []string{"im.read"}, InputSchema: schema(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"},"since":{"type":"integer"},"sender_id":{"type":"integer"}},"required":["query"]}`),
+			Presets: []string{"im.read"}, InputSchema: schema(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"},"since":{"type":"integer"},"until":{"type":"integer"},"sender_id":{"type":"integer"},"has_file":{"type":"boolean"}},"anyOf":[{"required":["query"]},{"properties":{"has_file":{"const":true}},"required":["has_file"]}]}`),
 		},
 		{
 			Key: "get_conversation_context", Name: "get_conversation_context", Description: "Read recent messages in the current conversation.",

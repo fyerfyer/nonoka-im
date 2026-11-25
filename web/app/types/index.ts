@@ -1,3 +1,5 @@
+import type { RunCitation } from "@/lib/api/agents";
+
 export interface User {
   userId: number;
   username: string;
@@ -59,6 +61,7 @@ export interface ChatMessage {
   errorClass?: string;
   errorMessage?: string;
   retryAfterAt?: string;
+  citations?: RunCitation[];
 }
 
 export interface Conversation {

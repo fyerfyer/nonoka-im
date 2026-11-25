@@ -31,10 +31,12 @@ import (
 	imconsumer "nonoka-im/internal/im/consumer"
 	imgroup "nonoka-im/internal/im/group"
 	impush "nonoka-im/internal/im/push"
+	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/seq"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
 	"nonoka-im/internal/llm"
+	messagingim "nonoka-im/internal/messaging/im"
 	"nonoka-im/internal/metrics"
 	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/server"
@@ -65,6 +67,9 @@ const (
 
 	testOpenFGAURL          = "http://127.0.0.1:8081"
 	testOpenFGADefaultToken = "nonoka-openfga-test-key"
+	testMeilisearchURL      = "http://127.0.0.1:7700"
+	testMeilisearchKey      = "nonoka-search-test-key"
+	testMeilisearchIndex    = "messages-test"
 )
 
 var (
@@ -89,6 +94,7 @@ type testServer struct {
 	kafkaTopic     string
 	mongoDB        *mongo.Database
 	storage        *mongostore.Store
+	searchIndex    *search.Client
 	msgWorker      *imconsumer.Worker
 	messageApp     *imapp.MessageService
 	query          *imapp.QueryService
@@ -137,10 +143,18 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		t.Fatalf("failed to connect to mongodb: %v", err)
 	}
 	mongoDB := mongoClient.Database(testMongoDB)
-	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes", "agent_event_outbox", "im_files"} {
+	for _, coll := range []string{"messages", "inboxes", "topic_seqs", "mention_inboxes", "agent_event_outbox", "search_index_outbox", "im_files"} {
 		_ = mongoDB.Collection(coll).Drop(ctx)
 	}
 	storage := mongostore.NewStore(mongoDB, testLogger)
+	searchIndex := search.NewClient(testMeilisearchURL, testMeilisearchKey, testMeilisearchIndex, 5*time.Second)
+	if err := searchIndex.EnsureIndex(ctx); err != nil {
+		t.Fatalf("failed to initialize search index: %v", err)
+	}
+	if err := searchIndex.ClearIndex(ctx); err != nil {
+		t.Fatalf("failed to clear search index: %v", err)
+	}
+	storage.SetSearchEnabled(true)
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		t.Fatalf("failed to ensure mongodb indexes: %v", err)
 	}
@@ -193,7 +207,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Authorizer: fgaAuthorizer, Producer: gateway.NewDomainProducer(msgProducer),
 		Attachments: fileApp, Metrics: testMetrics, Log: log.NewHelper(testLogger),
 	}
-	query := &imapp.QueryService{Reader: storage, Authorizer: fgaAuthorizer, Log: log.NewHelper(testLogger)}
+	query := &imapp.QueryService{Reader: storage, Search: searchIndex, Authorizer: fgaAuthorizer, Log: log.NewHelper(testLogger)}
 
 	gwHandler := gateway.NewHandler(gwManager, gwSessionMgr, messageApp, query, []byte(authConf.JwtSecret), gateway.HeartbeatConfig{
 		Interval: 30 * time.Second, Timeout: 90 * time.Second,
@@ -279,7 +293,9 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Grpc: &conf.Server_GRPC{Addr: "0.0.0.0:0"},
 	}
 	fileSvc := service.NewFileService(fileApp, testLogger)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, nil, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	outboxSvc := &imapp.OutboxService{Repo: storage, Log: log.NewHelper(testLogger)}
+	outboxAdmin := service.NewOutboxAdminHTTP(messagingim.NewOutboxAdmin(outboxSvc), fgaAuthorizer, auditSvc)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, outboxAdmin, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	go func() {
 		if err := hs.Start(ctx); err != nil {
 			select {
@@ -296,7 +312,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	return &testServer{
 		data: d, cleanup: cleanup, httpSrv: hs, gwManager: gwManager, gwSessionMgr: gwSessionMgr,
 		redis: d.Redis, authConf: authConf, kafkaProducer: msgProducer, kafkaTopic: kafkaTopic,
-		mongoDB: mongoDB, storage: storage, msgWorker: worker, messageApp: messageApp,
+		mongoDB: mongoDB, storage: storage, searchIndex: searchIndex, msgWorker: worker, messageApp: messageApp,
 		query: query, groupRepo: groupRepo, botIndex: botIndex, fileSvc: fileSvc,
 		grpcCleanup: grpcCleanup, openFGA: fgaAuthorizer, fgaCleanup: fgaCleanup,
 		modelServiceID: 0, modelID: int64(models[0].ID), modelSvc: modelSvc,

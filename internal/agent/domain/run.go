@@ -64,6 +64,7 @@ type AgentRun struct {
 	TotalTokens      int
 	ModelKey         string
 	EstimatedCostUSD float64
+	TraceID          string
 	RetryAfterAt     *time.Time
 	CreatedAt        time.Time
 	StartedAt        *time.Time
@@ -82,6 +83,22 @@ type AgentRunStep struct {
 	Summary    string
 	Status     string
 	CreatedAt  time.Time
+}
+
+// AgentRunCitation is one message source consulted by a run. It stores only a
+// message reference and a short excerpt; the message itself stays in IM
+// storage and remains subject to the conversation ACL.
+type AgentRunCitation struct {
+	ID        uint64
+	RunID     uint64
+	TurnID    uint64
+	Ordinal   int
+	Topic     string
+	MsgID     int64
+	TopicSeq  uint64
+	SenderID  int64
+	Snippet   string
+	CreatedAt time.Time
 }
 
 type AgentTurn struct {

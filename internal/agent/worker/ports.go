@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"time"
 
 	"nonoka-im/internal/agent/domain"
 )
@@ -9,6 +10,7 @@ import (
 // RunQueue is the replay loop's narrow persistence surface.
 type RunQueue interface {
 	QueuedRuns(ctx context.Context, limit int) ([]domain.AgentRun, error)
+	QueueStats(ctx context.Context) (queued int64, oldestAge time.Duration, err error)
 }
 
 // DispatcherStore resolves trigger targets and records queued runs.

@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	agentmetrics "nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/agent/tools/catalog"
@@ -53,6 +54,7 @@ type Engine struct {
 	markSideEffect tools.SideEffectMarker
 	// toolCatalog supplies side-effect classification and approval summaries.
 	toolCatalog catalog.Catalog
+	metrics     *agentmetrics.Metrics
 
 	mu     sync.Mutex
 	models map[modelCacheKey]model.ToolCallingChatModel
@@ -72,6 +74,7 @@ type Deps struct {
 	MarkSideEffect      tools.SideEffectMarker
 	ToolCatalog         catalog.Catalog
 	NewChatModel        ChatModelFactory
+	Metrics             *agentmetrics.Metrics
 }
 
 // New constructs the Eino implementation of port.Runtime.
@@ -80,6 +83,7 @@ func New(_ context.Context, deps Deps) (*Engine, error) {
 		tools: deps.Tools, newModel: deps.NewChatModel, mcpTools: deps.MCPToolProvider,
 		skillBackend: deps.SkillBackendFactory, checkpoints: deps.Checkpoints,
 		ledger: deps.Ledger, markSideEffect: deps.MarkSideEffect, toolCatalog: deps.ToolCatalog,
+		metrics: deps.Metrics,
 	}, nil
 }
 

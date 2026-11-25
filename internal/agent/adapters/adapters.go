@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"nonoka-im/internal/agent/app"
+	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/biz"
 	imdata "nonoka-im/internal/data/im"
@@ -36,6 +37,23 @@ func (m Messages) RecentMessages(ctx context.Context, userID int64, topic string
 	return out, nil
 }
 
+func (m Messages) SearchMessages(ctx context.Context, userID int64, topic, query string, filter app.SearchFilter, limit, offset int) ([]app.SearchHit, bool, error) {
+	rows, hasMore, err := m.Reader.SearchMessages(ctx, userID, topic, query, messaging.SearchFilter{
+		SenderID: filter.SenderID, Since: filter.Since, Until: filter.Until, HasFile: filter.HasFile,
+	}, limit, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]app.SearchHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, app.SearchHit{
+			MsgID: row.MsgID, Topic: row.Topic, TopicSeq: row.TopicSeq, SenderID: row.SenderID,
+			Timestamp: row.Timestamp, MsgType: row.MsgType, HasFile: row.HasFile, Snippet: row.Snippet,
+		})
+	}
+	return out, hasMore, nil
+}
+
 func (m Messages) MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (app.Message, error) {
 	row, err := m.Reader.MessageForUser(ctx, userID, topic, msgID)
 	if err != nil {
@@ -49,6 +67,29 @@ func (m Messages) MessageForUser(ctx context.Context, userID int64, topic string
 		Type: row.Type, Content: row.Content, FileID: row.FileID,
 		FileName: row.FileName, Mime: row.Mime, Size: row.Size,
 	}, nil
+}
+
+// CitationStore is the narrow persistence surface for run citations.
+type CitationStore interface {
+	RecordRunCitations(ctx context.Context, runID uint64, citations []domain.AgentRunCitation) error
+}
+
+// Citations adapts app.SearchHit to the agent domain citation row.
+type Citations struct{ Store CitationStore }
+
+func (c Citations) RecordRunCitations(ctx context.Context, runID uint64, hits []app.SearchHit) error {
+	const maxCitations = 8
+	if len(hits) > maxCitations {
+		hits = hits[:maxCitations]
+	}
+	rows := make([]domain.AgentRunCitation, 0, len(hits))
+	for i, hit := range hits {
+		rows = append(rows, domain.AgentRunCitation{
+			RunID: runID, Ordinal: i, Topic: hit.Topic, MsgID: hit.MsgID,
+			TopicSeq: hit.TopicSeq, SenderID: hit.SenderID, Snippet: hit.Snippet,
+		})
+	}
+	return c.Store.RecordRunCitations(ctx, runID, rows)
 }
 
 // Files adapts messaging.FileReader to app.FileReader.

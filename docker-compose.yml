@@ -49,6 +49,32 @@ services:
       timeout: 5s
       retries: 5
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.12.0
+    container_name: nonoka_meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:${NONOKA_MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health | grep -q available"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: nonoka_jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${NONOKA_JAEGER_UI_PORT:-16686}:16686"
+      - "127.0.0.1:${NONOKA_JAEGER_OTLP_PORT:-4318}:4318"
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: nonoka_zookeeper
@@ -200,6 +226,8 @@ services:
       MEDIA_URL_SECRET: ${MEDIA_URL_SECRET:-}
       AGENT_MCP_ALLOW_PRIVATE: ${AGENT_MCP_ALLOW_PRIVATE:-false}
       AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -222,8 +250,13 @@ services:
     depends_on:
       nonoka-im:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     volumes:
       - ./configs:/data/conf:ro
+    environment:
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
     command: ["/app/msgworker", "-conf", "/data/conf/config.docker.yaml"]
 
   # Agent worker runs as part of the full demo stack. Agents without their own
@@ -286,6 +319,9 @@ services:
       MEDIA_URL_SECRET: ${MEDIA_URL_SECRET:-}
       AGENT_MCP_ALLOW_PRIVATE: ${AGENT_MCP_ALLOW_PRIVATE:-false}
       AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
@@ -313,6 +349,7 @@ services:
       args:
         # Browser-side calls go to the host-mapped backend port.
         NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:${NONOKA_HTTP_PORT:-8000}
+        NEXT_PUBLIC_TRACE_URL_TEMPLATE: ${NEXT_PUBLIC_TRACE_URL_TEMPLATE:-http://127.0.0.1:16686/trace/{traceId}}
     container_name: nonoka_web
     depends_on:
       nonoka-im:
@@ -325,3 +362,4 @@ volumes:
   mongodb_data:
   openfga_data:
   bifrost_data:
+  meilisearch_data:

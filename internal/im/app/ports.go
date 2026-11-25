@@ -12,16 +12,18 @@ import (
 // Typed usecase errors. Transport adapters map these to protocol error codes
 // instead of parsing strings.
 var (
-	ErrAuthRequired     = errors.New("authentication required")
-	ErrInvalidTopic     = errors.New("invalid topic")
-	ErrTopicDenied      = errors.New("topic access denied")
-	ErrMessageTooLarge  = errors.New("message too large")
-	ErrClientMsgIDReq   = errors.New("client_msg_id is required")
-	ErrDeliveryFailed   = errors.New("message delivery failed")
-	ErrInvalidCursor    = errors.New("invalid cursor")
-	ErrGroupNotFound    = errors.New("group not found")
-	ErrGroupForbidden   = errors.New("group access denied")
-	ErrInvalidGroupName = errors.New("group name is required")
+	ErrAuthRequired       = errors.New("authentication required")
+	ErrInvalidTopic       = errors.New("invalid topic")
+	ErrTopicDenied        = errors.New("topic access denied")
+	ErrMessageTooLarge    = errors.New("message too large")
+	ErrClientMsgIDReq     = errors.New("client_msg_id is required")
+	ErrDeliveryFailed     = errors.New("message delivery failed")
+	ErrInvalidCursor      = errors.New("invalid cursor")
+	ErrGroupNotFound      = errors.New("group not found")
+	ErrGroupForbidden     = errors.New("group access denied")
+	ErrInvalidGroupName   = errors.New("group name is required")
+	ErrSearchUnavailable  = errors.New("search is not configured")
+	ErrInvalidSearchQuery = errors.New("search query or has_file filter is required")
 )
 
 // IDGenerator generates globally unique message IDs.
@@ -44,6 +46,22 @@ type MessageWriter interface {
 	SaveSystem(ctx context.Context, msg *domain.Message) (recipients []int64, duplicate bool, err error)
 	SaveMentionInbox(ctx context.Context, msg *domain.Message, mentionedUserIDs []int64) error
 	BackupTopicSeq(ctx context.Context, topic string, seq uint64) error
+}
+
+// SearchIndex is the optional keyword-search backend. Implementations receive
+// an already-authorized topic and must never widen the topic filter.
+type SearchIndex interface {
+	Search(ctx context.Context, topic, query string, filter domain.SearchFilter, limit, offset int) ([]domain.SearchHit, bool, error)
+	Healthy(ctx context.Context) error
+}
+
+// SearchIndexRepository stores the durable index outbox and relay state.
+type SearchIndexRepository interface {
+	ClaimSearchIndexTask(ctx context.Context) (*domain.SearchIndexTask, error)
+	CompleteSearchIndexTask(ctx context.Context, id string) error
+	FailSearchIndexTask(ctx context.Context, id string, taskErr error, backoff time.Duration) error
+	AbandonSearchIndexTask(ctx context.Context, id string) error
+	SearchIndexStats(ctx context.Context) (pending, failed int64, oldestAge time.Duration, err error)
 }
 
 // MessageReader is the authorized read surface used by pull/recall/receipts.
@@ -71,6 +89,7 @@ type OutboxRepository interface {
 	OutboxStats(ctx context.Context) (pending, failed int64, oldestAge time.Duration, err error)
 	ListFailedOutbox(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
 	ReplayOutbox(ctx context.Context, id string) error
+	ReplayOutboxMany(ctx context.Context, ids []string) (int, error)
 }
 
 // ConversationRepository persists per-user conversation summaries.

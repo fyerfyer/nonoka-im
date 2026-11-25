@@ -44,17 +44,24 @@ type SearchRequest struct {
 	// SenderID filters to messages sent by this user ID. Zero means no
 	// sender filter.
 	SenderID int64 `json:"sender_id,omitempty" jsonschema_description:"Only messages sent by this user ID."`
+	// Until filters to messages sent at or before this unix time (seconds).
+	// Zero means no upper time bound.
+	Until int64 `json:"until,omitempty" jsonschema_description:"Only messages at or before this Unix timestamp (seconds)."`
+	// HasFile filters to image/file messages.
+	HasFile bool `json:"has_file,omitempty" jsonschema_description:"Only messages with an image or file attachment."`
 }
 
 // SearchFilter carries the optional search_messages filters in parsed form.
 type SearchFilter struct {
 	Since    int64
+	Until    int64
 	SenderID int64
+	HasFile  bool
 }
 
 // Filter returns the optional filters in parsed form.
 func (r SearchRequest) Filter() SearchFilter {
-	return SearchFilter{Since: r.Since, SenderID: r.SenderID}
+	return SearchFilter{Since: r.Since, Until: r.Until, SenderID: r.SenderID, HasFile: r.HasFile}
 }
 
 type ContextRequest struct {

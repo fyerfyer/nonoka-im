@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"nonoka-im/internal/im/domain"
+	"nonoka-im/internal/im/search"
 	"strings"
 	"time"
 )
@@ -38,6 +39,7 @@ func (s *Store) saveP2P(ctx context.Context, msg *domain.Message) ([]int64, bool
 			SenderID:    msg.GetSenderId(),
 			MsgType:     msg.GetMsgType(),
 			Content:     msg.GetContent(),
+			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
 			Timestamp:   msg.GetTimestamp(),
 			TopicSeq:    topicSeq,
 			ClientMsgID: msg.GetClientMsgId(),
@@ -52,6 +54,7 @@ func (s *Store) saveP2P(ctx context.Context, msg *domain.Message) ([]int64, bool
 			SenderID:    msg.GetSenderId(),
 			MsgType:     msg.GetMsgType(),
 			Content:     msg.GetContent(),
+			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
 			Timestamp:   msg.GetTimestamp(),
 			TopicSeq:    topicSeq,
 			ClientMsgID: msg.GetClientMsgId(),
@@ -105,6 +108,7 @@ func (s *Store) saveGroup(ctx context.Context, msg *domain.Message) (bool, error
 		SenderID:    msg.GetSenderId(),
 		MsgType:     msg.GetMsgType(),
 		Content:     msg.GetContent(),
+		ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
 		Timestamp:   msg.GetTimestamp(),
 		TopicSeq:    topicSeq,
 		ClientMsgID: msg.GetClientMsgId(),
@@ -130,6 +134,36 @@ func (s *Store) saveGroup(ctx context.Context, msg *domain.Message) (bool, error
 // InsertMany call. Duplicate key errors are ignored. This is used by the
 // group message batcher to amortize MongoDB round-trip cost.
 func (s *Store) SaveGroupBatch(ctx context.Context, msgs []*domain.Message) (int, bool, error) {
+	if !s.searchEnabled || len(msgs) == 0 {
+		return s.saveGroupBatch(ctx, msgs)
+	}
+	sess, err := s.db.Client().StartSession()
+	if err != nil {
+		return 0, false, fmt.Errorf("start mongo transaction session: %w", err)
+	}
+	defer sess.EndSession(ctx)
+	var inserted int
+	var duplicate bool
+	_, err = sess.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+		var err error
+		inserted, duplicate, err = s.saveGroupBatch(txCtx, msgs)
+		if err != nil || duplicate {
+			return nil, err
+		}
+		for _, msg := range msgs {
+			if err := s.enqueueSearchTask(txCtx, msg); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return 0, false, fmt.Errorf("persist group message batch and search index: %w", err)
+	}
+	return inserted, duplicate, nil
+}
+
+func (s *Store) saveGroupBatch(ctx context.Context, msgs []*domain.Message) (int, bool, error) {
 	if len(msgs) == 0 {
 		return 0, false, nil
 	}
@@ -144,6 +178,7 @@ func (s *Store) SaveGroupBatch(ctx context.Context, msgs []*domain.Message) (int
 			SenderID:    msg.GetSenderId(),
 			MsgType:     msg.GetMsgType(),
 			Content:     msg.GetContent(),
+			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
 			Timestamp:   msg.GetTimestamp(),
 			TopicSeq:    msg.TopicSeq,
 			ClientMsgID: msg.GetClientMsgId(),
@@ -204,6 +239,7 @@ func (s *Store) SaveSystem(ctx context.Context, msg *domain.Message) ([]int64, b
 		SenderID:    msg.GetSenderId(),
 		MsgType:     msg.GetMsgType(),
 		Content:     msg.GetContent(),
+		ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
 		Timestamp:   msg.GetTimestamp(),
 		TopicSeq:    topicSeq,
 		ClientMsgID: msg.GetClientMsgId(),
@@ -211,7 +247,28 @@ func (s *Store) SaveSystem(ctx context.Context, msg *domain.Message) ([]int64, b
 		CreatedAt:   now,
 	}
 
-	_, err := s.collection(CollectionInboxes).InsertOne(ctx, inbox, options.InsertOne())
+	insert := func(ctx context.Context) error {
+		if _, err := s.collection(CollectionInboxes).InsertOne(ctx, inbox, options.InsertOne()); err != nil {
+			return err
+		}
+		if s.searchEnabled {
+			return s.enqueueSearchTask(ctx, msg)
+		}
+		return nil
+	}
+	var err error
+	if s.searchEnabled {
+		sess, serr := s.db.Client().StartSession()
+		if serr != nil {
+			return nil, false, fmt.Errorf("start mongo transaction session: %w", serr)
+		}
+		defer sess.EndSession(ctx)
+		_, err = sess.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+			return nil, insert(txCtx)
+		})
+	} else {
+		err = insert(ctx)
+	}
 	if err != nil {
 		if IsDuplicateError(err) {
 			s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",

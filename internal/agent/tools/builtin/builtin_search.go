@@ -19,16 +19,18 @@ Args:
 - query: keyword or phrase to search for (required).
 - limit: max results, 1-20 (default 10).
 - since: optional unix timestamp (seconds); only messages sent at or after this time are returned.
-- sender_id: optional user ID; only messages sent by this user are returned.`, func(ctx context.Context, in tools.SearchRequest) (tools.SearchResult, error) {
+- until: optional unix timestamp (seconds); only messages sent at or before this time are returned.
+- sender_id: optional user ID; only messages sent by this user are returned.
+- has_file: optional bool; only messages with an image or file attachment are returned.`, func(ctx context.Context, in tools.SearchRequest) (tools.SearchResult, error) {
 		r, ok := tools.GetRunContext(ctx)
 		if !ok {
 			return tools.SearchResult{}, fmt.Errorf("run context missing")
 		}
-		if in.Query == "" {
-			return tools.SearchResult{}, fmt.Errorf("query is required")
-		}
 		if in.Limit <= 0 || in.Limit > 20 {
 			in.Limit = 10
+		}
+		if in.Query == "" && !in.HasFile {
+			return tools.SearchResult{}, fmt.Errorf("query is required unless has_file is true")
 		}
 		if err := tools.Authorize(ctx, guard, r, "search_messages", "topic", ""); err != nil {
 			return tools.SearchResult{}, err

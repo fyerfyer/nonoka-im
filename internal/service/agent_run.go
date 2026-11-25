@@ -38,13 +38,33 @@ func (s *AgentHTTP) RunDetail(c khttp.Context) error {
 		if err != nil || id == 0 {
 			return invalidAgentInput("invalid run id")
 		}
-		run, steps, tools, err := s.runs.Get(ctx, extractUserIDFromContext(ctx), id)
+		run, steps, tools, citations, err := s.runs.Get(ctx, extractUserIDFromContext(ctx), id)
 		if err != nil {
 			return err
 		}
 		view := runView(run)
 		view.Steps = runStepViews(steps)
 		view.ToolInvocations = toolInvocationViews(tools)
+		view.Citations = citationViews(citations)
+		writeAgentJSON(w, http.StatusOK, view)
+		return nil
+	})
+}
+
+// RunByReply resolves an agent answer message to its run and citations for the
+// chat source chips. It returns 404 when the message has no agent run.
+func (s *AgentHTTP) RunByReply(c khttp.Context) error {
+	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
+		msgID, err := strconv.ParseInt(c.Vars().Get("msgId"), 10, 64)
+		if err != nil || msgID <= 0 {
+			return invalidAgentInput("invalid message id")
+		}
+		run, citations, err := s.runs.GetByReply(ctx, extractUserIDFromContext(ctx), msgID)
+		if err != nil {
+			return err
+		}
+		view := runView(run)
+		view.Citations = citationViews(citations)
 		writeAgentJSON(w, http.StatusOK, view)
 		return nil
 	})

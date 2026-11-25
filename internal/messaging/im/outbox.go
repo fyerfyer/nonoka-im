@@ -11,6 +11,7 @@ import (
 type Outbox interface {
 	ListFailed(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
 	Replay(ctx context.Context, id string) error
+	ReplayMany(ctx context.Context, ids []string) (int, error)
 }
 
 type OutboxAdmin struct{ Service Outbox }
@@ -34,4 +35,8 @@ func (o *OutboxAdmin) ListFailed(ctx context.Context, limit int) ([]messaging.Fa
 
 func (o *OutboxAdmin) Replay(ctx context.Context, id string) error {
 	return o.Service.Replay(ctx, id)
+}
+
+func (o *OutboxAdmin) ReplayMany(ctx context.Context, ids []string) (int, error) {
+	return o.Service.ReplayMany(ctx, ids)
 }

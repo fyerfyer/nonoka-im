@@ -17,6 +17,7 @@ var (
 	ErrConnectionClosed     = errors.New("sdk: connection closed")
 	ErrAuthFailed           = errors.New("sdk: authentication failed")
 	ErrRequestTimeout       = errors.New("sdk: request timeout")
+	ErrSearchUnavailable    = errors.New("sdk: search is not configured")
 )
 
 // APIError is the typed error returned for HTTP API failures and WebSocket

@@ -2,16 +2,19 @@ package admin
 
 import (
 	"context"
+	"time"
 
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/audit"
+	"nonoka-im/internal/metrics"
 )
 
 // ApprovalService owns the approval inbox and one-shot decisions.
 type ApprovalService struct {
-	Store Store
-	Authz Authorizer
-	Audit *audit.Service
+	Store   Store
+	Authz   Authorizer
+	Audit   *audit.Service
+	Metrics *metrics.Metrics
 }
 
 func NewApprovalService(store Store, az Authorizer, auditor *audit.Service) *ApprovalService {
@@ -74,6 +77,9 @@ func (s *ApprovalService) Decide(ctx context.Context, userID int64, approvalID u
 	}
 	if err := s.Store.DecideAndRequeue(ctx, approvalID, decision, userID); err != nil {
 		return err
+	}
+	if s.Metrics != nil {
+		s.Metrics.ObserveAgentApprovalWait(time.Since(approval.CreatedAt).Seconds())
 	}
 	return recordAudit(ctx, s.Audit, userID, "approval."+action, "approval", uintKey(approvalID), approvalAuditFields(*approval), map[string]any{
 		"status": decision, "decidedBy": userID,

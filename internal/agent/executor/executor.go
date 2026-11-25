@@ -13,6 +13,7 @@ import (
 
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/domain"
+	agentmetrics "nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/authz"
@@ -20,6 +21,9 @@ import (
 	"nonoka-im/internal/realtime"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Executor struct {
@@ -32,11 +36,13 @@ type Executor struct {
 	Quota      *app.QuotaService
 	Notifier   *app.QuotaNotifier
 
-	MaxAttempts int
-	RunTimeout  time.Duration
-	Lease       time.Duration
-	Stream      realtime.RunEventSink
-	Log         *log.Helper
+	MaxAttempts   int
+	RunTimeout    time.Duration
+	Lease         time.Duration
+	Stream        realtime.RunEventSink
+	Metrics       *agentmetrics.Metrics
+	SearchEnabled bool
+	Log           *log.Helper
 }
 
 // ExecuteRun claims one queued run and executes it under a heartbeat. It is
@@ -62,8 +68,24 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	if !ok {
 		return
 	}
+	if e.Metrics != nil && !run.CreatedAt.IsZero() {
+		e.Metrics.ObserveQueueWait(time.Since(run.CreatedAt).Seconds())
+	}
 	ctx, cancel := context.WithTimeout(parent, e.RunTimeout)
 	defer cancel()
+	ctx, span := otel.Tracer("nonoka-im/agent/worker").Start(ctx, "agent.run", trace.WithAttributes(
+		attribute.Int64("agent.id", run.AgentID),
+		attribute.String("agent.run_id", fmt.Sprintf("%d", run.ID)),
+		attribute.String("agent.event_id", run.EventID),
+		attribute.String("agent.attempt_id", run.AttemptID),
+	))
+	defer span.End()
+	if sc := span.SpanContext(); sc.IsValid() {
+		run.TraceID = sc.TraceID().String()
+		if err := e.Store.UpdateRunFenced(ctx, run.ID, run.AttemptID, map[string]interface{}{"trace_id": run.TraceID}); err != nil {
+			e.log().Warnf("record trace id for run %d: %v", run.ID, err)
+		}
+	}
 
 	// Heartbeat while executing. Losing the lease cancels the run context so a
 	// stale worker cannot keep spending model/tool resources.
@@ -93,6 +115,18 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	defer func() { cancel(); <-hbDone }()
 
 	execErr := e.Execute(ctx, run)
+	if errors.Is(execErr, context.Canceled) && parent.Err() != nil {
+		// Graceful shutdown: release a run that has not committed a side
+		// effect so another worker can pick it up immediately. Runs with a
+		// side effect/checkpoint stay fenced for the sweeper or an operator.
+		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+		if ok, err := e.Store.ReleaseRun(releaseCtx, run.ID, run.AttemptID); err != nil {
+			e.log().Warnf("release run %d on shutdown: %v", run.ID, err)
+		} else if ok {
+			e.log().Infof("released run %d on shutdown", run.ID)
+		}
+		releaseCancel()
+	}
 	if execErr != nil && !errors.Is(execErr, domain.ErrRunState) && !errors.Is(execErr, context.Canceled) {
 		e.log().Errorf("execute run %d: %v", run.ID, execErr)
 	}
@@ -244,7 +278,9 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		return e.resume(ctx, ev, run, resolved)
 	}
 
+	ctx, memSpan := otel.Tracer("nonoka-im/agent/worker").Start(ctx, "agent.memory.load")
 	session, snapshot, turns, err := e.Store.LoadRunState(ctx, run)
+	memSpan.End()
 	if err != nil {
 		if errors.Is(err, domain.ErrTransient) {
 			return e.fail(ctx, run, port.ClassTransientInfra, "state_unavailable", err, true, false)
@@ -272,7 +308,9 @@ func (e *Executor) resume(ctx context.Context, ev messaging.MessageEvent, run *d
 			"status": domain.RunWaitingApproval, "started_at": nil, "attempt_id": "", "lease_until": nil,
 		})
 	}
+	ctx, resumeSpan := otel.Tracer("nonoka-im/agent/worker").Start(ctx, "agent.approval.resume")
 	decision, ok, err := e.Store.ConsumeApproval(ctx, approval.ID, run.AttemptID)
+	resumeSpan.End()
 	if err != nil {
 		return e.fail(ctx, run, port.ClassTransientInfra, "approval_consume_failed", err, true, true)
 	}
@@ -356,6 +394,24 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 		}
 	}
 	allowed = filteredAllowed
+	if !e.SearchEnabled {
+		// Search is an optional backend. Do not advertise a tool that can only
+		// fail with SEARCH_UNAVAILABLE; the agent still has conversation context.
+		filteredAllowed = allowed[:0]
+		for _, name := range allowed {
+			if name != "search_messages" {
+				filteredAllowed = append(filteredAllowed, name)
+			}
+		}
+		allowed = filteredAllowed
+		filteredApproval := approvalTools[:0]
+		for _, name := range approvalTools {
+			if name != "search_messages" {
+				filteredApproval = append(filteredApproval, name)
+			}
+		}
+		approvalTools = filteredApproval
+	}
 	if e.Models == nil {
 		return app.ResolvedAgent{}, fmt.Errorf("%w: model resolver unavailable", port.ErrInvalidConfig)
 	}

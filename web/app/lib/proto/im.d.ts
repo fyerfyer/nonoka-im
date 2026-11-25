@@ -3848,6 +3848,9 @@ export namespace api {
 
                 /** Calls PullMessages. */
                 pullMessages: api.im.v1.MessageService.PullMessages;
+
+                /** Calls SearchMessages. */
+                searchMessages: api.im.v1.MessageService.SearchMessages;
             }
 
             namespace MessageService {
@@ -3886,6 +3889,25 @@ export namespace api {
                   readonly path: "/api.im.v1.MessageService/PullMessages";
                   readonly requestType: "PullRequest";
                   readonly responseType: "PullReply";
+                  readonly requestStream: undefined;
+                  readonly responseStream: undefined;
+                };
+
+                /**
+                 * Callback as used by {@link api.im.v1.MessageService#searchMessages}.
+                 * @param error Error, if any
+                 * @param [response] SearchMessagesReply
+                 */
+                type SearchMessagesCallback = (error: (Error|null), response?: api.im.v1.SearchMessagesReply) => void;
+
+                /** Calls SearchMessages. */
+                type SearchMessages = {
+                  (request: api.im.v1.ISearchMessagesRequest, callback: api.im.v1.MessageService.SearchMessagesCallback): void;
+                  (request: api.im.v1.ISearchMessagesRequest): Promise<api.im.v1.SearchMessagesReply>;
+                  readonly name: "SearchMessages";
+                  readonly path: "/api.im.v1.MessageService/SearchMessages";
+                  readonly requestType: "SearchMessagesRequest";
+                  readonly responseType: "SearchMessagesReply";
                   readonly requestStream: undefined;
                   readonly responseStream: undefined;
                 };
@@ -4649,6 +4671,447 @@ export namespace api {
             }
 
             /**
+             * Properties of a SearchMessagesRequest.
+             * @deprecated Use api.im.v1.SearchMessagesRequest.$Properties instead.
+             */
+            interface ISearchMessagesRequest extends api.im.v1.SearchMessagesRequest.$Properties {
+            }
+
+            /** Represents a SearchMessagesRequest. */
+            class SearchMessagesRequest {
+
+                /**
+                 * Constructs a new SearchMessagesRequest.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.SearchMessagesRequest.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** SearchMessagesRequest topic. */
+                topic: string;
+
+                /** SearchMessagesRequest query. */
+                query: string;
+
+                /** SearchMessagesRequest senderId. */
+                senderId: (number|Long);
+
+                /** SearchMessagesRequest since. */
+                since: (number|Long);
+
+                /** SearchMessagesRequest until. */
+                until: (number|Long);
+
+                /** SearchMessagesRequest hasFile. */
+                hasFile: boolean;
+
+                /** SearchMessagesRequest limit. */
+                limit: number;
+
+                /** SearchMessagesRequest offset. */
+                offset: number;
+
+                /**
+                 * Creates a new SearchMessagesRequest instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns SearchMessagesRequest instance
+                 */
+                static create(properties: api.im.v1.SearchMessagesRequest.$Shape): api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape;
+                static create(properties?: api.im.v1.SearchMessagesRequest.$Properties): api.im.v1.SearchMessagesRequest;
+
+                /**
+                 * Encodes the specified SearchMessagesRequest message. Does not implicitly {@link api.im.v1.SearchMessagesRequest.verify|verify} messages.
+                 * @param message SearchMessagesRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.SearchMessagesRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified SearchMessagesRequest message, length delimited. Does not implicitly {@link api.im.v1.SearchMessagesRequest.verify|verify} messages.
+                 * @param message SearchMessagesRequest message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.SearchMessagesRequest.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a SearchMessagesRequest message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape} SearchMessagesRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape;
+
+                /**
+                 * Decodes a SearchMessagesRequest message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape} SearchMessagesRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape;
+
+                /**
+                 * Verifies a SearchMessagesRequest message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a SearchMessagesRequest message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns SearchMessagesRequest
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.SearchMessagesRequest;
+
+                /**
+                 * Creates a plain object from a SearchMessagesRequest message. Also converts values to other types if specified.
+                 * @param message SearchMessagesRequest
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.SearchMessagesRequest, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this SearchMessagesRequest to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for SearchMessagesRequest
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace SearchMessagesRequest {
+
+                /** Properties of a SearchMessagesRequest. */
+                interface $Properties {
+
+                    /** SearchMessagesRequest topic */
+                    topic?: (string|null);
+
+                    /** SearchMessagesRequest query */
+                    query?: (string|null);
+
+                    /** SearchMessagesRequest senderId */
+                    senderId?: (number|Long|null);
+
+                    /** SearchMessagesRequest since */
+                    since?: (number|Long|null);
+
+                    /** SearchMessagesRequest until */
+                    until?: (number|Long|null);
+
+                    /** SearchMessagesRequest hasFile */
+                    hasFile?: (boolean|null);
+
+                    /** SearchMessagesRequest limit */
+                    limit?: (number|null);
+
+                    /** SearchMessagesRequest offset */
+                    offset?: (number|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a SearchMessagesRequest. */
+                type $Shape = api.im.v1.SearchMessagesRequest.$Properties;
+            }
+
+            /**
+             * Properties of a SearchMessage.
+             * @deprecated Use api.im.v1.SearchMessage.$Properties instead.
+             */
+            interface ISearchMessage extends api.im.v1.SearchMessage.$Properties {
+            }
+
+            /** Represents a SearchMessage. */
+            class SearchMessage {
+
+                /**
+                 * Constructs a new SearchMessage.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.SearchMessage.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** SearchMessage msgId. */
+                msgId: (number|Long);
+
+                /** SearchMessage topic. */
+                topic: string;
+
+                /** SearchMessage topicSeq. */
+                topicSeq: (number|Long);
+
+                /** SearchMessage senderId. */
+                senderId: (number|Long);
+
+                /** SearchMessage timestamp. */
+                timestamp: (number|Long);
+
+                /** SearchMessage msgType. */
+                msgType: number;
+
+                /** SearchMessage hasFile. */
+                hasFile: boolean;
+
+                /** SearchMessage snippet. */
+                snippet: string;
+
+                /**
+                 * Creates a new SearchMessage instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns SearchMessage instance
+                 */
+                static create(properties: api.im.v1.SearchMessage.$Shape): api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape;
+                static create(properties?: api.im.v1.SearchMessage.$Properties): api.im.v1.SearchMessage;
+
+                /**
+                 * Encodes the specified SearchMessage message. Does not implicitly {@link api.im.v1.SearchMessage.verify|verify} messages.
+                 * @param message SearchMessage message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.SearchMessage.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified SearchMessage message, length delimited. Does not implicitly {@link api.im.v1.SearchMessage.verify|verify} messages.
+                 * @param message SearchMessage message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.SearchMessage.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a SearchMessage message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape} SearchMessage
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape;
+
+                /**
+                 * Decodes a SearchMessage message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape} SearchMessage
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape;
+
+                /**
+                 * Verifies a SearchMessage message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a SearchMessage message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns SearchMessage
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.SearchMessage;
+
+                /**
+                 * Creates a plain object from a SearchMessage message. Also converts values to other types if specified.
+                 * @param message SearchMessage
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.SearchMessage, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this SearchMessage to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for SearchMessage
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace SearchMessage {
+
+                /** Properties of a SearchMessage. */
+                interface $Properties {
+
+                    /** SearchMessage msgId */
+                    msgId?: (number|Long|null);
+
+                    /** SearchMessage topic */
+                    topic?: (string|null);
+
+                    /** SearchMessage topicSeq */
+                    topicSeq?: (number|Long|null);
+
+                    /** SearchMessage senderId */
+                    senderId?: (number|Long|null);
+
+                    /** SearchMessage timestamp */
+                    timestamp?: (number|Long|null);
+
+                    /** SearchMessage msgType */
+                    msgType?: (number|null);
+
+                    /** SearchMessage hasFile */
+                    hasFile?: (boolean|null);
+
+                    /** SearchMessage snippet */
+                    snippet?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a SearchMessage. */
+                type $Shape = api.im.v1.SearchMessage.$Properties;
+            }
+
+            /**
+             * Properties of a SearchMessagesReply.
+             * @deprecated Use api.im.v1.SearchMessagesReply.$Properties instead.
+             */
+            interface ISearchMessagesReply extends api.im.v1.SearchMessagesReply.$Properties {
+            }
+
+            /** Represents a SearchMessagesReply. */
+            class SearchMessagesReply {
+
+                /**
+                 * Constructs a new SearchMessagesReply.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.SearchMessagesReply.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** SearchMessagesReply messages. */
+                messages: api.im.v1.SearchMessage.$Properties[];
+
+                /** SearchMessagesReply hasMore. */
+                hasMore: boolean;
+
+                /**
+                 * Creates a new SearchMessagesReply instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns SearchMessagesReply instance
+                 */
+                static create(properties: api.im.v1.SearchMessagesReply.$Shape): api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape;
+                static create(properties?: api.im.v1.SearchMessagesReply.$Properties): api.im.v1.SearchMessagesReply;
+
+                /**
+                 * Encodes the specified SearchMessagesReply message. Does not implicitly {@link api.im.v1.SearchMessagesReply.verify|verify} messages.
+                 * @param message SearchMessagesReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.SearchMessagesReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified SearchMessagesReply message, length delimited. Does not implicitly {@link api.im.v1.SearchMessagesReply.verify|verify} messages.
+                 * @param message SearchMessagesReply message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.SearchMessagesReply.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes a SearchMessagesReply message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape} SearchMessagesReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape;
+
+                /**
+                 * Decodes a SearchMessagesReply message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape} SearchMessagesReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape;
+
+                /**
+                 * Verifies a SearchMessagesReply message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates a SearchMessagesReply message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns SearchMessagesReply
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.SearchMessagesReply;
+
+                /**
+                 * Creates a plain object from a SearchMessagesReply message. Also converts values to other types if specified.
+                 * @param message SearchMessagesReply
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.SearchMessagesReply, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this SearchMessagesReply to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for SearchMessagesReply
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace SearchMessagesReply {
+
+                /** Properties of a SearchMessagesReply. */
+                interface $Properties {
+
+                    /** SearchMessagesReply messages */
+                    messages?: (api.im.v1.SearchMessage.$Properties[]|null);
+
+                    /** SearchMessagesReply hasMore */
+                    hasMore?: (boolean|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of a SearchMessagesReply. */
+                type $Shape = api.im.v1.SearchMessagesReply.$Properties;
+            }
+
+            /**
              * Properties of a PullMessage.
              * @deprecated Use api.im.v1.PullMessage.$Properties instead.
              */
@@ -5020,6 +5483,147 @@ export namespace api {
             }
 
             /**
+             * Properties of an AgentRunCitation.
+             * @deprecated Use api.im.v1.AgentRunCitation.$Properties instead.
+             */
+            interface IAgentRunCitation extends api.im.v1.AgentRunCitation.$Properties {
+            }
+
+            /** Represents an AgentRunCitation. */
+            class AgentRunCitation {
+
+                /**
+                 * Constructs a new AgentRunCitation.
+                 * @param [properties] Properties to set
+                 */
+                constructor(properties?: api.im.v1.AgentRunCitation.$Properties);
+
+                /** Unknown fields preserved while decoding when enabled */
+                $unknowns?: Uint8Array[];
+
+                /** AgentRunCitation msgId. */
+                msgId: (number|Long);
+
+                /** AgentRunCitation topic. */
+                topic: string;
+
+                /** AgentRunCitation topicSeq. */
+                topicSeq: (number|Long);
+
+                /** AgentRunCitation senderId. */
+                senderId: (number|Long);
+
+                /** AgentRunCitation snippet. */
+                snippet: string;
+
+                /**
+                 * Creates a new AgentRunCitation instance using the specified properties.
+                 * @param [properties] Properties to set
+                 * @returns AgentRunCitation instance
+                 */
+                static create(properties: api.im.v1.AgentRunCitation.$Shape): api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape;
+                static create(properties?: api.im.v1.AgentRunCitation.$Properties): api.im.v1.AgentRunCitation;
+
+                /**
+                 * Encodes the specified AgentRunCitation message. Does not implicitly {@link api.im.v1.AgentRunCitation.verify|verify} messages.
+                 * @param message AgentRunCitation message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encode(message: api.im.v1.AgentRunCitation.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Encodes the specified AgentRunCitation message, length delimited. Does not implicitly {@link api.im.v1.AgentRunCitation.verify|verify} messages.
+                 * @param message AgentRunCitation message or plain object to encode
+                 * @param [writer] Writer to encode to
+                 * @returns Writer
+                 */
+                static encodeDelimited(message: api.im.v1.AgentRunCitation.$Properties, writer?: $protobuf.Writer): $protobuf.Writer;
+
+                /**
+                 * Decodes an AgentRunCitation message from the specified reader or buffer.
+                 * @param reader Reader or buffer to decode from
+                 * @param [length] Message length if known beforehand
+                 * @returns {api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape} AgentRunCitation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape;
+
+                /**
+                 * Decodes an AgentRunCitation message from the specified reader or buffer, length delimited.
+                 * @param reader Reader or buffer to decode from
+                 * @returns {api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape} AgentRunCitation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape;
+
+                /**
+                 * Verifies an AgentRunCitation message.
+                 * @param message Plain object to verify
+                 * @returns `null` if valid, otherwise the reason why it is not
+                 */
+                static verify(message: { [k: string]: any }): (string|null);
+
+                /**
+                 * Creates an AgentRunCitation message from a plain object. Also converts values to their respective internal types.
+                 * @param object Plain object
+                 * @returns AgentRunCitation
+                 */
+                static fromObject(object: { [k: string]: any }): api.im.v1.AgentRunCitation;
+
+                /**
+                 * Creates a plain object from an AgentRunCitation message. Also converts values to other types if specified.
+                 * @param message AgentRunCitation
+                 * @param [options] Conversion options
+                 * @returns Plain object
+                 */
+                static toObject(message: api.im.v1.AgentRunCitation, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+                /**
+                 * Converts this AgentRunCitation to JSON.
+                 * @returns JSON object
+                 */
+                toJSON(): { [k: string]: any };
+
+                /**
+                 * Gets the type url for AgentRunCitation
+                 * @param [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns The type url
+                 */
+                static getTypeUrl(prefix?: string): string;
+            }
+
+            namespace AgentRunCitation {
+
+                /** Properties of an AgentRunCitation. */
+                interface $Properties {
+
+                    /** AgentRunCitation msgId */
+                    msgId?: (number|Long|null);
+
+                    /** AgentRunCitation topic */
+                    topic?: (string|null);
+
+                    /** AgentRunCitation topicSeq */
+                    topicSeq?: (number|Long|null);
+
+                    /** AgentRunCitation senderId */
+                    senderId?: (number|Long|null);
+
+                    /** AgentRunCitation snippet */
+                    snippet?: (string|null);
+
+                    /** Unknown fields preserved while decoding when enabled */
+                    $unknowns?: Uint8Array[];
+                }
+
+                /** Shape of an AgentRunCitation. */
+                type $Shape = api.im.v1.AgentRunCitation.$Properties;
+            }
+
+            /**
              * Properties of an AgentRunEvent.
              * @deprecated Use api.im.v1.AgentRunEvent.$Properties instead.
              */
@@ -5109,6 +5713,9 @@ export namespace api {
 
                 /** AgentRunEvent retryAfterAtMs. */
                 retryAfterAtMs: (number|Long);
+
+                /** AgentRunEvent citations. */
+                citations: api.im.v1.AgentRunCitation.$Properties[];
 
                 /**
                  * Creates a new AgentRunEvent instance using the specified properties.
@@ -5265,6 +5872,9 @@ export namespace api {
 
                     /** AgentRunEvent retryAfterAtMs */
                     retryAfterAtMs?: (number|Long|null);
+
+                    /** AgentRunEvent citations */
+                    citations?: (api.im.v1.AgentRunCitation.$Properties[]|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];

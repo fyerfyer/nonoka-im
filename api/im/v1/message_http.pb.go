@@ -20,10 +20,14 @@ var _ = binding.EncodeURL
 const _ = http.SupportPackageIsVersion1
 
 const OperationMessageServicePullMessages = "/api.im.v1.MessageService/PullMessages"
+const OperationMessageServiceSearchMessages = "/api.im.v1.MessageService/SearchMessages"
 const OperationMessageServiceSendMessage = "/api.im.v1.MessageService/SendMessage"
 
 type MessageServiceHTTPServer interface {
 	PullMessages(context.Context, *PullRequest) (*PullReply, error)
+	// SearchMessages SearchMessages performs keyword search inside one conversation. Search is
+	// optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+	SearchMessages(context.Context, *SearchMessagesRequest) (*SearchMessagesReply, error)
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageReply, error)
 }
 
@@ -31,6 +35,7 @@ func RegisterMessageServiceHTTPServer(s *http.Server, srv MessageServiceHTTPServ
 	r := s.Route("/")
 	r.POST("/v1/message/send", _MessageService_SendMessage0_HTTP_Handler(srv))
 	r.GET("/v1/message/pull", _MessageService_PullMessages0_HTTP_Handler(srv))
+	r.GET("/v1/message/search", _MessageService_SearchMessages0_HTTP_Handler(srv))
 }
 
 func _MessageService_SendMessage0_HTTP_Handler(srv MessageServiceHTTPServer) func(ctx http.Context) error {
@@ -74,8 +79,30 @@ func _MessageService_PullMessages0_HTTP_Handler(srv MessageServiceHTTPServer) fu
 	}
 }
 
+func _MessageService_SearchMessages0_HTTP_Handler(srv MessageServiceHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in SearchMessagesRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationMessageServiceSearchMessages)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.SearchMessages(ctx, req.(*SearchMessagesRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*SearchMessagesReply)
+		return ctx.Result(200, reply)
+	}
+}
+
 type MessageServiceHTTPClient interface {
 	PullMessages(ctx context.Context, req *PullRequest, opts ...http.CallOption) (rsp *PullReply, err error)
+	// SearchMessages SearchMessages performs keyword search inside one conversation. Search is
+	// optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+	SearchMessages(ctx context.Context, req *SearchMessagesRequest, opts ...http.CallOption) (rsp *SearchMessagesReply, err error)
 	SendMessage(ctx context.Context, req *SendMessageRequest, opts ...http.CallOption) (rsp *SendMessageReply, err error)
 }
 
@@ -92,6 +119,21 @@ func (c *MessageServiceHTTPClientImpl) PullMessages(ctx context.Context, in *Pul
 	pattern := "/v1/message/pull"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationMessageServicePullMessages))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SearchMessages SearchMessages performs keyword search inside one conversation. Search is
+// optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+func (c *MessageServiceHTTPClientImpl) SearchMessages(ctx context.Context, in *SearchMessagesRequest, opts ...http.CallOption) (*SearchMessagesReply, error) {
+	var out SearchMessagesReply
+	pattern := "/v1/message/search"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationMessageServiceSearchMessages))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
 	if err != nil {

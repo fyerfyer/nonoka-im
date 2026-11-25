@@ -218,27 +218,14 @@ func TestGroupMembersCapsAtTwoHundred(t *testing.T) {
 	}
 }
 
-func TestSearchInboxRowsFiltersSenderAndTime(t *testing.T) {
-	rows := []Message{
-		{SenderID: 1, Timestamp: 100, Content: []byte("hello world")},
-		{SenderID: 2, Timestamp: 200, Content: []byte("hello again")},
-		{SenderID: 1, Timestamp: 300, Content: []byte("goodbye")},
-		{SenderID: 1, Timestamp: 400, Content: []byte("HELLO there")},
-	}
-	base := searchInboxRows(rows, "hello", 10, tools.SearchFilter{})
-	if len(base) != 3 || !strings.Contains(base[0], "time=400") {
-		t.Fatalf("baseline search changed: %v", base)
-	}
-	bySender := searchInboxRows(rows, "hello", 10, tools.SearchFilter{SenderID: 2})
-	if len(bySender) != 1 || !strings.Contains(bySender[0], "sender=2") {
-		t.Fatalf("sender filter not applied: %v", bySender)
-	}
-	byTime := searchInboxRows(rows, "hello", 10, tools.SearchFilter{Since: 200})
-	if len(byTime) != 2 || !strings.Contains(byTime[0], "time=400") || !strings.Contains(byTime[1], "time=200") {
-		t.Fatalf("since filter not applied: %v", byTime)
-	}
-	both := searchInboxRows(rows, "hello", 10, tools.SearchFilter{SenderID: 1, Since: 150})
-	if len(both) != 1 || !strings.Contains(both[0], "time=400") {
-		t.Fatalf("combined filters not applied: %v", both)
+func TestFormatSearchHitKeepsStableRefs(t *testing.T) {
+	out := formatSearchHit(SearchHit{
+		MsgID: 42, Topic: "grp_core", TopicSeq: 7, SenderID: 3, Timestamp: 100,
+		HasFile: true, Snippet: "design notes",
+	})
+	for _, want := range []string{"msg_id=42", "seq=7", "sender=3", "time=100", "attachment", "design notes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("formatted hit %q missing %q", out, want)
+		}
 	}
 }

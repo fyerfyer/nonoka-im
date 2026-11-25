@@ -14,7 +14,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # NEXT_PUBLIC_* vars are baked into the client bundle at build time.
 ARG NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+ARG NEXT_PUBLIC_TRACE_URL_TEMPLATE=http://127.0.0.1:16686/trace/{traceId}
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV NEXT_PUBLIC_TRACE_URL_TEMPLATE=${NEXT_PUBLIC_TRACE_URL_TEMPLATE}
 RUN pnpm build
 
 FROM node:22-alpine AS runner

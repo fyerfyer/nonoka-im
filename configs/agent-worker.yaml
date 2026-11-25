@@ -57,3 +57,12 @@ observability:
   health_addr: ":8090"
   metrics_addr: ":8091"
   otlp_traces_endpoint: ""
+
+search:
+  enabled: true
+  url: "http://127.0.0.1:7700"
+  index: "messages"
+  timeout: 5s
+  max_content_bytes: 16384
+  relay_interval: 1s
+  relay_batch_size: 32

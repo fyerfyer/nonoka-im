@@ -433,6 +433,42 @@ func (s *Store) RecentTurns(ctx context.Context, agentID, actorID int64, topic s
 	return out, nil
 }
 
+// ReleaseRun returns a safely interruptible run to the queue after a graceful
+// shutdown. Runs with a committed side effect or an active checkpoint stay
+// fenced and are left to the sweeper/operator instead of being replayed.
+func (s *Store) ReleaseRun(ctx context.Context, id uint64, attemptID string) (bool, error) {
+	res := s.db.WithContext(ctx).Exec(`
+		UPDATE agent_runs
+		SET status = ?, attempt_id = '', lease_until = NULL, started_at = NULL,
+		    next_attempt_at = now()
+		WHERE id = ? AND attempt_id = ? AND status = ?
+		  AND side_effect_at IS NULL AND (checkpoint_id IS NULL OR checkpoint_id = '')
+	`, domain.RunQueued, id, attemptID, domain.RunRunning)
+	if res.Error != nil {
+		return false, transientOrDomain(res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// QueueStats returns the current queued depth and the age of the oldest queued
+// run. It is used for operator gauges, not admission control.
+func (s *Store) QueueStats(ctx context.Context) (int64, time.Duration, error) {
+	var row struct {
+		Queued int64
+		Oldest *time.Time
+	}
+	err := s.db.WithContext(ctx).Model(&AgentRunRow{}).
+		Select("count(*) AS queued, min(created_at) AS oldest").
+		Where("status = ?", domain.RunQueued).Scan(&row).Error
+	if err != nil {
+		return 0, 0, transientOrDomain(err)
+	}
+	if row.Oldest == nil {
+		return 0, 0, nil
+	}
+	return row.Queued, time.Since(*row.Oldest), nil
+}
+
 // QueuedRuns returns runs that are due and not blocked by an earlier run in
 // the same session. Claiming is still required: multiple workers may see the
 // same candidates.

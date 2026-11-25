@@ -43,7 +43,39 @@ func (e RunEvent) ToProto() *pb.AgentRunEvent {
 		InputTokens: int32(e.InputTokens), OutputTokens: int32(e.OutputTokens),
 		TimestampMs: e.TimestampMs, ClientMsgId: e.ClientMessageID,
 		RetryAfterAtMs: parseRetryAt(e.RetryAfterAt),
+		Citations:      citationsToProto(e.Citations),
 	}
+}
+
+func citationsToProto(citations []RunCitation) []*pb.AgentRunCitation {
+	if len(citations) == 0 {
+		return nil
+	}
+	out := make([]*pb.AgentRunCitation, 0, len(citations))
+	for _, c := range citations {
+		out = append(out, &pb.AgentRunCitation{
+			MsgId: c.MsgID, Topic: c.Topic, TopicSeq: c.TopicSeq,
+			SenderId: c.SenderID, Snippet: c.Snippet,
+		})
+	}
+	return out
+}
+
+func citationsFromProto(citations []*pb.AgentRunCitation) []RunCitation {
+	if len(citations) == 0 {
+		return nil
+	}
+	out := make([]RunCitation, 0, len(citations))
+	for _, c := range citations {
+		if c == nil {
+			continue
+		}
+		out = append(out, RunCitation{
+			MsgID: c.GetMsgId(), Topic: c.GetTopic(), TopicSeq: c.GetTopicSeq(),
+			SenderID: c.GetSenderId(), Snippet: c.GetSnippet(),
+		})
+	}
+	return out
 }
 
 // FromProto converts a WebSocket payload to the shared event contract.
@@ -65,6 +97,7 @@ func FromProto(event *pb.AgentRunEvent) RunEvent {
 		Retryable: event.GetRetryable(), RetryAfterAt: formatRetryAt(event.GetRetryAfterAtMs()),
 		InputTokens: int(event.GetInputTokens()), OutputTokens: int(event.GetOutputTokens()),
 		TimestampMs: event.GetTimestampMs(), ClientMessageID: event.GetClientMsgId(),
+		Citations: citationsFromProto(event.GetCitations()),
 	}
 }
 

@@ -75,6 +75,36 @@ type PullRequest struct {
 	Limit   int32
 }
 
+// SearchRequest searches one conversation. Query may be empty only when
+// HasFile is true.
+type SearchRequest struct {
+	Topic    string
+	Query    string
+	SenderID int64
+	Since    int64
+	Until    int64
+	HasFile  bool
+	Limit    int32
+	Offset   int32
+}
+
+// SearchHit is one authorized message search result.
+type SearchHit struct {
+	MessageID int64
+	Topic     string
+	TopicSeq  uint64
+	SenderID  int64
+	Timestamp int64
+	MsgType   MessageType
+	HasFile   bool
+	Snippet   string
+}
+
+type SearchResult struct {
+	Hits    []*SearchHit
+	HasMore bool
+}
+
 type User struct {
 	UserID   int64  `json:"userId"`
 	Username string `json:"username"`
@@ -283,6 +313,7 @@ type AgentRun struct {
 	InputTokens     int              `json:"inputTokens"`
 	OutputTokens    int              `json:"outputTokens"`
 	TotalTokens     int              `json:"totalTokens"`
+	TraceID         string           `json:"traceId,omitempty"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	StartedAt       *time.Time       `json:"startedAt,omitempty"`
 	FinishedAt      *time.Time       `json:"finishedAt,omitempty"`

@@ -19,6 +19,14 @@ service MessageService {
       get: "/v1/message/pull"
     };
   }
+
+  // SearchMessages performs keyword search inside one conversation. Search is
+  // optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+  rpc SearchMessages (SearchMessagesRequest) returns (SearchMessagesReply) {
+    option (google.api.http) = {
+      get: "/v1/message/search"
+    };
+  }
 }
 
 enum MsgType {
@@ -91,6 +99,36 @@ message PullRequest {
   uint64 last_seq = 2; // client last known seq, fetch messages with seq > last_seq
   int32 limit = 3;
   uint64 end_seq = 4; // exclusive upper bound; 0 = from the latest (backward history page)
+}
+
+// SearchMessagesRequest is scoped to one topic. Query may be empty only when
+// has_file is true (browse attachments).
+message SearchMessagesRequest {
+  string topic = 1;
+  string query = 2;
+  int64 sender_id = 3;
+  int64 since = 4;   // inclusive unix seconds
+  int64 until = 5;   // inclusive unix seconds
+  bool has_file = 6;
+  int32 limit = 7;   // default 20, max 50
+  int32 offset = 8;  // default 0, max 1000
+}
+
+// SearchMessage is one authorized search hit.
+message SearchMessage {
+  int64 msg_id = 1;
+  string topic = 2;
+  uint64 topic_seq = 3;
+  int64 sender_id = 4;
+  int64 timestamp = 5;
+  int32 msg_type = 6;
+  bool has_file = 7;
+  string snippet = 8;
+}
+
+message SearchMessagesReply {
+  repeated SearchMessage messages = 1;
+  bool has_more = 2;
 }
 
 // PullMessage is a message in the pull response.

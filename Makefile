@@ -50,6 +50,11 @@ api:
 	       --openapi_out=fq_schema_naming=true,default_response=false:. \
 	       $(API_PROTO_FILES)
 
+.PHONY: search-reindex
+# rebuild the optional Meilisearch message index from MongoDB
+search-reindex:
+	@go run ./cmd/search-index -conf ./configs/config.yaml
+
 .PHONY: test-deps-up test-deps-down
 # start test dependencies (postgres, redis, kafka)
 test-deps-up:
@@ -60,6 +65,12 @@ test-deps-up:
 # stop test dependencies
 test-deps-down:
 	@docker compose -f docker-compose.test.yml down -v
+
+.PHONY: test-release-gate
+# release gate: claim fencing, stale-run recovery, outbox outage, shutdown release, search/citations
+test-release-gate: test-deps-up
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestAgentRun_|TestOutbox_KafkaOutageNoLoss|TestReleaseRunOnShutdown|TestMessageSearch|TestAgentSearchTool' -count=1 -timeout 600s; \
+	status=$$?; $(MAKE) test-deps-down; exit $$status
 
 .PHONY: test-auth
 # run auth integration tests

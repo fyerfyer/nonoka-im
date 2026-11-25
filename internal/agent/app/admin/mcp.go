@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/domain"
+	agentmetrics "nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/audit"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -47,6 +48,7 @@ type MCPService struct {
 	Discovery MCPDiscovery
 	Sealer    CredentialSealer
 	Audit     *audit.Service
+	Metrics   *agentmetrics.Metrics
 	Log       *log.Helper
 }
 
@@ -353,17 +355,18 @@ func (s *MCPService) HealthCheckAll(ctx context.Context) {
 		return
 	}
 	for _, server := range servers {
+		status := domain.MCPHealthHealthy
+		lastErr := ""
 		plain, err := s.serverCredential(&server)
 		if err != nil {
-			_ = s.Store.SetServerHealth(ctx, server.ID, healthForError(err), err.Error())
-			continue
+			status, lastErr = healthForError(err), err.Error()
+		} else if err := s.Discovery.Test(ctx, mcpTarget(&server, plain)); err != nil {
+			status, lastErr = healthForError(err), err.Error()
 		}
-		target := mcpTarget(&server, plain)
-		if err := s.Discovery.Test(ctx, target); err != nil {
-			_ = s.Store.SetServerHealth(ctx, server.ID, healthForError(err), err.Error())
-			continue
+		_ = s.Store.SetServerHealth(ctx, server.ID, status, lastErr)
+		if s.Metrics != nil {
+			s.Metrics.SetMCPHealth(server.Name, status)
 		}
-		_ = s.Store.SetServerHealth(ctx, server.ID, domain.MCPHealthHealthy, "")
 	}
 }
 

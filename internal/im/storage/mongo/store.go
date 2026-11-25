@@ -25,12 +25,13 @@ var (
 
 const (
 	// Collection names
-	CollectionMessages       = "messages"           // group messages (read扩散)
-	CollectionInboxes        = "inboxes"            // user inboxes (write扩散 for P2P)
-	CollectionTopicSeqs      = "topic_seqs"         // topic max seq backup
-	CollectionMentionInboxes = "mention_inboxes"    // group @mention inbox (for large groups)
-	CollectionDeliveryStatus = "delivery_status"    // message delivery tracking per user
-	CollectionAgentOutbox    = "agent_event_outbox" // transactional Agent trigger events
+	CollectionMessages       = "messages"            // group messages (read扩散)
+	CollectionInboxes        = "inboxes"             // user inboxes (write扩散 for P2P)
+	CollectionTopicSeqs      = "topic_seqs"          // topic max seq backup
+	CollectionMentionInboxes = "mention_inboxes"     // group @mention inbox (for large groups)
+	CollectionDeliveryStatus = "delivery_status"     // message delivery tracking per user
+	CollectionAgentOutbox    = "agent_event_outbox"  // transactional Agent trigger events
+	CollectionSearchOutbox   = "search_index_outbox" // durable Meilisearch index tasks
 
 	// agentEventMaxAttempts caps per-row publish attempts in the outbox relay.
 	// Rows exceeding it are parked with status "failed" (never deleted) so an
@@ -56,6 +57,7 @@ type storedMessageRow struct {
 	SenderID    int64     `bson:"sender_id"`
 	MsgType     int32     `bson:"msg_type"`
 	Content     []byte    `bson:"content"`
+	ContentText string    `bson:"content_text,omitempty"`
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
@@ -71,6 +73,7 @@ type inboxMessageRow struct {
 	SenderID    int64     `bson:"sender_id"`
 	MsgType     int32     `bson:"msg_type"`
 	Content     []byte    `bson:"content"`
+	ContentText string    `bson:"content_text,omitempty"`
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
@@ -96,6 +99,7 @@ type mentionMessageRow struct {
 	SenderID    int64     `bson:"sender_id"`
 	MsgType     int32     `bson:"msg_type"`
 	Content     []byte    `bson:"content"`
+	ContentText string    `bson:"content_text,omitempty"`
 	Timestamp   int64     `bson:"timestamp"`
 	TopicSeq    uint64    `bson:"topic_seq"`
 	ClientMsgID string    `bson:"client_msg_id,omitempty"`
@@ -144,11 +148,12 @@ var errAgentEventDuplicate = errors.New("agent event already recorded")
 
 // Store handles MongoDB persistence for messages.
 type Store struct {
-	db           *mongo.Database
-	redis        redis.UniversalClient
-	metrics      *metrics.Metrics
-	log          *log.Helper
-	writeConcern *writeconcern.WriteConcern
+	db            *mongo.Database
+	redis         redis.UniversalClient
+	metrics       *metrics.Metrics
+	log           *log.Helper
+	writeConcern  *writeconcern.WriteConcern
+	searchEnabled bool
 }
 
 // NewStore creates a new Store.
@@ -169,6 +174,11 @@ func NewStore(db *mongo.Database, logger log.Logger, m ...*metrics.Metrics) *Sto
 //   - "w1"            : w=1, j=false  (fast, default)
 //   - "majority"      : w="majority", j=true
 //   - "majority_jfalse": w="majority", j=false
+//
+// SetSearchEnabled makes message writes enqueue durable search-index tasks in
+// the same MongoDB transaction. It must be set before the consumer starts.
+func (s *Store) SetSearchEnabled(enabled bool) { s.searchEnabled = enabled }
+
 func (s *Store) SetWriteConcern(label string) {
 	switch strings.ToLower(label) {
 	case "majority":

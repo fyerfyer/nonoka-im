@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"nonoka-im/internal/authz"
@@ -31,6 +32,7 @@ type PullResult struct {
 // QueryService owns the authorized read side of the IM bounded context.
 type QueryService struct {
 	Reader     MessageReader
+	Search     SearchIndex
 	Authorizer authz.Authorizer
 	Log        *log.Helper
 }
@@ -146,6 +148,29 @@ func (s *QueryService) RecentMessages(ctx context.Context, userID int64, topic s
 		return nil, err
 	}
 	return s.Reader.GetRecentMessages(ctx, userID, topic, limit)
+}
+
+// SearchMessages performs an authorized keyword search inside one topic.
+// Topic is mandatory: cross-conversation search is intentionally deferred.
+func (s *QueryService) SearchMessages(ctx context.Context, userID int64, topic, query string, filter domain.SearchFilter, limit, offset int) ([]domain.SearchHit, bool, error) {
+	if s.Search == nil {
+		return nil, false, ErrSearchUnavailable
+	}
+	query = strings.TrimSpace(query)
+	if query == "" && !filter.HasFile {
+		return nil, false, ErrInvalidSearchQuery
+	}
+	topic, err := s.authorize(ctx, userID, topic)
+	if err != nil {
+		return nil, false, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	if offset < 0 || offset > 1000 {
+		offset = 0
+	}
+	return s.Search.Search(ctx, topic, query, filter, limit, offset)
 }
 
 // MessageForUser loads one message after authorization.

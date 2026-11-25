@@ -101,6 +101,12 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create agent outbox topic index: %w", err)
 	}
 
+	if err := s.createIndex(ctx, CollectionSearchOutbox, "search_outbox_due", mongo.IndexModel{
+		Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_attempt_at", Value: 1}, {Key: "locked_until", Value: 1}},
+	}); err != nil {
+		return fmt.Errorf("create search outbox due index: %w", err)
+	}
+
 	return nil
 }
 

@@ -260,12 +260,54 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                   <dt className="text-muted-foreground">Retry after</dt>
                   <dd>{detail.data.retryAfterAt ? formatTime(detail.data.retryAfterAt) : "-"}</dd>
                 </div>
+                <div>
+                  <dt className="text-muted-foreground">Trace</dt>
+                  <dd>
+                    {detail.data.traceId ? (
+                      process.env.NEXT_PUBLIC_TRACE_URL_TEMPLATE ? (
+                        <a
+                          className="text-primary underline-offset-2 hover:underline"
+                          href={process.env.NEXT_PUBLIC_TRACE_URL_TEMPLATE.replace(
+                            "{traceId}",
+                            detail.data.traceId
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open trace
+                        </a>
+                      ) : (
+                        <span className="break-all font-mono text-[10px]">{detail.data.traceId}</span>
+                      )
+                    ) : (
+                      "-"
+                    )}
+                  </dd>
+                </div>
               </dl>
 
               {detail.data.lastError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
                   {detail.data.lastError}
                 </p>
+              )}
+
+              {(detail.data.citations ?? []).length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold">Sources consulted</h4>
+                  <div className="space-y-1.5">
+                    {detail.data.citations!.map((citation, index) => (
+                      <div key={`${citation.topic}:${citation.msgId}`} className="rounded-md border p-2 text-xs">
+                        <span className="font-mono text-muted-foreground">
+                          [{index + 1}] msg #{citation.msgId} · seq {citation.topicSeq}
+                        </span>
+                        {citation.snippet && (
+                          <p className="mt-1 line-clamp-2 text-muted-foreground">{citation.snippet}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               <div className="grid gap-4 lg:grid-cols-2">

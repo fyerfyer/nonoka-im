@@ -93,12 +93,14 @@ type RunView struct {
 	CheckpointID     string               `json:"checkpointId,omitempty"`
 	Steps            []AgentRunStepView   `json:"steps,omitempty"`
 	ToolInvocations  []ToolInvocationView `json:"toolInvocations,omitempty"`
+	Citations        []CitationView       `json:"citations,omitempty"`
 	SideEffectAt     *time.Time           `json:"sideEffectAt,omitempty"`
 	InputTokens      int                  `json:"inputTokens"`
 	OutputTokens     int                  `json:"outputTokens"`
 	TotalTokens      int                  `json:"totalTokens"`
 	ModelKey         string               `json:"modelKey,omitempty"`
 	EstimatedCostUSD float64              `json:"estimatedCostUsd"`
+	TraceID          string               `json:"traceId,omitempty"`
 	RetryAfterAt     *time.Time           `json:"retryAfterAt,omitempty"`
 	LastError        string               `json:"lastError,omitempty"`
 	CreatedAt        time.Time            `json:"createdAt"`
@@ -115,6 +117,14 @@ type AgentRunStepView struct {
 	Summary    string    `json:"summary,omitempty"`
 	Status     string    `json:"status,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type CitationView struct {
+	MsgID    int64  `json:"msgId"`
+	Topic    string `json:"topic"`
+	TopicSeq uint64 `json:"topicSeq"`
+	SenderID int64  `json:"senderId"`
+	Snippet  string `json:"snippet,omitempty"`
 }
 
 type ToolInvocationView struct {
@@ -201,10 +211,21 @@ func runView(run *domain.AgentRun) RunView {
 		Attempts: run.Attempts, LeaseUntil: run.LeaseUntil, NextAttemptAt: run.NextAttemptAt,
 		ReplyMsgID: run.ReplyMsgID, CheckpointID: run.CheckpointID, SideEffectAt: run.SideEffectAt,
 		InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
-		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD,
+		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, TraceID: run.TraceID,
 		RetryAfterAt: run.RetryAfterAt, LastError: app.PublicFailureMessage(run.ErrorCode, run.LastError),
 		CreatedAt: run.CreatedAt, StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
 	}
+}
+
+func citationViews(rows []domain.AgentRunCitation) []CitationView {
+	out := make([]CitationView, 0, len(rows))
+	for i := range rows {
+		out = append(out, CitationView{
+			MsgID: rows[i].MsgID, Topic: rows[i].Topic, TopicSeq: rows[i].TopicSeq,
+			SenderID: rows[i].SenderID, Snippet: rows[i].Snippet,
+		})
+	}
+	return out
 }
 
 func runStepView(s *domain.AgentRunStep) AgentRunStepView {

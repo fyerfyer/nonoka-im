@@ -7,7 +7,8 @@ import { formatSize, parseMediaContent, MediaMeta } from "@/lib/media";
 import { useAuthedMedia } from "@/hooks/useAuthedMedia";
 import { segmentMentions, MentionMember } from "@/lib/mentions";
 import { AgentApprovalCard, MSG_TYPE_AGENT_CARD } from "./AgentApprovalCard";
-import { agentApi } from "@/lib/api/agents";
+import { SourceChips } from "./SourceChips";
+import { agentApi, type RunCitation } from "@/lib/api/agents";
 import { toast } from "sonner";
 import {
   Bot,
@@ -39,6 +40,7 @@ interface MessageBubbleProps {
   currentUserId?: number;
   onRecall?: () => void;
   onRetry?: () => void;
+  onJumpToCitation?: (citation: RunCitation) => void;
 }
 
 export function MessageBubble({
@@ -51,9 +53,26 @@ export function MessageBubble({
   currentUserId,
   onRecall,
   onRetry,
+  onJumpToCitation,
 }: MessageBubbleProps) {
   const time = formatTime(message.timestamp);
   const [cancelling, setCancelling] = useState(false);
+  const [loadedCitations, setLoadedCitations] = useState<RunCitation[] | undefined>(undefined);
+  const [loadingSources, setLoadingSources] = useState(false);
+  const citations = message.citations ?? loadedCitations;
+
+  const loadSources = async () => {
+    if (!message.msgId || loadingSources) return;
+    setLoadingSources(true);
+    try {
+      const run = await agentApi.runByReply(Number(message.msgId));
+      setLoadedCitations(run.citations ?? []);
+    } catch {
+      setLoadedCitations([]);
+    } finally {
+      setLoadingSources(false);
+    }
+  };
 
   const cancelRun = async () => {
     if (!message.runId) return;
@@ -153,6 +172,19 @@ export function MessageBubble({
             members={members}
             currentUserId={currentUserId}
           />
+          {citations && citations.length > 0 && (
+            <SourceChips citations={citations} onJump={onJumpToCitation} />
+          )}
+          {!citations && senderIsAgent && !message.streaming && message.msgId && (
+            <button
+              type="button"
+              className="mt-1 text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+              onClick={loadSources}
+              disabled={loadingSources}
+            >
+              {loadingSources ? "Loading sources…" : "Show sources"}
+            </button>
+          )}
           {message.streaming && message.streamStatus !== "waiting_approval" && (
             <StreamingStatus message={message} />
           )}

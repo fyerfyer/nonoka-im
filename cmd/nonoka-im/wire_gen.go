@@ -20,6 +20,7 @@ import (
 	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/mcp"
+	"nonoka-im/internal/alert"
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
@@ -31,6 +32,7 @@ import (
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/internal/llm"
 	"nonoka-im/internal/messaging"
@@ -52,7 +54,7 @@ import (
 // Injectors from wire.go:
 
 // wireApp init kratos application.
-func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, dispatch *conf.Dispatch, gatewayConfig *conf.GatewayConfig, logger log.Logger) (*kratos.App, func(), error) {
+func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, dispatch *conf.Dispatch, gatewayConfig *conf.GatewayConfig, search *conf.Search, logger log.Logger) (*kratos.App, func(), error) {
 	dataData, cleanup, err := data.NewData(confData)
 	if err != nil {
 		return nil, nil, err
@@ -86,7 +88,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		cleanup()
 		return nil, nil, err
 	}
-	queryService := provideIMQueryService(store, openFGA, logger)
+	client := provideSearchClient(search)
+	queryService := provideIMQueryService(store, openFGA, client, logger)
 	serviceMessageService := service.NewMessageService(messageService, queryService, logger)
 	string2 := provideNodeIDString()
 	sessionManager := gateway.NewSessionManager(universalClient, string2)
@@ -115,7 +118,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 		return nil, nil, err
 	}
 	runService := provideAgentRunService(agentdataStore, openFGA, universalClient, runBroadcaster)
-	approvalService := provideAgentApprovalService(agentdataStore, openFGA, auditService)
+	approvalService := provideAgentApprovalService(agentdataStore, openFGA, auditService, metrics)
 	mcpService := provideAgentMCPService(platformdataStore, openFGA, auditService, logger)
 	skillService := provideAgentSkillService(platformdataStore, openFGA, auditService)
 	quotaService := provideQuotaService(agentdataStore, openFGA, auditService)
@@ -123,7 +126,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, llmService, quotaService, auditService, idempotency)
 	outboxService := provideIMOutboxService(store, logger)
 	outboxAdmin := provideOutboxAdmin(outboxService)
-	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA)
+	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA, auditService)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
@@ -357,8 +360,12 @@ func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.
 	}
 }
 
-func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, logger log.Logger) *app.QueryService {
-	return &app.QueryService{Reader: storage, Authorizer: authorizer, Log: log.NewHelper(logger)}
+func provideSearchClient(searchConf *conf.Search) *search.Client {
+	return search.FromConfig(searchConf)
+}
+
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchClient *search.Client, logger log.Logger) *app.QueryService {
+	return &app.QueryService{Reader: storage, Search: searchClient, Authorizer: authorizer, Log: log.NewHelper(logger)}
 }
 
 func provideIMConversationService(repo imdata.ConversationRepo) *app.ConversationService {
@@ -374,7 +381,21 @@ func provideIMFileService(store *mongostore.FileStore, authorizer *authz.OpenFGA
 }
 
 func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *app.OutboxService {
-	return &app.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+	svc := &app.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+	if url := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_WEBHOOK")); url != "" {
+		svc.Notifier = alert.NewWebhook(url)
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MIN_INTERVAL")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			svc.AlertMinInterval = d
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MAX_AGE")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			svc.AlertMaxAge = d
+		}
+	}
+	return svc
 }
 
 func provideOutboxAdmin(outbox *app.OutboxService) messaging.OutboxAdmin {
@@ -507,8 +528,10 @@ func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA, redisClie
 	return admin.NewRunService(store, az, realtime.NewRedisRunEventStore(redisClient), publisher)
 }
 
-func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service) *admin.ApprovalService {
-	return admin.NewApprovalService(store, az, auditor)
+func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service, m *metrics.Metrics) *admin.ApprovalService {
+	svc := admin.NewApprovalService(store, az, auditor)
+	svc.Metrics = m
+	return svc
 }
 
 func provideAgentMCPService(platform *platformdata.Store, az *authz.OpenFGA, auditor *audit.Service, logger log.Logger) *admin.MCPService {

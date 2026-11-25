@@ -55,6 +55,7 @@ type MessageTools struct {
 	Sender     ReplySender
 	Files      FileReader
 	Directory  Directory
+	Citations  CitationRecorder
 }
 
 func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit int) ([]Message, error) {
@@ -71,34 +72,43 @@ func (b *MessageTools) messages(ctx context.Context, rc tools.RunContext, limit 
 }
 
 func (b *MessageTools) SearchMessages(ctx context.Context, rc tools.RunContext, query string, limit int, filter tools.SearchFilter) ([]string, error) {
-	rows, err := b.messages(ctx, rc, 100)
+	if b.Reader == nil || b.Authorizer == nil {
+		return nil, fmt.Errorf("message search unavailable")
+	}
+	if err := b.Authorizer.CanAccessTopic(ctx, rc.ActorUserID, rc.Topic); err != nil {
+		return nil, fmt.Errorf("topic access denied")
+	}
+	if err := b.Authorizer.CanAccessTopic(ctx, rc.BotID, rc.Topic); err != nil {
+		return nil, fmt.Errorf("bot topic access denied")
+	}
+	hits, _, err := b.Reader.SearchMessages(ctx, rc.ActorUserID, rc.Topic, query, SearchFilter{
+		SenderID: filter.SenderID, Since: filter.Since, Until: filter.Until, HasFile: filter.HasFile,
+	}, limit, 0)
 	if err != nil {
 		return nil, err
 	}
-	return boundToolResults(searchInboxRows(rows, query, limit, filter), 8000), nil
+	if b.Citations != nil && rc.RunID > 0 && len(hits) > 0 {
+		// Citations are a secondary artifact; never fail a successful search
+		// because the citation ledger is temporarily unavailable.
+		_ = b.Citations.RecordRunCitations(ctx, rc.RunID, hits)
+	}
+	result := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		result = append(result, formatSearchHit(hit))
+	}
+	return boundToolResults(result, 8000), nil
 }
 
-// searchInboxRows scans the most recent window for the newest messages that
-// match the query and the optional sender/time filters. A zero filter field
-// disables that condition, so callers that pass an empty filter get exactly
-// the previous search behavior.
-func searchInboxRows(rows []Message, query string, limit int, filter tools.SearchFilter) []string {
-	query = strings.ToLower(strings.TrimSpace(query))
-	result := make([]string, 0, limit)
-	for i := len(rows) - 1; i >= 0 && len(result) < limit; i-- {
-		row := rows[i]
-		if filter.SenderID != 0 && row.SenderID != filter.SenderID {
-			continue
-		}
-		if filter.Since != 0 && row.Timestamp < filter.Since {
-			continue
-		}
-		content := strings.ToValidUTF8(string(row.Content), "�")
-		if strings.Contains(strings.ToLower(content), query) {
-			result = append(result, formatToolMessage(row.SenderID, row.Timestamp, content))
-		}
+func formatSearchHit(hit SearchHit) string {
+	snippet := strings.TrimSpace(hit.Snippet)
+	if len(snippet) > 1200 {
+		snippet = snippet[:1200]
 	}
-	return result
+	prefix := fmt.Sprintf("msg_id=%d seq=%d sender=%d time=%d", hit.MsgID, hit.TopicSeq, hit.SenderID, hit.Timestamp)
+	if hit.HasFile {
+		prefix += " attachment"
+	}
+	return prefix + ": " + snippet
 }
 
 func (b *MessageTools) ConversationContext(ctx context.Context, rc tools.RunContext, limit int) ([]string, error) {

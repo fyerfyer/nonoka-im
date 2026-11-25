@@ -14,6 +14,7 @@ message Bootstrap {
   MsgworkerConfig msgworker = 6;
   AgentWorker agent_worker = 7;
   Observability observability = 8;
+  Search search = 9;
 }
 
 message Server {
@@ -171,6 +172,20 @@ message Observability {
   string health_addr = 1;
   string metrics_addr = 2;
   string otlp_traces_endpoint = 3;
+}
+
+// Search configures the optional Meilisearch-backed message index. Leaving URL
+// empty disables search without affecting message delivery.
+message Search {
+  bool enabled = 1;
+  string url = 2;
+  string index = 3;
+  google.protobuf.Duration timeout = 4;
+  // MaxContentBytes caps the text sent to the search index. Longer messages
+  // keep their full body in MongoDB but are searchable only up to this prefix.
+  int32 max_content_bytes = 5;
+  google.protobuf.Duration relay_interval = 6;
+  int32 relay_batch_size = 7;
 }
 
 // AgentWorker configures the agent job application. Kafka and Data sections

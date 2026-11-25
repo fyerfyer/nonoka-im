@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RunEvent } from "@/lib/api/agents";
+import type { RunCitation, RunEvent } from "@/lib/api/agents";
 import type { ChatMessage, ToolCallState } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -25,6 +25,7 @@ export interface LiveRun {
   clientMessageID?: string;
   inputTokens?: number;
   outputTokens?: number;
+  citations?: RunCitation[];
 }
 
 interface RunStreamStore {
@@ -115,6 +116,7 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
       live.clientMessageID = event.clientMessageId;
       live.inputTokens = event.inputTokens;
       live.outputTokens = event.outputTokens;
+      live.citations = event.citations;
     }
     if (event.type === "failed") {
       live.status = "failed";
@@ -183,6 +185,7 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
       patch.streamStatus = "completed";
       patch.status = "delivered";
       patch.content = live.text;
+      patch.citations = live.citations;
     }
     if (event.type === "failed") {
       patch.streaming = false;
@@ -221,6 +224,9 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
         (run.replyMsgId && Number(run.replyMsgId) === Number(message.msgId)) ||
         (run.clientMessageID && run.clientMessageID === message.clientMsgId)
       ) {
+        if (run.citations && message.msgId) {
+          chat.setMessageCitations(run.topic, Number(message.msgId), run.citations);
+        }
         chat.removeMessage(run.topic, `run:${run.runId}`);
         return;
       }

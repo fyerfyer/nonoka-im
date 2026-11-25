@@ -18,6 +18,7 @@ import (
 	"nonoka-im/internal/agent/credential"
 	"nonoka-im/internal/agent/domain"
 	agentmcp "nonoka-im/internal/agent/mcp"
+	"nonoka-im/internal/alert"
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
@@ -29,6 +30,7 @@ import (
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/httpapi"
 	imapp "nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/search"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/internal/llm"
 	"nonoka-im/internal/messaging"
@@ -261,8 +263,12 @@ func provideIMMessageService(producer *gateway.DomainProducer, authorizer authz.
 	}
 }
 
-func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, logger log.Logger) *imapp.QueryService {
-	return &imapp.QueryService{Reader: storage, Authorizer: authorizer, Log: log.NewHelper(logger)}
+func provideSearchClient(searchConf *conf.Search) *search.Client {
+	return search.FromConfig(searchConf)
+}
+
+func provideIMQueryService(storage *mongostore.Store, authorizer authz.Authorizer, searchClient *search.Client, logger log.Logger) *imapp.QueryService {
+	return &imapp.QueryService{Reader: storage, Search: searchClient, Authorizer: authorizer, Log: log.NewHelper(logger)}
 }
 
 func provideIMConversationService(repo imdata.ConversationRepo) *imapp.ConversationService {
@@ -278,7 +284,21 @@ func provideIMFileService(store *mongostore.FileStore, authorizer *authz.OpenFGA
 }
 
 func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *imapp.OutboxService {
-	return &imapp.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+	svc := &imapp.OutboxService{Repo: storage, Log: log.NewHelper(logger)}
+	if url := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_WEBHOOK")); url != "" {
+		svc.Notifier = alert.NewWebhook(url)
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MIN_INTERVAL")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			svc.AlertMinInterval = d
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MAX_AGE")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			svc.AlertMaxAge = d
+		}
+	}
+	return svc
 }
 
 func provideOutboxAdmin(outbox *imapp.OutboxService) messaging.OutboxAdmin {
@@ -411,8 +431,10 @@ func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA, redisClie
 	return admin.NewRunService(store, az, realtime.NewRedisRunEventStore(redisClient), publisher)
 }
 
-func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service) *admin.ApprovalService {
-	return admin.NewApprovalService(store, az, auditor)
+func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service, m *metrics.Metrics) *admin.ApprovalService {
+	svc := admin.NewApprovalService(store, az, auditor)
+	svc.Metrics = m
+	return svc
 }
 
 func provideAgentMCPService(platform *platformdata.Store, az *authz.OpenFGA, auditor *audit.Service, logger log.Logger) *admin.MCPService {
@@ -506,7 +528,7 @@ func provideGatewayRegistry(redis redis.UniversalClient, nodeID NodeID, url Gate
 }
 
 // wireApp init kratos application.
-func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.GatewayConfig, log.Logger) (*kratos.App, func(), error) {
+func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.GatewayConfig, *conf.Search, log.Logger) (*kratos.App, func(), error) {
 	panic(wire.Build(
 		server.ProviderSet,
 		data.ProviderSet,
@@ -534,6 +556,7 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		gateway.NewDomainProducer,
 		provideFileStore,
 		provideIMMessageService,
+		provideSearchClient,
 		provideIMQueryService,
 		provideIMConversationService,
 		provideIMGroupService,

@@ -112,6 +112,7 @@ type AgentRunRow struct {
 	TotalTokens      int        `gorm:"column:total_tokens"`
 	ModelKey         string     `gorm:"column:model_key;size:200;not null;default:''"`
 	EstimatedCostUSD float64    `gorm:"column:estimated_cost_usd;not null;default:0"`
+	TraceID          string     `gorm:"column:trace_id;size:64;not null;default:''"`
 	RetryAfterAt     *time.Time `gorm:"column:retry_after_at"`
 	CreatedAt        time.Time  `gorm:"column:created_at"`
 	StartedAt        *time.Time `gorm:"column:started_at"`
@@ -130,7 +131,7 @@ func agentRunRowFromDomain(run domain.AgentRun) AgentRunRow {
 		CheckpointID: run.CheckpointID,
 		SideEffectAt: run.SideEffectAt, InputTokens: run.InputTokens,
 		OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
-		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, RetryAfterAt: run.RetryAfterAt,
+		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, TraceID: run.TraceID, RetryAfterAt: run.RetryAfterAt,
 		CreatedAt: run.CreatedAt,
 		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
 	}
@@ -146,7 +147,7 @@ func (r AgentRunRow) toDomain() domain.AgentRun {
 		CheckpointID: r.CheckpointID,
 		SideEffectAt: r.SideEffectAt, InputTokens: r.InputTokens,
 		OutputTokens: r.OutputTokens, TotalTokens: r.TotalTokens,
-		ModelKey: r.ModelKey, EstimatedCostUSD: r.EstimatedCostUSD, RetryAfterAt: r.RetryAfterAt,
+		ModelKey: r.ModelKey, EstimatedCostUSD: r.EstimatedCostUSD, TraceID: r.TraceID, RetryAfterAt: r.RetryAfterAt,
 		CreatedAt: r.CreatedAt,
 		StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
 	}
@@ -170,6 +171,33 @@ func (r AgentRunStepRow) toDomain() domain.AgentRunStep {
 	return domain.AgentRunStep{
 		ID: r.ID, RunID: r.RunID, Seq: r.Seq, Type: r.Type, Tool: r.Tool,
 		ToolCallID: r.ToolCallID, Summary: r.Summary, Status: r.Status, CreatedAt: r.CreatedAt,
+	}
+}
+
+type AgentRunCitationRow struct {
+	ID        uint64    `gorm:"column:id;primaryKey;autoIncrement"`
+	RunID     uint64    `gorm:"column:run_id;not null"`
+	TurnID    *uint64   `gorm:"column:turn_id"`
+	Ordinal   int       `gorm:"column:ordinal;not null;default:0"`
+	Topic     string    `gorm:"column:topic;size:128;not null"`
+	MsgID     int64     `gorm:"column:msg_id;not null"`
+	TopicSeq  uint64    `gorm:"column:topic_seq;not null"`
+	SenderID  int64     `gorm:"column:sender_id;not null"`
+	Snippet   string    `gorm:"column:snippet;type:text;not null;default:''"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (AgentRunCitationRow) TableName() string { return "agent_run_citations" }
+
+func (r AgentRunCitationRow) toDomain() domain.AgentRunCitation {
+	var turnID uint64
+	if r.TurnID != nil {
+		turnID = *r.TurnID
+	}
+	return domain.AgentRunCitation{
+		ID: r.ID, RunID: r.RunID, TurnID: turnID, Ordinal: r.Ordinal, Topic: r.Topic,
+		MsgID: r.MsgID, TopicSeq: r.TopicSeq, SenderID: r.SenderID,
+		Snippet: r.Snippet, CreatedAt: r.CreatedAt,
 	}
 }
 

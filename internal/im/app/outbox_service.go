@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"nonoka-im/internal/alert"
 	"nonoka-im/internal/im/domain"
 	"nonoka-im/internal/messaging"
 	"nonoka-im/internal/metrics"
@@ -32,6 +33,13 @@ type OutboxService struct {
 	Retention   time.Duration
 	PruneLimit  int
 	Backoff     time.Duration
+
+	// Notifier is optional; when set, a failed row or an old backlog emits a
+	// generic alert with a cooldown to avoid notification storms.
+	Notifier         alert.Notifier
+	AlertMinInterval time.Duration
+	AlertMaxAge      time.Duration
+	lastAlert        time.Time
 }
 
 func (s *OutboxService) log() *log.Helper {
@@ -85,10 +93,11 @@ func (s *OutboxService) Run(ctx context.Context, interval time.Duration) {
 			if _, err := s.Relay(ctx, 32); err != nil {
 				s.log().Warnf("relay agent outbox failed: %v", err)
 			}
-			if s.Metrics != nil {
-				if pending, failed, age, err := s.Repo.OutboxStats(ctx); err == nil {
+			if pending, failed, age, err := s.Repo.OutboxStats(ctx); err == nil {
+				if s.Metrics != nil {
 					s.Metrics.SetAgentOutboxStats(pending, failed, age.Seconds())
 				}
+				s.maybeAlert(ctx, pending, failed, age)
 			}
 		}
 	}
@@ -159,6 +168,39 @@ func (s *OutboxService) ListFailed(ctx context.Context, limit int) ([]domain.Out
 // Replay moves one failed row back to pending.
 func (s *OutboxService) Replay(ctx context.Context, id string) error {
 	return s.Repo.ReplayOutbox(ctx, id)
+}
+
+// ReplayMany moves the selected failed rows back to pending. Replaying is
+// idempotent: the event_id and run uniqueness constraints absorb duplicates.
+func (s *OutboxService) ReplayMany(ctx context.Context, ids []string) (int, error) {
+	return s.Repo.ReplayOutboxMany(ctx, ids)
+}
+
+func (s *OutboxService) maybeAlert(ctx context.Context, pending, failed int64, age time.Duration) {
+	if s.Notifier == nil {
+		return
+	}
+	maxAge := s.AlertMaxAge
+	if maxAge <= 0 {
+		maxAge = 5 * time.Minute
+	}
+	cooldown := s.AlertMinInterval
+	if cooldown <= 0 {
+		cooldown = 15 * time.Minute
+	}
+	if failed == 0 && age < maxAge {
+		return
+	}
+	if !s.lastAlert.IsZero() && time.Since(s.lastAlert) < cooldown {
+		return
+	}
+	s.lastAlert = time.Now()
+	if err := s.Notifier.Notify(ctx, alert.Event{
+		Type: "agent_outbox", Pending: pending, Failed: failed,
+		OldestAgeSeconds: age.Seconds(), At: time.Now().UTC(),
+	}); err != nil {
+		s.log().Warnf("agent outbox alert: %v", err)
+	}
 }
 
 // Stats returns the outbox backlog gauges.

@@ -231,6 +231,14 @@ export interface ToolInvocation {
   updatedAt: string;
 }
 
+export interface RunCitation {
+  msgId: number;
+  topic: string;
+  topicSeq: number;
+  senderId: number;
+  snippet?: string;
+}
+
 export interface AgentRun {
   id: number;
   eventId?: string;
@@ -248,11 +256,13 @@ export interface AgentRun {
   replyMsgId?: number;
   steps?: AgentRunStep[];
   toolInvocations?: ToolInvocation[];
+  citations?: RunCitation[];
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   modelKey?: string;
   estimatedCostUsd?: number;
+  traceId?: string;
   retryAfterAt?: string | null;
   lastError?: string;
   createdAt: string;
@@ -323,6 +333,16 @@ export interface Quota {
   updatedAt: string;
 }
 
+export interface FailedOutboxEvent {
+  id: string;
+  eventId: string;
+  topic: string;
+  topicSeq: number;
+  attempts: number;
+  lastError: string;
+  createdAt: number;
+}
+
 export interface AuditEvent {
   id: number;
   actorUserId: number;
@@ -383,6 +403,7 @@ export interface RunEvent {
   retryable?: boolean;
   inputTokens?: number;
   outputTokens?: number;
+  citations?: RunCitation[];
   timestampMs?: number;
 }
 
@@ -421,6 +442,8 @@ export const agentApi = {
     api.get<Page<AgentRun>>(
       `/v1/agents/${id}/runs?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
     ),
+  runByReply: (msgId: number) =>
+    api.get<AgentRun>(`/v1/agent-runs/by-reply/${msgId}`),
   runDetail: (id: number) => api.get<AgentRun>(`/v1/agent-runs/${id}`),
   runEvents: (id: number, afterSeq = 0) =>
     api.get<{ events: RunEvent[]; nextSeq: number }>(
@@ -460,6 +483,15 @@ export const agentApi = {
     api.get<{ items: Array<{ day: string; scope: string; scopeKey: string; runs: number; inputTokens: number; outputTokens: number; costUsd?: number }> }>(
       `/v1/admin/usage/top?scope=${scope}&metric=${metric}&limit=${limit}`
     ),
+
+  failedOutbox: (limit = 100) =>
+    api.get<{ items: FailedOutboxEvent[] }>(`/v1/admin/agent-outbox/failed?limit=${limit}`),
+
+  replayOutbox: (id: string) =>
+    api.post<{ status: string; id: string }>(`/v1/admin/agent-outbox/${encodeURIComponent(id)}/replay`, {}),
+
+  replayOutboxMany: (ids: string[]) =>
+    api.post<{ status: string; count: number }>("/v1/admin/agent-outbox/replay", { ids }),
 
   auditEvents: (query: Record<string, string> = {}) => {
     const params = new URLSearchParams({ limit: "50", ...query });

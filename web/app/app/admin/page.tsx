@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { AgentPlatformPanel } from "@/components/admin/AgentPlatformPanel";
 import { AdminQuotas } from "@/components/admin/AdminQuotas";
 import { AdminAudit } from "@/components/admin/AdminAudit";
+import { AdminDLQ } from "@/components/admin/AdminDLQ";
 import { emptyCatalog } from "@/components/agents/agent-utils";
 import { agentApi } from "@/lib/api/agents";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ const TABS = [
   { key: "platform", label: "Platform" },
   { key: "quotas", label: "Quotas & usage" },
   { key: "audit", label: "Audit log" },
+  { key: "dlq", label: "Dead letters" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["key"];
@@ -104,6 +106,7 @@ export default function AdminPage() {
         {tab === "platform" && <AgentPlatformPanel catalog={emptyCatalog} />}
         {tab === "quotas" && <AdminQuotas />}
         {tab === "audit" && <AdminAudit />}
+        {tab === "dlq" && <AdminDLQ />}
       </main>
     </div>
   );

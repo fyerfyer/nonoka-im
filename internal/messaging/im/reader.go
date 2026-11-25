@@ -12,6 +12,7 @@ import (
 type Query interface {
 	RecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]domain.InboxMessage, error)
 	MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (domain.InboxMessage, error)
+	SearchMessages(ctx context.Context, userID int64, topic, query string, filter domain.SearchFilter, limit, offset int) ([]domain.SearchHit, bool, error)
 }
 
 // Reader converts IM application rows into the shared messaging read model.
@@ -32,6 +33,23 @@ func (r *Reader) RecentMessages(ctx context.Context, userID int64, topic string,
 		})
 	}
 	return out, nil
+}
+
+func (r *Reader) SearchMessages(ctx context.Context, userID int64, topic, query string, filter messaging.SearchFilter, limit, offset int) ([]messaging.SearchHit, bool, error) {
+	rows, hasMore, err := r.Query.SearchMessages(ctx, userID, topic, query, domain.SearchFilter{
+		SenderID: filter.SenderID, Since: filter.Since, Until: filter.Until, HasFile: filter.HasFile,
+	}, limit, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]messaging.SearchHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, messaging.SearchHit{
+			MsgID: row.MsgID, Topic: row.Topic, TopicSeq: row.TopicSeq, SenderID: row.SenderID,
+			Timestamp: row.Timestamp, MsgType: row.MsgType, HasFile: row.HasFile, Snippet: row.Snippet,
+		})
+	}
+	return out, hasMore, nil
 }
 
 func (r *Reader) MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (messaging.Message, error) {

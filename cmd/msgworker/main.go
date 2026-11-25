@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"nonoka-im/internal/alert"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	imdata "nonoka-im/internal/data/im"
@@ -15,6 +16,7 @@ import (
 	imconsumer "nonoka-im/internal/im/consumer"
 	imgroup "nonoka-im/internal/im/group"
 	impush "nonoka-im/internal/im/push"
+	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/seq"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
@@ -94,6 +96,13 @@ func main() {
 	if bc.Data.Mongodb.WriteConcern != "" {
 		storage.SetWriteConcern(bc.Data.Mongodb.WriteConcern)
 	}
+	searchClient := search.FromConfig(bc.Search)
+	if searchClient.Enabled() {
+		storage.SetSearchEnabled(true)
+		if err := searchClient.EnsureIndex(ctx); err != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search index setup deferred: %v", err))
+		}
+	}
 	if err := storage.EnsureIndexes(ctx); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ensure indexes: %v", err))
 		os.Exit(1)
@@ -150,13 +159,41 @@ func main() {
 	agentPublisher := messagingkafka.NewPublisher(eventBrokers, os.Getenv("AGENT_EVENTS_TOPIC"))
 	defer agentPublisher.Close()
 	outbox := &app.OutboxService{Repo: storage, Publisher: agentPublisher, Metrics: m, Log: log.NewHelper(logger)}
+	if url := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_WEBHOOK")); url != "" {
+		outbox.Notifier = alert.NewWebhook(url)
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MIN_INTERVAL")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			outbox.AlertMinInterval = d
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_OUTBOX_ALERT_MAX_AGE")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			outbox.AlertMaxAge = d
+		}
+	}
 
 	consumerCfg := kafkaConsumerConfig(bc.Data.Kafka)
 	consumer := kafkax.NewConsumer(consumerCfg, nil, logger)
 	worker := imconsumer.NewWorker(consumer, messages, push, outbox, logger, m)
+	var searchRelay *search.Relay
+	if searchClient.Enabled() {
+		searchRelay = &search.Relay{
+			Repo: storage, Index: searchClient, Log: log.NewHelper(logger),
+			Stats: func(pending, failed int64, age time.Duration) {
+				m.SetSearchIndexStats(pending, failed, age.Seconds())
+			},
+			OnError: m.IncSearchIndexApplyFailure,
+		}
+	}
 	worker.Background = []func(context.Context){
 		func(runCtx context.Context) { botIndex.Start(runCtx, 30*time.Second) },
 		func(runCtx context.Context) { retryQueue.Start(runCtx) },
+	}
+	if searchRelay != nil {
+		worker.Background = append(worker.Background, func(runCtx context.Context) {
+			searchRelay.Run(runCtx, search.RelayInterval(bc.Search))
+		})
 	}
 	probeAddr := os.Getenv("METRICS_ADDR")
 	if probeAddr == "" && bc.Observability != nil {

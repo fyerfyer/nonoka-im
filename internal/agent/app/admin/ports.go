@@ -35,6 +35,8 @@ type Store interface {
 	EnqueueRun(ctx context.Context, candidate *domain.AgentRun) (bool, error)
 	ListRunsPage(ctx context.Context, agentID int64, limit, offset int) ([]domain.AgentRun, int64, error)
 	GetRun(ctx context.Context, id uint64) (*domain.AgentRun, error)
+	GetRunByReplyMsgID(ctx context.Context, msgID int64) (*domain.AgentRun, error)
+	ListRunCitations(ctx context.Context, runID uint64) ([]domain.AgentRunCitation, error)
 	SetRunAction(ctx context.Context, id uint64, action string, acknowledgeSideEffect bool) error
 	ListToolInvocations(ctx context.Context, runID uint64) ([]domain.ToolInvocation, error)
 	ListRunSteps(ctx context.Context, runID uint64) ([]domain.AgentRunStep, error)

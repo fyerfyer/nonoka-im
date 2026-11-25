@@ -35,6 +35,7 @@ import (
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	imapp "nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/search"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
 	"nonoka-im/internal/llm"
@@ -187,7 +188,13 @@ func main() {
 	}
 
 	messageStorage := mongostore.NewStore(mongoDB, logger)
-	query := &imapp.QueryService{Reader: messageStorage, Authorizer: az, Log: log.NewHelper(logger)}
+	searchClient := search.FromConfig(bc.Search)
+	if searchClient.Enabled() {
+		if err := searchClient.EnsureIndex(ctx); err != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search index setup deferred: %v", err))
+		}
+	}
+	query := &imapp.QueryService{Reader: messageStorage, Search: searchClient, Authorizer: az, Log: log.NewHelper(logger)}
 	fileStore := mongostore.NewFileStore(mongoDB)
 	toolsBackend := &app.MessageTools{
 		Reader:     adapters.Messages{Reader: messagingim.NewReader(query)},
@@ -195,6 +202,7 @@ func main() {
 		Sender:     replySender,
 		Files:      adapters.Files{Reader: messagingmongo.NewFiles(fileStore)},
 		Directory:  directory,
+		Citations:  adapters.Citations{Store: store},
 	}
 	mcpProvider := &agentmcp.Provider{
 		Store: registry, Sealer: llm.EnvSealer{Key: sealKey}, Guard: agentmcp.NewGuardFromEnv(),
@@ -206,6 +214,7 @@ func main() {
 	deps := eino.Deps{
 		MCPToolProvider: mcpProvider.Tools,
 		ToolCatalog:     builtinRegistry,
+		Metrics:         agentMetrics,
 		SkillBackendFactory: func(bindings []agentport.SkillBinding) (skill.Backend, error) {
 			return agentskills.NewBackend(registry, bindings), nil
 		},
@@ -259,10 +268,14 @@ func main() {
 		},
 		logger,
 	)
+	broadcaster.OnEvent = func(event realtime.RunEvent) {
+		agentMetrics.ObserveStreamEvent(string(event.Type))
+	}
 
 	harness := &app.Harness{
 		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),
-		Files: toolsBackend.Files, Quota: quotaService, Stream: broadcaster, Audience: directory, Log: log.NewHelper(logger),
+		Files: toolsBackend.Files, Quota: quotaService, Stream: broadcaster, Audience: directory,
+		Metrics: agentMetrics, Log: log.NewHelper(logger),
 	}
 	quotaNotifier := &app.QuotaNotifier{Quota: quotaService, Sender: replySender}
 	exec := &executor.Executor{
@@ -270,10 +283,12 @@ func main() {
 		Reader: toolsBackend.Reader,
 		Quota:  quotaService, Notifier: quotaNotifier,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
-		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Log: log.NewHelper(logger),
+		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Metrics: agentMetrics,
+		SearchEnabled: searchClient.Enabled(), Log: log.NewHelper(logger),
 	}
 	auditSvc := audit.NewService(registry)
 	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, auditSvc, logger)
+	mcpAdmin.Metrics = agentMetrics
 	dispatcher := &worker.Dispatcher{
 		Store: store, Authorizer: az, Reader: toolsBackend.Reader,
 		Quota: quotaService, Notifier: quotaNotifier, Log: log.NewHelper(logger),
@@ -290,7 +305,7 @@ func main() {
 	runner := &worker.Worker{
 		Store: store, Dispatcher: dispatcher, Executor: exec, Sweeper: sweeperRunner, Consumer: consumer,
 		Metrics: agentMetrics, Log: log.NewHelper(logger),
-		RunWorkers: int(aw.RunWorkers), QueuedPoll: aw.QueuedPoll.AsDuration(),
+		RunWorkers: int(aw.RunWorkers), QueuedPoll: aw.QueuedPoll.AsDuration(), StopGrace: envDuration("AGENT_SHUTDOWN_GRACE", 30*time.Second),
 		Background: []func(context.Context){
 			func(ctx context.Context) { mcpProvider.StartJanitor(ctx, 5*time.Minute) },
 			func(ctx context.Context) { mcpAdmin.HealthCheckLoop(ctx, 5*time.Minute) },
@@ -418,6 +433,15 @@ func envInt(key string, fallback int) int {
 func envString(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
 	}
 	return fallback
 }

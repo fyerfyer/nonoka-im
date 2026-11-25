@@ -61,10 +61,32 @@ func ParseMediaContent(content []byte) (MediaMeta, bool) {
 	return meta, meta.FileID != ""
 }
 
+// SearchFilter is the structured filter for one topic-scoped search. Zero
+// values disable the corresponding condition.
+type SearchFilter struct {
+	SenderID int64
+	Since    int64
+	Until    int64
+	HasFile  bool
+}
+
+// SearchHit is one authorized keyword search result.
+type SearchHit struct {
+	MsgID     int64
+	Topic     string
+	TopicSeq  uint64
+	SenderID  int64
+	Timestamp int64
+	MsgType   int32
+	HasFile   bool
+	Snippet   string
+}
+
 // Reader is the authorized IM read surface.
 type Reader interface {
 	RecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]Message, error)
 	MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (Message, error)
+	SearchMessages(ctx context.Context, userID int64, topic, query string, filter SearchFilter, limit, offset int) ([]SearchHit, bool, error)
 }
 
 // File is the read model of one attachment.
@@ -94,4 +116,5 @@ type FailedEvent struct {
 type OutboxAdmin interface {
 	ListFailed(ctx context.Context, limit int) ([]FailedEvent, error)
 	Replay(ctx context.Context, id string) error
+	ReplayMany(ctx context.Context, ids []string) (int, error)
 }

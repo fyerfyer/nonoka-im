@@ -9306,6 +9306,47 @@ export const api = $root.api = (() => {
                     responseStream: { value: $undefined }
                 });
 
+                /**
+                 * Callback as used by {@link api.im.v1.MessageService#searchMessages}.
+                 * @memberof api.im.v1.MessageService
+                 * @typedef SearchMessagesCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.SearchMessagesReply} [response] SearchMessagesReply
+                 */
+
+                /**
+                 * Calls SearchMessages.
+                 * @memberof api.im.v1.MessageService
+                 * @typedef SearchMessages
+                 * @type {{
+                 *   (request: api.im.v1.ISearchMessagesRequest, callback: api.im.v1.MessageService.SearchMessagesCallback): void;
+                 *   (request: api.im.v1.ISearchMessagesRequest): Promise<api.im.v1.SearchMessagesReply>;
+                 *   readonly name: "SearchMessages";
+                 *   readonly path: "/api.im.v1.MessageService/SearchMessages";
+                 *   readonly requestType: "SearchMessagesRequest";
+                 *   readonly responseType: "SearchMessagesReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls SearchMessages.
+                 * @name api.im.v1.MessageService#searchMessages
+                 * @type {api.im.v1.MessageService.SearchMessages}
+                 */
+                $Object.defineProperties(MessageService.prototype.searchMessages = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, MessageService.prototype.searchMessages, $root.api.im.v1.SearchMessagesRequest, $root.api.im.v1.SearchMessagesReply, request, callback);
+                }, {
+                    name: { value: "SearchMessages" },
+                    path: { value: "/api.im.v1.MessageService/SearchMessages" },
+                    requestType: { value: "SearchMessagesRequest" },
+                    responseType: { value: "SearchMessagesReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
                 return MessageService;
             })();
 
@@ -11711,6 +11752,1353 @@ export const api = $root.api = (() => {
                 return PullRequest;
             })();
 
+            v1.SearchMessagesRequest = (function() {
+
+                /**
+                 * Properties of a SearchMessagesRequest.
+                 * @typedef {Object} api.im.v1.SearchMessagesRequest.$Properties
+                 * @property {string|null} [topic] SearchMessagesRequest topic
+                 * @property {string|null} [query] SearchMessagesRequest query
+                 * @property {number|Long|null} [senderId] SearchMessagesRequest senderId
+                 * @property {number|Long|null} [since] SearchMessagesRequest since
+                 * @property {number|Long|null} [until] SearchMessagesRequest until
+                 * @property {boolean|null} [hasFile] SearchMessagesRequest hasFile
+                 * @property {number|null} [limit] SearchMessagesRequest limit
+                 * @property {number|null} [offset] SearchMessagesRequest offset
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a SearchMessagesRequest.
+                 * @memberof api.im.v1
+                 * @interface ISearchMessagesRequest
+                 * @augments api.im.v1.SearchMessagesRequest.$Properties
+                 * @deprecated Use api.im.v1.SearchMessagesRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a SearchMessagesRequest.
+                 * @typedef {api.im.v1.SearchMessagesRequest.$Properties} api.im.v1.SearchMessagesRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new SearchMessagesRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a SearchMessagesRequest.
+                 * @constructor
+                 * @param {api.im.v1.SearchMessagesRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const SearchMessagesRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * SearchMessagesRequest topic.
+                 * @member {string} topic
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.topic = "";
+
+                /**
+                 * SearchMessagesRequest query.
+                 * @member {string} query
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.query = "";
+
+                /**
+                 * SearchMessagesRequest senderId.
+                 * @member {number|Long} senderId
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.senderId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessagesRequest since.
+                 * @member {number|Long} since
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.since = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessagesRequest until.
+                 * @member {number|Long} until
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.until = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessagesRequest hasFile.
+                 * @member {boolean} hasFile
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.hasFile = false;
+
+                /**
+                 * SearchMessagesRequest limit.
+                 * @member {number} limit
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.limit = 0;
+
+                /**
+                 * SearchMessagesRequest offset.
+                 * @member {number} offset
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 */
+                SearchMessagesRequest.prototype.offset = 0;
+
+                /**
+                 * Creates a new SearchMessagesRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {api.im.v1.SearchMessagesRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.SearchMessagesRequest} SearchMessagesRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.SearchMessagesRequest.$Shape): api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape;
+                 *   (properties?: api.im.v1.SearchMessagesRequest.$Properties): api.im.v1.SearchMessagesRequest;
+                 * }}
+                 */
+                SearchMessagesRequest.create = function(properties) {
+                    return new SearchMessagesRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified SearchMessagesRequest message. Does not implicitly {@link api.im.v1.SearchMessagesRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {api.im.v1.SearchMessagesRequest.$Properties} message SearchMessagesRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessagesRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).string(message.topic);
+                    if (message.query != null && $Object.hasOwnProperty.call(message, "query"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.query);
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        writer.uint32(/* id 3, wireType 0 =*/24).int64(message.senderId);
+                    if (message.since != null && $Object.hasOwnProperty.call(message, "since"))
+                        writer.uint32(/* id 4, wireType 0 =*/32).int64(message.since);
+                    if (message.until != null && $Object.hasOwnProperty.call(message, "until"))
+                        writer.uint32(/* id 5, wireType 0 =*/40).int64(message.until);
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        writer.uint32(/* id 6, wireType 0 =*/48).bool(message.hasFile);
+                    if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
+                        writer.uint32(/* id 7, wireType 0 =*/56).int32(message.limit);
+                    if (message.offset != null && $Object.hasOwnProperty.call(message, "offset"))
+                        writer.uint32(/* id 8, wireType 0 =*/64).int32(message.offset);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified SearchMessagesRequest message, length delimited. Does not implicitly {@link api.im.v1.SearchMessagesRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {api.im.v1.SearchMessagesRequest.$Properties} message SearchMessagesRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessagesRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a SearchMessagesRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape} SearchMessagesRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessagesRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.SearchMessagesRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.topic = value;
+                                else
+                                    delete message.topic;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.query = value;
+                                else
+                                    delete message.query;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.senderId = value;
+                                else
+                                    delete message.senderId;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.since = value;
+                                else
+                                    delete message.since;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.until = value;
+                                else
+                                    delete message.until;
+                                continue;
+                            }
+                        case 6: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.hasFile = value;
+                                else
+                                    delete message.hasFile;
+                                continue;
+                            }
+                        case 7: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.limit = value;
+                                else
+                                    delete message.limit;
+                                continue;
+                            }
+                        case 8: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.offset = value;
+                                else
+                                    delete message.offset;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a SearchMessagesRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessagesRequest & api.im.v1.SearchMessagesRequest.$Shape} SearchMessagesRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessagesRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a SearchMessagesRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                SearchMessagesRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        if (!$util.isString(message.topic))
+                            return "topic: string expected";
+                    if (message.query != null && $Object.hasOwnProperty.call(message, "query"))
+                        if (!$util.isString(message.query))
+                            return "query: string expected";
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (!$util.isInteger(message.senderId) && !(message.senderId && $util.isInteger(message.senderId.low) && $util.isInteger(message.senderId.high)))
+                            return "senderId: integer|Long expected";
+                    if (message.since != null && $Object.hasOwnProperty.call(message, "since"))
+                        if (!$util.isInteger(message.since) && !(message.since && $util.isInteger(message.since.low) && $util.isInteger(message.since.high)))
+                            return "since: integer|Long expected";
+                    if (message.until != null && $Object.hasOwnProperty.call(message, "until"))
+                        if (!$util.isInteger(message.until) && !(message.until && $util.isInteger(message.until.low) && $util.isInteger(message.until.high)))
+                            return "until: integer|Long expected";
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        if (typeof message.hasFile !== "boolean")
+                            return "hasFile: boolean expected";
+                    if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
+                        if (!$util.isInteger(message.limit))
+                            return "limit: integer expected";
+                    if (message.offset != null && $Object.hasOwnProperty.call(message, "offset"))
+                        if (!$util.isInteger(message.offset))
+                            return "offset: integer expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a SearchMessagesRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.SearchMessagesRequest} SearchMessagesRequest
+                 */
+                SearchMessagesRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.SearchMessagesRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.SearchMessagesRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.SearchMessagesRequest();
+                    if (object.topic != null)
+                        if (typeof object.topic !== "string" || object.topic.length)
+                            message.topic = $String(object.topic);
+                    if (object.query != null)
+                        if (typeof object.query !== "string" || object.query.length)
+                            message.query = $String(object.query);
+                    if (object.senderId != null)
+                        if (typeof object.senderId === "object" ? object.senderId.low || object.senderId.high : $Number(object.senderId) !== 0)
+                            if ($util.Long)
+                                message.senderId = $util.Long.fromValue(object.senderId, false);
+                            else if (typeof object.senderId === "string")
+                                message.senderId = $parseInt(object.senderId, 10);
+                            else if (typeof object.senderId === "number")
+                                message.senderId = object.senderId;
+                            else if (typeof object.senderId === "object")
+                                message.senderId = new $util.LongBits(object.senderId.low >>> 0, object.senderId.high >>> 0).toNumber();
+                    if (object.since != null)
+                        if (typeof object.since === "object" ? object.since.low || object.since.high : $Number(object.since) !== 0)
+                            if ($util.Long)
+                                message.since = $util.Long.fromValue(object.since, false);
+                            else if (typeof object.since === "string")
+                                message.since = $parseInt(object.since, 10);
+                            else if (typeof object.since === "number")
+                                message.since = object.since;
+                            else if (typeof object.since === "object")
+                                message.since = new $util.LongBits(object.since.low >>> 0, object.since.high >>> 0).toNumber();
+                    if (object.until != null)
+                        if (typeof object.until === "object" ? object.until.low || object.until.high : $Number(object.until) !== 0)
+                            if ($util.Long)
+                                message.until = $util.Long.fromValue(object.until, false);
+                            else if (typeof object.until === "string")
+                                message.until = $parseInt(object.until, 10);
+                            else if (typeof object.until === "number")
+                                message.until = object.until;
+                            else if (typeof object.until === "object")
+                                message.until = new $util.LongBits(object.until.low >>> 0, object.until.high >>> 0).toNumber();
+                    if (object.hasFile != null)
+                        if (object.hasFile)
+                            message.hasFile = $Boolean(object.hasFile);
+                    if (object.limit != null)
+                        if ($Number(object.limit) !== 0)
+                            message.limit = object.limit | 0;
+                    if (object.offset != null)
+                        if ($Number(object.offset) !== 0)
+                            message.offset = object.offset | 0;
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a SearchMessagesRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {api.im.v1.SearchMessagesRequest} message SearchMessagesRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                SearchMessagesRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        object.topic = "";
+                        object.query = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.senderId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.senderId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.since = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.since = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.until = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.until = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.hasFile = false;
+                        object.limit = 0;
+                        object.offset = 0;
+                    }
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        object.topic = message.topic;
+                    if (message.query != null && $Object.hasOwnProperty.call(message, "query"))
+                        object.query = message.query;
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.senderId = typeof message.senderId === "number" ? $BigInt(message.senderId) : $util.Long.fromBits(message.senderId.low >>> 0, message.senderId.high >>> 0, false).toBigInt();
+                        else if (typeof message.senderId === "number")
+                            object.senderId = options.longs === $String ? $String(message.senderId) : message.senderId;
+                        else
+                            object.senderId = options.longs === $String ? $util.Long.prototype.toString.call(message.senderId) : options.longs === $Number ? new $util.LongBits(message.senderId.low >>> 0, message.senderId.high >>> 0).toNumber() : message.senderId;
+                    if (message.since != null && $Object.hasOwnProperty.call(message, "since"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.since = typeof message.since === "number" ? $BigInt(message.since) : $util.Long.fromBits(message.since.low >>> 0, message.since.high >>> 0, false).toBigInt();
+                        else if (typeof message.since === "number")
+                            object.since = options.longs === $String ? $String(message.since) : message.since;
+                        else
+                            object.since = options.longs === $String ? $util.Long.prototype.toString.call(message.since) : options.longs === $Number ? new $util.LongBits(message.since.low >>> 0, message.since.high >>> 0).toNumber() : message.since;
+                    if (message.until != null && $Object.hasOwnProperty.call(message, "until"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.until = typeof message.until === "number" ? $BigInt(message.until) : $util.Long.fromBits(message.until.low >>> 0, message.until.high >>> 0, false).toBigInt();
+                        else if (typeof message.until === "number")
+                            object.until = options.longs === $String ? $String(message.until) : message.until;
+                        else
+                            object.until = options.longs === $String ? $util.Long.prototype.toString.call(message.until) : options.longs === $Number ? new $util.LongBits(message.until.low >>> 0, message.until.high >>> 0).toNumber() : message.until;
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        object.hasFile = message.hasFile;
+                    if (message.limit != null && $Object.hasOwnProperty.call(message, "limit"))
+                        object.limit = message.limit;
+                    if (message.offset != null && $Object.hasOwnProperty.call(message, "offset"))
+                        object.offset = message.offset;
+                    return object;
+                };
+
+                /**
+                 * Converts this SearchMessagesRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                SearchMessagesRequest.prototype.toJSON = function() {
+                    return SearchMessagesRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for SearchMessagesRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.SearchMessagesRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                SearchMessagesRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.SearchMessagesRequest";
+                };
+
+                return SearchMessagesRequest;
+            })();
+
+            v1.SearchMessage = (function() {
+
+                /**
+                 * Properties of a SearchMessage.
+                 * @typedef {Object} api.im.v1.SearchMessage.$Properties
+                 * @property {number|Long|null} [msgId] SearchMessage msgId
+                 * @property {string|null} [topic] SearchMessage topic
+                 * @property {number|Long|null} [topicSeq] SearchMessage topicSeq
+                 * @property {number|Long|null} [senderId] SearchMessage senderId
+                 * @property {number|Long|null} [timestamp] SearchMessage timestamp
+                 * @property {number|null} [msgType] SearchMessage msgType
+                 * @property {boolean|null} [hasFile] SearchMessage hasFile
+                 * @property {string|null} [snippet] SearchMessage snippet
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a SearchMessage.
+                 * @memberof api.im.v1
+                 * @interface ISearchMessage
+                 * @augments api.im.v1.SearchMessage.$Properties
+                 * @deprecated Use api.im.v1.SearchMessage.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a SearchMessage.
+                 * @typedef {api.im.v1.SearchMessage.$Properties} api.im.v1.SearchMessage.$Shape
+                 */
+
+                /**
+                 * Constructs a new SearchMessage.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a SearchMessage.
+                 * @constructor
+                 * @param {api.im.v1.SearchMessage.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const SearchMessage = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * SearchMessage msgId.
+                 * @member {number|Long} msgId
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.msgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessage topic.
+                 * @member {string} topic
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.topic = "";
+
+                /**
+                 * SearchMessage topicSeq.
+                 * @member {number|Long} topicSeq
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.topicSeq = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * SearchMessage senderId.
+                 * @member {number|Long} senderId
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.senderId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessage timestamp.
+                 * @member {number|Long} timestamp
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.timestamp = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * SearchMessage msgType.
+                 * @member {number} msgType
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.msgType = 0;
+
+                /**
+                 * SearchMessage hasFile.
+                 * @member {boolean} hasFile
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.hasFile = false;
+
+                /**
+                 * SearchMessage snippet.
+                 * @member {string} snippet
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 */
+                SearchMessage.prototype.snippet = "";
+
+                /**
+                 * Creates a new SearchMessage instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {api.im.v1.SearchMessage.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.SearchMessage} SearchMessage instance
+                 * @type {{
+                 *   (properties: api.im.v1.SearchMessage.$Shape): api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape;
+                 *   (properties?: api.im.v1.SearchMessage.$Properties): api.im.v1.SearchMessage;
+                 * }}
+                 */
+                SearchMessage.create = function(properties) {
+                    return new SearchMessage(properties);
+                };
+
+                /**
+                 * Encodes the specified SearchMessage message. Does not implicitly {@link api.im.v1.SearchMessage.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {api.im.v1.SearchMessage.$Properties} message SearchMessage message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessage.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.msgId);
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.topic);
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        writer.uint32(/* id 3, wireType 0 =*/24).uint64(message.topicSeq);
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        writer.uint32(/* id 4, wireType 0 =*/32).int64(message.senderId);
+                    if (message.timestamp != null && $Object.hasOwnProperty.call(message, "timestamp"))
+                        writer.uint32(/* id 5, wireType 0 =*/40).int64(message.timestamp);
+                    if (message.msgType != null && $Object.hasOwnProperty.call(message, "msgType"))
+                        writer.uint32(/* id 6, wireType 0 =*/48).int32(message.msgType);
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        writer.uint32(/* id 7, wireType 0 =*/56).bool(message.hasFile);
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        writer.uint32(/* id 8, wireType 2 =*/66).string(message.snippet);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified SearchMessage message, length delimited. Does not implicitly {@link api.im.v1.SearchMessage.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {api.im.v1.SearchMessage.$Properties} message SearchMessage message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessage.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a SearchMessage message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape} SearchMessage
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessage.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.SearchMessage(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.msgId = value;
+                                else
+                                    delete message.msgId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.topic = value;
+                                else
+                                    delete message.topic;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.topicSeq = value;
+                                else
+                                    delete message.topicSeq;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.senderId = value;
+                                else
+                                    delete message.senderId;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.timestamp = value;
+                                else
+                                    delete message.timestamp;
+                                continue;
+                            }
+                        case 6: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.msgType = value;
+                                else
+                                    delete message.msgType;
+                                continue;
+                            }
+                        case 7: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.hasFile = value;
+                                else
+                                    delete message.hasFile;
+                                continue;
+                            }
+                        case 8: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.snippet = value;
+                                else
+                                    delete message.snippet;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a SearchMessage message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessage & api.im.v1.SearchMessage.$Shape} SearchMessage
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessage.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a SearchMessage message.
+                 * @function verify
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                SearchMessage.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        if (!$util.isInteger(message.msgId) && !(message.msgId && $util.isInteger(message.msgId.low) && $util.isInteger(message.msgId.high)))
+                            return "msgId: integer|Long expected";
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        if (!$util.isString(message.topic))
+                            return "topic: string expected";
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        if (!$util.isInteger(message.topicSeq) && !(message.topicSeq && $util.isInteger(message.topicSeq.low) && $util.isInteger(message.topicSeq.high)))
+                            return "topicSeq: integer|Long expected";
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (!$util.isInteger(message.senderId) && !(message.senderId && $util.isInteger(message.senderId.low) && $util.isInteger(message.senderId.high)))
+                            return "senderId: integer|Long expected";
+                    if (message.timestamp != null && $Object.hasOwnProperty.call(message, "timestamp"))
+                        if (!$util.isInteger(message.timestamp) && !(message.timestamp && $util.isInteger(message.timestamp.low) && $util.isInteger(message.timestamp.high)))
+                            return "timestamp: integer|Long expected";
+                    if (message.msgType != null && $Object.hasOwnProperty.call(message, "msgType"))
+                        if (!$util.isInteger(message.msgType))
+                            return "msgType: integer expected";
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        if (typeof message.hasFile !== "boolean")
+                            return "hasFile: boolean expected";
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        if (!$util.isString(message.snippet))
+                            return "snippet: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a SearchMessage message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.SearchMessage} SearchMessage
+                 */
+                SearchMessage.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.SearchMessage)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.SearchMessage: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.SearchMessage();
+                    if (object.msgId != null)
+                        if (typeof object.msgId === "object" ? object.msgId.low || object.msgId.high : $Number(object.msgId) !== 0)
+                            if ($util.Long)
+                                message.msgId = $util.Long.fromValue(object.msgId, false);
+                            else if (typeof object.msgId === "string")
+                                message.msgId = $parseInt(object.msgId, 10);
+                            else if (typeof object.msgId === "number")
+                                message.msgId = object.msgId;
+                            else if (typeof object.msgId === "object")
+                                message.msgId = new $util.LongBits(object.msgId.low >>> 0, object.msgId.high >>> 0).toNumber();
+                    if (object.topic != null)
+                        if (typeof object.topic !== "string" || object.topic.length)
+                            message.topic = $String(object.topic);
+                    if (object.topicSeq != null)
+                        if (typeof object.topicSeq === "object" ? object.topicSeq.low || object.topicSeq.high : $Number(object.topicSeq) !== 0)
+                            if ($util.Long)
+                                message.topicSeq = $util.Long.fromValue(object.topicSeq, true);
+                            else if (typeof object.topicSeq === "string")
+                                message.topicSeq = $parseInt(object.topicSeq, 10);
+                            else if (typeof object.topicSeq === "number")
+                                message.topicSeq = object.topicSeq;
+                            else if (typeof object.topicSeq === "object")
+                                message.topicSeq = new $util.LongBits(object.topicSeq.low >>> 0, object.topicSeq.high >>> 0).toNumber(true);
+                    if (object.senderId != null)
+                        if (typeof object.senderId === "object" ? object.senderId.low || object.senderId.high : $Number(object.senderId) !== 0)
+                            if ($util.Long)
+                                message.senderId = $util.Long.fromValue(object.senderId, false);
+                            else if (typeof object.senderId === "string")
+                                message.senderId = $parseInt(object.senderId, 10);
+                            else if (typeof object.senderId === "number")
+                                message.senderId = object.senderId;
+                            else if (typeof object.senderId === "object")
+                                message.senderId = new $util.LongBits(object.senderId.low >>> 0, object.senderId.high >>> 0).toNumber();
+                    if (object.timestamp != null)
+                        if (typeof object.timestamp === "object" ? object.timestamp.low || object.timestamp.high : $Number(object.timestamp) !== 0)
+                            if ($util.Long)
+                                message.timestamp = $util.Long.fromValue(object.timestamp, false);
+                            else if (typeof object.timestamp === "string")
+                                message.timestamp = $parseInt(object.timestamp, 10);
+                            else if (typeof object.timestamp === "number")
+                                message.timestamp = object.timestamp;
+                            else if (typeof object.timestamp === "object")
+                                message.timestamp = new $util.LongBits(object.timestamp.low >>> 0, object.timestamp.high >>> 0).toNumber();
+                    if (object.msgType != null)
+                        if ($Number(object.msgType) !== 0)
+                            message.msgType = object.msgType | 0;
+                    if (object.hasFile != null)
+                        if (object.hasFile)
+                            message.hasFile = $Boolean(object.hasFile);
+                    if (object.snippet != null)
+                        if (typeof object.snippet !== "string" || object.snippet.length)
+                            message.snippet = $String(object.snippet);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a SearchMessage message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {api.im.v1.SearchMessage} message SearchMessage
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                SearchMessage.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.msgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.msgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.topic = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.topicSeq = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.topicSeq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.senderId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.senderId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.timestamp = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.timestamp = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.msgType = 0;
+                        object.hasFile = false;
+                        object.snippet = "";
+                    }
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.msgId = typeof message.msgId === "number" ? $BigInt(message.msgId) : $util.Long.fromBits(message.msgId.low >>> 0, message.msgId.high >>> 0, false).toBigInt();
+                        else if (typeof message.msgId === "number")
+                            object.msgId = options.longs === $String ? $String(message.msgId) : message.msgId;
+                        else
+                            object.msgId = options.longs === $String ? $util.Long.prototype.toString.call(message.msgId) : options.longs === $Number ? new $util.LongBits(message.msgId.low >>> 0, message.msgId.high >>> 0).toNumber() : message.msgId;
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        object.topic = message.topic;
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.topicSeq = typeof message.topicSeq === "number" ? $BigInt(message.topicSeq) : $util.Long.fromBits(message.topicSeq.low >>> 0, message.topicSeq.high >>> 0, true).toBigInt();
+                        else if (typeof message.topicSeq === "number")
+                            object.topicSeq = options.longs === $String ? $String(message.topicSeq) : message.topicSeq;
+                        else
+                            object.topicSeq = options.longs === $String ? $util.Long.prototype.toString.call(message.topicSeq) : options.longs === $Number ? new $util.LongBits(message.topicSeq.low >>> 0, message.topicSeq.high >>> 0).toNumber(true) : message.topicSeq;
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.senderId = typeof message.senderId === "number" ? $BigInt(message.senderId) : $util.Long.fromBits(message.senderId.low >>> 0, message.senderId.high >>> 0, false).toBigInt();
+                        else if (typeof message.senderId === "number")
+                            object.senderId = options.longs === $String ? $String(message.senderId) : message.senderId;
+                        else
+                            object.senderId = options.longs === $String ? $util.Long.prototype.toString.call(message.senderId) : options.longs === $Number ? new $util.LongBits(message.senderId.low >>> 0, message.senderId.high >>> 0).toNumber() : message.senderId;
+                    if (message.timestamp != null && $Object.hasOwnProperty.call(message, "timestamp"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.timestamp = typeof message.timestamp === "number" ? $BigInt(message.timestamp) : $util.Long.fromBits(message.timestamp.low >>> 0, message.timestamp.high >>> 0, false).toBigInt();
+                        else if (typeof message.timestamp === "number")
+                            object.timestamp = options.longs === $String ? $String(message.timestamp) : message.timestamp;
+                        else
+                            object.timestamp = options.longs === $String ? $util.Long.prototype.toString.call(message.timestamp) : options.longs === $Number ? new $util.LongBits(message.timestamp.low >>> 0, message.timestamp.high >>> 0).toNumber() : message.timestamp;
+                    if (message.msgType != null && $Object.hasOwnProperty.call(message, "msgType"))
+                        object.msgType = message.msgType;
+                    if (message.hasFile != null && $Object.hasOwnProperty.call(message, "hasFile"))
+                        object.hasFile = message.hasFile;
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        object.snippet = message.snippet;
+                    return object;
+                };
+
+                /**
+                 * Converts this SearchMessage to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.SearchMessage
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                SearchMessage.prototype.toJSON = function() {
+                    return SearchMessage.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for SearchMessage
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.SearchMessage
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                SearchMessage.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.SearchMessage";
+                };
+
+                return SearchMessage;
+            })();
+
+            v1.SearchMessagesReply = (function() {
+
+                /**
+                 * Properties of a SearchMessagesReply.
+                 * @typedef {Object} api.im.v1.SearchMessagesReply.$Properties
+                 * @property {Array.<api.im.v1.SearchMessage.$Properties>|null} [messages] SearchMessagesReply messages
+                 * @property {boolean|null} [hasMore] SearchMessagesReply hasMore
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a SearchMessagesReply.
+                 * @memberof api.im.v1
+                 * @interface ISearchMessagesReply
+                 * @augments api.im.v1.SearchMessagesReply.$Properties
+                 * @deprecated Use api.im.v1.SearchMessagesReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a SearchMessagesReply.
+                 * @typedef {api.im.v1.SearchMessagesReply.$Properties} api.im.v1.SearchMessagesReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new SearchMessagesReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a SearchMessagesReply.
+                 * @constructor
+                 * @param {api.im.v1.SearchMessagesReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const SearchMessagesReply = function (properties) {
+                    this.messages = [];
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * SearchMessagesReply messages.
+                 * @member {Array.<api.im.v1.SearchMessage.$Properties>} messages
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @instance
+                 */
+                SearchMessagesReply.prototype.messages = $util.emptyArray;
+
+                /**
+                 * SearchMessagesReply hasMore.
+                 * @member {boolean} hasMore
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @instance
+                 */
+                SearchMessagesReply.prototype.hasMore = false;
+
+                /**
+                 * Creates a new SearchMessagesReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {api.im.v1.SearchMessagesReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.SearchMessagesReply} SearchMessagesReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.SearchMessagesReply.$Shape): api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape;
+                 *   (properties?: api.im.v1.SearchMessagesReply.$Properties): api.im.v1.SearchMessagesReply;
+                 * }}
+                 */
+                SearchMessagesReply.create = function(properties) {
+                    return new SearchMessagesReply(properties);
+                };
+
+                /**
+                 * Encodes the specified SearchMessagesReply message. Does not implicitly {@link api.im.v1.SearchMessagesReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {api.im.v1.SearchMessagesReply.$Properties} message SearchMessagesReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessagesReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.messages != null && message.messages.length)
+                        for (let i = 0; i < message.messages.length; ++i)
+                            $root.api.im.v1.SearchMessage.encode(message.messages[i], writer.uint32(/* id 1, wireType 2 =*/10).fork(), _depth + 1).ldelim();
+                    if (message.hasMore != null && $Object.hasOwnProperty.call(message, "hasMore"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).bool(message.hasMore);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified SearchMessagesReply message, length delimited. Does not implicitly {@link api.im.v1.SearchMessagesReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {api.im.v1.SearchMessagesReply.$Properties} message SearchMessagesReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                SearchMessagesReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a SearchMessagesReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape} SearchMessagesReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessagesReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.SearchMessagesReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if (!(message.messages && message.messages.length))
+                                    message.messages = [];
+                                message.messages.push($root.api.im.v1.SearchMessage.decode(reader, reader.uint32(), $undefined, _depth + 1));
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.hasMore = value;
+                                else
+                                    delete message.hasMore;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a SearchMessagesReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.SearchMessagesReply & api.im.v1.SearchMessagesReply.$Shape} SearchMessagesReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                SearchMessagesReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a SearchMessagesReply message.
+                 * @function verify
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                SearchMessagesReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.messages != null && $Object.hasOwnProperty.call(message, "messages")) {
+                        if (!$Array.isArray(message.messages))
+                            return "messages: array expected";
+                        for (let i = 0; i < message.messages.length; ++i) {
+                            let error = $root.api.im.v1.SearchMessage.verify(message.messages[i], _depth + 1);
+                            if (error)
+                                return "messages." + error;
+                        }
+                    }
+                    if (message.hasMore != null && $Object.hasOwnProperty.call(message, "hasMore"))
+                        if (typeof message.hasMore !== "boolean")
+                            return "hasMore: boolean expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a SearchMessagesReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.SearchMessagesReply} SearchMessagesReply
+                 */
+                SearchMessagesReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.SearchMessagesReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.SearchMessagesReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.SearchMessagesReply();
+                    if (object.messages) {
+                        if (!$Array.isArray(object.messages))
+                            throw $TypeError(".api.im.v1.SearchMessagesReply.messages: array expected");
+                        message.messages = $Array(object.messages.length);
+                        for (let i = 0; i < object.messages.length; ++i) {
+                            if (!$util.isObject(object.messages[i]))
+                                throw $TypeError(".api.im.v1.SearchMessagesReply.messages: object expected");
+                            message.messages[i] = $root.api.im.v1.SearchMessage.fromObject(object.messages[i], _depth + 1);
+                        }
+                    }
+                    if (object.hasMore != null)
+                        if (object.hasMore)
+                            message.hasMore = $Boolean(object.hasMore);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a SearchMessagesReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {api.im.v1.SearchMessagesReply} message SearchMessagesReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                SearchMessagesReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.arrays || options.defaults)
+                        object.messages = [];
+                    if (options.defaults)
+                        object.hasMore = false;
+                    if (message.messages && message.messages.length) {
+                        object.messages = $Array(message.messages.length);
+                        for (let j = 0; j < message.messages.length; ++j)
+                            object.messages[j] = $root.api.im.v1.SearchMessage.toObject(message.messages[j], options, _depth + 1);
+                    }
+                    if (message.hasMore != null && $Object.hasOwnProperty.call(message, "hasMore"))
+                        object.hasMore = message.hasMore;
+                    return object;
+                };
+
+                /**
+                 * Converts this SearchMessagesReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                SearchMessagesReply.prototype.toJSON = function() {
+                    return SearchMessagesReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for SearchMessagesReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.SearchMessagesReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                SearchMessagesReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.SearchMessagesReply";
+                };
+
+                return SearchMessagesReply;
+            })();
+
             v1.PullMessage = (function() {
 
                 /**
@@ -12696,6 +14084,431 @@ export const api = $root.api = (() => {
                 return values;
             })();
 
+            v1.AgentRunCitation = (function() {
+
+                /**
+                 * Properties of an AgentRunCitation.
+                 * @typedef {Object} api.im.v1.AgentRunCitation.$Properties
+                 * @property {number|Long|null} [msgId] AgentRunCitation msgId
+                 * @property {string|null} [topic] AgentRunCitation topic
+                 * @property {number|Long|null} [topicSeq] AgentRunCitation topicSeq
+                 * @property {number|Long|null} [senderId] AgentRunCitation senderId
+                 * @property {string|null} [snippet] AgentRunCitation snippet
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of an AgentRunCitation.
+                 * @memberof api.im.v1
+                 * @interface IAgentRunCitation
+                 * @augments api.im.v1.AgentRunCitation.$Properties
+                 * @deprecated Use api.im.v1.AgentRunCitation.$Properties instead.
+                 */
+
+                /**
+                 * Shape of an AgentRunCitation.
+                 * @typedef {api.im.v1.AgentRunCitation.$Properties} api.im.v1.AgentRunCitation.$Shape
+                 */
+
+                /**
+                 * Constructs a new AgentRunCitation.
+                 * @memberof api.im.v1
+                 * @classdesc Represents an AgentRunCitation.
+                 * @constructor
+                 * @param {api.im.v1.AgentRunCitation.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const AgentRunCitation = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * AgentRunCitation msgId.
+                 * @member {number|Long} msgId
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 */
+                AgentRunCitation.prototype.msgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunCitation topic.
+                 * @member {string} topic
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 */
+                AgentRunCitation.prototype.topic = "";
+
+                /**
+                 * AgentRunCitation topicSeq.
+                 * @member {number|Long} topicSeq
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 */
+                AgentRunCitation.prototype.topicSeq = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * AgentRunCitation senderId.
+                 * @member {number|Long} senderId
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 */
+                AgentRunCitation.prototype.senderId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * AgentRunCitation snippet.
+                 * @member {string} snippet
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 */
+                AgentRunCitation.prototype.snippet = "";
+
+                /**
+                 * Creates a new AgentRunCitation instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {api.im.v1.AgentRunCitation.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.AgentRunCitation} AgentRunCitation instance
+                 * @type {{
+                 *   (properties: api.im.v1.AgentRunCitation.$Shape): api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape;
+                 *   (properties?: api.im.v1.AgentRunCitation.$Properties): api.im.v1.AgentRunCitation;
+                 * }}
+                 */
+                AgentRunCitation.create = function(properties) {
+                    return new AgentRunCitation(properties);
+                };
+
+                /**
+                 * Encodes the specified AgentRunCitation message. Does not implicitly {@link api.im.v1.AgentRunCitation.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {api.im.v1.AgentRunCitation.$Properties} message AgentRunCitation message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                AgentRunCitation.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.msgId);
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        writer.uint32(/* id 2, wireType 2 =*/18).string(message.topic);
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        writer.uint32(/* id 3, wireType 0 =*/24).uint64(message.topicSeq);
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        writer.uint32(/* id 4, wireType 0 =*/32).int64(message.senderId);
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        writer.uint32(/* id 5, wireType 2 =*/42).string(message.snippet);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified AgentRunCitation message, length delimited. Does not implicitly {@link api.im.v1.AgentRunCitation.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {api.im.v1.AgentRunCitation.$Properties} message AgentRunCitation message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                AgentRunCitation.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes an AgentRunCitation message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape} AgentRunCitation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                AgentRunCitation.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.AgentRunCitation(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.msgId = value;
+                                else
+                                    delete message.msgId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.topic = value;
+                                else
+                                    delete message.topic;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.topicSeq = value;
+                                else
+                                    delete message.topicSeq;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.senderId = value;
+                                else
+                                    delete message.senderId;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.snippet = value;
+                                else
+                                    delete message.snippet;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes an AgentRunCitation message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.AgentRunCitation & api.im.v1.AgentRunCitation.$Shape} AgentRunCitation
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                AgentRunCitation.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies an AgentRunCitation message.
+                 * @function verify
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                AgentRunCitation.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        if (!$util.isInteger(message.msgId) && !(message.msgId && $util.isInteger(message.msgId.low) && $util.isInteger(message.msgId.high)))
+                            return "msgId: integer|Long expected";
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        if (!$util.isString(message.topic))
+                            return "topic: string expected";
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        if (!$util.isInteger(message.topicSeq) && !(message.topicSeq && $util.isInteger(message.topicSeq.low) && $util.isInteger(message.topicSeq.high)))
+                            return "topicSeq: integer|Long expected";
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (!$util.isInteger(message.senderId) && !(message.senderId && $util.isInteger(message.senderId.low) && $util.isInteger(message.senderId.high)))
+                            return "senderId: integer|Long expected";
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        if (!$util.isString(message.snippet))
+                            return "snippet: string expected";
+                    return null;
+                };
+
+                /**
+                 * Creates an AgentRunCitation message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.AgentRunCitation} AgentRunCitation
+                 */
+                AgentRunCitation.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.AgentRunCitation)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.AgentRunCitation: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.AgentRunCitation();
+                    if (object.msgId != null)
+                        if (typeof object.msgId === "object" ? object.msgId.low || object.msgId.high : $Number(object.msgId) !== 0)
+                            if ($util.Long)
+                                message.msgId = $util.Long.fromValue(object.msgId, false);
+                            else if (typeof object.msgId === "string")
+                                message.msgId = $parseInt(object.msgId, 10);
+                            else if (typeof object.msgId === "number")
+                                message.msgId = object.msgId;
+                            else if (typeof object.msgId === "object")
+                                message.msgId = new $util.LongBits(object.msgId.low >>> 0, object.msgId.high >>> 0).toNumber();
+                    if (object.topic != null)
+                        if (typeof object.topic !== "string" || object.topic.length)
+                            message.topic = $String(object.topic);
+                    if (object.topicSeq != null)
+                        if (typeof object.topicSeq === "object" ? object.topicSeq.low || object.topicSeq.high : $Number(object.topicSeq) !== 0)
+                            if ($util.Long)
+                                message.topicSeq = $util.Long.fromValue(object.topicSeq, true);
+                            else if (typeof object.topicSeq === "string")
+                                message.topicSeq = $parseInt(object.topicSeq, 10);
+                            else if (typeof object.topicSeq === "number")
+                                message.topicSeq = object.topicSeq;
+                            else if (typeof object.topicSeq === "object")
+                                message.topicSeq = new $util.LongBits(object.topicSeq.low >>> 0, object.topicSeq.high >>> 0).toNumber(true);
+                    if (object.senderId != null)
+                        if (typeof object.senderId === "object" ? object.senderId.low || object.senderId.high : $Number(object.senderId) !== 0)
+                            if ($util.Long)
+                                message.senderId = $util.Long.fromValue(object.senderId, false);
+                            else if (typeof object.senderId === "string")
+                                message.senderId = $parseInt(object.senderId, 10);
+                            else if (typeof object.senderId === "number")
+                                message.senderId = object.senderId;
+                            else if (typeof object.senderId === "object")
+                                message.senderId = new $util.LongBits(object.senderId.low >>> 0, object.senderId.high >>> 0).toNumber();
+                    if (object.snippet != null)
+                        if (typeof object.snippet !== "string" || object.snippet.length)
+                            message.snippet = $String(object.snippet);
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from an AgentRunCitation message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {api.im.v1.AgentRunCitation} message AgentRunCitation
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                AgentRunCitation.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.msgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.msgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.topic = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.topicSeq = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.topicSeq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.senderId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.senderId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.snippet = "";
+                    }
+                    if (message.msgId != null && $Object.hasOwnProperty.call(message, "msgId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.msgId = typeof message.msgId === "number" ? $BigInt(message.msgId) : $util.Long.fromBits(message.msgId.low >>> 0, message.msgId.high >>> 0, false).toBigInt();
+                        else if (typeof message.msgId === "number")
+                            object.msgId = options.longs === $String ? $String(message.msgId) : message.msgId;
+                        else
+                            object.msgId = options.longs === $String ? $util.Long.prototype.toString.call(message.msgId) : options.longs === $Number ? new $util.LongBits(message.msgId.low >>> 0, message.msgId.high >>> 0).toNumber() : message.msgId;
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        object.topic = message.topic;
+                    if (message.topicSeq != null && $Object.hasOwnProperty.call(message, "topicSeq"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.topicSeq = typeof message.topicSeq === "number" ? $BigInt(message.topicSeq) : $util.Long.fromBits(message.topicSeq.low >>> 0, message.topicSeq.high >>> 0, true).toBigInt();
+                        else if (typeof message.topicSeq === "number")
+                            object.topicSeq = options.longs === $String ? $String(message.topicSeq) : message.topicSeq;
+                        else
+                            object.topicSeq = options.longs === $String ? $util.Long.prototype.toString.call(message.topicSeq) : options.longs === $Number ? new $util.LongBits(message.topicSeq.low >>> 0, message.topicSeq.high >>> 0).toNumber(true) : message.topicSeq;
+                    if (message.senderId != null && $Object.hasOwnProperty.call(message, "senderId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.senderId = typeof message.senderId === "number" ? $BigInt(message.senderId) : $util.Long.fromBits(message.senderId.low >>> 0, message.senderId.high >>> 0, false).toBigInt();
+                        else if (typeof message.senderId === "number")
+                            object.senderId = options.longs === $String ? $String(message.senderId) : message.senderId;
+                        else
+                            object.senderId = options.longs === $String ? $util.Long.prototype.toString.call(message.senderId) : options.longs === $Number ? new $util.LongBits(message.senderId.low >>> 0, message.senderId.high >>> 0).toNumber() : message.senderId;
+                    if (message.snippet != null && $Object.hasOwnProperty.call(message, "snippet"))
+                        object.snippet = message.snippet;
+                    return object;
+                };
+
+                /**
+                 * Converts this AgentRunCitation to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                AgentRunCitation.prototype.toJSON = function() {
+                    return AgentRunCitation.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for AgentRunCitation
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.AgentRunCitation
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                AgentRunCitation.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.AgentRunCitation";
+                };
+
+                return AgentRunCitation;
+            })();
+
             v1.AgentRunEvent = (function() {
 
                 /**
@@ -12725,6 +14538,7 @@ export const api = $root.api = (() => {
                  * @property {string|null} [clientMsgId] AgentRunEvent clientMsgId
                  * @property {string|null} [errorMessage] AgentRunEvent errorMessage
                  * @property {number|Long|null} [retryAfterAtMs] AgentRunEvent retryAfterAtMs
+                 * @property {Array.<api.im.v1.AgentRunCitation.$Properties>|null} [citations] AgentRunEvent citations
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -12750,6 +14564,7 @@ export const api = $root.api = (() => {
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
                 const AgentRunEvent = function (properties) {
+                    this.citations = [];
                     if (properties)
                         for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
                             if (properties[keys[i]] != null && keys[i] !== "__proto__")
@@ -12949,6 +14764,14 @@ export const api = $root.api = (() => {
                 AgentRunEvent.prototype.retryAfterAtMs = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
 
                 /**
+                 * AgentRunEvent citations.
+                 * @member {Array.<api.im.v1.AgentRunCitation.$Properties>} citations
+                 * @memberof api.im.v1.AgentRunEvent
+                 * @instance
+                 */
+                AgentRunEvent.prototype.citations = $util.emptyArray;
+
+                /**
                  * Creates a new AgentRunEvent instance using the specified properties.
                  * @function create
                  * @memberof api.im.v1.AgentRunEvent
@@ -13028,6 +14851,9 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 24, wireType 2 =*/194).string(message.errorMessage);
                     if (message.retryAfterAtMs != null && $Object.hasOwnProperty.call(message, "retryAfterAtMs"))
                         writer.uint32(/* id 25, wireType 0 =*/200).int64(message.retryAfterAtMs);
+                    if (message.citations != null && message.citations.length)
+                        for (let i = 0; i < message.citations.length; ++i)
+                            $root.api.im.v1.AgentRunCitation.encode(message.citations[i], writer.uint32(/* id 26, wireType 2 =*/210).fork(), _depth + 1).ldelim();
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -13291,6 +15117,14 @@ export const api = $root.api = (() => {
                                     delete message.retryAfterAtMs;
                                 continue;
                             }
+                        case 26: {
+                                if (wireType !== 2)
+                                    break;
+                                if (!(message.citations && message.citations.length))
+                                    message.citations = [];
+                                message.citations.push($root.api.im.v1.AgentRunCitation.decode(reader, reader.uint32(), $undefined, _depth + 1));
+                                continue;
+                            }
                         }
                         reader.skipType(wireType, _depth, tag);
                         if (!reader.discardUnknown) {
@@ -13420,6 +15254,15 @@ export const api = $root.api = (() => {
                     if (message.retryAfterAtMs != null && $Object.hasOwnProperty.call(message, "retryAfterAtMs"))
                         if (!$util.isInteger(message.retryAfterAtMs) && !(message.retryAfterAtMs && $util.isInteger(message.retryAfterAtMs.low) && $util.isInteger(message.retryAfterAtMs.high)))
                             return "retryAfterAtMs: integer|Long expected";
+                    if (message.citations != null && $Object.hasOwnProperty.call(message, "citations")) {
+                        if (!$Array.isArray(message.citations))
+                            return "citations: array expected";
+                        for (let i = 0; i < message.citations.length; ++i) {
+                            let error = $root.api.im.v1.AgentRunCitation.verify(message.citations[i], _depth + 1);
+                            if (error)
+                                return "citations." + error;
+                        }
+                    }
                     return null;
                 };
 
@@ -13633,6 +15476,16 @@ export const api = $root.api = (() => {
                                 message.retryAfterAtMs = object.retryAfterAtMs;
                             else if (typeof object.retryAfterAtMs === "object")
                                 message.retryAfterAtMs = new $util.LongBits(object.retryAfterAtMs.low >>> 0, object.retryAfterAtMs.high >>> 0).toNumber();
+                    if (object.citations) {
+                        if (!$Array.isArray(object.citations))
+                            throw $TypeError(".api.im.v1.AgentRunEvent.citations: array expected");
+                        message.citations = $Array(object.citations.length);
+                        for (let i = 0; i < object.citations.length; ++i) {
+                            if (!$util.isObject(object.citations[i]))
+                                throw $TypeError(".api.im.v1.AgentRunEvent.citations: object expected");
+                            message.citations[i] = $root.api.im.v1.AgentRunCitation.fromObject(object.citations[i], _depth + 1);
+                        }
+                    }
                     return message;
                 };
 
@@ -13653,6 +15506,8 @@ export const api = $root.api = (() => {
                     if (_depth > $util.recursionLimit)
                         throw $Error("max depth exceeded");
                     let object = {};
+                    if (options.arrays || options.defaults)
+                        object.citations = [];
                     if (options.defaults) {
                         if ($util.Long) {
                             let long = new $util.Long(0, 0, true);
@@ -13817,6 +15672,11 @@ export const api = $root.api = (() => {
                             object.retryAfterAtMs = options.longs === $String ? $String(message.retryAfterAtMs) : message.retryAfterAtMs;
                         else
                             object.retryAfterAtMs = options.longs === $String ? $util.Long.prototype.toString.call(message.retryAfterAtMs) : options.longs === $Number ? new $util.LongBits(message.retryAfterAtMs.low >>> 0, message.retryAfterAtMs.high >>> 0).toNumber() : message.retryAfterAtMs;
+                    if (message.citations && message.citations.length) {
+                        object.citations = $Array(message.citations.length);
+                        for (let j = 0; j < message.citations.length; ++j)
+                            object.citations[j] = $root.api.im.v1.AgentRunCitation.toObject(message.citations[j], options, _depth + 1);
+                    }
                     return object;
                 };
 

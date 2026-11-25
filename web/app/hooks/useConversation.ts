@@ -121,6 +121,40 @@ export function useConversation(topic: string | null) {
     }
   }, [conversation, topic, user]);
 
+  // loadUntil pages backwards until the requested topic_seq is present. It is
+  // used by source chips; a normal scroll only needs one page.
+  const loadUntil = useCallback(
+    async (targetSeq: number) => {
+      if (!topic) return;
+      for (let page = 0; page < 20; page++) {
+        const current = useChatStore.getState().conversations.get(topic);
+        if (!current?.hasMore) return;
+        const oldest = Number(current.messages[0]?.topicSeq || 0);
+        if (!oldest || oldest <= targetSeq) return;
+        const reply = await messageApi.pullMessages(topic, 0, 20, oldest);
+        const msgs: ChatMessage[] = reply.messages.map((m) => ({
+          clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
+          msgId: m.msgId,
+          topic: m.topic,
+          senderId: m.senderId,
+          content: decodeMessageContent(m.content, m.msgType),
+          msgType: m.msgType,
+          timestamp: m.timestamp,
+          topicSeq: m.topicSeq,
+          recalled: m.recalled || undefined,
+          status: m.recalled
+            ? "recalled"
+            : m.senderId === user?.userId
+            ? "sent"
+            : "delivered",
+        }));
+        useChatStore.getState().prependMessages(topic, msgs, reply.hasMore);
+        if (msgs.length === 0) return;
+      }
+    },
+    [topic, user]
+  );
+
   const sendMessage = useCallback(
     (text: string, mentionedUserIds?: number[]) => {
       if (!topic || !text.trim()) return;
@@ -305,6 +339,7 @@ export function useConversation(topic: string | null) {
     conversation,
     loadingMore,
     loadMore,
+    loadUntil,
     sendMessage: sendTextWithMentions,
     mentionMembers,
     sendFileMessage,

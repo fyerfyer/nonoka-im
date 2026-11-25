@@ -182,6 +182,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.GET("/v1/admin/audit-events", agents.ListAuditEvents)
 		r.GET("/v1/admin/audit-events/{id}", agents.GetAuditEvent)
 		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
+		r.GET("/v1/agent-runs/by-reply/{msgId}", agents.RunByReply)
 		r.GET("/v1/agent-runs/{id}/events", agents.RunEvents)
 		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
 		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
@@ -219,6 +220,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 	if outbox != nil {
 		r := srv.Route("/")
 		r.GET("/v1/admin/agent-outbox/failed", outbox.ListFailed)
+		r.POST("/v1/admin/agent-outbox/replay", outbox.ReplayMany)
 		r.POST("/v1/admin/agent-outbox/{id}/replay", outbox.Replay)
 	}
 

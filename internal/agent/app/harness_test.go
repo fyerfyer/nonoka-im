@@ -319,6 +319,9 @@ type fakeRunStore struct {
 func (f *fakeRunStore) UpdateRunFenced(context.Context, uint64, string, map[string]interface{}) error {
 	return nil
 }
+func (f *fakeRunStore) ListRunCitations(context.Context, uint64) ([]domain.AgentRunCitation, error) {
+	return nil, nil
+}
 func (f *fakeRunStore) FailRun(context.Context, *domain.AgentRun, domain.Failure, int, map[string]interface{}) error {
 	return nil
 }

@@ -25,7 +25,7 @@ export default function ChatDetailPage() {
   const user = useAuthStore((s) => s.user);
   const connectionState = useChatStore((s) => s.connectionState);
 
-  const { conversation, loadingMore, loadMore, sendMessage, mentionMembers, sendFileMessage, retryMessage, recallMessage } = useConversation(
+  const { conversation, loadingMore, loadMore, loadUntil, sendMessage, mentionMembers, sendFileMessage, retryMessage, recallMessage } = useConversation(
     topic || null
   );
   const peerOnline = usePresence(
@@ -64,6 +64,7 @@ export default function ChatDetailPage() {
             currentUser={user}
             loadingMore={loadingMore}
             onLoadMore={loadMore}
+            onJumpToSeq={loadUntil}
             onRecall={recallMessage}
             onRetry={retryMessage}
             members={mentionMembers()}

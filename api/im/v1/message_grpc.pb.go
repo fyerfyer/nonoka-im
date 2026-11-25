@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MessageService_SendMessage_FullMethodName  = "/api.im.v1.MessageService/SendMessage"
-	MessageService_PullMessages_FullMethodName = "/api.im.v1.MessageService/PullMessages"
+	MessageService_SendMessage_FullMethodName    = "/api.im.v1.MessageService/SendMessage"
+	MessageService_PullMessages_FullMethodName   = "/api.im.v1.MessageService/PullMessages"
+	MessageService_SearchMessages_FullMethodName = "/api.im.v1.MessageService/SearchMessages"
 )
 
 // MessageServiceClient is the client API for MessageService service.
@@ -29,6 +30,9 @@ const (
 type MessageServiceClient interface {
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageReply, error)
 	PullMessages(ctx context.Context, in *PullRequest, opts ...grpc.CallOption) (*PullReply, error)
+	// SearchMessages performs keyword search inside one conversation. Search is
+	// optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+	SearchMessages(ctx context.Context, in *SearchMessagesRequest, opts ...grpc.CallOption) (*SearchMessagesReply, error)
 }
 
 type messageServiceClient struct {
@@ -59,12 +63,25 @@ func (c *messageServiceClient) PullMessages(ctx context.Context, in *PullRequest
 	return out, nil
 }
 
+func (c *messageServiceClient) SearchMessages(ctx context.Context, in *SearchMessagesRequest, opts ...grpc.CallOption) (*SearchMessagesReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchMessagesReply)
+	err := c.cc.Invoke(ctx, MessageService_SearchMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MessageServiceServer is the server API for MessageService service.
 // All implementations must embed UnimplementedMessageServiceServer
 // for forward compatibility.
 type MessageServiceServer interface {
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageReply, error)
 	PullMessages(context.Context, *PullRequest) (*PullReply, error)
+	// SearchMessages performs keyword search inside one conversation. Search is
+	// optional: deployments without a search backend return SEARCH_UNAVAILABLE.
+	SearchMessages(context.Context, *SearchMessagesRequest) (*SearchMessagesReply, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }
 
@@ -80,6 +97,9 @@ func (UnimplementedMessageServiceServer) SendMessage(context.Context, *SendMessa
 }
 func (UnimplementedMessageServiceServer) PullMessages(context.Context, *PullRequest) (*PullReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method PullMessages not implemented")
+}
+func (UnimplementedMessageServiceServer) SearchMessages(context.Context, *SearchMessagesRequest) (*SearchMessagesReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchMessages not implemented")
 }
 func (UnimplementedMessageServiceServer) mustEmbedUnimplementedMessageServiceServer() {}
 func (UnimplementedMessageServiceServer) testEmbeddedByValue()                        {}
@@ -138,6 +158,24 @@ func _MessageService_PullMessages_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MessageService_SearchMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).SearchMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_SearchMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).SearchMessages(ctx, req.(*SearchMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MessageService_ServiceDesc is the grpc.ServiceDesc for MessageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +190,10 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PullMessages",
 			Handler:    _MessageService_PullMessages_Handler,
+		},
+		{
+			MethodName: "SearchMessages",
+			Handler:    _MessageService_SearchMessages_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

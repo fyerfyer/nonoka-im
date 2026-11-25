@@ -24,10 +24,37 @@ type Message struct {
 	Size      int64
 }
 
+// SearchFilter is the structured filter for a topic-scoped tool search.
+type SearchFilter struct {
+	SenderID int64
+	Since    int64
+	Until    int64
+	HasFile  bool
+}
+
+// SearchHit is one authorized message search result.
+type SearchHit struct {
+	MsgID     int64
+	Topic     string
+	TopicSeq  uint64
+	SenderID  int64
+	Timestamp int64
+	MsgType   int32
+	HasFile   bool
+	Snippet   string
+}
+
+// CitationRecorder persists the message refs consulted by a run. Implementations
+// must deduplicate by (run_id, topic, msg_id).
+type CitationRecorder interface {
+	RecordRunCitations(ctx context.Context, runID uint64, hits []SearchHit) error
+}
+
 // MessageReader is the authorized IM read surface used by the agent tools.
 type MessageReader interface {
 	RecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]Message, error)
 	MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (Message, error)
+	SearchMessages(ctx context.Context, userID int64, topic, query string, filter SearchFilter, limit, offset int) ([]SearchHit, bool, error)
 }
 
 // File is the read-model view of one attachment.

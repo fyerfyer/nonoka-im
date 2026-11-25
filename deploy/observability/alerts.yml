@@ -1,0 +1,35 @@
+groups:
+  - name: nonoka-outbox
+    rules:
+      - alert: NonokaAgentOutboxFailed
+        expr: nonoka_agent_outbox_failed > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent trigger outbox has failed rows"
+          description: "{{ $value }} failed agent outbox rows. Inspect the Admin DLQ and replay after fixing the consumer."
+      - alert: NonokaAgentOutboxBacklogOld
+        expr: nonoka_agent_outbox_oldest_pending_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent trigger outbox backlog is older than 5 minutes"
+          description: "Oldest pending agent event is {{ $value }}s old; check Kafka and the relay."
+      - alert: NonokaSearchIndexFailed
+        expr: nonoka_search_index_failed > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Search index has failed tasks"
+          description: "{{ $value }} search index tasks are parked. Check Meilisearch and run search-reindex if needed."
+      - alert: NonokaSearchIndexBacklogOld
+        expr: nonoka_search_index_oldest_pending_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Search index backlog is older than 5 minutes"
+          description: "Meilisearch indexing is falling behind; messages remain durable in MongoDB."

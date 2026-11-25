@@ -217,7 +217,7 @@ func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools:               agentTools,
-				ToolCallMiddlewares: toolMiddlewares(in.Guard),
+				ToolCallMiddlewares: r.toolMiddlewares(in.Guard),
 			},
 		},
 	})
@@ -328,6 +328,14 @@ func toolMiddlewares(guard port.UsageGuard) []compose.ToolMiddleware {
 	out := []compose.ToolMiddleware{tools.TimeoutMiddleware(tools.ToolCallTimeout)}
 	if guard != nil {
 		out = append(out, guardToolMiddleware(guard))
+	}
+	return out
+}
+
+func (r *Engine) toolMiddlewares(guard port.UsageGuard) []compose.ToolMiddleware {
+	out := toolMiddlewares(guard)
+	if r.metrics != nil {
+		out = append([]compose.ToolMiddleware{tools.ObserveMiddleware(r.metrics)}, out...)
 	}
 	return out
 }

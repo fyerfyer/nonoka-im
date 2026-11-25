@@ -134,6 +134,9 @@ func (s *Store) RecallMessage(ctx context.Context, topic string, topicSeq uint64
 	if matched == 0 {
 		return ErrRecallNotFound
 	}
+	// Search is a derived index; a failed enqueue is logged by the caller's
+	// metrics/relay and never blocks the user-visible recall.
+	_ = s.enqueueSearchDelete(ctx, msgID, topic)
 	return nil
 }
 

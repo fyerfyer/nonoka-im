@@ -518,6 +518,261 @@ func (x *PullRequest) GetEndSeq() uint64 {
 	return 0
 }
 
+// SearchMessagesRequest is scoped to one topic. Query may be empty only when
+// has_file is true (browse attachments).
+type SearchMessagesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Topic         string                 `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	Query         string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	SenderId      int64                  `protobuf:"varint,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	Since         int64                  `protobuf:"varint,4,opt,name=since,proto3" json:"since,omitempty"` // inclusive unix seconds
+	Until         int64                  `protobuf:"varint,5,opt,name=until,proto3" json:"until,omitempty"` // inclusive unix seconds
+	HasFile       bool                   `protobuf:"varint,6,opt,name=has_file,json=hasFile,proto3" json:"has_file,omitempty"`
+	Limit         int32                  `protobuf:"varint,7,opt,name=limit,proto3" json:"limit,omitempty"`   // default 20, max 50
+	Offset        int32                  `protobuf:"varint,8,opt,name=offset,proto3" json:"offset,omitempty"` // default 0, max 1000
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchMessagesRequest) Reset() {
+	*x = SearchMessagesRequest{}
+	mi := &file_im_v1_message_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchMessagesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchMessagesRequest) ProtoMessage() {}
+
+func (x *SearchMessagesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchMessagesRequest.ProtoReflect.Descriptor instead.
+func (*SearchMessagesRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SearchMessagesRequest) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *SearchMessagesRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchMessagesRequest) GetSenderId() int64 {
+	if x != nil {
+		return x.SenderId
+	}
+	return 0
+}
+
+func (x *SearchMessagesRequest) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *SearchMessagesRequest) GetUntil() int64 {
+	if x != nil {
+		return x.Until
+	}
+	return 0
+}
+
+func (x *SearchMessagesRequest) GetHasFile() bool {
+	if x != nil {
+		return x.HasFile
+	}
+	return false
+}
+
+func (x *SearchMessagesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *SearchMessagesRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+// SearchMessage is one authorized search hit.
+type SearchMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MsgId         int64                  `protobuf:"varint,1,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
+	TopicSeq      uint64                 `protobuf:"varint,3,opt,name=topic_seq,json=topicSeq,proto3" json:"topic_seq,omitempty"`
+	SenderId      int64                  `protobuf:"varint,4,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	MsgType       int32                  `protobuf:"varint,6,opt,name=msg_type,json=msgType,proto3" json:"msg_type,omitempty"`
+	HasFile       bool                   `protobuf:"varint,7,opt,name=has_file,json=hasFile,proto3" json:"has_file,omitempty"`
+	Snippet       string                 `protobuf:"bytes,8,opt,name=snippet,proto3" json:"snippet,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchMessage) Reset() {
+	*x = SearchMessage{}
+	mi := &file_im_v1_message_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchMessage) ProtoMessage() {}
+
+func (x *SearchMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchMessage.ProtoReflect.Descriptor instead.
+func (*SearchMessage) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SearchMessage) GetMsgId() int64 {
+	if x != nil {
+		return x.MsgId
+	}
+	return 0
+}
+
+func (x *SearchMessage) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *SearchMessage) GetTopicSeq() uint64 {
+	if x != nil {
+		return x.TopicSeq
+	}
+	return 0
+}
+
+func (x *SearchMessage) GetSenderId() int64 {
+	if x != nil {
+		return x.SenderId
+	}
+	return 0
+}
+
+func (x *SearchMessage) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *SearchMessage) GetMsgType() int32 {
+	if x != nil {
+		return x.MsgType
+	}
+	return 0
+}
+
+func (x *SearchMessage) GetHasFile() bool {
+	if x != nil {
+		return x.HasFile
+	}
+	return false
+}
+
+func (x *SearchMessage) GetSnippet() string {
+	if x != nil {
+		return x.Snippet
+	}
+	return ""
+}
+
+type SearchMessagesReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Messages      []*SearchMessage       `protobuf:"bytes,1,rep,name=messages,proto3" json:"messages,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchMessagesReply) Reset() {
+	*x = SearchMessagesReply{}
+	mi := &file_im_v1_message_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchMessagesReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchMessagesReply) ProtoMessage() {}
+
+func (x *SearchMessagesReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_message_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchMessagesReply.ProtoReflect.Descriptor instead.
+func (*SearchMessagesReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_message_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SearchMessagesReply) GetMessages() []*SearchMessage {
+	if x != nil {
+		return x.Messages
+	}
+	return nil
+}
+
+func (x *SearchMessagesReply) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
 // PullMessage is a message in the pull response.
 type PullMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -536,7 +791,7 @@ type PullMessage struct {
 
 func (x *PullMessage) Reset() {
 	*x = PullMessage{}
-	mi := &file_im_v1_message_proto_msgTypes[5]
+	mi := &file_im_v1_message_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -548,7 +803,7 @@ func (x *PullMessage) String() string {
 func (*PullMessage) ProtoMessage() {}
 
 func (x *PullMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_message_proto_msgTypes[5]
+	mi := &file_im_v1_message_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -561,7 +816,7 @@ func (x *PullMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullMessage.ProtoReflect.Descriptor instead.
 func (*PullMessage) Descriptor() ([]byte, []int) {
-	return file_im_v1_message_proto_rawDescGZIP(), []int{5}
+	return file_im_v1_message_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PullMessage) GetMsgId() int64 {
@@ -641,7 +896,7 @@ type PullReply struct {
 
 func (x *PullReply) Reset() {
 	*x = PullReply{}
-	mi := &file_im_v1_message_proto_msgTypes[6]
+	mi := &file_im_v1_message_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -653,7 +908,7 @@ func (x *PullReply) String() string {
 func (*PullReply) ProtoMessage() {}
 
 func (x *PullReply) ProtoReflect() protoreflect.Message {
-	mi := &file_im_v1_message_proto_msgTypes[6]
+	mi := &file_im_v1_message_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,7 +921,7 @@ func (x *PullReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullReply.ProtoReflect.Descriptor instead.
 func (*PullReply) Descriptor() ([]byte, []int) {
-	return file_im_v1_message_proto_rawDescGZIP(), []int{6}
+	return file_im_v1_message_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PullReply) GetMessages() []*PullMessage {
@@ -730,7 +985,28 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x19\n" +
 	"\blast_seq\x18\x02 \x01(\x04R\alastSeq\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x17\n" +
-	"\aend_seq\x18\x04 \x01(\x04R\x06endSeq\"\x87\x02\n" +
+	"\aend_seq\x18\x04 \x01(\x04R\x06endSeq\"\xd5\x01\n" +
+	"\x15SearchMessagesRequest\x12\x14\n" +
+	"\x05topic\x18\x01 \x01(\tR\x05topic\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1b\n" +
+	"\tsender_id\x18\x03 \x01(\x03R\bsenderId\x12\x14\n" +
+	"\x05since\x18\x04 \x01(\x03R\x05since\x12\x14\n" +
+	"\x05until\x18\x05 \x01(\x03R\x05until\x12\x19\n" +
+	"\bhas_file\x18\x06 \x01(\bR\ahasFile\x12\x14\n" +
+	"\x05limit\x18\a \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\b \x01(\x05R\x06offset\"\xe4\x01\n" +
+	"\rSearchMessage\x12\x15\n" +
+	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
+	"\ttopic_seq\x18\x03 \x01(\x04R\btopicSeq\x12\x1b\n" +
+	"\tsender_id\x18\x04 \x01(\x03R\bsenderId\x12\x1c\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12\x19\n" +
+	"\bmsg_type\x18\x06 \x01(\x05R\amsgType\x12\x19\n" +
+	"\bhas_file\x18\a \x01(\bR\ahasFile\x12\x18\n" +
+	"\asnippet\x18\b \x01(\tR\asnippet\"f\n" +
+	"\x13SearchMessagesReply\x124\n" +
+	"\bmessages\x18\x01 \x03(\v2\x18.api.im.v1.SearchMessageR\bmessages\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"\x87\x02\n" +
 	"\vPullMessage\x12\x15\n" +
 	"\x06msg_id\x18\x01 \x01(\x03R\x05msgId\x12\x14\n" +
 	"\x05topic\x18\x02 \x01(\tR\x05topic\x12\x1b\n" +
@@ -751,10 +1027,11 @@ const file_im_v1_message_proto_rawDesc = "" +
 	"\x0eMSG_TYPE_IMAGE\x10\x02\x12\x11\n" +
 	"\rMSG_TYPE_FILE\x10\x03\x12\x12\n" +
 	"\x0eMSG_TYPE_VOICE\x10\x04\x12\x17\n" +
-	"\x13MSG_TYPE_AGENT_CARD\x10\x052\xd0\x01\n" +
+	"\x13MSG_TYPE_AGENT_CARD\x10\x052\xc0\x02\n" +
 	"\x0eMessageService\x12f\n" +
 	"\vSendMessage\x12\x1d.api.im.v1.SendMessageRequest\x1a\x1b.api.im.v1.SendMessageReply\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/v1/message/send\x12V\n" +
-	"\fPullMessages\x12\x16.api.im.v1.PullRequest\x1a\x14.api.im.v1.PullReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/message/pullB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\fPullMessages\x12\x16.api.im.v1.PullRequest\x1a\x14.api.im.v1.PullReply\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/v1/message/pull\x12n\n" +
+	"\x0eSearchMessages\x12 .api.im.v1.SearchMessagesRequest\x1a\x1e.api.im.v1.SearchMessagesReply\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/v1/message/searchB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_message_proto_rawDescOnce sync.Once
@@ -769,29 +1046,35 @@ func file_im_v1_message_proto_rawDescGZIP() []byte {
 }
 
 var file_im_v1_message_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_im_v1_message_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_im_v1_message_proto_goTypes = []any{
-	(MsgType)(0),               // 0: api.im.v1.MsgType
-	(*SendMessageRequest)(nil), // 1: api.im.v1.SendMessageRequest
-	(*SendMessageReply)(nil),   // 2: api.im.v1.SendMessageReply
-	(*MessagePush)(nil),        // 3: api.im.v1.MessagePush
-	(*UpstreamMessage)(nil),    // 4: api.im.v1.UpstreamMessage
-	(*PullRequest)(nil),        // 5: api.im.v1.PullRequest
-	(*PullMessage)(nil),        // 6: api.im.v1.PullMessage
-	(*PullReply)(nil),          // 7: api.im.v1.PullReply
+	(MsgType)(0),                  // 0: api.im.v1.MsgType
+	(*SendMessageRequest)(nil),    // 1: api.im.v1.SendMessageRequest
+	(*SendMessageReply)(nil),      // 2: api.im.v1.SendMessageReply
+	(*MessagePush)(nil),           // 3: api.im.v1.MessagePush
+	(*UpstreamMessage)(nil),       // 4: api.im.v1.UpstreamMessage
+	(*PullRequest)(nil),           // 5: api.im.v1.PullRequest
+	(*SearchMessagesRequest)(nil), // 6: api.im.v1.SearchMessagesRequest
+	(*SearchMessage)(nil),         // 7: api.im.v1.SearchMessage
+	(*SearchMessagesReply)(nil),   // 8: api.im.v1.SearchMessagesReply
+	(*PullMessage)(nil),           // 9: api.im.v1.PullMessage
+	(*PullReply)(nil),             // 10: api.im.v1.PullReply
 }
 var file_im_v1_message_proto_depIdxs = []int32{
-	0, // 0: api.im.v1.SendMessageRequest.msg_type:type_name -> api.im.v1.MsgType
-	6, // 1: api.im.v1.PullReply.messages:type_name -> api.im.v1.PullMessage
-	1, // 2: api.im.v1.MessageService.SendMessage:input_type -> api.im.v1.SendMessageRequest
-	5, // 3: api.im.v1.MessageService.PullMessages:input_type -> api.im.v1.PullRequest
-	2, // 4: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
-	7, // 5: api.im.v1.MessageService.PullMessages:output_type -> api.im.v1.PullReply
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0,  // 0: api.im.v1.SendMessageRequest.msg_type:type_name -> api.im.v1.MsgType
+	7,  // 1: api.im.v1.SearchMessagesReply.messages:type_name -> api.im.v1.SearchMessage
+	9,  // 2: api.im.v1.PullReply.messages:type_name -> api.im.v1.PullMessage
+	1,  // 3: api.im.v1.MessageService.SendMessage:input_type -> api.im.v1.SendMessageRequest
+	5,  // 4: api.im.v1.MessageService.PullMessages:input_type -> api.im.v1.PullRequest
+	6,  // 5: api.im.v1.MessageService.SearchMessages:input_type -> api.im.v1.SearchMessagesRequest
+	2,  // 6: api.im.v1.MessageService.SendMessage:output_type -> api.im.v1.SendMessageReply
+	10, // 7: api.im.v1.MessageService.PullMessages:output_type -> api.im.v1.PullReply
+	8,  // 8: api.im.v1.MessageService.SearchMessages:output_type -> api.im.v1.SearchMessagesReply
+	6,  // [6:9] is the sub-list for method output_type
+	3,  // [3:6] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_message_proto_init() }
@@ -805,7 +1088,7 @@ func file_im_v1_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_message_proto_rawDesc), len(file_im_v1_message_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -20,6 +20,7 @@ type RunBroadcaster struct {
 	Store     RunEventStore
 	Transport RunEventTransport
 	Steps     func(context.Context, RunEvent) error
+	OnEvent   func(RunEvent)
 	Log       *log.Helper
 
 	mu    sync.Mutex
@@ -42,6 +43,9 @@ func (b *RunBroadcaster) Publish(ctx context.Context, event RunEvent, recipients
 		return nil
 	}
 	event = b.assignSeq(ctx, event)
+	if b.OnEvent != nil {
+		b.OnEvent(event)
+	}
 	if event.Type.IsDurable() && b.Steps != nil {
 		if err := b.Steps(ctx, event); err != nil {
 			b.log().Warnf("record run step: run_id=%d type=%s err=%v", event.RunID, event.Type, err)

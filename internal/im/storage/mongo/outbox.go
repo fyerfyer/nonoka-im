@@ -12,10 +12,11 @@ import (
 	"time"
 )
 
-// SaveP2P persists a P2P message using write fan-out. When outbox is
-// non-nil, the message and event are committed in one MongoDB transaction.
+// SaveP2P persists a P2P message using write fan-out. When an agent outbox
+// row or search indexing is enabled, the message, event and search task are
+// committed in one MongoDB transaction.
 func (s *Store) SaveP2P(ctx context.Context, msg *domain.Message, outbox *domain.OutboxEvent) ([]int64, bool, error) {
-	if outbox == nil {
+	if outbox == nil && !s.searchEnabled {
 		return s.saveP2P(ctx, msg)
 	}
 	sess, err := s.db.Client().StartSession()
@@ -33,21 +34,30 @@ func (s *Store) SaveP2P(ctx context.Context, msg *domain.Message, outbox *domain
 		if duplicate {
 			return nil, errTransactionalDuplicate
 		}
-		return nil, s.enqueueOutbox(txCtx, outbox)
+		if err := s.enqueueOutbox(txCtx, outbox); err != nil {
+			return nil, err
+		}
+		if s.searchEnabled {
+			if err := s.enqueueSearchTask(txCtx, msg); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
 	})
 	if errors.Is(err, errTransactionalDuplicate) || errors.Is(err, errAgentEventDuplicate) {
 		return recipients, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("persist p2p message and agent event: %w", err)
+		return nil, false, fmt.Errorf("persist p2p message and side indexes: %w", err)
 	}
 	return recipients, duplicate, nil
 }
 
-// SaveGroup persists a group message using read fan-out. When outbox is
-// non-nil, the message and event are committed in one MongoDB transaction.
+// SaveGroup persists a group message using read fan-out. When an agent outbox
+// row or search indexing is enabled, the message, event and search task are
+// committed in one MongoDB transaction.
 func (s *Store) SaveGroup(ctx context.Context, msg *domain.Message, outbox *domain.OutboxEvent) (bool, error) {
-	if outbox == nil {
+	if outbox == nil && !s.searchEnabled {
 		return s.saveGroup(ctx, msg)
 	}
 	sess, err := s.db.Client().StartSession()
@@ -64,13 +74,21 @@ func (s *Store) SaveGroup(ctx context.Context, msg *domain.Message, outbox *doma
 		if duplicate {
 			return nil, errTransactionalDuplicate
 		}
-		return nil, s.enqueueOutbox(txCtx, outbox)
+		if err := s.enqueueOutbox(txCtx, outbox); err != nil {
+			return nil, err
+		}
+		if s.searchEnabled {
+			if err := s.enqueueSearchTask(txCtx, msg); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
 	})
 	if errors.Is(err, errTransactionalDuplicate) || errors.Is(err, errAgentEventDuplicate) {
 		return true, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("persist group message and agent event: %w", err)
+		return false, fmt.Errorf("persist group message and side indexes: %w", err)
 	}
 	return duplicate, nil
 }
@@ -283,6 +301,31 @@ func (s *Store) ReplayOutbox(ctx context.Context, id string) error {
 		return err
 	}
 	return nil
+}
+
+// ReplayOutboxMany atomically moves the selected failed rows back to pending.
+// Rows that are no longer failed are ignored; the returned count is the number
+// actually requeued.
+func (s *Store) ReplayOutboxMany(ctx context.Context, ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	objectIDs := make([]bson.ObjectID, 0, len(ids))
+	for _, id := range ids {
+		objectID, err := bson.ObjectIDFromHex(id)
+		if err != nil {
+			return 0, fmt.Errorf("invalid outbox id %q", id)
+		}
+		objectIDs = append(objectIDs, objectID)
+	}
+	result, err := s.collection(CollectionAgentOutbox).UpdateMany(ctx,
+		bson.M{"_id": bson.M{"$in": objectIDs}, "status": domain.OutboxFailed},
+		bson.M{"$set": bson.M{"status": domain.OutboxPending, "attempts": 0, "next_attempt_at": time.Now(), "last_error": ""}, "$unset": bson.M{"locked_until": ""}},
+	)
+	if err != nil {
+		return 0, err
+	}
+	return int(result.ModifiedCount), nil
 }
 
 func toDomainOutbox(row *outboxRow) domain.OutboxEvent {

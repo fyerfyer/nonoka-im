@@ -73,3 +73,13 @@ msgworker:
   receipt_batch_timeout: 0.01s
   group_batch_size: 16
   group_batch_timeout: 0.005s
+
+# Optional Meilisearch-backed message search. Leave url empty to disable.
+search:
+  enabled: true
+  url: "http://meilisearch:7700"
+  index: "messages"
+  timeout: 5s
+  max_content_bytes: 16384
+  relay_interval: 1s
+  relay_batch_size: 32

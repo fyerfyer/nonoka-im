@@ -42,6 +42,16 @@ func (t RunEventType) IsDurable() bool {
 	}
 }
 
+// RunCitation is one message source consulted by a run. It is intentionally a
+// reference plus a short excerpt; the message body remains in IM storage.
+type RunCitation struct {
+	MsgID    int64  `json:"msgId"`
+	Topic    string `json:"topic"`
+	TopicSeq uint64 `json:"topicSeq"`
+	SenderID int64  `json:"senderId"`
+	Snippet  string `json:"snippet,omitempty"`
+}
+
 // RunEvent is the single event shape carried by the realtime run stream. The
 // pair (RunID, Seq) is the ordering and deduplication key.
 type RunEvent struct {
@@ -67,16 +77,17 @@ type RunEvent struct {
 	// ReplyMsgID and ClientMessageID identify the final IM message. The HTTP
 	// send path is asynchronous, so ClientMessageID is the reliable join key
 	// even when the worker has not observed the assigned msg_id yet.
-	ReplyMsgID      int64  `json:"replyMsgId,omitempty"`
-	ClientMessageID string `json:"clientMessageId,omitempty"`
-	ErrorCode       string `json:"errorCode,omitempty"`
-	ErrorClass      string `json:"errorClass,omitempty"`
-	ErrorMessage    string `json:"errorMessage,omitempty"`
-	RetryAfterAt    string `json:"retryAfterAt,omitempty"`
-	Retryable       bool   `json:"retryable,omitempty"`
-	InputTokens     int    `json:"inputTokens,omitempty"`
-	OutputTokens    int    `json:"outputTokens,omitempty"`
-	TimestampMs     int64  `json:"timestampMs"`
+	ReplyMsgID      int64         `json:"replyMsgId,omitempty"`
+	ClientMessageID string        `json:"clientMessageId,omitempty"`
+	ErrorCode       string        `json:"errorCode,omitempty"`
+	ErrorClass      string        `json:"errorClass,omitempty"`
+	ErrorMessage    string        `json:"errorMessage,omitempty"`
+	RetryAfterAt    string        `json:"retryAfterAt,omitempty"`
+	Retryable       bool          `json:"retryable,omitempty"`
+	InputTokens     int           `json:"inputTokens,omitempty"`
+	OutputTokens    int           `json:"outputTokens,omitempty"`
+	Citations       []RunCitation `json:"citations,omitempty"`
+	TimestampMs     int64         `json:"timestampMs"`
 }
 
 // RunEventStore assigns per-run sequence numbers and keeps a bounded replay

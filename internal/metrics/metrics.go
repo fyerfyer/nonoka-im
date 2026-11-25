@@ -46,6 +46,15 @@ type Metrics struct {
 	AgentOutboxOldestAge     prometheus.Gauge
 	AgentOutboxPublishFailed prometheus.Counter
 	AgentOutboxDuplicate     prometheus.Counter
+
+	// Optional Meilisearch index outbox metrics.
+	SearchIndexPending   prometheus.Gauge
+	SearchIndexFailed    prometheus.Gauge
+	SearchIndexOldestAge prometheus.Gauge
+	SearchIndexOpsFailed prometheus.Counter
+
+	// Agent approval decision latency (gateway-side).
+	AgentApprovalWait prometheus.Histogram
 }
 
 // NewMetrics creates a new Metrics instance with a dedicated registry.
@@ -168,6 +177,26 @@ func NewMetrics() *Metrics {
 			Namespace: "nonoka", Subsystem: "agent_outbox", Name: "duplicate_events_total",
 			Help: "Agent trigger events rejected as duplicates by event_id.",
 		}),
+		SearchIndexPending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "search_index", Name: "pending",
+			Help: "Search index tasks waiting to be applied.",
+		}),
+		SearchIndexFailed: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "search_index", Name: "failed",
+			Help: "Search index tasks parked as failed.",
+		}),
+		SearchIndexOldestAge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "nonoka", Subsystem: "search_index", Name: "oldest_pending_age_seconds",
+			Help: "Age of the oldest unpublished search index task.",
+		}),
+		SearchIndexOpsFailed: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "nonoka", Subsystem: "search_index", Name: "apply_failures_total",
+			Help: "Failed search index apply attempts.",
+		}),
+		AgentApprovalWait: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "nonoka", Subsystem: "agent", Name: "approval_wait_seconds",
+			Help: "Time from approval creation to decision.", Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+		}),
 	}
 
 	registry.MustRegister(
@@ -191,6 +220,11 @@ func NewMetrics() *Metrics {
 		m.AgentOutboxOldestAge,
 		m.AgentOutboxPublishFailed,
 		m.AgentOutboxDuplicate,
+		m.SearchIndexPending,
+		m.SearchIndexFailed,
+		m.SearchIndexOldestAge,
+		m.SearchIndexOpsFailed,
+		m.AgentApprovalWait,
 	)
 
 	return m
@@ -334,6 +368,30 @@ func (m *Metrics) SetAgentOutboxStats(pending, failed int64, oldestAgeSeconds fl
 func (m *Metrics) IncAgentOutboxPublishFailure() {
 	if m != nil {
 		m.AgentOutboxPublishFailed.Inc()
+	}
+}
+
+// ObserveAgentApprovalWait records approval decision latency.
+func (m *Metrics) ObserveAgentApprovalWait(seconds float64) {
+	if m != nil {
+		m.AgentApprovalWait.Observe(seconds)
+	}
+}
+
+// SetSearchIndexStats updates the search-index outbox gauges.
+func (m *Metrics) SetSearchIndexStats(pending, failed int64, oldestAgeSeconds float64) {
+	if m == nil {
+		return
+	}
+	m.SearchIndexPending.Set(float64(pending))
+	m.SearchIndexFailed.Set(float64(failed))
+	m.SearchIndexOldestAge.Set(oldestAgeSeconds)
+}
+
+// IncSearchIndexApplyFailure increments the search-index apply failure counter.
+func (m *Metrics) IncSearchIndexApplyFailure() {
+	if m != nil {
+		m.SearchIndexOpsFailed.Inc()
 	}
 }
 
