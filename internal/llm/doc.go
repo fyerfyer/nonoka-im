@@ -1,5 +1,5 @@
-// Package llm owns the platform LLM service catalog and the Bifrost
-// control-plane client. Providers, provider credentials, routing, budgets and
-// rate limits live in the gateway; this package only maps a platform service to
-// one gateway virtual key and resolves the endpoint used by an agent run.
+// Package llm owns the Bifrost control-plane client, the flat local model
+// catalog and the lifecycle of per-agent/playground virtual keys. Provider
+// credentials, routing, pricing and hard budgets live in Bifrost; this package
+// only projects the catalog and resolves a run's inference endpoint.
 package llm

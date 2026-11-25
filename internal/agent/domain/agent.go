@@ -27,10 +27,10 @@ var (
 	ErrSkillVersionNotFound  = errors.New("skill version not found")
 	ErrSkillConflict         = errors.New("skill already exists")
 	ErrInvalidSkill          = errors.New("invalid skill")
-	ErrModelServiceNotFound  = errors.New("model service not found")
 	ErrModelNotFound         = errors.New("model not found")
-	ErrModelServiceConflict  = errors.New("model service already exists")
-	ErrModelServiceInUse     = errors.New("model service is referenced by a published agent")
+	ErrModelDisabled         = errors.New("model is disabled")
+	ErrModelNotCurated       = errors.New("model is not curated")
+	ErrGatewayKeyNotFound    = errors.New("gateway key not found")
 	ErrApprovalGone          = errors.New("approval is no longer pending")
 	ErrApprovalExpired       = errors.New("approval expired")
 	// ErrTransient marks an infrastructure failure that may succeed on retry.
@@ -56,7 +56,6 @@ type Agent struct {
 	CurrentVersion         int64
 	DraftInstruction       string
 	DraftTools             string
-	DraftModelServiceID    int64
 	DraftModelID           int64
 	DraftCapabilityPresets string
 	DraftToolPolicies      string
@@ -74,7 +73,6 @@ type AgentVersion struct {
 	AgentID           int64
 	Version           int64
 	Instruction       string
-	ModelServiceID    int64
 	ModelID           int64
 	ModelKey          string
 	Tools             string
@@ -95,7 +93,6 @@ type AgentVersion struct {
 // create a version row.
 type RunConfig struct {
 	Instruction       string            `json:"instruction"`
-	ModelServiceID    int64             `json:"modelServiceId"`
 	ModelID           int64             `json:"modelId"`
 	Tools             []string          `json:"tools"`
 	CapabilityPresets []string          `json:"capabilityPresets"`
@@ -106,10 +103,10 @@ type RunConfig struct {
 }
 
 // AgentSpec is the editable draft configuration of an agent. It references a
-// platform ModelService/Model and freezes those references on publish.
+// curated platform model and freezes that reference on publish.
 type AgentSpec struct {
 	Name, Description, Instruction  string
-	ModelServiceID, ModelID         int64
+	ModelID                         int64
 	Tools                           string
 	CapabilityPresets, ToolPolicies string
 	MaxTokens                       int

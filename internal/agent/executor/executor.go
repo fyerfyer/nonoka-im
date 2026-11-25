@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"nonoka-im/internal/agent/app"
@@ -28,6 +29,8 @@ type Executor struct {
 	Authorizer Authorizer
 	Harness    *app.Harness
 	Reader     app.MessageReader
+	Quota      *app.QuotaService
+	Notifier   *app.QuotaNotifier
 
 	MaxAttempts int
 	RunTimeout  time.Duration
@@ -43,8 +46,18 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	if e.Store == nil {
 		return
 	}
-	run, ok, err := e.Store.ClaimRun(parent, runID, e.Lease)
+	run, ok, err := e.claim(parent, runID)
 	if err != nil {
+		var budgetErr *domain.BudgetError
+		if errors.As(err, &budgetErr) && run != nil {
+			if run.Kind != domain.RunKindTest {
+				if agent, aerr := e.Store.GetAgent(context.WithoutCancel(parent), run.AgentID); aerr == nil && e.Notifier != nil {
+					e.Notifier.Notify(context.WithoutCancel(parent), run.AgentID, agent.BotUserID, run.ActorUserID, run.Topic, run.EventID, "budget_exceeded", budgetErr.Error())
+				}
+			}
+			e.log().Warnf("run %d blocked by budget: %v", runID, err)
+			return
+		}
 		e.log().Errorf("claim run %d: %v", runID, err)
 		return
 	}
@@ -85,6 +98,14 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	if execErr != nil && !errors.Is(execErr, domain.ErrRunState) && !errors.Is(execErr, context.Canceled) {
 		e.log().Errorf("execute run %d: %v", run.ID, execErr)
 	}
+	// A budget/quota failure discovered mid-run (for example by the usage
+	// guard) should still produce one human-readable chat notice. Dispatch and
+	// claim denials already notify; the durable dedupe key suppresses repeats.
+	if current, gerr := e.Store.GetRun(context.WithoutCancel(parent), run.ID); gerr == nil && current.Kind != domain.RunKindTest && isQuotaErrorCode(current.ErrorCode) {
+		if agent, aerr := e.Store.GetAgent(context.WithoutCancel(parent), current.AgentID); aerr == nil && e.Notifier != nil {
+			e.Notifier.Notify(context.WithoutCancel(parent), current.AgentID, agent.BotUserID, current.ActorUserID, current.Topic, current.EventID, current.ErrorCode, app.PublicFailureMessage(current.ErrorCode, current.LastError))
+		}
+	}
 	// An explicit cancel clears attempt_id, so the heartbeat cancels the
 	// in-flight context and the harness cannot record a terminal event. Emit
 	// it from the executor after checking the durable state.
@@ -97,6 +118,13 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 			}, []int64{current.ActorUserID})
 		}
 	}
+}
+
+func (e *Executor) claim(ctx context.Context, runID uint64) (*domain.AgentRun, bool, error) {
+	if e.Quota != nil {
+		return e.Quota.ClaimRun(ctx, runID, e.Lease)
+	}
+	return e.Store.ClaimRun(ctx, runID, e.Lease)
 }
 
 func (e *Executor) heartbeatInterval() time.Duration {
@@ -157,7 +185,23 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 			Topic:         run.Topic,
 			SenderID:      run.ActorUserID,
 			Timestamp:     time.Now().Unix(),
+			MsgType:       messaging.MessageTypeText,
 			Content:       string(msg.Content),
+		}
+		switch msg.Type {
+		case messaging.MessageTypeImage, messaging.MessageTypeFile:
+			meta, ok := messaging.ParseMediaContent(msg.Content)
+			if ok {
+				ev.FileID, ev.FileName, ev.Mime, ev.Size = meta.FileID, meta.Name, meta.Mime, meta.Size
+				if msg.Type == messaging.MessageTypeImage {
+					ev.Content = "[image: " + displayName(meta.Name) + "]"
+				} else {
+					ev.Content = "[file: " + displayName(meta.Name) + "; file_id=" + meta.FileID + "]"
+				}
+			}
+			ev.MsgType = msg.Type
+		default:
+			ev.MsgType = msg.Type
 		}
 		if err := e.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
 			if errors.Is(err, authz.ErrDenied) {
@@ -204,8 +248,8 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		skills, _ := json.Marshal(cfg.Skills)
 		version = &domain.AgentVersion{
 			AgentID: agent.ID, Version: 0, Instruction: cfg.Instruction,
-			ModelServiceID: cfg.ModelServiceID, ModelID: cfg.ModelID,
-			Tools: string(tools), CapabilityPresets: string(presets),
+			ModelID: cfg.ModelID,
+			Tools:   string(tools), CapabilityPresets: string(presets),
 			ToolPolicies: string(policies), MaxTokens: cfg.MaxTokens,
 			MCPBindings: string(mcp), Skills: string(skills),
 		}
@@ -222,7 +266,7 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 			return e.fail(ctx, run, port.ClassTransientInfra, "version_unavailable", err, true, false)
 		}
 	}
-	resolved, err := e.resolve(ctx, agent, version)
+	resolved, err := e.resolve(ctx, agent, version, isTest)
 	if err != nil {
 		if errors.Is(err, domain.ErrTransient) {
 			return e.fail(ctx, run, port.ClassTransientInfra, "config_unavailable", err, true, false)
@@ -303,7 +347,7 @@ func (e *Executor) failAfterResume(parent context.Context, run *domain.AgentRun,
 	return recordedError{err: cause}
 }
 
-func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *domain.AgentVersion) (app.ResolvedAgent, error) {
+func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *domain.AgentVersion, isTest bool) (app.ResolvedAgent, error) {
 	var allowed []string
 	if version.Tools != "" {
 		if err := json.Unmarshal([]byte(version.Tools), &allowed); err != nil {
@@ -350,7 +394,7 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 	if e.Models == nil {
 		return app.ResolvedAgent{}, fmt.Errorf("%w: model resolver unavailable", port.ErrInvalidConfig)
 	}
-	endpoint, err := e.Models.Resolve(ctx, version.ModelServiceID, version.ModelID)
+	endpoint, err := e.Models.ResolveForRun(ctx, agent.ID, version.ModelID, isTest)
 	if err != nil {
 		return app.ResolvedAgent{}, fmt.Errorf("%w: resolve model: %v", port.ErrInvalidConfig, err)
 	}
@@ -460,11 +504,44 @@ func (e *Executor) recordFailure(parent context.Context, run *domain.AgentRun, e
 	}
 	ferr := e.Store.FailRun(ctx, run, domain.Failure{
 		Class: string(class), Code: failureCode(class), Message: err.Error(), Retryable: retryable,
+		RetryAfter: retryAfter(err),
 	}, e.MaxAttempts, nil)
 	if errors.Is(ferr, domain.ErrRunState) {
 		return nil
 	}
 	return ferr
+}
+
+func displayName(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return "attachment"
+	}
+	return name
+}
+
+func isQuotaErrorCode(code string) bool {
+	switch code {
+	case "quota_exceeded", "budget_exceeded", "rate_limited":
+		return true
+	default:
+		return false
+	}
+}
+
+func retryAfter(err error) time.Duration {
+	var quotaErr *domain.QuotaError
+	if errors.As(err, &quotaErr) {
+		return quotaErr.RetryAfter
+	}
+	var budgetErr *domain.BudgetError
+	if errors.As(err, &budgetErr) {
+		return budgetErr.RetryAfter
+	}
+	var rateErr *domain.RateLimitError
+	if errors.As(err, &rateErr) {
+		return rateErr.RetryAfter
+	}
+	return 0
 }
 
 func failureCode(class port.ErrorClass) string {
@@ -485,6 +562,12 @@ func failureCode(class port.ErrorClass) string {
 		return "tool_error"
 	case port.ClassSideEffect:
 		return domain.FailureCodeManualRetry
+	case port.ClassQuota:
+		return "quota_exceeded"
+	case port.ClassBudget:
+		return "budget_exceeded"
+	case port.ClassRateLimit:
+		return "rate_limited"
 	default:
 		return "run_failed"
 	}

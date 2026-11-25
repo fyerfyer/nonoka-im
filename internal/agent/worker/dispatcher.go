@@ -22,6 +22,8 @@ type Dispatcher struct {
 	Store      DispatcherStore
 	Authorizer DispatcherAuthorizer
 	Reader     app.MessageReader
+	Quota      *app.QuotaService
+	Notifier   *app.QuotaNotifier
 	Log        *log.Helper
 }
 
@@ -65,13 +67,44 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev messaging.MessageEvent) er
 		candidate := &domain.AgentRun{
 			EventID: ev.EventID, AgentID: agent.ID, AgentVersion: agent.CurrentVersion,
 			ActorUserID: ev.SenderID, Topic: ev.Topic, MsgID: ev.MsgID, TopicSeq: ev.TopicSeq,
-			Status: domain.RunQueued, CreatedAt: time.Now(),
+			Status: domain.RunQueued, Kind: domain.RunKindIM, CreatedAt: time.Now(),
+		}
+		if d.Quota != nil {
+			created, quotaErr, err := d.Quota.AdmitEnqueue(ctx, candidate)
+			if err != nil {
+				return fmt.Errorf("quota admit for agent %d: %w", agent.ID, err)
+			}
+			if quotaErr != nil {
+				if quotaErr.Metric == "queued_runs" {
+					if derr := d.Quota.Defer(ctx, candidate, quotaErr.RetryAt); derr != nil {
+						return fmt.Errorf("defer run for agent %d: %w", agent.ID, derr)
+					}
+					d.notify(ctx, agent, candidate, ev, quotaErr.Message)
+					continue
+				}
+				if rerr := d.Quota.Reject(ctx, candidate, "quota_exceeded", "quota", quotaErr, &quotaErr.RetryAt); rerr != nil {
+					return fmt.Errorf("record quota rejection for agent %d: %w", agent.ID, rerr)
+				}
+				d.notify(ctx, agent, candidate, ev, quotaErr.Message)
+				continue
+			}
+			if !created {
+				continue
+			}
+			continue
 		}
 		if _, err := d.Store.EnqueueRun(ctx, candidate); err != nil {
 			return fmt.Errorf("enqueue run for agent %d: %w", agent.ID, err)
 		}
 	}
 	return nil
+}
+
+func (d *Dispatcher) notify(ctx context.Context, agent domain.Agent, run *domain.AgentRun, ev messaging.MessageEvent, message string) {
+	if d.Notifier == nil {
+		return
+	}
+	d.Notifier.Notify(ctx, agent.ID, agent.BotUserID, ev.SenderID, ev.Topic, ev.EventID, "quota_exceeded", message)
 }
 
 func isDenied(err error) bool {

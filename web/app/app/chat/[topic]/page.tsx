@@ -70,7 +70,7 @@ export default function ChatDetailPage() {
           />
           <MessageInput
             onSend={sendMessage}
-            onSendFile={(file) => void sendFileMessage(file)}
+            onSendFile={(file, onProgress) => sendFileMessage(file, onProgress)}
             members={mentionMembers()}
             disabled={connectionState !== "authed"}
           />

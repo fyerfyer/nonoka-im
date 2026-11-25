@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"nonoka-im/internal/agent/tools"
 	"nonoka-im/internal/agent/tools/builtin"
 	"nonoka-im/internal/agent/worker"
+	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
@@ -135,24 +137,43 @@ func main() {
 			Password:   os.Getenv("BIFROST_ADMIN_PASSWORD"),
 		})
 	}
-	modelSvc := llm.NewService(registry, llm.EnvSealer{Key: sealKey}, az, gateway, bifrostURL)
-	var seedServiceID, seedModelID int64
+	modelSvc := llm.NewService(registry, llm.EnvSealer{Key: sealKey}, az, gateway, llm.Config{
+		BaseURL:             bifrostURL,
+		AgentMonthlyBudget:  envFloat("BIFROST_AGENT_MONTHLY_BUDGET_USD", 20),
+		GlobalMonthlyBudget: envFloat("BIFROST_GLOBAL_MONTHLY_BUDGET_USD", 200),
+		AgentRequestPerMin:  envInt("BIFROST_AGENT_REQUEST_PER_MINUTE", 60),
+		AgentTokensPerMin:   envInt("BIFROST_AGENT_TOKENS_PER_MINUTE", 200000),
+	})
+	var seedModelID int64
 	var seedModelKey string
 	if bifrostURL != "" && !strings.EqualFold(os.Getenv("BIFROST_AUTO_PROVISION"), "false") {
-		name := strings.TrimSpace(os.Getenv("BIFROST_DEFAULT_SERVICE"))
-		if name == "" {
-			name = "bifrost-default"
-		}
 		preferred := strings.TrimSpace(aw.BootstrapModel)
-		sid, mid, key, serr := modelSvc.EnsureDefaultService(ctx, llm.DefaultSpec{
-			Name: name, Display: "Bifrost", AllowAll: true, Preferred: preferred,
-		})
+		model, serr := modelSvc.Bootstrap(ctx, preferred)
 		if serr != nil {
-			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("bootstrap model service: %v", serr))
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("bootstrap model catalog: %v", serr))
 		} else {
-			seedServiceID, seedModelID, seedModelKey = sid, mid, key
+			seedModelID, seedModelKey = int64(model.ID), model.ModelKey
 		}
 	}
+	quotaService := app.NewQuotaService(store, app.QuotaConfig{
+		Timezone: envString("AGENT_QUOTA_TIMEZONE", "Asia/Shanghai"),
+		User: domain.QuotaLimits{
+			MaxConcurrentRuns: envInt("AGENT_USER_MAX_CONCURRENT_RUNS", 2),
+			DailyRuns:         envInt("AGENT_USER_DAILY_RUNS", 200),
+			DailyTokens:       int64(envInt("AGENT_USER_DAILY_TOKENS", 2_000_000)),
+			DailyCostUSD:      envFloat("AGENT_USER_DAILY_COST_USD", 5),
+			MaxToolTurns:      envInt("AGENT_USER_MAX_TOOL_TURNS", 8),
+		},
+		Agent: domain.QuotaLimits{
+			MaxConcurrentRuns: envInt("AGENT_MAX_CONCURRENT_RUNS", 4),
+			DailyRuns:         envInt("AGENT_DAILY_RUNS", 500),
+			DailyTokens:       int64(envInt("AGENT_DAILY_TOKENS", 5_000_000)),
+			DailyCostUSD:      envFloat("AGENT_DAILY_COST_USD", 10),
+			MaxToolTurns:      envInt("AGENT_MAX_TOOL_TURNS", 8),
+		},
+		MaxSessionQueued: envInt("AGENT_MAX_SESSION_QUEUED", 3),
+		MaxGlobalQueued:  envInt("AGENT_MAX_GLOBAL_QUEUED", 200),
+	})
 
 	replySender := &adapters.Sender{
 		Client: &httpclient.Client{BaseURL: aw.ImHttpUrl, HTTP: &http.Client{Timeout: 30 * time.Second}},
@@ -241,16 +262,22 @@ func main() {
 
 	harness := &app.Harness{
 		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),
-		Stream: broadcaster, Audience: directory, Log: log.NewHelper(logger),
+		Files: toolsBackend.Files, Quota: quotaService, Stream: broadcaster, Audience: directory, Log: log.NewHelper(logger),
 	}
+	quotaNotifier := &app.QuotaNotifier{Quota: quotaService, Sender: replySender}
 	exec := &executor.Executor{
 		Store: store, Registry: registry, Models: modelSvc, Authorizer: az, Harness: harness,
-		Reader:      toolsBackend.Reader,
+		Reader: toolsBackend.Reader,
+		Quota:  quotaService, Notifier: quotaNotifier,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
 		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Log: log.NewHelper(logger),
 	}
-	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, logger)
-	dispatcher := &worker.Dispatcher{Store: store, Authorizer: az, Reader: toolsBackend.Reader, Log: log.NewHelper(logger)}
+	auditSvc := audit.NewService(registry)
+	mcpAdmin := admin.NewMCPService(registry, az, mcpProvider, llm.EnvSealer{Key: sealKey}, auditSvc, logger)
+	dispatcher := &worker.Dispatcher{
+		Store: store, Authorizer: az, Reader: toolsBackend.Reader,
+		Quota: quotaService, Notifier: quotaNotifier, Log: log.NewHelper(logger),
+	}
 	sweeperRunner := &sweeper.Sweeper{Store: store, Metrics: agentMetrics, Log: log.NewHelper(logger), Interval: aw.SweepInterval.AsDuration(), MaxAttempts: int(aw.MaxAttempts)}
 
 	consumer := kafkax.NewConsumer(kafkax.ConsumerConfig{
@@ -267,6 +294,28 @@ func main() {
 		Background: []func(context.Context){
 			func(ctx context.Context) { mcpProvider.StartJanitor(ctx, 5*time.Minute) },
 			func(ctx context.Context) { mcpAdmin.HealthCheckLoop(ctx, 5*time.Minute) },
+			func(ctx context.Context) { ensureAgentGatewayKeys(ctx, store, modelSvc, logger) },
+			func(ctx context.Context) {
+				ticker := time.NewTicker(24 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						days := envInt("AUDIT_RETENTION_DAYS", 365)
+						if days <= 0 {
+							continue
+						}
+						cutoff := time.Now().AddDate(0, 0, -days)
+						if n, err := registry.PurgeAuditEvents(ctx, cutoff, 5000); err != nil {
+							logger.Log(log.LevelWarn, "msg", fmt.Sprintf("audit retention purge: %v", err))
+						} else if n > 0 {
+							logger.Log(log.LevelInfo, "msg", fmt.Sprintf("audit retention purge removed %d events", n))
+						}
+					}
+				}
+			},
 		},
 	}
 	consumer.SetHandler(runner.HandleEvent)
@@ -296,20 +345,36 @@ func main() {
 	if metrics != nil {
 		servers = append(servers, metrics)
 	}
+	runner.Background = append(runner.Background, func(ctx context.Context) {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n, err := modelSvc.CleanupKeys(ctx); err != nil {
+					logger.Log(log.LevelWarn, "msg", fmt.Sprintf("gateway key cleanup: %v", err))
+				} else if n > 0 {
+					logger.Log(log.LevelInfo, "msg", fmt.Sprintf("gateway key cleanup removed %d keys", n))
+				}
+			}
+		}
+	})
 
 	application := kratos.New(
 		kratos.Name("agent-worker"),
 		kratos.Logger(logger),
 		kratos.Server(servers...),
 		kratos.BeforeStart(func(ctx context.Context) error {
-			if aw.BootstrapOwnerId > 0 && seedServiceID <= 0 {
-				logger.Log(log.LevelWarn, "msg", "bootstrap agent skipped: no model service available (configure BIFROST_URL or create one via the platform API)")
+			if aw.BootstrapOwnerId > 0 && seedModelID <= 0 {
+				logger.Log(log.LevelWarn, "msg", "bootstrap agent skipped: no curated model available (configure BIFROST_URL and BIFROST_DEFAULT_MODEL)")
 				return nil
 			}
 			return bootstrap.SeedAgent(ctx, store, az, bootstrap.SeedInput{
 				AgentID: aw.BootstrapAgentId, BotID: aw.BootstrapBotId, OwnerID: aw.BootstrapOwnerId,
 				Name: aw.BootstrapName, Instruction: aw.BootstrapInstruction,
-				ModelServiceID: seedServiceID, ModelID: seedModelID, ModelKey: seedModelKey,
+				ModelID: seedModelID, ModelKey: seedModelKey,
 			}, logger)
 		}),
 	)
@@ -324,6 +389,85 @@ func durationOrZero(d interface{ AsDuration() time.Duration }) time.Duration {
 		return 0
 	}
 	return d.AsDuration()
+}
+
+func envFloat(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
+}
+
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
+}
+
+func envString(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// ensureAgentGatewayKeys backfills per-agent virtual keys after migration or a
+// Bifrost outage. It is idempotent and retries on a timer.
+func ensureAgentGatewayKeys(ctx context.Context, store *agentdata.Store, models *llm.Service, logger log.Logger) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	run := func() {
+		agents, err := store.ListPublishedAgents(ctx)
+		if err != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("list published agents for keys: %v", err))
+			return
+		}
+		for i := range agents {
+			versions, err := store.ListVersions(ctx, agents[i].ID)
+			if err != nil {
+				continue
+			}
+			seen := map[int64]bool{}
+			modelsForAgent := make([]domain.Model, 0, len(versions))
+			for _, version := range versions {
+				if version.ModelID <= 0 || seen[version.ModelID] {
+					continue
+				}
+				seen[version.ModelID] = true
+				model, err := models.Lookup(ctx, version.ModelID)
+				if err != nil {
+					continue
+				}
+				modelsForAgent = append(modelsForAgent, *model)
+			}
+			if len(modelsForAgent) == 0 {
+				continue
+			}
+			if err := models.EnsureAgentKey(ctx, agents[i].ID, modelsForAgent); err != nil {
+				logger.Log(log.LevelWarn, "msg", fmt.Sprintf("ensure agent key agent=%d: %v", agents[i].ID, err))
+			}
+		}
+	}
+	run()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 func loadDotEnv(path string) {

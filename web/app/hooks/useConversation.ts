@@ -197,23 +197,24 @@ export function useConversation(topic: string | null) {
   // sendFileMessage uploads an image/file attachment, then sends it as a
   // media message whose JSON content carries the file metadata.
   const sendFileMessage = useCallback(
-    async (file: File) => {
-      if (!topic) return;
+    async (file: File, onProgress?: (percent: number) => void): Promise<boolean> => {
+      if (!topic) return false;
       const isImage = file.type.startsWith("image/");
       const msgType = isImage ? MSG_TYPE_IMAGE : MSG_TYPE_FILE;
       const clientMsgId = generateClientMsgId();
 
       let uploaded;
       try {
-        uploaded = await fileApi.upload(file);
+        uploaded = await fileApi.uploadWithProgress(file, onProgress);
       } catch (err) {
         toast.error(
           `Upload failed: ${err instanceof Error ? err.message : "unknown"}`
         );
-        return;
+        return false;
       }
 
       const content = JSON.stringify({
+        file_id: uploaded.file_id,
         url: uploaded.url,
         name: uploaded.name,
         size: uploaded.size,
@@ -238,6 +239,7 @@ export function useConversation(topic: string | null) {
       if (!ok) {
         toast.error("Message failed to send — click the warning icon to retry");
       }
+      return ok;
     },
     [topic, user]
   );

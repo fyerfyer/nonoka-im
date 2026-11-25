@@ -31,7 +31,7 @@ type sendRequest struct {
 // Message types mirrored from api/im/v1 without importing the proto into the
 // transport helper.
 const (
-	MsgTypeText      int32 = 0
+	MsgTypeText      int32 = 1
 	MsgTypeAgentCard int32 = 5
 )
 

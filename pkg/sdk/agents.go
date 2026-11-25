@@ -14,8 +14,7 @@ type AgentInput struct {
 	Name              string            `json:"name"`
 	Description       string            `json:"description"`
 	Instruction       string            `json:"instruction"`
-	LLMServiceID      int64             `json:"modelServiceId"`
-	LLMModelID        int64             `json:"modelId"`
+	ModelID           int64             `json:"modelId"`
 	Tools             []string          `json:"tools"`
 	CapabilityPresets []string          `json:"capabilityPresets"`
 	ToolPolicies      map[string]string `json:"toolPolicies"`

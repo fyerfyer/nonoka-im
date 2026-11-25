@@ -25,6 +25,10 @@ type MessageEvent struct {
 	Topic             string  `json:"topic"`
 	SenderID          int64   `json:"sender_id"`
 	MsgType           int32   `json:"msg_type"`
+	FileID            string  `json:"file_id,omitempty"`
+	FileName          string  `json:"file_name,omitempty"`
+	Mime              string  `json:"mime,omitempty"`
+	Size              int64   `json:"size,omitempty"`
 	Content           string  `json:"-"` // populated by the worker after authorized storage lookup
 	Timestamp         int64   `json:"timestamp"`
 	MentionedAgentIDs []int64 `json:"mentioned_agent_ids,omitempty"`

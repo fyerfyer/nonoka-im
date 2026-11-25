@@ -20,6 +20,8 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
   - Kafka 默认 3 分区；消费者按分区并行处理，失败消息本地重试后写入 `<topic>-dlq` 死信队列。
 - **灵活分派策略**：DispatchService 支持一致性哈希（默认）与最小连接数策略，Gateway 节点通过 Redis 心跳自动发现。
 - **官方 Web 客户端**：基于 Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui 构建，支持单聊、群聊、用户搜索、会话列表与实时消息推送（[web/app](web/app)）。
+- **Agent 平台**：Bifrost 单一 LLM gateway；扁平模型目录、per-Agent virtual key、月度硬预算、user/agent 每日 runs/cost/token 配额、并发/工具轮次限制、append-only 审计和可解释的 run 成本。
+- **附件链路**：JWT 上传/下载 + 短 TTL 签名媒体 URL；Composer 支持粘贴/拖拽/多附件 tray；视觉模型走多模态 image part，非视觉模型明确降级。
 - **Go SDK 与示例应用**：提供开箱即用的 Go SDK（[pkg/sdk](pkg/sdk)）以及完整聊天示例（[examples/chatapp](examples/chatapp)）。
 - **多存储选型**：
   - PostgreSQL：用户、认证数据。
@@ -125,7 +127,7 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 docker compose -f docker-compose.yml up -d postgres redis mongodb zookeeper kafka openfga-postgres openfga-migrate openfga
 ```
 
-> 若需要一键启动全部后端服务、中间件依赖与 Web 前端，可使用 `make demo`（停止并清理用 `make demo-down`），前端访问 <http://localhost:3000>。首次构建需要可访问 Go 模块代理（Dockerfile 默认使用 goproxy.cn，可用 `--build-arg GOPROXY=...` 覆盖）与 npm registry。
+> 若需要一键启动全部后端服务、中间件依赖与 Web 前端，可使用 `make demo`（停止并清理用 `make demo-down`），前端访问 <http://localhost:3001>。首次构建需要可访问 Go 模块代理（Dockerfile 默认使用 goproxy.cn，可用 `--build-arg GOPROXY=...` 覆盖）与 npm registry。
 
 也可以直接启动完整的默认 Compose：
 
@@ -140,7 +142,7 @@ NONOKA_HTTP_PORT=8001 NONOKA_GRPC_PORT=9003 NONOKA_WEB_PORT=3010 NONOKA_POSTGRES
   docker compose -f docker-compose.yml up -d --build
 ```
 
-在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY` 后执行 `make demo`。该栈包含 Bifrost 模型网关（<http://localhost:8088>），provider 真实 key 只存在 Bifrost；agent-worker 会自动创建默认 `bifrost-default` ModelService。Web 的 **Admin** 页面只展示只读模型目录、MCP 与 Skill，provider key、路由、预算和 virtual key 统一在 Bifrost 管理。
+在仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY` 后执行 `make demo`。该栈包含 Bifrost 模型网关（<http://localhost:8088>），provider 真实 key 只存在 Bifrost；agent-worker 会同步扁平模型目录并为每个 Agent 维护独立 virtual key（月度硬预算 + 模型 allowlist），部署级预算挂在 Bifrost customer 上。Web 的 **Operator Console**（`/admin`）展示只读模型目录、配额/用量、审计、MCP 与 Skill；provider key、路由和 budget 细节统一在 Bifrost 管理。
 
 平台管理员通过 `AGENT_ADMIN_USER_IDS=<user-id>` 指定，启动时写入 OpenFGA `platform:global#admin`。注册用户后可重启 `nonoka-im` 让该用户获得平台管理权限：
 
@@ -195,7 +197,7 @@ pnpm install
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 pnpm dev
 ```
 
-前端默认运行在 [http://localhost:3000](http://localhost:3000)。如果 3000 端口被占用，Next.js 会自动提示切换到其他端口。
+前端默认运行在 [http://localhost:3001](http://localhost:3001)。如果端口被占用，可通过 `NONOKA_WEB_PORT` 调整。
 
 打开浏览器注册/登录后即可开始单聊或群聊。前端开发详情请参考 [web/app/README.md](web/app/README.md)。如果浏览器提示 `Failed to fetch` 或 `ERR_CONNECTION_REFUSED`，先检查后端是否监听 `127.0.0.1:8000`；这表示服务尚未启动，不是账号校验失败。
 
@@ -220,7 +222,7 @@ docker compose -f docker-compose.scale.yml ps
 docker compose -f docker-compose.scale.yml logs -f msgworker
 ```
 
-该演示同时启动两个 gateway（nginx 负载均衡在 `http://localhost:18000`）与 Web 前端（`http://localhost:3000`），可直接注册两个账号互发消息验证跨网关节点投递。
+该演示同时启动两个 gateway（nginx 负载均衡在 `http://localhost:18000`）与 Web 前端（`http://localhost:3001`），可直接注册两个账号互发消息验证跨网关节点投递。
 
 演示环境仍使用单 Kafka broker + 3 分区以降低资源占用；生产环境应扩展 broker 数量并将副本因子提高到 3。停止任一 worker 后，Kafka 会触发再均衡，其分区会被其他 worker 接管。
 

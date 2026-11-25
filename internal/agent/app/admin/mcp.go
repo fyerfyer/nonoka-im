@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/audit"
 
 	"github.com/go-kratos/kratos/v2/log"
 )
@@ -45,11 +46,12 @@ type MCPService struct {
 	Authz     Authorizer
 	Discovery MCPDiscovery
 	Sealer    CredentialSealer
+	Audit     *audit.Service
 	Log       *log.Helper
 }
 
-func NewMCPService(store PlatformStore, az Authorizer, discovery MCPDiscovery, sealer CredentialSealer, logger log.Logger) *MCPService {
-	return &MCPService{Store: store, Authz: az, Discovery: discovery, Sealer: sealer, Log: log.NewHelper(logger)}
+func NewMCPService(store PlatformStore, az Authorizer, discovery MCPDiscovery, sealer CredentialSealer, auditor *audit.Service, logger log.Logger) *MCPService {
+	return &MCPService{Store: store, Authz: az, Discovery: discovery, Sealer: sealer, Audit: auditor, Log: log.NewHelper(logger)}
 }
 
 func (s *MCPService) isAdmin(ctx context.Context, userID int64) bool {
@@ -111,7 +113,14 @@ func (s *MCPService) Register(ctx context.Context, userID int64, input MCPInput)
 		return nil, err
 	}
 	_ = s.Store.SetServerHealth(ctx, server.ID, domain.MCPHealthHealthy, "")
-	return s.Store.GetServerByID(ctx, server.ID)
+	updated, err := s.Store.GetServerByID(ctx, server.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "mcp.register", "mcp_server", uintKey(server.ID), nil, mcpAuditFields(*updated)); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *MCPService) Update(ctx context.Context, userID int64, id uint64, input MCPInput) (*domain.MCPServer, error) {
@@ -119,6 +128,7 @@ func (s *MCPService) Update(ctx context.Context, userID int64, id uint64, input 
 	if err != nil {
 		return nil, err
 	}
+	before := *server
 	if !s.canManage(ctx, userID, server) {
 		return nil, ErrForbidden
 	}
@@ -179,7 +189,14 @@ func (s *MCPService) Update(ctx context.Context, userID int64, id uint64, input 
 		}
 		_ = s.Store.SetServerHealth(ctx, server.ID, domain.MCPHealthHealthy, "")
 	}
-	return s.Store.GetServerByID(ctx, id)
+	updated, err := s.Store.GetServerByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "mcp.update", "mcp_server", uintKey(id), mcpAuditFields(before), mcpAuditFields(*updated)); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *MCPService) SetStatus(ctx context.Context, userID int64, id uint64, enabled bool) error {
@@ -190,7 +207,11 @@ func (s *MCPService) SetStatus(ctx context.Context, userID int64, id uint64, ena
 	if !s.canManage(ctx, userID, server) {
 		return ErrForbidden
 	}
-	return s.Store.SetServerEnabled(ctx, id, enabled)
+	if err := s.Store.SetServerEnabled(ctx, id, enabled); err != nil {
+		return err
+	}
+	after, _ := s.Store.GetServerByID(ctx, id)
+	return recordAudit(ctx, s.Audit, userID, "mcp.status", "mcp_server", uintKey(id), mcpAuditFields(*server), mcpAuditPtr(after))
 }
 
 func (s *MCPService) Delete(ctx context.Context, userID int64, id uint64) error {
@@ -201,7 +222,10 @@ func (s *MCPService) Delete(ctx context.Context, userID int64, id uint64) error 
 	if !s.canManage(ctx, userID, server) {
 		return ErrForbidden
 	}
-	return s.Store.DeleteServer(ctx, id)
+	if err := s.Store.DeleteServer(ctx, id); err != nil {
+		return err
+	}
+	return recordAudit(ctx, s.Audit, userID, "mcp.delete", "mcp_server", uintKey(id), mcpAuditFields(*server), nil)
 }
 
 func (s *MCPService) Discover(ctx context.Context, userID int64, id uint64) ([]domain.MCPTool, error) {
@@ -249,7 +273,12 @@ func (s *MCPService) Review(ctx context.Context, userID int64, id uint64, status
 	if status != domain.ReviewApproved && status != domain.ReviewRejected {
 		return fmt.Errorf("%w: review status must be approved or rejected", ErrInvalidInput)
 	}
-	return s.Store.SetServerReview(ctx, id, status, reason, userID)
+	before, _ := s.Store.GetServerByID(ctx, id)
+	if err := s.Store.SetServerReview(ctx, id, status, reason, userID); err != nil {
+		return err
+	}
+	after, _ := s.Store.GetServerByID(ctx, id)
+	return recordAudit(ctx, s.Audit, userID, "mcp.review", "mcp_server", uintKey(id), mcpAuditPtr(before), mcpAuditPtr(after))
 }
 
 func (s *MCPService) ListTools(ctx context.Context, userID int64, id uint64) ([]domain.MCPTool, error) {
@@ -286,14 +315,26 @@ func (s *MCPService) Connect(ctx context.Context, userID int64, serverID uint64,
 	if err := s.Discovery.Test(ctx, target); err != nil {
 		return nil, fmt.Errorf("mcp connection test failed: %w", err)
 	}
-	return s.Store.UpsertConnection(ctx, domain.MCPConnection{
+	conn, err := s.Store.UpsertConnection(ctx, domain.MCPConnection{
 		ServerID: serverID, UserID: userID, AuthType: input.AuthType,
 		CredentialEnc: sealed, Status: "connected",
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := recordAudit(ctx, s.Audit, userID, "mcp.connect", "mcp_server", uintKey(serverID), nil, map[string]any{
+		"userId": userID, "authType": input.AuthType,
+	}); err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 func (s *MCPService) Disconnect(ctx context.Context, userID int64, serverID uint64) error {
-	return s.Store.DeleteConnection(ctx, serverID, userID)
+	if err := s.Store.DeleteConnection(ctx, serverID, userID); err != nil {
+		return err
+	}
+	return recordAudit(ctx, s.Audit, userID, "mcp.disconnect", "mcp_server", uintKey(serverID), nil, map[string]any{"userId": userID})
 }
 
 func (s *MCPService) ListConnections(ctx context.Context, userID int64) ([]domain.MCPConnection, error) {

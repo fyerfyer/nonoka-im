@@ -27,8 +27,8 @@ func (r *Reader) RecentMessages(ctx context.Context, userID int64, topic string,
 	out := make([]messaging.Message, 0, len(rows))
 	for i := range rows {
 		out = append(out, messaging.Message{
-			ID: rows[i].ID, SenderID: rows[i].SenderID,
-			Timestamp: rows[i].Timestamp, Content: rows[i].Content,
+			ID: rows[i].ID, SenderID: rows[i].SenderID, Timestamp: rows[i].Timestamp,
+			Type: int32(rows[i].Type), Content: rows[i].Content,
 		})
 	}
 	return out, nil
@@ -39,5 +39,14 @@ func (r *Reader) MessageForUser(ctx context.Context, userID int64, topic string,
 	if err != nil {
 		return messaging.Message{}, messaging.ErrNotFound
 	}
-	return messaging.Message{ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp, Content: row.Content}, nil
+	msg := messaging.Message{
+		ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp,
+		Type: int32(row.Type), Content: row.Content,
+	}
+	if row.Type == domain.MessageTypeImage || row.Type == domain.MessageTypeFile {
+		if meta, ok := messaging.ParseMediaContent(row.Content); ok {
+			msg.FileID, msg.FileName, msg.Mime, msg.Size = meta.FileID, meta.Name, meta.Mime, meta.Size
+		}
+	}
+	return msg, nil
 }

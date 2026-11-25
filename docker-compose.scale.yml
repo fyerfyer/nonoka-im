@@ -207,8 +207,7 @@ services:
       BIFROST_URL: http://bifrost:8080
       BIFROST_SETUP_TOKEN: ${BIFROST_SETUP_TOKEN:-nonoka-bifrost-setup-token}
       BIFROST_AUTO_PROVISION: ${BIFROST_AUTO_PROVISION:-true}
-      BIFROST_DEFAULT_SERVICE: ${BIFROST_DEFAULT_SERVICE:-bifrost-default}
-      BIFROST_DEFAULT_MODEL: ${BIFROST_DEFAULT_MODEL:-deepseek/deepseek-chat}
+      BIFROST_DEFAULT_MODEL: ${BIFROST_DEFAULT_MODEL:-deepseek/deepseek-flash}
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
@@ -246,7 +245,7 @@ services:
       args:
         # Browser-side calls go through the nginx gateway LB.
         NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:18000
-    ports: ["3000:3000"]
+    ports: ["3001:3000"]
     depends_on: [nginx]
     networks: [nonoka]
 volumes:

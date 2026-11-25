@@ -30,7 +30,7 @@ func TestAgentToolsRegistryAndPolicies(t *testing.T) {
 
 	create := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
 		"name": "tools-agent", "instruction": "test tools",
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read", "im.write"},
 		"toolPolicies":      map[string]string{"send_message": "ask", "read_file": "deny"},
 	})
@@ -83,7 +83,7 @@ func TestAgentToolsRegistryAndPolicies(t *testing.T) {
 	// Denying a hidden system tool is rejected.
 	bad := httpPutAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/draft", token, map[string]any{
 		"name": "tools-agent", "instruction": "test tools", "revision": created.Draft.Revision,
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"},
 		"toolPolicies":      map[string]string{"get_current_time": "deny"},
 	})

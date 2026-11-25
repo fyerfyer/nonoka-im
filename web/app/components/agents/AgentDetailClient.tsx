@@ -66,7 +66,6 @@ function formFromAgent(agent: ManagedAgent): AgentFormValues {
     name: agent.name,
     description: agent.description,
     instruction: draft?.instruction || "",
-    modelServiceId: draft?.modelServiceId || 0,
     modelId: draft?.modelId || 0,
     tools: draft?.tools || [],
     capabilityPresets: draft?.capabilityPresets || [],

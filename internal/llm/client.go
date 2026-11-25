@@ -20,10 +20,14 @@ type Client struct {
 
 func NewClient(baseURL string, auth Auth) *Client {
 	return &Client{
-		BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		BaseURL: trimBaseURL(baseURL),
 		HTTP:    &http.Client{Timeout: 30 * time.Second},
 		Auth:    auth,
 	}
+}
+
+func trimBaseURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
@@ -57,16 +61,24 @@ func (c *Client) send(req *http.Request, out any) error {
 		return fmt.Errorf("%w: read response: %v", ErrGatewayUnavailable, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(payload))
 		var apiErr struct {
+			Type  string `json:"type"`
 			Error struct {
 				Message string `json:"message"`
 			} `json:"error"`
+			Message string `json:"message"`
 		}
-		if json.Unmarshal(payload, &apiErr) == nil && apiErr.Error.Message != "" {
-			msg = apiErr.Error.Message
+		_ = json.Unmarshal(payload, &apiErr)
+		msg := apiErr.Error.Message
+		if msg == "" {
+			msg = apiErr.Message
 		}
-		return fmt.Errorf("%w: %w", ErrGatewayRejected, gatewayError{Status: resp.StatusCode, Message: msg})
+		if msg == "" {
+			msg = strings.TrimSpace(string(payload))
+		}
+		return fmt.Errorf("%w: %w", ErrGatewayRejected, gatewayError{
+			Type: apiErr.Type, Status: resp.StatusCode, Message: msg,
+		})
 	}
 	if out == nil || len(payload) == 0 {
 		return nil

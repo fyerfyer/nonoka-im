@@ -60,7 +60,7 @@ export function AgentDirectory() {
         </div>
         <div className="flex items-center gap-2">
           {catalog.data?.canManageModels && (
-            <Button variant="ghost" size="sm" onClick={() => router.push("/admin/agents")}>
+            <Button variant="ghost" size="sm" onClick={() => router.push("/admin")}>
               <Settings2 />
               <span className="hidden sm:inline">Platform</span>
             </Button>

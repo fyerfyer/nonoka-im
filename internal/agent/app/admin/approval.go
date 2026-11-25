@@ -4,16 +4,18 @@ import (
 	"context"
 
 	"nonoka-im/internal/agent/domain"
+	"nonoka-im/internal/audit"
 )
 
 // ApprovalService owns the approval inbox and one-shot decisions.
 type ApprovalService struct {
 	Store Store
 	Authz Authorizer
+	Audit *audit.Service
 }
 
-func NewApprovalService(store Store, az Authorizer) *ApprovalService {
-	return &ApprovalService{Store: store, Authz: az}
+func NewApprovalService(store Store, az Authorizer, auditor *audit.Service) *ApprovalService {
+	return &ApprovalService{Store: store, Authz: az, Audit: auditor}
 }
 
 func (s *ApprovalService) List(ctx context.Context, userID int64, status string, limit, offset int) ([]domain.AgentApproval, int64, error) {
@@ -70,5 +72,10 @@ func (s *ApprovalService) Decide(ctx context.Context, userID int64, approvalID u
 	if userID != approval.ApproverID || s.Authz.CanUseAgent(ctx, userID, run.AgentID) != nil {
 		return ErrForbidden
 	}
-	return s.Store.DecideAndRequeue(ctx, approvalID, decision, userID)
+	if err := s.Store.DecideAndRequeue(ctx, approvalID, decision, userID); err != nil {
+		return err
+	}
+	return recordAudit(ctx, s.Audit, userID, "approval."+action, "approval", uintKey(approvalID), approvalAuditFields(*approval), map[string]any{
+		"status": decision, "decidedBy": userID,
+	})
 }

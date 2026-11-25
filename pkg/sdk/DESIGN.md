@@ -13,7 +13,7 @@
 ```text
 Client
   Auth/Users/Conversations/Messages/Groups/Files
-  Agents/LLM/MCP/Skills/Runs
+  Agents/Models/Quotas/Audit/MCP/Skills/Runs
   Realtime (typed event fan-out)
       └── RunStream (replay + live + polling fallback)
 ```

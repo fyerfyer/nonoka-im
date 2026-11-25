@@ -26,7 +26,9 @@ type Client struct {
 	Groups        *GroupsResource
 	Files         *FilesResource
 	Agents        *AgentsResource
-	LLM           *LLMResource
+	Models        *ModelsResource
+	Quotas        *QuotasResource
+	Audit         *AuditResource
 	MCP           *MCPResource
 	Skills        *SkillsResource
 	Runs          *RunsResource
@@ -75,7 +77,9 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 	client.Groups = &GroupsResource{proto: pc.group, http: client.http}
 	client.Files = &FilesResource{baseURL: strings.TrimRight(cfg.BaseURL, "/"), client: cfg.HTTPClient, tokens: cfg.TokenSource, userAgent: cfg.UserAgent}
 	client.Agents = &AgentsResource{http: client.http}
-	client.LLM = &LLMResource{http: client.http}
+	client.Models = &ModelsResource{http: client.http}
+	client.Quotas = &QuotasResource{http: client.http}
+	client.Audit = &AuditResource{http: client.http}
 	client.MCP = &MCPResource{http: client.http}
 	client.Skills = &SkillsResource{http: client.http}
 	client.Runs = &RunsResource{http: client.http, client: client}
@@ -122,13 +126,6 @@ func (c *Client) UserID() int64 {
 		return 0
 	}
 	return userIDFromToken(token)
-}
-
-func (c *Client) refreshToken(ctx context.Context) (string, error) {
-	if refreshable, ok := c.cfg.TokenSource.(RefreshableTokenSource); ok {
-		return refreshable.Refresh(ctx)
-	}
-	return "", fmt.Errorf("token source is not refreshable")
 }
 
 // UpdateToken replaces the token source with a fixed token. It is intended for

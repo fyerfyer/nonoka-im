@@ -97,7 +97,7 @@ func TestAgentMCPAndSkillSelfService(t *testing.T) {
 
 	create := httpPostAuth(t, testBaseURL+"/v1/agents", tokenOwner, map[string]any{
 		"name": "ext-agent", "instruction": "test agent",
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"},
 		"mcpBindings": []map[string]any{
 			{"serverId": server.ID, "tool": "echo"},
@@ -142,7 +142,7 @@ func TestAgentMCPAndSkillSelfService(t *testing.T) {
 	// Removing the private resources allows sharing and republishing.
 	draft := httpPutAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/draft", tokenOwner, map[string]any{
 		"name": "ext-agent", "instruction": "test agent v2",
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"},
 		"mcpBindings":       []map[string]any{},
 		"skills":            []map[string]any{},

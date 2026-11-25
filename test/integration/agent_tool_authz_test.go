@@ -17,11 +17,10 @@ import (
 func createPublishedAgent(t *testing.T, token, name, instruction string, tools []string) int64 {
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
-		"name":           name,
-		"instruction":    instruction,
-		"tools":          tools,
-		"modelServiceId": testModelServiceID,
-		"modelId":        testModelID,
+		"name":        name,
+		"instruction": instruction,
+		"tools":       tools,
+		"modelId":     testModelID,
 	})
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()

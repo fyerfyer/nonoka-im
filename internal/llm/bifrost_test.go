@@ -17,10 +17,8 @@ func TestBifrostClientControlPlaneAndModelCatalog(t *testing.T) {
 			return
 		}
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/models":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"models": []map[string]string{{"name": "deepseek-chat", "provider": "deepseek"}},
-			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/customers":
+			_ = json.NewEncoder(w).Encode(map[string]any{"customer": map[string]any{"id": "cust-1"}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/virtual-keys":
 			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
 				t.Errorf("decode create: %v", err)
@@ -37,7 +35,8 @@ func TestBifrostClientControlPlaneAndModelCatalog(t *testing.T) {
 				"data": []map[string]any{{
 					"id": "deepseek/deepseek-chat", "normalized_name": "DeepSeek Chat",
 					"context_length": 65536, "max_output_tokens": 8192,
-					"pricing": map[string]string{"prompt": "0.0000003", "completion": "0.0000012"},
+					"owned_by": "deepseek",
+					"pricing":  map[string]string{"prompt": "0.0000003", "completion": "0.0000012"},
 				}},
 			})
 		default:
@@ -47,25 +46,28 @@ func TestBifrostClientControlPlaneAndModelCatalog(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, Auth{SetupToken: "setup"})
-	models, err := client.ListProviderModels(context.Background())
-	if err != nil || len(models) != 1 || models[0].Provider != "deepseek" {
-		t.Fatalf("provider models: %+v, %v", models, err)
+	customer, err := client.EnsureCustomer(context.Background(), CustomerSpec{Name: "nonoka"})
+	if err != nil || customer != "cust-1" {
+		t.Fatalf("ensure customer: %q, %v", customer, err)
 	}
 	vk, err := client.CreateVirtualKey(context.Background(), VirtualKeySpec{
 		Name: "svc", ProviderModels: map[string][]string{"deepseek": {"deepseek-chat"}},
+		CustomerID: customer,
+		Budgets:    []BudgetSpec{{MaxLimit: 20, ResetDuration: "1M"}},
+		RateLimit:  &RateLimitSpec{RequestMaxLimit: 60, RequestResetDuration: "1m"},
 	})
 	if err != nil || vk.ID != "vk-1" || vk.Value != "sk-bf-test" {
 		t.Fatalf("create vk: %+v, %v", vk, err)
 	}
-	if created["name"] != "svc" {
-		t.Fatalf("request name: %+v", created)
+	if created["name"] != "svc" || created["customer_id"] != "cust-1" {
+		t.Fatalf("request body: %+v", created)
 	}
 	gatewayModels, err := client.ListGatewayModels(context.Background(), vk.Value)
 	if err != nil || len(gatewayModels) != 1 {
 		t.Fatalf("gateway models: %+v, %v", gatewayModels, err)
 	}
 	m := gatewayModels[0]
-	if m.ID != "deepseek/deepseek-chat" || m.MaxOutputTokens != 8192 {
+	if m.ID != "deepseek/deepseek-chat" || m.MaxOutputTokens != 8192 || m.OwnedBy != "deepseek" {
 		t.Fatalf("gateway model: %+v", m)
 	}
 	if PricePerMTok(m.Pricing.Prompt) != 0.3 || PricePerMTok(m.Pricing.Completion) != 1.2 {
@@ -76,11 +78,11 @@ func TestBifrostClientControlPlaneAndModelCatalog(t *testing.T) {
 func TestBifrostClientReturnsTypedGatewayErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error":{"message":"upstream down"}}`))
+		_, _ = w.Write([]byte(`{"type":"provider_error","error":{"message":"upstream down"}}`))
 	}))
 	defer srv.Close()
 	client := NewClient(srv.URL, Auth{})
-	_, err := client.ListProviderModels(context.Background())
+	_, err := client.CreateVirtualKey(context.Background(), VirtualKeySpec{Name: "test"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

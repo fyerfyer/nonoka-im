@@ -19,6 +19,8 @@ export interface LiveRun {
   status: string;
   errorCode?: string;
   errorClass?: string;
+  errorMessage?: string;
+  retryAfterAt?: string;
   retryable?: boolean;
   replyMsgId?: number;
   clientMessageID?: string;
@@ -121,6 +123,8 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
       live.status = "failed";
       live.errorCode = event.errorCode;
       live.errorClass = event.errorClass;
+      live.errorMessage = event.errorMessage;
+      live.retryAfterAt = event.retryAfterAt;
       live.retryable = event.retryable;
     }
     if (event.type === "cancelled") live.status = "cancelled";
@@ -188,6 +192,8 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
       patch.streamStatus = "failed";
       patch.errorCode = event.errorCode;
       patch.errorClass = event.errorClass;
+      patch.errorMessage = event.errorMessage;
+      patch.retryAfterAt = event.retryAfterAt;
     }
     if (event.type === "cancelled") {
       patch.streaming = false;

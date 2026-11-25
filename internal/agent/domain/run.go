@@ -73,13 +73,16 @@ type AgentRun struct {
 	// SideEffectAt records that a write tool already produced an external
 	// effect during this run. Retryable failures after this point are forced
 	// terminal until an operator explicitly acknowledges the risk.
-	SideEffectAt *time.Time
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
+	SideEffectAt     *time.Time
+	InputTokens      int
+	OutputTokens     int
+	TotalTokens      int
+	ModelKey         string
+	EstimatedCostUSD float64
+	RetryAfterAt     *time.Time
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
 }
 
 // AgentRunStep is one durable point in a run timeline. Summary is redacted and

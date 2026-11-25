@@ -2,6 +2,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export interface MediaMeta {
+  fileId?: string;
   url: string;
   name: string;
   size: number;
@@ -12,9 +13,18 @@ export interface MediaMeta {
 // content. Returns null for text or malformed payloads.
 export function parseMediaContent(content: string): MediaMeta | null {
   try {
-    const obj = JSON.parse(content) as Partial<MediaMeta>;
+    const obj = JSON.parse(content) as Partial<MediaMeta> & { file_id?: string };
     if (typeof obj.url !== "string" || obj.url === "") return null;
+    const fileId =
+      typeof obj.fileId === "string"
+        ? obj.fileId
+        : typeof obj.file_id === "string"
+          ? obj.file_id
+          : obj.url.startsWith("/v1/files/")
+            ? obj.url.slice("/v1/files/".length)
+            : undefined;
     return {
+      fileId,
       url: obj.url,
       name: typeof obj.name === "string" ? obj.name : "file",
       size: typeof obj.size === "number" ? obj.size : 0,

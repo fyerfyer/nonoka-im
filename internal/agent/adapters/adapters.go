@@ -27,7 +27,11 @@ func (m Messages) RecentMessages(ctx context.Context, userID int64, topic string
 	}
 	out := make([]app.Message, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, app.Message{ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp, Content: row.Content})
+		out = append(out, app.Message{
+			ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp,
+			Type: row.Type, Content: row.Content, FileID: row.FileID,
+			FileName: row.FileName, Mime: row.Mime, Size: row.Size,
+		})
 	}
 	return out, nil
 }
@@ -40,7 +44,11 @@ func (m Messages) MessageForUser(ctx context.Context, userID int64, topic string
 		}
 		return app.Message{}, err
 	}
-	return app.Message{ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp, Content: row.Content}, nil
+	return app.Message{
+		ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp,
+		Type: row.Type, Content: row.Content, FileID: row.FileID,
+		FileName: row.FileName, Mime: row.Mime, Size: row.Size,
+	}, nil
 }
 
 // Files adapts messaging.FileReader to app.FileReader.

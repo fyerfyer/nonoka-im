@@ -9,9 +9,11 @@ export type ShareRole = "viewer" | "editor";
 
 export interface Model {
   id: number;
-  serviceId: number;
   modelKey: string;
+  provider: string;
+  gatewayModelKey: string;
   displayName: string;
+  icon?: string;
   contextWindow: number;
   maxOutputTokens: number;
   supportsTools: boolean;
@@ -19,19 +21,11 @@ export interface Model {
   supportsReasoning: boolean;
   inputPricePerMtok: number;
   outputPricePerMtok: number;
+  inputCacheReadPricePerMtok: number;
   enabled: boolean;
-}
-
-export interface ModelService {
-  id: number;
-  name: string;
-  displayName: string;
-  gatewayType: "bifrost" | "openai_compatible";
-  baseUrl?: string;
-  gatewayKeyId?: string;
-  enabled: boolean;
-  hasApiKey: boolean;
-  models: Model[];
+  curated: boolean;
+  recommended: boolean;
+  sortOrder: number;
 }
 
 export interface CapabilityPreset {
@@ -152,7 +146,6 @@ export interface SkillBinding {
 
 export interface AgentDraft {
   instruction: string;
-  modelServiceId: number;
   modelId: number;
   tools: string[];
   capabilityPresets: string[];
@@ -168,7 +161,6 @@ export interface AgentVersion {
   agentId: number;
   version: number;
   instruction: string;
-  modelServiceId: number;
   modelId: number;
   modelKey: string;
   tools: string[];
@@ -187,7 +179,6 @@ export interface AgentVersion {
 export interface AgentVersionSummary {
   id: number;
   version: number;
-  modelServiceId: number;
   modelId: number;
   modelKey: string;
   publishNote: string;
@@ -263,6 +254,10 @@ export interface AgentRun {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  modelKey?: string;
+  estimatedCostUsd?: number;
+  retryAfterAt?: string | null;
+  lastError?: string;
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -289,7 +284,6 @@ export interface AgentInput {
   name: string;
   description: string;
   instruction: string;
-  modelServiceId: number;
   modelId: number;
   tools: string[];
   capabilityPresets: string[];
@@ -299,8 +293,59 @@ export interface AgentInput {
   skills?: SkillBinding[];
 }
 
+export interface AgentUsageDay {
+  day: string;
+  runs: number;
+  testRuns: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number;
+}
+
+export interface AgentUsage {
+  days: AgentUsageDay[];
+  total: AgentUsageDay;
+  canSeeCost: boolean;
+}
+
+export interface QuotaLimits {
+  maxConcurrentRuns: number;
+  dailyRuns: number;
+  dailyTokens: number;
+  dailyCostUsd: number;
+  maxToolTurns: number;
+}
+
+export interface Quota {
+  scope: "user" | "agent";
+  scopeKey: string;
+  maxConcurrentRuns?: number;
+  dailyRuns?: number;
+  dailyTokens?: number;
+  dailyCostUsd?: number;
+  maxToolTurns?: number;
+  updatedAt: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  actorUserId: number;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  requestId?: string;
+  traceId?: string;
+  ip?: string;
+  userAgent?: string;
+  outcome: string;
+  errorCode?: string;
+  createdAt: string;
+}
+
 export interface Catalog {
-  services: ModelService[];
+  models: Model[];
   canManageModels: boolean;
   presets: CapabilityPreset[];
   tools: ToolDefinition[];
@@ -338,6 +383,8 @@ export interface RunEvent {
   clientMessageId?: string;
   errorCode?: string;
   errorClass?: string;
+  errorMessage?: string;
+  retryAfterAt?: string;
   retryable?: boolean;
   inputTokens?: number;
   outputTokens?: number;
@@ -402,8 +449,40 @@ export const agentApi = {
   agentTools: () =>
     api.get<{ presets: CapabilityPreset[]; tools: ToolDefinition[] }>("/v1/agent-tools"),
 
-  listModelServices: () =>
-    api.get<{ services: ModelService[]; canManage: boolean }>("/v1/model-services"),
+  agentUsage: (id: number, days = 7) =>
+    api.get<AgentUsage>(`/v1/agents/${id}/usage?days=${days}`),
+
+  listQuotas: (scope = "", limit = 50, offset = 0) =>
+    api.get<{ items: Quota[]; defaults: Record<string, QuotaLimits> }>(
+      `/v1/admin/quotas?scope=${encodeURIComponent(scope)}&limit=${limit}&offset=${offset}`
+    ),
+
+  updateQuota: (scope: string, key: string, limits: QuotaLimits) =>
+    api.put<Quota>(`/v1/admin/quotas/${encodeURIComponent(scope)}/${encodeURIComponent(key)}`, limits),
+
+  resetQuota: (scope: string, key: string) =>
+    api.del<{ status: string }>(`/v1/admin/quotas/${encodeURIComponent(scope)}/${encodeURIComponent(key)}`),
+
+  topUsage: (scope = "agent", metric = "cost", limit = 10) =>
+    api.get<{ items: Array<{ day: string; scope: string; scopeKey: string; runs: number; testRuns: number; inputTokens: number; outputTokens: number; costUsd?: number }> }>(
+      `/v1/admin/usage/top?scope=${scope}&metric=${metric}&limit=${limit}`
+    ),
+
+  auditEvents: (query: Record<string, string> = {}) => {
+    const params = new URLSearchParams({ limit: "50", ...query });
+    return api.get<{ items: AuditEvent[]; total: number }>(`/v1/admin/audit-events?${params.toString()}`);
+  },
+
+  auditEvent: (id: number) => api.get<AuditEvent>(`/v1/admin/audit-events/${id}`),
+
+  listModels: () =>
+    api.get<{ models: Model[]; canManage: boolean }>("/v1/models"),
+
+  syncModels: () =>
+    api.post<{ synced: number; models: Model[] }>("/v1/models/sync", {}),
+
+  updateModel: (id: number, input: Partial<Pick<Model, "displayName" | "enabled" | "recommended" | "supportsVision" | "supportsTools" | "supportsReasoning" | "sortOrder">> & { icon?: string }) =>
+    api.patch<Model>(`/v1/models/${id}`, input),
 
   listMCPServers: () => api.get<{ servers: MCPServer[] }>("/v1/mcp/servers"),
   getMCPServer: (id: number) => api.get<MCPServer>(`/v1/mcp/servers/${id}`),

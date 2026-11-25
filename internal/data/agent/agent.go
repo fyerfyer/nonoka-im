@@ -78,6 +78,8 @@ func (s *Store) ClaimRun(ctx context.Context, runID uint64, lease time.Duration)
 		    lease_until = now() + (? * interval '1 millisecond'),
 		    error_code = '',
 		    error_class = '',
+		    last_error = '',
+		    retry_after_at = NULL,
 		    next_attempt_at = NULL
 		WHERE id = ?
 		  AND status = ?
@@ -182,6 +184,9 @@ func (s *Store) FailRun(ctx context.Context, run *domain.AgentRun, failure domai
 		"last_error":  truncateError(failure.Message),
 		"attempt_id":  "",
 		"lease_until": nil,
+	}
+	if failure.RetryAfter > 0 {
+		values["retry_after_at"] = time.Now().Add(failure.RetryAfter)
 	}
 	for k, v := range update {
 		values[k] = v

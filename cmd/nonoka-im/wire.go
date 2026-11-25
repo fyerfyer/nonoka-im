@@ -9,12 +9,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/credential"
+	"nonoka-im/internal/agent/domain"
 	agentmcp "nonoka-im/internal/agent/mcp"
+	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
@@ -285,14 +289,50 @@ func provideIdempotency(d *data.Data) *httpapi.Idempotency {
 	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
 }
 
-func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, logger log.Logger) *admin.AgentService {
-	return admin.NewAgentService(store, platform, models, az, groups, userDirectory{repo: users}, logger)
+func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, auditor *audit.Service, logger log.Logger) *admin.AgentService {
+	return admin.NewAgentService(store, platform, models, models, az, groups, userDirectory{repo: users}, auditor, logger)
 }
 
-// provideModelService wires the platform Model Service catalog to Bifrost. An
-// empty BIFROST_URL disables gateway management; openai_compatible services
-// remain usable for tests or non-Bifrost deployments.
-func provideModelService(platform *platformdata.Store, az *authz.OpenFGA) *llm.Service {
+func provideAuditService(platform *platformdata.Store) *audit.Service {
+	return audit.NewService(platform)
+}
+
+func provideQuotaService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service) *app.QuotaService {
+	svc := app.NewQuotaService(store, app.QuotaConfig{
+		Timezone: envString("AGENT_QUOTA_TIMEZONE", "Asia/Shanghai"),
+		User: domain.QuotaLimits{
+			MaxConcurrentRuns: envInt("AGENT_USER_MAX_CONCURRENT_RUNS", 2),
+			DailyRuns:         envInt("AGENT_USER_DAILY_RUNS", 200),
+			DailyTokens:       int64(envInt("AGENT_USER_DAILY_TOKENS", 2_000_000)),
+			DailyCostUSD:      envFloat("AGENT_USER_DAILY_COST_USD", 5),
+			MaxToolTurns:      envInt("AGENT_USER_MAX_TOOL_TURNS", 8),
+		},
+		Agent: domain.QuotaLimits{
+			MaxConcurrentRuns: envInt("AGENT_MAX_CONCURRENT_RUNS", 4),
+			DailyRuns:         envInt("AGENT_DAILY_RUNS", 500),
+			DailyTokens:       int64(envInt("AGENT_DAILY_TOKENS", 5_000_000)),
+			DailyCostUSD:      envFloat("AGENT_DAILY_COST_USD", 10),
+			MaxToolTurns:      envInt("AGENT_MAX_TOOL_TURNS", 8),
+		},
+		MaxSessionQueued: envInt("AGENT_MAX_SESSION_QUEUED", 3),
+		MaxGlobalQueued:  envInt("AGENT_MAX_GLOBAL_QUEUED", 200),
+	})
+	svc.Authz = az
+	svc.Audit = auditor
+	return svc
+}
+
+func envString(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// provideModelService wires the flat model catalog and per-agent virtual keys
+// to Bifrost. An empty BIFROST_URL disables gateway management; runtime
+// resolution then fails closed.
+func provideModelService(platform *platformdata.Store, az *authz.OpenFGA, auditor *audit.Service) *llm.Service {
 	sealKey, _ := credential.SealKeyFromEnv()
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BIFROST_URL")), "/")
 	var gateway llm.Gateway
@@ -304,7 +344,39 @@ func provideModelService(platform *platformdata.Store, az *authz.OpenFGA) *llm.S
 			Password:   os.Getenv("BIFROST_ADMIN_PASSWORD"),
 		})
 	}
-	return llm.NewService(platform, llm.EnvSealer{Key: sealKey}, az, gateway, baseURL)
+	svc := llm.NewService(platform, llm.EnvSealer{Key: sealKey}, az, gateway, llm.Config{
+		BaseURL:             baseURL,
+		AgentMonthlyBudget:  envFloat("BIFROST_AGENT_MONTHLY_BUDGET_USD", 20),
+		GlobalMonthlyBudget: envFloat("BIFROST_GLOBAL_MONTHLY_BUDGET_USD", 200),
+		AgentRequestPerMin:  envInt("BIFROST_AGENT_REQUEST_PER_MINUTE", 60),
+		AgentTokensPerMin:   envInt("BIFROST_AGENT_TOKENS_PER_MINUTE", 200000),
+	})
+	svc.Audit = auditor
+	return svc
+}
+
+func envFloat(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
+}
+
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
 }
 
 func provideRunEventBroadcaster(redisClient redis.UniversalClient, dispatch *conf.Dispatch, logger log.Logger) (*realtime.RunBroadcaster, func(), error) {
@@ -339,21 +411,21 @@ func provideAgentRunService(store *agentdata.Store, az *authz.OpenFGA, redisClie
 	return admin.NewRunService(store, az, realtime.NewRedisRunEventStore(redisClient), publisher)
 }
 
-func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA) *admin.ApprovalService {
-	return admin.NewApprovalService(store, az)
+func provideAgentApprovalService(store *agentdata.Store, az *authz.OpenFGA, auditor *audit.Service) *admin.ApprovalService {
+	return admin.NewApprovalService(store, az, auditor)
 }
 
-func provideAgentMCPService(platform *platformdata.Store, az *authz.OpenFGA, logger log.Logger) *admin.MCPService {
+func provideAgentMCPService(platform *platformdata.Store, az *authz.OpenFGA, auditor *audit.Service, logger log.Logger) *admin.MCPService {
 	sealKey, _ := credential.SealKeyFromEnv()
 	sealer := llm.EnvSealer{Key: sealKey}
 	discovery := &agentmcp.Provider{
 		Store: platform, Sealer: sealer, Guard: agentmcp.NewGuardFromEnv(),
 	}
-	return admin.NewMCPService(platform, az, discovery, sealer, logger)
+	return admin.NewMCPService(platform, az, discovery, sealer, auditor, logger)
 }
 
-func provideAgentSkillService(platform *platformdata.Store, az *authz.OpenFGA) *admin.SkillService {
-	return admin.NewSkillService(platform, az)
+func provideAgentSkillService(platform *platformdata.Store, az *authz.OpenFGA, auditor *audit.Service) *admin.SkillService {
+	return admin.NewSkillService(platform, az, auditor)
 }
 
 type userDirectory struct{ repo biz.AuthRepo }
@@ -470,6 +542,8 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideOutboxAdmin,
 		provideIdempotency,
 		provideAgentAdminService,
+		provideAuditService,
+		provideQuotaService,
 		provideRunEventBroadcaster,
 		provideAgentRunService,
 		provideAgentApprovalService,

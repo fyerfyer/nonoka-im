@@ -27,7 +27,6 @@ type AgentRow struct {
 	CurrentVersion         int64  `gorm:"column:current_version"`
 	DraftInstruction       string `gorm:"column:draft_instruction;type:text"`
 	DraftTools             string `gorm:"column:draft_tools;type:text"`
-	DraftModelServiceID    int64  `gorm:"column:draft_model_service_id"`
 	DraftModelID           int64  `gorm:"column:draft_model_id"`
 	DraftCapabilityPresets string `gorm:"column:draft_capability_presets;type:text"`
 	DraftToolPolicies      string `gorm:"column:draft_tool_policies;type:text"`
@@ -46,7 +45,7 @@ func (r AgentRow) toDomain() domain.Agent {
 		ID: r.ID, BotUserID: r.BotUserID, OwnerUserID: r.OwnerUserID, Name: r.Name,
 		Description: r.Description, Status: r.Status, CurrentVersion: r.CurrentVersion,
 		DraftInstruction: r.DraftInstruction, DraftTools: r.DraftTools,
-		DraftModelServiceID: r.DraftModelServiceID, DraftModelID: r.DraftModelID,
+		DraftModelID:           r.DraftModelID,
 		DraftCapabilityPresets: r.DraftCapabilityPresets, DraftToolPolicies: r.DraftToolPolicies,
 		DraftMaxTokens:   r.DraftMaxTokens,
 		DraftMCPBindings: r.DraftMCPBindings, DraftSkills: r.DraftSkills, DraftRevision: r.DraftRevision,
@@ -59,7 +58,6 @@ type AgentVersionRow struct {
 	AgentID           int64      `gorm:"column:agent_id;not null"`
 	Version           int64      `gorm:"column:version;not null"`
 	Instruction       string     `gorm:"column:instruction;type:text;not null"`
-	ModelServiceID    int64      `gorm:"column:model_service_id"`
 	ModelID           int64      `gorm:"column:model_id"`
 	ModelKey          string     `gorm:"column:model_key;size:200;not null;default:''"`
 	Tools             string     `gorm:"column:tools;type:text;not null"`
@@ -80,7 +78,7 @@ func (AgentVersionRow) TableName() string { return "agent_versions" }
 func (r AgentVersionRow) toDomain() domain.AgentVersion {
 	return domain.AgentVersion{
 		ID: r.ID, AgentID: r.AgentID, Version: r.Version, Instruction: r.Instruction,
-		ModelServiceID: r.ModelServiceID, ModelID: r.ModelID, ModelKey: r.ModelKey,
+		ModelID: r.ModelID, ModelKey: r.ModelKey,
 		Tools: r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
 		MaxTokens: r.MaxTokens, MCPBindings: r.MCPBindings, Skills: r.Skills,
 		PublishNote: r.PublishNote, PublishedBy: r.PublishedBy, PublishedAt: r.PublishedAt,
@@ -89,36 +87,39 @@ func (r AgentVersionRow) toDomain() domain.AgentVersion {
 }
 
 type AgentRunRow struct {
-	ID             uint64     `gorm:"column:id;primaryKey;autoIncrement"`
-	EventID        string     `gorm:"column:event_id;size:128;not null"`
-	AgentID        int64      `gorm:"column:agent_id;not null"`
-	AgentVersion   int64      `gorm:"column:agent_version;not null;default:0"`
-	SessionID      uint64     `gorm:"column:session_id"`
-	ActorUserID    int64      `gorm:"column:actor_user_id;not null"`
-	Topic          string     `gorm:"column:topic;size:128;not null"`
-	MsgID          int64      `gorm:"column:msg_id;not null"`
-	TopicSeq       uint64     `gorm:"column:topic_seq;not null;default:0"`
-	Status         string     `gorm:"column:status;size:24;not null"`
-	ErrorCode      string     `gorm:"column:error_code;size:64"`
-	ErrorClass     string     `gorm:"column:error_class;size:32"`
-	LastError      string     `gorm:"column:last_error;type:text"`
-	Attempts       int        `gorm:"column:attempts;not null;default:0"`
-	AttemptID      string     `gorm:"column:attempt_id;size:64"`
-	LeaseUntil     *time.Time `gorm:"column:lease_until"`
-	NextAttemptAt  *time.Time `gorm:"column:next_attempt_at"`
-	ReplyMsgID     int64      `gorm:"column:reply_msg_id"`
-	CheckpointID   string     `gorm:"column:checkpoint_id;size:64"`
-	Kind           string     `gorm:"column:kind;size:16;not null;default:im"`
-	InputText      string     `gorm:"column:input_text;type:text"`
-	OutputText     string     `gorm:"column:output_text;type:text"`
-	ConfigSnapshot string     `gorm:"column:config_snapshot;type:text"`
-	SideEffectAt   *time.Time `gorm:"column:side_effect_at"`
-	InputTokens    int        `gorm:"column:input_tokens"`
-	OutputTokens   int        `gorm:"column:output_tokens"`
-	TotalTokens    int        `gorm:"column:total_tokens"`
-	CreatedAt      time.Time  `gorm:"column:created_at"`
-	StartedAt      *time.Time `gorm:"column:started_at"`
-	FinishedAt     *time.Time `gorm:"column:finished_at"`
+	ID               uint64     `gorm:"column:id;primaryKey;autoIncrement"`
+	EventID          string     `gorm:"column:event_id;size:128;not null"`
+	AgentID          int64      `gorm:"column:agent_id;not null"`
+	AgentVersion     int64      `gorm:"column:agent_version;not null;default:0"`
+	SessionID        uint64     `gorm:"column:session_id"`
+	ActorUserID      int64      `gorm:"column:actor_user_id;not null"`
+	Topic            string     `gorm:"column:topic;size:128;not null"`
+	MsgID            int64      `gorm:"column:msg_id;not null"`
+	TopicSeq         uint64     `gorm:"column:topic_seq;not null;default:0"`
+	Status           string     `gorm:"column:status;size:24;not null"`
+	ErrorCode        string     `gorm:"column:error_code;size:64"`
+	ErrorClass       string     `gorm:"column:error_class;size:32"`
+	LastError        string     `gorm:"column:last_error;type:text"`
+	Attempts         int        `gorm:"column:attempts;not null;default:0"`
+	AttemptID        string     `gorm:"column:attempt_id;size:64"`
+	LeaseUntil       *time.Time `gorm:"column:lease_until"`
+	NextAttemptAt    *time.Time `gorm:"column:next_attempt_at"`
+	ReplyMsgID       int64      `gorm:"column:reply_msg_id"`
+	CheckpointID     string     `gorm:"column:checkpoint_id;size:64"`
+	Kind             string     `gorm:"column:kind;size:16;not null;default:im"`
+	InputText        string     `gorm:"column:input_text;type:text"`
+	OutputText       string     `gorm:"column:output_text;type:text"`
+	ConfigSnapshot   string     `gorm:"column:config_snapshot;type:text"`
+	SideEffectAt     *time.Time `gorm:"column:side_effect_at"`
+	InputTokens      int        `gorm:"column:input_tokens"`
+	OutputTokens     int        `gorm:"column:output_tokens"`
+	TotalTokens      int        `gorm:"column:total_tokens"`
+	ModelKey         string     `gorm:"column:model_key;size:200;not null;default:''"`
+	EstimatedCostUSD float64    `gorm:"column:estimated_cost_usd;not null;default:0"`
+	RetryAfterAt     *time.Time `gorm:"column:retry_after_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	StartedAt        *time.Time `gorm:"column:started_at"`
+	FinishedAt       *time.Time `gorm:"column:finished_at"`
 }
 
 func (AgentRunRow) TableName() string { return "agent_runs" }
@@ -133,7 +134,9 @@ func agentRunRowFromDomain(run domain.AgentRun) AgentRunRow {
 		CheckpointID: run.CheckpointID, Kind: run.Kind, InputText: run.InputText,
 		OutputText: run.OutputText, ConfigSnapshot: run.ConfigSnapshot,
 		SideEffectAt: run.SideEffectAt, InputTokens: run.InputTokens,
-		OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens, CreatedAt: run.CreatedAt,
+		OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
+		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, RetryAfterAt: run.RetryAfterAt,
+		CreatedAt: run.CreatedAt,
 		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
 	}
 }
@@ -148,7 +151,9 @@ func (r AgentRunRow) toDomain() domain.AgentRun {
 		CheckpointID: r.CheckpointID, Kind: r.Kind, InputText: r.InputText,
 		OutputText: r.OutputText, ConfigSnapshot: r.ConfigSnapshot,
 		SideEffectAt: r.SideEffectAt, InputTokens: r.InputTokens,
-		OutputTokens: r.OutputTokens, TotalTokens: r.TotalTokens, CreatedAt: r.CreatedAt,
+		OutputTokens: r.OutputTokens, TotalTokens: r.TotalTokens,
+		ModelKey: r.ModelKey, EstimatedCostUSD: r.EstimatedCostUSD, RetryAfterAt: r.RetryAfterAt,
+		CreatedAt: r.CreatedAt,
 		StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
 	}
 }

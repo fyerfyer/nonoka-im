@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/cloudwego/eino/adk"
@@ -92,6 +93,31 @@ type runState struct {
 	summary    string
 	usage      port.Usage
 	modelError atomic.Bool
+
+	guardMu  sync.Mutex
+	guard    port.UsageGuard
+	guardErr error
+}
+
+func (s *runState) recordUsage(ctx context.Context, usage port.Usage) {
+	if s.guard == nil {
+		return
+	}
+	err := s.guard.AfterModel(ctx, usage)
+	if err == nil {
+		return
+	}
+	s.guardMu.Lock()
+	if s.guardErr == nil {
+		s.guardErr = err
+	}
+	s.guardMu.Unlock()
+}
+
+func (s *runState) usageError() error {
+	s.guardMu.Lock()
+	defer s.guardMu.Unlock()
+	return s.guardErr
 }
 
 // buildAgent assembles the ChatModelAgent for a run or resume. withSummary
@@ -103,7 +129,11 @@ func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool
 		return nil, nil, err
 	}
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, RunID: in.RunID, AttemptID: in.AttemptID, EventID: in.EventID, Topic: in.Topic})
-	state := &runState{}
+	state := &runState{guard: in.Guard}
+	if in.Guard != nil {
+		turns := &atomic.Int32{}
+		chatModel = &guardedChatModel{base: chatModel, guard: in.Guard, turn: turns}
+	}
 	var handlers []adk.ChatModelAgentMiddleware
 	// Patch dangling tool calls left in a checkpoint by a crashed run before
 	// the model sees the history. On normal fresh runs this is a no-op.
@@ -172,18 +202,22 @@ func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool
 	if err != nil {
 		return nil, nil, err
 	}
+	maxIterations := in.MaxToolTurns
+	if maxIterations <= 0 {
+		maxIterations = 5
+	}
 	agent, err := adk.NewChatModelAgent(toolCtx, &adk.ChatModelAgentConfig{
 		Name:             "nonoka-assistant",
 		Description:      "Nonoka IM conversation assistant",
 		Instruction:      instruction,
 		Model:            chatModel,
 		Handlers:         handlers,
-		MaxIterations:    5,
+		MaxIterations:    maxIterations,
 		ModelRetryConfig: &adk.ModelRetryConfig{MaxRetries: modelRetryMax, IsRetryAble: retryableModelError},
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools:               agentTools,
-				ToolCallMiddlewares: []compose.ToolMiddleware{tools.TimeoutMiddleware(tools.ToolCallTimeout)},
+				ToolCallMiddlewares: toolMiddlewares(in.Guard),
 			},
 		},
 	})
@@ -288,6 +322,14 @@ func (t summaryTracker) Stream(ctx context.Context, input []*schema.Message, opt
 		return reader, fmt.Errorf("%w: %v", port.ErrSummary, err)
 	}
 	return reader, nil
+}
+
+func toolMiddlewares(guard port.UsageGuard) []compose.ToolMiddleware {
+	out := []compose.ToolMiddleware{tools.TimeoutMiddleware(tools.ToolCallTimeout)}
+	if guard != nil {
+		out = append(out, guardToolMiddleware(guard))
+	}
+	return out
 }
 
 func allowedTools(ctx context.Context, ts []tool.BaseTool, names []string, restrict bool) []tool.BaseTool {

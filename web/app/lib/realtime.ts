@@ -450,6 +450,11 @@ export class RealtimeClient extends EventTarget {
           clientMessageId: e.clientMsgId || undefined,
           errorCode: e.errorCode || undefined,
           errorClass: e.errorClass || undefined,
+          errorMessage: e.errorMessage || undefined,
+          retryAfterAt:
+            Number(e.retryAfterAtMs) > 0
+              ? new Date(Number(e.retryAfterAtMs)).toISOString()
+              : undefined,
           retryable: !!e.retryable,
           inputTokens: Number(e.inputTokens) || undefined,
           outputTokens: Number(e.outputTokens) || undefined,

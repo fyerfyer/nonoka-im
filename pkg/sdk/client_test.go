@@ -67,7 +67,7 @@ func TestAgentCRUDAndTypedErrors(t *testing.T) {
 				_, _ = w.Write([]byte(`{"items":[{"id":1,"botUserId":9,"ownerUserId":1,"name":"A","description":"d","status":"active","currentVersion":1,"canManage":true,"canOwn":true,"draftChanged":false}],"hasMore":false}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"id":2,"botUserId":10,"ownerUserId":1,"name":"New","description":"","status":"draft","currentVersion":0,"canManage":true,"canOwn":true,"draftChanged":true,"draft":{"instruction":"hi","modelServiceId":1,"modelId":2,"tools":[],"capabilityPresets":[],"toolPolicies":{},"maxTokens":4096,"mcpBindings":[],"skills":[],"revision":1}}`))
+			_, _ = w.Write([]byte(`{"id":2,"botUserId":10,"ownerUserId":1,"name":"New","description":"","status":"draft","currentVersion":0,"canManage":true,"canOwn":true,"draftChanged":true,"draft":{"instruction":"hi","modelId":2,"tools":[],"capabilityPresets":[],"toolPolicies":{},"maxTokens":4096,"mcpBindings":[],"skills":[],"revision":1}}`))
 		case "/v1/agents/1":
 			_, _ = w.Write([]byte(`{"id":1,"botUserId":9,"ownerUserId":1,"name":"A","description":"d","status":"active","currentVersion":1,"canManage":true,"canOwn":true,"draftChanged":false}`))
 		default:

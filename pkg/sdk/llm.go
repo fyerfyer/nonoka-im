@@ -6,108 +6,42 @@ import (
 	"net/http"
 )
 
-type LLMServiceInput struct {
-	Name           string              `json:"name"`
-	DisplayName    string              `json:"displayName,omitempty"`
-	GatewayType    string              `json:"gatewayType,omitempty"`
-	BaseURL        string              `json:"baseUrl,omitempty"`
-	APIKey         string              `json:"apiKey,omitempty"`
-	UpdateAPIKey   bool                `json:"updateApiKey,omitempty"`
-	Enabled        *bool               `json:"enabled,omitempty"`
-	AllowAll       *bool               `json:"allowAll,omitempty"`
-	ProviderModels map[string][]string `json:"providerModels,omitempty"`
-}
-
-type LLMModelInput struct {
-	ModelKey           string   `json:"modelKey"`
-	DisplayName        string   `json:"displayName,omitempty"`
-	ContextWindow      int      `json:"contextWindow,omitempty"`
-	MaxOutputTokens    int      `json:"maxOutputTokens,omitempty"`
-	SupportsTools      *bool    `json:"supportsTools,omitempty"`
-	SupportsVision     *bool    `json:"supportsVision,omitempty"`
-	SupportsReasoning  *bool    `json:"supportsReasoning,omitempty"`
-	InputPricePerMtok  *float64 `json:"inputPricePerMtok,omitempty"`
-	OutputPricePerMtok *float64 `json:"outputPricePerMtok,omitempty"`
-	Enabled            *bool    `json:"enabled,omitempty"`
-}
-
-type LLMResource struct {
+// ModelsResource is the read-only Bifrost model catalog plus platform curation.
+// Provider credentials and gateway routing are never exposed here.
+type ModelsResource struct {
 	http *apiTransport
 }
 
-func (r *LLMResource) Services(ctx context.Context) ([]LLMService, bool, error) {
+// List returns curated models. canManage is true for platform admins, who also
+// see disabled/uncurated rows.
+func (r *ModelsResource) List(ctx context.Context) ([]Model, bool, error) {
 	var reply struct {
-		Services  []LLMService `json:"services"`
-		CanManage bool         `json:"canManage"`
+		Models    []Model `json:"models"`
+		CanManage bool    `json:"canManage"`
 	}
-	if err := r.http.doJSON(ctx, http.MethodGet, "/v1/model-services", nil, nil, &reply, true); err != nil {
+	if err := r.http.doJSON(ctx, http.MethodGet, "/v1/models", nil, nil, &reply, true); err != nil {
 		return nil, false, err
 	}
-	return reply.Services, reply.CanManage, nil
+	return reply.Models, reply.CanManage, nil
 }
 
-func (r *LLMResource) CreateService(ctx context.Context, input LLMServiceInput) (*LLMService, error) {
-	var out LLMService
-	if err := r.http.doJSON(ctx, http.MethodPost, "/v1/model-services", nil, input, &out, false); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (r *LLMResource) UpdateService(ctx context.Context, id int64, input LLMServiceInput) (*LLMService, error) {
-	var out LLMService
-	if err := r.http.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/v1/model-services/%d", id), nil, input, &out, false); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (r *LLMResource) DeleteService(ctx context.Context, id int64) error {
-	return r.http.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/v1/model-services/%d", id), nil, nil, nil, false)
-}
-
-func (r *LLMResource) SyncService(ctx context.Context, id int64) ([]LLMModel, error) {
+// Sync refreshes Bifrost-owned fields from /v1/models. Local curation is
+// preserved; new models start disabled.
+func (r *ModelsResource) Sync(ctx context.Context) (int, error) {
 	var reply struct {
-		Models []LLMModel `json:"models"`
+		Synced int `json:"synced"`
 	}
-	if err := r.http.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/model-services/%d/sync", id), nil, nil, &reply, false); err != nil {
-		return nil, err
+	if err := r.http.doJSON(ctx, http.MethodPost, "/v1/models/sync", nil, nil, &reply, false); err != nil {
+		return 0, err
 	}
-	return reply.Models, nil
+	return reply.Synced, nil
 }
 
-func (r *LLMResource) CreateModel(ctx context.Context, serviceID int64, input LLMModelInput) (*LLMModel, error) {
-	var out LLMModel
-	if err := r.http.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/model-services/%d/models", serviceID), nil, input, &out, false); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (r *LLMResource) UpdateModel(ctx context.Context, id int64, input LLMModelInput) (*LLMModel, error) {
-	var out LLMModel
-	if err := r.http.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/v1/model-models/%d", id), nil, input, &out, false); err != nil {
+// Update edits the platform-owned curation fields of one model.
+func (r *ModelsResource) Update(ctx context.Context, id int64, input ModelCuration) (*Model, error) {
+	var out Model
+	if err := r.http.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/v1/models/%d", id), nil, input, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil
-}
-
-func (r *LLMResource) DeleteModel(ctx context.Context, id int64) error {
-	return r.http.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/v1/model-models/%d", id), nil, nil, nil, false)
-}
-
-func (r *LLMResource) GatewayModels(ctx context.Context) ([]struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-}, error) {
-	var reply struct {
-		Models []struct {
-			Name     string `json:"name"`
-			Provider string `json:"provider"`
-		} `json:"models"`
-	}
-	if err := r.http.doJSON(ctx, http.MethodGet, "/v1/model-gateway/models", nil, nil, &reply, true); err != nil {
-		return nil, err
-	}
-	return reply.Models, nil
 }

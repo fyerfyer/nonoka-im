@@ -42,7 +42,7 @@ func TestAgentVersionsRestoreAndPublishNote(t *testing.T) {
 	// Edit the draft, then restore v1 and verify the draft snapshot comes back.
 	update := httpPutAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/draft", token, map[string]any{
 		"name": "version-agent", "instruction": "second instructions",
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"}, "toolPolicies": map[string]string{},
 		"revision": created.Revision,
 	})
@@ -107,7 +107,7 @@ func TestAgentShareRolesAndOwnerOnlyDestructiveActions(t *testing.T) {
 	// Editors can edit the draft.
 	update := httpPutAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/draft", editorToken, map[string]any{
 		"name": "role-agent", "instruction": "editor changed this",
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"}, "toolPolicies": map[string]string{},
 		"revision": created.Revision,
 	})
@@ -190,7 +190,7 @@ func createPhase3Agent(t *testing.T, token, name, instruction string) phase3Agen
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
 		"name": name, "instruction": instruction,
-		"modelServiceId": testModelServiceID, "modelId": testModelID,
+		"modelId":           testModelID,
 		"capabilityPresets": []string{"im.read"}, "toolPolicies": map[string]string{},
 	})
 	body, _ := io.ReadAll(resp.Body)

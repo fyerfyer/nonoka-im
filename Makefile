@@ -129,6 +129,10 @@ test: test-deps-up
 	@echo "========================================"
 	@$(MAKE) test-reliability || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
+	@echo "=== Running Platform Tests           ==="
+	@echo "========================================"
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestQuota|TestAudit|TestFile|TestBifrost' -count=1 -timeout 300s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"
 	@$(MAKE) test-deps-down

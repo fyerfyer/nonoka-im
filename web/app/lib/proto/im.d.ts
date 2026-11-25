@@ -5107,6 +5107,12 @@ export namespace api {
                 /** AgentRunEvent clientMsgId. */
                 clientMsgId: string;
 
+                /** AgentRunEvent errorMessage. */
+                errorMessage: string;
+
+                /** AgentRunEvent retryAfterAtMs. */
+                retryAfterAtMs: (number|Long);
+
                 /**
                  * Creates a new AgentRunEvent instance using the specified properties.
                  * @param [properties] Properties to set
@@ -5259,6 +5265,12 @@ export namespace api {
 
                     /** AgentRunEvent clientMsgId */
                     clientMsgId?: (string|null);
+
+                    /** AgentRunEvent errorMessage */
+                    errorMessage?: (string|null);
+
+                    /** AgentRunEvent retryAfterAtMs */
+                    retryAfterAtMs?: (number|Long|null);
 
                     /** Unknown fields preserved while decoding when enabled */
                     $unknowns?: Uint8Array[];

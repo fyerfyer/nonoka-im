@@ -69,10 +69,10 @@ func TestSDKResourcesEndToEnd(t *testing.T) {
 		t.Fatalf("file share: %v", err)
 	}
 
-	// LLM catalog and agent tool catalog.
-	services, canManage, err := client.LLM.Services(ctx)
-	if err != nil || len(services) == 0 || canManage {
-		t.Fatalf("llm services: %+v canManage=%v err=%v", services, canManage, err)
+	// Model catalog and agent tool catalog.
+	models, canManage, err := client.Models.List(ctx)
+	if err != nil || len(models) == 0 || canManage {
+		t.Fatalf("models: %+v canManage=%v err=%v", models, canManage, err)
 	}
 	presets, tools, err := client.Agents.Tools(ctx)
 	if err != nil || len(presets) == 0 || len(tools) == 0 {
@@ -82,7 +82,7 @@ func TestSDKResourcesEndToEnd(t *testing.T) {
 	// Agent CRUD, versions and restore.
 	agent, err := client.Agents.Create(ctx, sdk.AgentInput{
 		Name: "sdk-resources-agent", Instruction: "first sdk instruction",
-		LLMServiceID: testModelServiceID, LLMModelID: testModelID,
+		ModelID:           testModelID,
 		CapabilityPresets: []string{"im.read"}, ToolPolicies: map[string]string{},
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestSDKResourcesEndToEnd(t *testing.T) {
 	}
 	updated, err := client.Agents.UpdateDraft(ctx, agent.ID, sdk.AgentInput{
 		Name: "sdk-resources-agent", Instruction: "second sdk instruction",
-		LLMServiceID: testModelServiceID, LLMModelID: testModelID,
+		ModelID:           testModelID,
 		CapabilityPresets: []string{"im.read"}, ToolPolicies: map[string]string{},
 		Revision: detail.Draft.Revision,
 	})

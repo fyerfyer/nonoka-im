@@ -14,9 +14,11 @@ import (
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
+	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/domain"
 	agentmcp "nonoka-im/internal/agent/mcp"
+	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
 	"nonoka-im/internal/conf"
@@ -98,6 +100,7 @@ type testServer struct {
 	fgaCleanup     func()
 	modelServiceID int64
 	modelID        int64
+	modelSvc       *llm.Service
 }
 
 type testUserDirectory struct{ repo biz.AuthRepo }
@@ -206,34 +209,37 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	platformStore := platformdata.NewStore(d.DB())
 	t.Setenv("AGENT_SECRET_KEY", strings.Repeat("s", 32))
 	sealer := llm.EnvSealer{Key: []byte(strings.Repeat("s", 32))}
-	modelSvc := llm.NewService(platformStore, sealer, fgaAuthorizer, nil, "")
-	seededService, err := platformStore.CreateModelService(ctx, domain.ModelServiceSpec{
-		Name: "test-manual", DisplayName: "Test", GatewayType: "openai_compatible",
-		BaseURL: "https://fixture.invalid/v1", Enabled: boolPtr(true),
-	}, "")
-	if err != nil {
-		t.Fatalf("seed model service: %v", err)
-	}
-	seededModel, err := platformStore.CreateModel(ctx, domain.ModelSpec{
-		ServiceID: seededService.ID, ModelKey: "fixture-model", DisplayName: "Fixture",
-		MaxOutputTokens: 8192, SupportsTools: true, Enabled: true,
-	})
-	if err != nil {
+	modelSvc := llm.NewService(platformStore, sealer, fgaAuthorizer, testGateway{}, llm.Config{BaseURL: "http://fixture.invalid"})
+	if err := platformStore.UpsertModels(ctx, []domain.Model{{
+		ModelKey: "fixture/model", Provider: "fixture", GatewayModelKey: "model",
+		DisplayName: "Fixture", MaxOutputTokens: 8192, SupportsTools: true,
+		Enabled: true, Curated: true,
+	}}); err != nil {
 		t.Fatalf("seed model: %v", err)
 	}
-	testModelServiceID = int64(seededService.ID)
-	testModelID = int64(seededModel.ID)
+	models, err := platformStore.ListModels(ctx, true)
+	if err != nil || len(models) == 0 {
+		t.Fatalf("load seeded model: %v", err)
+	}
+	testModelServiceID = 0
+	testModelID = int64(models[0].ID)
+	auditSvc := audit.NewService(platformStore)
+	quotaSvc := app.NewQuotaService(agentStore, app.QuotaConfig{Timezone: "UTC"})
+	quotaSvc.Authz = fgaAuthorizer
+	quotaSvc.Audit = auditSvc
 	mcpDiscovery := &agentmcp.Provider{
 		Store: platformStore, Sealer: sealer,
 		Guard: &agentmcp.Guard{AllowPrivate: true, AllowInsecure: true},
 	}
 	agentSvc := service.NewAgentHTTP(
-		admin.NewAgentService(agentStore, platformStore, modelSvc, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, testLogger),
+		admin.NewAgentService(agentStore, platformStore, modelSvc, modelSvc, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, auditSvc, testLogger),
 		admin.NewRunService(agentStore, fgaAuthorizer, realtime.NewMemoryRunEventStore(), nil),
-		admin.NewApprovalService(agentStore, fgaAuthorizer),
-		admin.NewMCPService(platformStore, fgaAuthorizer, mcpDiscovery, sealer, testLogger),
-		admin.NewSkillService(platformStore, fgaAuthorizer),
+		admin.NewApprovalService(agentStore, fgaAuthorizer, auditSvc),
+		admin.NewMCPService(platformStore, fgaAuthorizer, mcpDiscovery, sealer, auditSvc, testLogger),
+		admin.NewSkillService(platformStore, fgaAuthorizer, auditSvc),
 		modelSvc,
+		quotaSvc,
+		auditSvc,
 		nil,
 	)
 
@@ -293,7 +299,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		mongoDB: mongoDB, storage: storage, msgWorker: worker, messageApp: messageApp,
 		query: query, groupRepo: groupRepo, botIndex: botIndex, fileSvc: fileSvc,
 		grpcCleanup: grpcCleanup, openFGA: fgaAuthorizer, fgaCleanup: fgaCleanup,
-		modelServiceID: int64(seededService.ID), modelID: int64(seededModel.ID),
+		modelServiceID: 0, modelID: int64(models[0].ID), modelSvc: modelSvc,
 	}
 }
 
@@ -475,6 +481,36 @@ func httpPost(t *testing.T, url string, body interface{}) *http.Response {
 }
 
 // httpPostAuth sends a JSON POST request with an Authorization bearer token.
+func httpPatchAuth(t *testing.T, url, token string, body interface{}) *http.Response {
+	t.Helper()
+	payload, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("create patch request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("patch request failed: %v", err)
+	}
+	return resp
+}
+
+func httpDeleteAuth(t *testing.T, url, token string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatalf("create delete request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("delete request failed: %v", err)
+	}
+	return resp
+}
+
 func httpPostAuth(t *testing.T, url, token string, body interface{}) *http.Response {
 	return httpDoAuth(t, http.MethodPost, url, token, body)
 }
@@ -1001,3 +1037,19 @@ func newTestIMWorker(seqGen *seq.Generator, storage *mongostore.Store, pusher re
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+type testGateway struct{}
+
+func (testGateway) CreateVirtualKey(_ context.Context, spec llm.VirtualKeySpec) (*llm.VirtualKey, error) {
+	return &llm.VirtualKey{ID: "vk-" + spec.Name, Value: "sk-bf-test"}, nil
+}
+func (testGateway) UpdateVirtualKey(context.Context, string, llm.VirtualKeySpec, bool) error {
+	return nil
+}
+func (testGateway) DeleteVirtualKey(context.Context, string) error { return nil }
+func (testGateway) EnsureCustomer(context.Context, llm.CustomerSpec) (string, error) {
+	return "customer-test", nil
+}
+func (testGateway) ListGatewayModels(context.Context, string) ([]llm.GatewayModel, error) {
+	return []llm.GatewayModel{{ID: "fixture/model", NormalizedName: "Fixture", OwnedBy: "fixture"}}, nil
+}
