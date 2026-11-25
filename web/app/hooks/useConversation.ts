@@ -42,17 +42,17 @@ export function useConversation(topic: string | null) {
       const reply = await messageApi.pullMessages(topic, 0, 20, 0);
       const msgs: ChatMessage[] = reply.messages.map((m) => ({
         clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
-        msgId: m.msgId,
+        msgId: Number(m.msgId),
         topic: m.topic,
-        senderId: m.senderId,
+        senderId: Number(m.senderId),
         content: decodeMessageContent(m.content, m.msgType),
-        msgType: m.msgType,
-        timestamp: m.timestamp,
-        topicSeq: m.topicSeq,
+        msgType: Number(m.msgType),
+        timestamp: Number(m.timestamp),
+        topicSeq: Number(m.topicSeq),
         recalled: m.recalled || undefined,
         status: m.recalled
           ? "recalled"
-          : m.senderId === user.userId
+          : Number(m.senderId) === Number(user.userId)
           ? "sent"
           : "delivered",
       }));
@@ -94,17 +94,17 @@ export function useConversation(topic: string | null) {
       const reply = await messageApi.pullMessages(topic, 0, 20, endSeq);
       const msgs: ChatMessage[] = reply.messages.map((m) => ({
         clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
-        msgId: m.msgId,
+        msgId: Number(m.msgId),
         topic: m.topic,
-        senderId: m.senderId,
+        senderId: Number(m.senderId),
         content: decodeMessageContent(m.content, m.msgType),
-        msgType: m.msgType,
-        timestamp: m.timestamp,
-        topicSeq: m.topicSeq,
+        msgType: Number(m.msgType),
+        timestamp: Number(m.timestamp),
+        topicSeq: Number(m.topicSeq),
         recalled: m.recalled || undefined,
         status: m.recalled
           ? "recalled"
-          : m.senderId === user?.userId
+          : Number(m.senderId) === Number(user?.userId)
           ? "sent"
           : "delivered",
       }));
@@ -134,17 +134,17 @@ export function useConversation(topic: string | null) {
         const reply = await messageApi.pullMessages(topic, 0, 20, oldest);
         const msgs: ChatMessage[] = reply.messages.map((m) => ({
           clientMsgId: m.clientMsgId || `${m.topicSeq}-${m.msgId}`,
-          msgId: m.msgId,
+          msgId: Number(m.msgId),
           topic: m.topic,
-          senderId: m.senderId,
+          senderId: Number(m.senderId),
           content: decodeMessageContent(m.content, m.msgType),
-          msgType: m.msgType,
-          timestamp: m.timestamp,
-          topicSeq: m.topicSeq,
+          msgType: Number(m.msgType),
+          timestamp: Number(m.timestamp),
+          topicSeq: Number(m.topicSeq),
           recalled: m.recalled || undefined,
           status: m.recalled
             ? "recalled"
-            : m.senderId === user?.userId
+            : Number(m.senderId) === Number(user?.userId)
             ? "sent"
             : "delivered",
         }));

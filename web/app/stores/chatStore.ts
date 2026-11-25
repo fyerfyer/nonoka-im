@@ -317,9 +317,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (!conv) return state;
       const messages = conv.messages.map((m) => {
         if (
-          m.senderId !== conv.peerId &&
+          Number(m.senderId) !== Number(conv.peerId) &&
           m.topicSeq !== undefined &&
-          m.topicSeq <= upToSeq
+          Number(m.topicSeq) <= upToSeq
         ) {
           return { ...m, status: "read" as const };
         }

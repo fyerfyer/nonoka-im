@@ -61,7 +61,7 @@ export function MessageList({
     !!conversation?.peerIsBot &&
     !!currentUser &&
     !!lastMsg &&
-    lastMsg.senderId === currentUser.userId &&
+    Number(lastMsg.senderId) === Number(currentUser.userId) &&
     lastMsg.status !== "failed";
   const [replyTimedOut, setReplyTimedOut] = useState(false);
   useEffect(() => {
@@ -207,7 +207,7 @@ export function MessageList({
               </span>
             </div>
             {msgs.map((msg, idx) => {
-              const isMe = msg.senderId === currentUser?.userId;
+              const isMe = Number(msg.senderId) === Number(currentUser?.userId);
               const prev = msgs[idx - 1];
               const showSender =
                 conversation.type === "group" &&
