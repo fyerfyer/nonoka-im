@@ -16,7 +16,6 @@ type RunGuard struct {
 	quota   *QuotaService
 	run     *domain.AgentRun
 	model   port.ModelEndpoint
-	kind    string
 	day     time.Time
 	retryAt time.Time
 
@@ -35,7 +34,7 @@ type RunGuard struct {
 	usedCost   float64
 }
 
-func (s *QuotaService) BeginRun(ctx context.Context, run *domain.AgentRun, model port.ModelEndpoint, kind string) (*RunGuard, int, error) {
+func (s *QuotaService) BeginRun(ctx context.Context, run *domain.AgentRun, model port.ModelEndpoint) (*RunGuard, int, error) {
 	if run == nil {
 		return nil, 0, fmt.Errorf("%w: run is required", ErrInvalidInput)
 	}
@@ -61,7 +60,7 @@ func (s *QuotaService) BeginRun(ctx context.Context, run *domain.AgentRun, model
 		maxTurns = userLimits.MaxToolTurns
 	}
 	guard := &RunGuard{
-		quota: s, run: run, model: model, kind: kind, day: day,
+		quota: s, run: run, model: model, day: day,
 		retryAt: s.NextReset(time.Now()), userLimits: userLimits, agentLimits: agentLimits,
 		dbUserTokens: startUserTokens, dbUserCost: startUserCost,
 		dbAgentTokens: startAgentTokens, dbAgentCost: startAgentCost,
@@ -109,7 +108,7 @@ func (g *RunGuard) AfterModel(ctx context.Context, cumulative port.Usage) error 
 	g.step++
 	cost := (float64(deltaIn)*g.model.InputPricePerMTok + float64(deltaOut)*g.model.OutputPricePerMTok) / 1_000_000
 	ev := domain.UsageEvent{
-		RunID: g.run.ID, AttemptID: g.run.AttemptID, Step: g.step, Kind: g.kind,
+		RunID: g.run.ID, AttemptID: g.run.AttemptID, Step: g.step,
 		AgentID: g.run.AgentID, ActorUserID: g.run.ActorUserID, Topic: g.run.Topic,
 		ModelID: g.model.ModelID, ModelKey: g.model.ModelKey, Provider: g.model.Provider,
 		InputTokens: deltaIn, OutputTokens: deltaOut, CostUSD: cost,

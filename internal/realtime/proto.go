@@ -36,7 +36,7 @@ func (e RunEvent) ToProto() *pb.AgentRunEvent {
 	return &pb.AgentRunEvent{
 		RunId: e.RunID, Seq: e.Seq, Type: eventType, Topic: e.Topic,
 		AgentId: e.AgentID, BotUserId: e.BotUserID, ActorUserId: e.ActorUserID,
-		TriggerMsgId: e.TriggerMsgID, Test: e.Test, Delta: e.Delta, Tool: e.Tool,
+		TriggerMsgId: e.TriggerMsgID, Delta: e.Delta, Tool: e.Tool,
 		ToolCallId: e.ToolCallID, Summary: e.Summary, Status: e.Status,
 		ApprovalId: e.ApprovalID, ReplyMsgId: e.ReplyMsgID, ErrorCode: e.ErrorCode,
 		ErrorClass: e.ErrorClass, ErrorMessage: e.ErrorMessage, Retryable: e.Retryable,
@@ -58,7 +58,7 @@ func FromProto(event *pb.AgentRunEvent) RunEvent {
 	return RunEvent{
 		RunID: event.GetRunId(), Seq: event.GetSeq(), Type: eventType, Topic: event.GetTopic(),
 		AgentID: event.GetAgentId(), BotUserID: event.GetBotUserId(), ActorUserID: event.GetActorUserId(),
-		TriggerMsgID: event.GetTriggerMsgId(), Test: event.GetTest(), Delta: event.GetDelta(),
+		TriggerMsgID: event.GetTriggerMsgId(), Delta: event.GetDelta(),
 		Tool: event.GetTool(), ToolCallID: event.GetToolCallId(), Summary: event.GetSummary(),
 		Status: event.GetStatus(), ApprovalID: event.GetApprovalId(), ReplyMsgID: event.GetReplyMsgId(),
 		ErrorCode: event.GetErrorCode(), ErrorClass: event.GetErrorClass(), ErrorMessage: event.GetErrorMessage(),

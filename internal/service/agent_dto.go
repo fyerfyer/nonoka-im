@@ -91,9 +91,6 @@ type RunView struct {
 	NextAttemptAt    *time.Time           `json:"nextAttemptAt,omitempty"`
 	ReplyMsgID       int64                `json:"replyMsgId,omitempty"`
 	CheckpointID     string               `json:"checkpointId,omitempty"`
-	Kind             string               `json:"kind"`
-	InputText        string               `json:"inputText,omitempty"`
-	OutputText       string               `json:"outputText,omitempty"`
 	Steps            []AgentRunStepView   `json:"steps,omitempty"`
 	ToolInvocations  []ToolInvocationView `json:"toolInvocations,omitempty"`
 	SideEffectAt     *time.Time           `json:"sideEffectAt,omitempty"`
@@ -197,17 +194,12 @@ func parsePolicies(raw string) map[string]string {
 }
 
 func runView(run *domain.AgentRun) RunView {
-	kind := run.Kind
-	if kind == "" {
-		kind = domain.RunKindIM
-	}
 	return RunView{
 		ID: run.ID, EventID: run.EventID, AgentID: run.AgentID, AgentVersion: run.AgentVersion,
 		SessionID: run.SessionID, ActorUserID: run.ActorUserID, Topic: run.Topic, MsgID: run.MsgID,
 		TopicSeq: run.TopicSeq, Status: run.Status, ErrorCode: run.ErrorCode, ErrorClass: run.ErrorClass,
 		Attempts: run.Attempts, LeaseUntil: run.LeaseUntil, NextAttemptAt: run.NextAttemptAt,
-		ReplyMsgID: run.ReplyMsgID, CheckpointID: run.CheckpointID, Kind: kind,
-		InputText: run.InputText, OutputText: run.OutputText, SideEffectAt: run.SideEffectAt,
+		ReplyMsgID: run.ReplyMsgID, CheckpointID: run.CheckpointID, SideEffectAt: run.SideEffectAt,
 		InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
 		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD,
 		RetryAfterAt: run.RetryAfterAt, LastError: app.PublicFailureMessage(run.ErrorCode, run.LastError),

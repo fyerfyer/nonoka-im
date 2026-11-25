@@ -6,9 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-
-	"nonoka-im/internal/agent/domain"
-	agentdata "nonoka-im/internal/data/agent"
 )
 
 func TestAgentVersionsRestoreAndPublishNote(t *testing.T) {
@@ -128,56 +125,6 @@ func TestAgentShareRolesAndOwnerOnlyDestructiveActions(t *testing.T) {
 	deniedDelete.Body.Close()
 	if deniedDelete.StatusCode != http.StatusForbidden {
 		t.Fatalf("editor delete should be forbidden, got %d", deniedDelete.StatusCode)
-	}
-}
-
-func TestAgentDraftTestRunAndCancel(t *testing.T) {
-	ts := setupTestServer(t, false)
-	defer ts.stop()
-
-	token, ownerID := registerAndLogin(t, "phase3-test-owner", "123456")
-	created := createPhase3Agent(t, token, "test-agent", "draft instructions")
-
-	testRun := httpPostAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/test", token, map[string]any{
-		"message": "hello draft",
-	})
-	testBody, _ := io.ReadAll(testRun.Body)
-	testRun.Body.Close()
-	if testRun.StatusCode != http.StatusAccepted {
-		t.Fatalf("test run: %d: %s", testRun.StatusCode, testBody)
-	}
-	var run struct {
-		ID        uint64 `json:"id"`
-		Kind      string `json:"kind"`
-		Status    string `json:"status"`
-		InputText string `json:"inputText"`
-	}
-	if err := json.Unmarshal(testBody, &run); err != nil {
-		t.Fatalf("decode test run: %v (%s)", err, testBody)
-	}
-	if run.ID == 0 || run.Kind != domain.RunKindTest || run.Status != domain.RunQueued || run.InputText != "hello draft" {
-		t.Fatalf("unexpected test run: %+v", run)
-	}
-
-	// The draft test must not create a published version.
-	detail := httpGet(t, testBaseURL+"/v1/agents/"+int64Str(created.ID), token)
-	detailBody, _ := io.ReadAll(detail.Body)
-	detail.Body.Close()
-	if !containsAll(string(detailBody), `"currentVersion":0`) {
-		t.Fatalf("test run changed published version: %s", detailBody)
-	}
-
-	cancel := httpPostAuth(t, testBaseURL+"/v1/agent-runs/"+uint64Str(run.ID)+"/cancel", token, map[string]any{})
-	cancel.Body.Close()
-	if cancel.StatusCode != http.StatusOK {
-		t.Fatalf("cancel: %d", cancel.StatusCode)
-	}
-	stored, err := agentdata.NewStore(ts.data.DB()).GetRun(t.Context(), run.ID)
-	if err != nil {
-		t.Fatalf("get run: %v", err)
-	}
-	if stored.Status != domain.RunCancelled || stored.ActorUserID != ownerID {
-		t.Fatalf("run not cancelled: %+v", stored)
 	}
 }
 

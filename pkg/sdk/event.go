@@ -30,7 +30,6 @@ type RunEvent struct {
 	BotUserID    int64        `json:"botUserId"`
 	ActorUserID  int64        `json:"actorUserId"`
 	TriggerMsgID int64        `json:"triggerMsgId,omitempty"`
-	Test         bool         `json:"test,omitempty"`
 
 	Delta           string `json:"delta,omitempty"`
 	Tool            string `json:"tool,omitempty"`

@@ -5062,9 +5062,6 @@ export namespace api {
                 /** AgentRunEvent triggerMsgId. */
                 triggerMsgId: (number|Long);
 
-                /** AgentRunEvent test. */
-                test: boolean;
-
                 /** AgentRunEvent delta. */
                 delta: string;
 
@@ -5220,9 +5217,6 @@ export namespace api {
 
                     /** AgentRunEvent triggerMsgId */
                     triggerMsgId?: (number|Long|null);
-
-                    /** AgentRunEvent test */
-                    test?: (boolean|null);
 
                     /** AgentRunEvent delta */
                     delta?: (string|null);

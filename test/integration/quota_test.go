@@ -79,7 +79,7 @@ func TestQuota_QueueFullDefersAndCountsOnce(t *testing.T) {
 		return &domain.AgentRun{
 			EventID: fmt.Sprintf("defer-evt-%d-%d", time.Now().UnixNano(), seq), AgentID: agentID,
 			ActorUserID: userID, Topic: topic,
-			MsgID: int64(seq), TopicSeq: seq, Status: domain.RunQueued, Kind: domain.RunKindIM, CreatedAt: time.Now(),
+			MsgID: int64(seq), TopicSeq: seq, Status: domain.RunQueued, CreatedAt: time.Now(),
 		}
 	}
 
@@ -179,7 +179,7 @@ func TestQuota_BudgetBlocksBeforeModel(t *testing.T) {
 	}
 	// Record spend over the user budget directly in the daily aggregate.
 	if _, err := store.RecordUsageEvent(ctx, day, domain.UsageEvent{
-		RunID: run.ID, AttemptID: "seed", Step: 1, Kind: domain.RunKindIM,
+		RunID: run.ID, AttemptID: "seed", Step: 1,
 		AgentID: agentID, ActorUserID: userID, Topic: run.Topic,
 		ModelID: 1, ModelKey: "fixture/model", Provider: "fixture",
 		InputTokens: 100, OutputTokens: 100, CostUSD: 50,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Coins, MessageSquare, ShieldAlert, Sparkles } from "lucide-react";
+import { Activity, Coins, ShieldAlert, Sparkles } from "lucide-react";
 import type { ManagedAgent } from "@/lib/api/agents";
 import { agentRunsQuery, agentUsageQuery, approvalsQuery } from "@/lib/queries/agents";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +111,7 @@ export function AgentOverview({
               ))}
               {recent.length === 0 && (
                 <p className="p-4 text-sm text-muted-foreground">
-                  No runs yet. Publish and start a chat, or use the Test tab.
+                  No runs yet. Publish the agent, then start a chat to run it.
                 </p>
               )}
             </div>
@@ -147,10 +147,6 @@ export function AgentOverview({
           <div className="rounded-xl border bg-card p-4">
             <h3 className="text-sm font-semibold">Quick actions</h3>
             <div className="mt-3 grid gap-2">
-              <Button variant="outline" size="sm" onClick={() => onTab("test")}>
-                <MessageSquare />
-                Test draft
-              </Button>
               <Button variant="outline" size="sm" onClick={() => onTab("build")}>
                 Edit configuration
               </Button>

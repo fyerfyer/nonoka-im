@@ -41,7 +41,6 @@ type Usage struct {
 	Scope        string
 	ScopeKey     string
 	Runs         int64
-	TestRuns     int64
 	InputTokens  int64
 	OutputTokens int64
 	CostUSD      float64
@@ -53,7 +52,6 @@ type UsageEvent struct {
 	RunID        uint64
 	AttemptID    string
 	Step         int
-	Kind         string
 	AgentID      int64
 	ActorUserID  int64
 	Topic        string

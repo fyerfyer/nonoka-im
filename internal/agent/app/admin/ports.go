@@ -151,7 +151,6 @@ type Input struct {
 	Enabled           bool
 	Note              string
 	Version           int64
-	Message           string
 }
 
 type MCPBindingInput struct {

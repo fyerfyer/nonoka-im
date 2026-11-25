@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentRun, RunEvent } from "@/lib/api/agents";
+import type { RunEvent } from "@/lib/api/agents";
 import type { ChatMessage, ToolCallState } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -10,7 +10,6 @@ export interface LiveRun {
   agentId: number;
   botUserId: number;
   actorUserId: number;
-  test: boolean;
   seq: number;
   text: string;
   tools: ToolCallState[];
@@ -33,7 +32,6 @@ interface RunStreamStore {
   approvalStatus: Map<number, string>;
   typingTopics: Map<string, number>;
   applyEvent: (event: RunEvent) => void;
-  setRunOutput: (run: AgentRun) => void;
   onFinalMessage: (message: ChatMessage) => void;
   clearTestRun: (runId: number) => void;
 }
@@ -90,7 +88,6 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
           agentId: event.agentId,
           botUserId: event.botUserId,
           actorUserId: event.actorUserId,
-          test: !!event.test,
           seq: event.seq,
           text: "",
           tools: [],
@@ -140,7 +137,7 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
     }
 
     const typingTopics = new Map(get().typingTopics);
-    if (!isActor && !event.test) {
+    if (!isActor) {
       if (event.type === "started" || event.type === "heartbeat") {
         typingTopics.set(event.topic, event.runId);
       }
@@ -150,7 +147,7 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
     }
     set({ runs, approvalStatus, typingTopics });
 
-    if (!isActor || event.test) return;
+    if (!isActor) return;
     const chat = useChatStore.getState();
     if (event.type === "started") {
       chat.upsertStreamingMessage(event.topic, placeholder(live, event.timestampMs));
@@ -215,21 +212,6 @@ export const useRunStreamStore = create<RunStreamStore>((set, get) => ({
         status: "delivered",
       });
     }
-  },
-
-  setRunOutput: (run) => {
-    const live = get().runs.get(run.id);
-    if (!live) return;
-    const runs = new Map(get().runs);
-    runs.set(run.id, {
-      ...live,
-      text: run.outputText || live.text,
-      status: run.status || live.status,
-      inputTokens: run.inputTokens,
-      outputTokens: run.outputTokens,
-      replyMsgId: run.replyMsgId || live.replyMsgId,
-    });
-    set({ runs });
   },
 
   onFinalMessage: (message) => {

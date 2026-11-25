@@ -43,7 +43,6 @@ import { AgentBuildForm } from "./AgentBuildForm";
 import { CapabilityPicker } from "./CapabilityPicker";
 import { AgentOverview } from "./AgentOverview";
 import { AgentAccessPanel } from "./AgentAccessPanel";
-import { AgentPlayground } from "./AgentPlayground";
 import { AgentVersions } from "./AgentVersions";
 import { AgentRuns } from "./AgentRuns";
 import {
@@ -53,7 +52,7 @@ import {
   toAgentInput,
 } from "./agent-utils";
 
-const TABS = ["overview", "build", "tools", "test", "runs"] as const;
+const TABS = ["overview", "build", "tools", "runs"] as const;
 type Tab = (typeof TABS)[number];
 
 function isTab(value: string | undefined): value is Tab {
@@ -377,7 +376,6 @@ export function AgentDetailClient({
             />
           </div>
         )}
-        {tab === "test" && canManage && <AgentPlayground agentId={agentId} />}
         {tab === "runs" && canManage && <AgentRuns agentId={agentId} />}
       </main>
 

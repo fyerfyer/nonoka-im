@@ -168,7 +168,6 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.PUT("/v1/agents/{id}/draft", agents.Draft)
 		r.POST("/v1/agents/{id}/publish", agents.Publish)
 		r.POST("/v1/agents/{id}/restore", agents.Restore)
-		r.POST("/v1/agents/{id}/test", agents.Test)
 		r.GET("/v1/agents/{id}/versions", agents.Versions)
 		r.GET("/v1/agents/{id}/versions/{version}", agents.Version)
 		r.POST("/v1/agents/{id}/status", agents.Status)

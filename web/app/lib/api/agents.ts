@@ -246,9 +246,6 @@ export interface AgentRun {
   errorClass?: string;
   attempts?: number;
   replyMsgId?: number;
-  kind: "im" | "test";
-  inputText?: string;
-  outputText?: string;
   steps?: AgentRunStep[];
   toolInvocations?: ToolInvocation[];
   inputTokens: number;
@@ -296,7 +293,6 @@ export interface AgentInput {
 export interface AgentUsageDay {
   day: string;
   runs: number;
-  testRuns: number;
   inputTokens: number;
   outputTokens: number;
   costUsd?: number;
@@ -372,7 +368,6 @@ export interface RunEvent {
   botUserId: number;
   actorUserId: number;
   triggerMsgId?: number;
-  test?: boolean;
   delta?: string;
   tool?: string;
   toolCallId?: string;
@@ -411,8 +406,6 @@ export const agentApi = {
   setStatus: (id: number, status: "active" | "disabled") =>
     api.post<{ status: string }>(`/v1/agents/${id}/status`, { status }),
   delete: (id: number) => api.del<{ status: string }>(`/v1/agents/${id}`),
-  test: (id: number, message: string) =>
-    api.post<AgentRun>(`/v1/agents/${id}/test`, { message }),
 
   shares: (id: number) =>
     api.get<{ shares: AgentShare[] }>(`/v1/agents/${id}/shares`),
@@ -464,7 +457,7 @@ export const agentApi = {
     api.del<{ status: string }>(`/v1/admin/quotas/${encodeURIComponent(scope)}/${encodeURIComponent(key)}`),
 
   topUsage: (scope = "agent", metric = "cost", limit = 10) =>
-    api.get<{ items: Array<{ day: string; scope: string; scopeKey: string; runs: number; testRuns: number; inputTokens: number; outputTokens: number; costUsd?: number }> }>(
+    api.get<{ items: Array<{ day: string; scope: string; scopeKey: string; runs: number; inputTokens: number; outputTokens: number; costUsd?: number }> }>(
       `/v1/admin/usage/top?scope=${scope}&metric=${metric}&limit=${limit}`
     ),
 

@@ -50,10 +50,8 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	if err != nil {
 		var budgetErr *domain.BudgetError
 		if errors.As(err, &budgetErr) && run != nil {
-			if run.Kind != domain.RunKindTest {
-				if agent, aerr := e.Store.GetAgent(context.WithoutCancel(parent), run.AgentID); aerr == nil && e.Notifier != nil {
-					e.Notifier.Notify(context.WithoutCancel(parent), run.AgentID, agent.BotUserID, run.ActorUserID, run.Topic, run.EventID, "budget_exceeded", budgetErr.Error())
-				}
+			if agent, aerr := e.Store.GetAgent(context.WithoutCancel(parent), run.AgentID); aerr == nil && e.Notifier != nil {
+				e.Notifier.Notify(context.WithoutCancel(parent), run.AgentID, agent.BotUserID, run.ActorUserID, run.Topic, run.EventID, "budget_exceeded", budgetErr.Error())
 			}
 			e.log().Warnf("run %d blocked by budget: %v", runID, err)
 			return
@@ -101,7 +99,7 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 	// A budget/quota failure discovered mid-run (for example by the usage
 	// guard) should still produce one human-readable chat notice. Dispatch and
 	// claim denials already notify; the durable dedupe key suppresses repeats.
-	if current, gerr := e.Store.GetRun(context.WithoutCancel(parent), run.ID); gerr == nil && current.Kind != domain.RunKindTest && isQuotaErrorCode(current.ErrorCode) {
+	if current, gerr := e.Store.GetRun(context.WithoutCancel(parent), run.ID); gerr == nil && isQuotaErrorCode(current.ErrorCode) {
 		if agent, aerr := e.Store.GetAgent(context.WithoutCancel(parent), current.AgentID); aerr == nil && e.Notifier != nil {
 			e.Notifier.Notify(context.WithoutCancel(parent), current.AgentID, agent.BotUserID, current.ActorUserID, current.Topic, current.EventID, current.ErrorCode, app.PublicFailureMessage(current.ErrorCode, current.LastError))
 		}
@@ -113,7 +111,7 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 		if e.Stream != nil {
 			_ = e.Stream.Publish(context.WithoutCancel(parent), realtime.RunEvent{
 				RunID: current.ID, Type: realtime.RunCancelled, Topic: current.Topic,
-				AgentID: current.AgentID, ActorUserID: current.ActorUserID, Test: current.Kind == domain.RunKindTest,
+				AgentID: current.AgentID, ActorUserID: current.ActorUserID,
 				Status: domain.RunCancelled, ErrorCode: "cancelled", TimestampMs: time.Now().UnixMilli(),
 			}, []int64{current.ActorUserID})
 		}
@@ -161,54 +159,44 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 	}()
 
-	isTest := run.Kind == domain.RunKindTest
-	var ev messaging.MessageEvent
-	if isTest {
-		ev = messaging.MessageEvent{
-			SchemaVersion: messaging.SchemaVersion, EventID: run.EventID,
-			Topic: run.Topic, SenderID: run.ActorUserID, Timestamp: time.Now().Unix(),
-			Content: run.InputText,
+	msg, err := e.Reader.MessageForUser(ctx, run.ActorUserID, run.Topic, run.MsgID)
+	if err != nil {
+		if errors.Is(err, app.ErrMessageNotFound) {
+			return e.fail(ctx, run, port.ClassInvalidConfig, "message_unavailable", err, false, false)
 		}
-	} else {
-		msg, err := e.Reader.MessageForUser(ctx, run.ActorUserID, run.Topic, run.MsgID)
-		if err != nil {
-			if errors.Is(err, app.ErrMessageNotFound) {
-				return e.fail(ctx, run, port.ClassInvalidConfig, "message_unavailable", err, false, false)
+		return e.fail(ctx, run, port.ClassTransientInfra, "message_unavailable", err, true, false)
+	}
+	ev := messaging.MessageEvent{
+		SchemaVersion: messaging.SchemaVersion,
+		EventID:       run.EventID,
+		MsgID:         run.MsgID,
+		TopicSeq:      run.TopicSeq,
+		Topic:         run.Topic,
+		SenderID:      run.ActorUserID,
+		Timestamp:     time.Now().Unix(),
+		MsgType:       messaging.MessageTypeText,
+		Content:       string(msg.Content),
+	}
+	switch msg.Type {
+	case messaging.MessageTypeImage, messaging.MessageTypeFile:
+		meta, ok := messaging.ParseMediaContent(msg.Content)
+		if ok {
+			ev.FileID, ev.FileName, ev.Mime, ev.Size = meta.FileID, meta.Name, meta.Mime, meta.Size
+			if msg.Type == messaging.MessageTypeImage {
+				ev.Content = "[image: " + displayName(meta.Name) + "]"
+			} else {
+				ev.Content = "[file: " + displayName(meta.Name) + "; file_id=" + meta.FileID + "]"
 			}
-			return e.fail(ctx, run, port.ClassTransientInfra, "message_unavailable", err, true, false)
 		}
-		ev = messaging.MessageEvent{
-			SchemaVersion: messaging.SchemaVersion,
-			EventID:       run.EventID,
-			MsgID:         run.MsgID,
-			TopicSeq:      run.TopicSeq,
-			Topic:         run.Topic,
-			SenderID:      run.ActorUserID,
-			Timestamp:     time.Now().Unix(),
-			MsgType:       messaging.MessageTypeText,
-			Content:       string(msg.Content),
+		ev.MsgType = msg.Type
+	default:
+		ev.MsgType = msg.Type
+	}
+	if err := e.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
+		if errors.Is(err, authz.ErrDenied) {
+			return e.cancel(ctx, run, "access_revoked")
 		}
-		switch msg.Type {
-		case messaging.MessageTypeImage, messaging.MessageTypeFile:
-			meta, ok := messaging.ParseMediaContent(msg.Content)
-			if ok {
-				ev.FileID, ev.FileName, ev.Mime, ev.Size = meta.FileID, meta.Name, meta.Mime, meta.Size
-				if msg.Type == messaging.MessageTypeImage {
-					ev.Content = "[image: " + displayName(meta.Name) + "]"
-				} else {
-					ev.Content = "[file: " + displayName(meta.Name) + "; file_id=" + meta.FileID + "]"
-				}
-			}
-			ev.MsgType = msg.Type
-		default:
-			ev.MsgType = msg.Type
-		}
-		if err := e.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
-			if errors.Is(err, authz.ErrDenied) {
-				return e.cancel(ctx, run, "access_revoked")
-			}
-			return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
-		}
+		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 	}
 	agent, err := e.Store.GetAgent(ctx, run.AgentID)
 	if err != nil {
@@ -217,7 +205,7 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassTransientInfra, "agent_unavailable", err, true, false)
 	}
-	if !isTest && agent.Status != "active" {
+	if agent.Status != "active" {
 		return e.cancel(ctx, run, "agent_disabled")
 	}
 	if err := e.Authorizer.CanUseAgent(ctx, run.ActorUserID, agent.ID); err != nil {
@@ -226,54 +214,31 @@ func (e *Executor) Execute(ctx context.Context, run *domain.AgentRun) (err error
 		}
 		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 	}
-	if !isTest {
-		if err := e.Authorizer.CanAccessTopic(ctx, agent.BotUserID, run.Topic); err != nil {
-			if errors.Is(err, authz.ErrDenied) {
-				return e.cancel(ctx, run, "access_revoked")
-			}
-			return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
+	if err := e.Authorizer.CanAccessTopic(ctx, agent.BotUserID, run.Topic); err != nil {
+		if errors.Is(err, authz.ErrDenied) {
+			return e.cancel(ctx, run, "access_revoked")
 		}
+		return e.fail(ctx, run, port.ClassTransientInfra, "authz_unavailable", err, true, false)
 	}
 
-	var version *domain.AgentVersion
-	if isTest {
-		var cfg domain.RunConfig
-		if err := json.Unmarshal([]byte(run.ConfigSnapshot), &cfg); err != nil {
-			return e.fail(ctx, run, port.ClassInvalidConfig, "invalid_config", err, false, false)
-		}
-		tools, _ := json.Marshal(cfg.Tools)
-		presets, _ := json.Marshal(cfg.CapabilityPresets)
-		policies, _ := json.Marshal(cfg.ToolPolicies)
-		mcp, _ := json.Marshal(cfg.MCPBindings)
-		skills, _ := json.Marshal(cfg.Skills)
-		version = &domain.AgentVersion{
-			AgentID: agent.ID, Version: 0, Instruction: cfg.Instruction,
-			ModelID: cfg.ModelID,
-			Tools:   string(tools), CapabilityPresets: string(presets),
-			ToolPolicies: string(policies), MaxTokens: cfg.MaxTokens,
-			MCPBindings: string(mcp), Skills: string(skills),
-		}
-	} else {
-		versionNumber := agent.CurrentVersion
-		if run.AgentVersion > 0 {
-			versionNumber = run.AgentVersion
-		}
-		version, err = e.Store.GetVersion(ctx, agent.ID, versionNumber)
-		if err != nil {
-			if errors.Is(err, domain.ErrVersionNotFound) {
-				return e.fail(ctx, run, port.ClassInvalidConfig, "version_missing", err, false, false)
-			}
-			return e.fail(ctx, run, port.ClassTransientInfra, "version_unavailable", err, true, false)
-		}
+	versionNumber := agent.CurrentVersion
+	if run.AgentVersion > 0 {
+		versionNumber = run.AgentVersion
 	}
-	resolved, err := e.resolve(ctx, agent, version, isTest)
+	version, err := e.Store.GetVersion(ctx, agent.ID, versionNumber)
+	if err != nil {
+		if errors.Is(err, domain.ErrVersionNotFound) {
+			return e.fail(ctx, run, port.ClassInvalidConfig, "version_missing", err, false, false)
+		}
+		return e.fail(ctx, run, port.ClassTransientInfra, "version_unavailable", err, true, false)
+	}
+	resolved, err := e.resolve(ctx, agent, version)
 	if err != nil {
 		if errors.Is(err, domain.ErrTransient) {
 			return e.fail(ctx, run, port.ClassTransientInfra, "config_unavailable", err, true, false)
 		}
 		return e.fail(ctx, run, port.ClassInvalidConfig, "invalid_config", err, false, false)
 	}
-	resolved.Test = isTest
 
 	if run.CheckpointID != "" {
 		return e.resume(ctx, ev, run, resolved)
@@ -347,7 +312,7 @@ func (e *Executor) failAfterResume(parent context.Context, run *domain.AgentRun,
 	return recordedError{err: cause}
 }
 
-func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *domain.AgentVersion, isTest bool) (app.ResolvedAgent, error) {
+func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *domain.AgentVersion) (app.ResolvedAgent, error) {
 	var allowed []string
 	if version.Tools != "" {
 		if err := json.Unmarshal([]byte(version.Tools), &allowed); err != nil {
@@ -394,7 +359,7 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 	if e.Models == nil {
 		return app.ResolvedAgent{}, fmt.Errorf("%w: model resolver unavailable", port.ErrInvalidConfig)
 	}
-	endpoint, err := e.Models.ResolveForRun(ctx, agent.ID, version.ModelID, isTest)
+	endpoint, err := e.Models.ResolveForRun(ctx, agent.ID, version.ModelID)
 	if err != nil {
 		return app.ResolvedAgent{}, fmt.Errorf("%w: resolve model: %v", port.ErrInvalidConfig, err)
 	}

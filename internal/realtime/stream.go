@@ -54,8 +54,6 @@ type RunEvent struct {
 	BotUserID    int64 `json:"botUserId"`
 	ActorUserID  int64 `json:"actorUserId"`
 	TriggerMsgID int64 `json:"triggerMsgId,omitempty"`
-	// Test marks playground runs whose events must not create chat history.
-	Test bool `json:"test,omitempty"`
 
 	// Delta is set for RunDelta only.
 	Delta string `json:"delta,omitempty"`

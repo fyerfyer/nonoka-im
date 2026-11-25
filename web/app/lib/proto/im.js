@@ -12709,7 +12709,6 @@ export const api = $root.api = (() => {
                  * @property {number|Long|null} [botUserId] AgentRunEvent botUserId
                  * @property {number|Long|null} [actorUserId] AgentRunEvent actorUserId
                  * @property {number|Long|null} [triggerMsgId] AgentRunEvent triggerMsgId
-                 * @property {boolean|null} [test] AgentRunEvent test
                  * @property {string|null} [delta] AgentRunEvent delta
                  * @property {string|null} [tool] AgentRunEvent tool
                  * @property {string|null} [toolCallId] AgentRunEvent toolCallId
@@ -12820,14 +12819,6 @@ export const api = $root.api = (() => {
                  * @instance
                  */
                 AgentRunEvent.prototype.triggerMsgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
-
-                /**
-                 * AgentRunEvent test.
-                 * @member {boolean} test
-                 * @memberof api.im.v1.AgentRunEvent
-                 * @instance
-                 */
-                AgentRunEvent.prototype.test = false;
 
                 /**
                  * AgentRunEvent delta.
@@ -13005,8 +12996,6 @@ export const api = $root.api = (() => {
                         writer.uint32(/* id 7, wireType 0 =*/56).int64(message.actorUserId);
                     if (message.triggerMsgId != null && $Object.hasOwnProperty.call(message, "triggerMsgId"))
                         writer.uint32(/* id 8, wireType 0 =*/64).int64(message.triggerMsgId);
-                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
-                        writer.uint32(/* id 9, wireType 0 =*/72).bool(message.test);
                     if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
                         writer.uint32(/* id 10, wireType 2 =*/82).string(message.delta);
                     if (message.tool != null && $Object.hasOwnProperty.call(message, "tool"))
@@ -13156,15 +13145,6 @@ export const api = $root.api = (() => {
                                     message.triggerMsgId = value;
                                 else
                                     delete message.triggerMsgId;
-                                continue;
-                            }
-                        case 9: {
-                                if (wireType !== 0)
-                                    break;
-                                if (value = reader.bool())
-                                    message.test = value;
-                                else
-                                    delete message.test;
                                 continue;
                             }
                         case 10: {
@@ -13392,9 +13372,6 @@ export const api = $root.api = (() => {
                     if (message.triggerMsgId != null && $Object.hasOwnProperty.call(message, "triggerMsgId"))
                         if (!$util.isInteger(message.triggerMsgId) && !(message.triggerMsgId && $util.isInteger(message.triggerMsgId.low) && $util.isInteger(message.triggerMsgId.high)))
                             return "triggerMsgId: integer|Long expected";
-                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
-                        if (typeof message.test !== "boolean")
-                            return "test: boolean expected";
                     if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
                         if (!$util.isString(message.delta))
                             return "delta: string expected";
@@ -13580,9 +13557,6 @@ export const api = $root.api = (() => {
                                 message.triggerMsgId = object.triggerMsgId;
                             else if (typeof object.triggerMsgId === "object")
                                 message.triggerMsgId = new $util.LongBits(object.triggerMsgId.low >>> 0, object.triggerMsgId.high >>> 0).toNumber();
-                    if (object.test != null)
-                        if (object.test)
-                            message.test = $Boolean(object.test);
                     if (object.delta != null)
                         if (typeof object.delta !== "string" || object.delta.length)
                             message.delta = $String(object.delta);
@@ -13712,7 +13686,6 @@ export const api = $root.api = (() => {
                             object.triggerMsgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
                         } else
                             object.triggerMsgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
-                        object.test = false;
                         object.delta = "";
                         object.tool = "";
                         object.toolCallId = "";
@@ -13792,8 +13765,6 @@ export const api = $root.api = (() => {
                             object.triggerMsgId = options.longs === $String ? $String(message.triggerMsgId) : message.triggerMsgId;
                         else
                             object.triggerMsgId = options.longs === $String ? $util.Long.prototype.toString.call(message.triggerMsgId) : options.longs === $Number ? new $util.LongBits(message.triggerMsgId.low >>> 0, message.triggerMsgId.high >>> 0).toNumber() : message.triggerMsgId;
-                    if (message.test != null && $Object.hasOwnProperty.call(message, "test"))
-                        object.test = message.test;
                     if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
                         object.delta = message.delta;
                     if (message.tool != null && $Object.hasOwnProperty.call(message, "tool"))

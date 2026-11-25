@@ -106,10 +106,6 @@ type AgentRunRow struct {
 	NextAttemptAt    *time.Time `gorm:"column:next_attempt_at"`
 	ReplyMsgID       int64      `gorm:"column:reply_msg_id"`
 	CheckpointID     string     `gorm:"column:checkpoint_id;size:64"`
-	Kind             string     `gorm:"column:kind;size:16;not null;default:im"`
-	InputText        string     `gorm:"column:input_text;type:text"`
-	OutputText       string     `gorm:"column:output_text;type:text"`
-	ConfigSnapshot   string     `gorm:"column:config_snapshot;type:text"`
 	SideEffectAt     *time.Time `gorm:"column:side_effect_at"`
 	InputTokens      int        `gorm:"column:input_tokens"`
 	OutputTokens     int        `gorm:"column:output_tokens"`
@@ -131,8 +127,7 @@ func agentRunRowFromDomain(run domain.AgentRun) AgentRunRow {
 		TopicSeq: run.TopicSeq, Status: run.Status, ErrorCode: run.ErrorCode, ErrorClass: run.ErrorClass,
 		LastError: run.LastError, Attempts: run.Attempts, AttemptID: run.AttemptID,
 		LeaseUntil: run.LeaseUntil, NextAttemptAt: run.NextAttemptAt, ReplyMsgID: run.ReplyMsgID,
-		CheckpointID: run.CheckpointID, Kind: run.Kind, InputText: run.InputText,
-		OutputText: run.OutputText, ConfigSnapshot: run.ConfigSnapshot,
+		CheckpointID: run.CheckpointID,
 		SideEffectAt: run.SideEffectAt, InputTokens: run.InputTokens,
 		OutputTokens: run.OutputTokens, TotalTokens: run.TotalTokens,
 		ModelKey: run.ModelKey, EstimatedCostUSD: run.EstimatedCostUSD, RetryAfterAt: run.RetryAfterAt,
@@ -148,8 +143,7 @@ func (r AgentRunRow) toDomain() domain.AgentRun {
 		TopicSeq: r.TopicSeq, Status: r.Status, ErrorCode: r.ErrorCode, ErrorClass: r.ErrorClass,
 		LastError: r.LastError, Attempts: r.Attempts, AttemptID: r.AttemptID,
 		LeaseUntil: r.LeaseUntil, NextAttemptAt: r.NextAttemptAt, ReplyMsgID: r.ReplyMsgID,
-		CheckpointID: r.CheckpointID, Kind: r.Kind, InputText: r.InputText,
-		OutputText: r.OutputText, ConfigSnapshot: r.ConfigSnapshot,
+		CheckpointID: r.CheckpointID,
 		SideEffectAt: r.SideEffectAt, InputTokens: r.InputTokens,
 		OutputTokens: r.OutputTokens, TotalTokens: r.TotalTokens,
 		ModelKey: r.ModelKey, EstimatedCostUSD: r.EstimatedCostUSD, RetryAfterAt: r.RetryAfterAt,

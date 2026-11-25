@@ -34,7 +34,6 @@ type Usage struct {
 	Scope        string  `json:"scope"`
 	ScopeKey     string  `json:"scopeKey"`
 	Runs         int64   `json:"runs"`
-	TestRuns     int64   `json:"testRuns"`
 	InputTokens  int64   `json:"inputTokens"`
 	OutputTokens int64   `json:"outputTokens"`
 	CostUSD      float64 `json:"costUsd,omitempty"`

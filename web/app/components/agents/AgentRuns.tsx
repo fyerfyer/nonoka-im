@@ -92,7 +92,6 @@ export function AgentRuns({ agentId }: { agentId: number }) {
             <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5">Run</th>
-                <th>Kind</th>
                 <th>Actor</th>
                 <th>Status</th>
                 <th>Error</th>
@@ -114,11 +113,6 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                   onClick={() => setSelected(selected === run.id ? null : run.id)}
                 >
                   <td className="px-4 py-3 font-mono text-xs">#{run.id}</td>
-                  <td>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {run.kind}
-                    </Badge>
-                  </td>
                   <td className="text-xs">#{run.actorUserId}</td>
                   <td>
                     <Badge
@@ -204,8 +198,7 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                     Run #{detail.data.id} · {detail.data.status}
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    {detail.data.errorClass || detail.data.kind} ·{" "}
-                    {formatTime(detail.data.createdAt)}
+                    {detail.data.errorClass || "run"} · {formatTime(detail.data.createdAt)}
                   </p>
                 </div>
                 <div className="flex gap-1">
@@ -239,7 +232,7 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Agent version</dt>
-                  <dd>{detail.data.agentVersion ? `v${detail.data.agentVersion}` : "test draft"}</dd>
+                  <dd>{detail.data.agentVersion ? `v${detail.data.agentVersion}` : "-"}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Reply message</dt>
@@ -273,12 +266,6 @@ export function AgentRuns({ agentId }: { agentId: number }) {
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
                   {detail.data.lastError}
                 </p>
-              )}
-
-              {detail.data.outputText && (
-                <div className="rounded-lg border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
-                  {detail.data.outputText}
-                </div>
               )}
 
               <div className="grid gap-4 lg:grid-cols-2">

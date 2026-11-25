@@ -37,7 +37,6 @@ type UsageView struct {
 	Scope        string  `json:"scope"`
 	ScopeKey     string  `json:"scopeKey"`
 	Runs         int64   `json:"runs"`
-	TestRuns     int64   `json:"testRuns"`
 	InputTokens  int64   `json:"inputTokens"`
 	OutputTokens int64   `json:"outputTokens"`
 	CostUSD      float64 `json:"costUsd,omitempty"`
@@ -165,7 +164,7 @@ func quotaDefaults(cfg app.QuotaConfig) map[string]domain.QuotaLimits {
 func usageView(u domain.Usage, includeCost bool) UsageView {
 	v := UsageView{
 		Day: u.Day.Format("2006-01-02"), Scope: u.Scope, ScopeKey: u.ScopeKey,
-		Runs: u.Runs, TestRuns: u.TestRuns, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+		Runs: u.Runs, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
 	}
 	if includeCost {
 		v.CostUSD = u.CostUSD

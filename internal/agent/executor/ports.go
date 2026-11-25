@@ -35,7 +35,7 @@ type Registry interface {
 // disabled/uncurated models and never fall back to a global provider
 // credential.
 type ModelResolver interface {
-	ResolveForRun(ctx context.Context, agentID, modelID int64, test bool) (port.ModelEndpoint, error)
+	ResolveForRun(ctx context.Context, agentID, modelID int64) (port.ModelEndpoint, error)
 }
 
 // Authorizer is the subset of the authorization boundary the executor needs.

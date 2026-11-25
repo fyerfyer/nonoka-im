@@ -184,7 +184,6 @@ type AgentRunEvent struct {
 	BotUserId      int64                  `protobuf:"varint,6,opt,name=bot_user_id,json=botUserId,proto3" json:"bot_user_id,omitempty"`
 	ActorUserId    int64                  `protobuf:"varint,7,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
 	TriggerMsgId   int64                  `protobuf:"varint,8,opt,name=trigger_msg_id,json=triggerMsgId,proto3" json:"trigger_msg_id,omitempty"`
-	Test           bool                   `protobuf:"varint,9,opt,name=test,proto3" json:"test,omitempty"`
 	Delta          string                 `protobuf:"bytes,10,opt,name=delta,proto3" json:"delta,omitempty"`
 	Tool           string                 `protobuf:"bytes,11,opt,name=tool,proto3" json:"tool,omitempty"`
 	ToolCallId     string                 `protobuf:"bytes,12,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
@@ -289,13 +288,6 @@ func (x *AgentRunEvent) GetTriggerMsgId() int64 {
 		return x.TriggerMsgId
 	}
 	return 0
-}
-
-func (x *AgentRunEvent) GetTest() bool {
-	if x != nil {
-		return x.Test
-	}
-	return false
 }
 
 func (x *AgentRunEvent) GetDelta() string {
@@ -1316,7 +1308,7 @@ var File_im_v1_packet_proto protoreflect.FileDescriptor
 
 const file_im_v1_packet_proto_rawDesc = "" +
 	"\n" +
-	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\x97\x06\n" +
+	"\x12im/v1/packet.proto\x12\tapi.im.v1\x1a\x13im/v1/message.proto\"\x8f\x06\n" +
 	"\rAgentRunEvent\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\x04R\x05runId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x120\n" +
@@ -1325,8 +1317,7 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\bagent_id\x18\x05 \x01(\x03R\aagentId\x12\x1e\n" +
 	"\vbot_user_id\x18\x06 \x01(\x03R\tbotUserId\x12\"\n" +
 	"\ractor_user_id\x18\a \x01(\x03R\vactorUserId\x12$\n" +
-	"\x0etrigger_msg_id\x18\b \x01(\x03R\ftriggerMsgId\x12\x12\n" +
-	"\x04test\x18\t \x01(\bR\x04test\x12\x14\n" +
+	"\x0etrigger_msg_id\x18\b \x01(\x03R\ftriggerMsgId\x12\x14\n" +
 	"\x05delta\x18\n" +
 	" \x01(\tR\x05delta\x12\x12\n" +
 	"\x04tool\x18\v \x01(\tR\x04tool\x12 \n" +
@@ -1348,7 +1339,8 @@ const file_im_v1_packet_proto_rawDesc = "" +
 	"\ftimestamp_ms\x18\x16 \x01(\x03R\vtimestampMs\x12\"\n" +
 	"\rclient_msg_id\x18\x17 \x01(\tR\vclientMsgId\x12#\n" +
 	"\rerror_message\x18\x18 \x01(\tR\ferrorMessage\x12)\n" +
-	"\x11retry_after_at_ms\x18\x19 \x01(\x03R\x0eretryAfterAtMs\"\xb6\a\n" +
+	"\x11retry_after_at_ms\x18\x19 \x01(\x03R\x0eretryAfterAtMsJ\x04\b\t\x10\n" +
+	"R\x04test\"\xb6\a\n" +
 	"\x06Packet\x12$\n" +
 	"\x03cmd\x18\x01 \x01(\x0e2\x12.api.im.v1.CommandR\x03cmd\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x123\n" +

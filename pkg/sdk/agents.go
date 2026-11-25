@@ -129,8 +129,6 @@ func (r *AgentsResource) Version(ctx context.Context, id, version int64) (*Agent
 	return &out, nil
 }
 
-// Test starts a playground run against the current draft. It never publishes
-// the agent or writes chat messages.
 func (r *AgentsResource) Tools(ctx context.Context) ([]CapabilityPreset, []ToolDefinition, error) {
 	var reply struct {
 		Presets []CapabilityPreset `json:"presets"`
@@ -140,15 +138,6 @@ func (r *AgentsResource) Tools(ctx context.Context) ([]CapabilityPreset, []ToolD
 		return nil, nil, err
 	}
 	return reply.Presets, reply.Tools, nil
-}
-
-func (r *AgentsResource) Test(ctx context.Context, id int64, message string) (*AgentRun, error) {
-	var run AgentRun
-	body := map[string]any{"message": message}
-	if err := r.http.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/agents/%d/test", id), nil, body, &run, false); err != nil {
-		return nil, err
-	}
-	return &run, nil
 }
 
 // Runs returns one page of an agent's run history.

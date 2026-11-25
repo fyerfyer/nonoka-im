@@ -9,10 +9,10 @@ import (
 	"nonoka-im/internal/agent/port"
 )
 
-// ResolveForRun returns the runtime endpoint for a published agent run or a
-// playground test run. It fails closed when the model is not curated/enabled or
-// when the required virtual key is unavailable.
-func (s *Service) ResolveForRun(ctx context.Context, agentID, modelID int64, test bool) (port.ModelEndpoint, error) {
+// ResolveForRun returns the runtime endpoint for a published agent run. It
+// fails closed when the model is not curated/enabled or when the required
+// virtual key is unavailable.
+func (s *Service) ResolveForRun(ctx context.Context, agentID, modelID int64) (port.ModelEndpoint, error) {
 	model, err := s.Lookup(ctx, modelID)
 	if err != nil {
 		return port.ModelEndpoint{}, err
@@ -23,12 +23,7 @@ func (s *Service) ResolveForRun(ctx context.Context, agentID, modelID int64, tes
 	if !model.Curated {
 		return port.ModelEndpoint{}, fmt.Errorf("%w: model %q is not curated", domain.ErrModelNotCurated, model.ModelKey)
 	}
-	var key string
-	if test {
-		key, err = s.playgroundKeyValue(ctx)
-	} else {
-		key, err = s.agentKeyValue(ctx, agentID)
-	}
+	key, err := s.agentKeyValue(ctx, agentID)
 	if err != nil {
 		return port.ModelEndpoint{}, err
 	}

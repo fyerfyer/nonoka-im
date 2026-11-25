@@ -278,9 +278,6 @@ type AgentRun struct {
 	ErrorClass      string           `json:"errorClass,omitempty"`
 	Attempts        int              `json:"attempts"`
 	ReplyMsgID      int64            `json:"replyMsgId,omitempty"`
-	Kind            string           `json:"kind"`
-	InputText       string           `json:"inputText,omitempty"`
-	OutputText      string           `json:"outputText,omitempty"`
 	Steps           []AgentRunStep   `json:"steps,omitempty"`
 	ToolInvocations []ToolInvocation `json:"toolInvocations,omitempty"`
 	InputTokens     int              `json:"inputTokens"`

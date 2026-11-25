@@ -220,32 +220,6 @@ func (s *AgentHTTP) Restore(c khttp.Context) error {
 	})
 }
 
-func (s *AgentHTTP) Test(c khttp.Context) error {
-	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-		id, err := parseAgentID(c)
-		if err != nil {
-			return err
-		}
-		var input agentRequest
-		if err := decodeAgent(r, &input); err != nil {
-			return err
-		}
-		agent, cfg, err := s.agents.TestSnapshot(ctx, extractUserIDFromContext(ctx), id)
-		if err != nil {
-			return err
-		}
-		run, err := s.runs.StartTest(ctx, extractUserIDFromContext(ctx), agent, cfg, input.Message)
-		if err != nil {
-			return err
-		}
-		if s.quota != nil {
-			_ = s.quota.RecordTestRun(ctx, extractUserIDFromContext(ctx), agent.ID)
-		}
-		writeAgentJSON(w, http.StatusAccepted, runView(run))
-		return nil
-	})
-}
-
 func (s *AgentHTTP) Delete(c khttp.Context) error {
 	return s.handle(c, func(ctx context.Context, w http.ResponseWriter, _ *http.Request) error {
 		id, err := parseAgentID(c)

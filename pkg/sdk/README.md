@@ -50,8 +50,7 @@ message ID.
 | `Messages`      | idempotent send, pull history/offline                                           |
 | `Groups`        | create, list, members                                                           |
 | `Files`         | upload, download, share                                                         |
-| `Agents`        | CRUD, draft, publish, restore, versions, shares, draft test, runs, tool catalog |
-| `Agents`        | CRUD, draft, publish, restore, versions, shares, draft test, runs, tool catalog |
+| `Agents`        | CRUD, draft, publish, restore, versions, shares, runs, tool catalog |
 | `Models`        | read-only Bifrost catalog, administration sync/curation                         |
 | `Quotas`        | admin user/agent quota CRUD and top usage                                       |
 | `Audit`         | admin append-only audit event query                                             |

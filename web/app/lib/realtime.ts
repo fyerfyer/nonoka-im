@@ -439,7 +439,6 @@ export class RealtimeClient extends EventTarget {
           botUserId: Number(e.botUserId),
           actorUserId: Number(e.actorUserId),
           triggerMsgId: Number(e.triggerMsgId) || undefined,
-          test: !!e.test,
           delta: e.delta || undefined,
           tool: e.tool || undefined,
           toolCallId: e.toolCallId || undefined,

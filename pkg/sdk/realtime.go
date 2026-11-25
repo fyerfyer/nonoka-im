@@ -393,7 +393,7 @@ func runEventFromProto(event *v1.AgentRunEvent) *RunEvent {
 	return &RunEvent{
 		RunID: event.GetRunId(), Seq: event.GetSeq(), Type: typeMap[event.GetType()],
 		Topic: event.GetTopic(), AgentID: event.GetAgentId(), BotUserID: event.GetBotUserId(),
-		ActorUserID: event.GetActorUserId(), TriggerMsgID: event.GetTriggerMsgId(), Test: event.GetTest(),
+		ActorUserID: event.GetActorUserId(), TriggerMsgID: event.GetTriggerMsgId(),
 		Delta: event.GetDelta(), Tool: event.GetTool(), ToolCallID: event.GetToolCallId(),
 		Summary: event.GetSummary(), Status: event.GetStatus(), ApprovalID: event.GetApprovalId(),
 		ReplyMsgID: event.GetReplyMsgId(), ClientMessageID: event.GetClientMsgId(),

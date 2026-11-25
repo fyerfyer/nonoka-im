@@ -28,12 +28,11 @@ func (h *Harness) emitRunEvent(ctx context.Context, run *domain.AgentRun, agent 
 	event.BotUserID = agent.BotID
 	event.ActorUserID = run.ActorUserID
 	event.TriggerMsgID = run.MsgID
-	event.Test = agent.Test || run.Kind == domain.RunKindTest
 	if event.TimestampMs == 0 {
 		event.TimestampMs = time.Now().UnixMilli()
 	}
 	recipients := []int64{run.ActorUserID}
-	if groupAudience && !agent.Test {
+	if groupAudience {
 		recipients = h.groupRecipients(ctx, run.Topic, run.ActorUserID)
 	}
 	sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)

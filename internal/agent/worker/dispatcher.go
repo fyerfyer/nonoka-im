@@ -67,7 +67,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev messaging.MessageEvent) er
 		candidate := &domain.AgentRun{
 			EventID: ev.EventID, AgentID: agent.ID, AgentVersion: agent.CurrentVersion,
 			ActorUserID: ev.SenderID, Topic: ev.Topic, MsgID: ev.MsgID, TopicSeq: ev.TopicSeq,
-			Status: domain.RunQueued, Kind: domain.RunKindIM, CreatedAt: time.Now(),
+			Status: domain.RunQueued, CreatedAt: time.Now(),
 		}
 		if d.Quota != nil {
 			created, quotaErr, err := d.Quota.AdmitEnqueue(ctx, candidate)

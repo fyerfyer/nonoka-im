@@ -22,7 +22,7 @@ func TestBifrost_PerAgentKeyLifecycleAndResolution(t *testing.T) {
 	if err != nil || status != domain.GatewayKeyActive {
 		t.Fatalf("key status: %q %v", status, err)
 	}
-	endpoint, err := ts.modelSvc.ResolveForRun(t.Context(), 880001, ts.modelID, false)
+	endpoint, err := ts.modelSvc.ResolveForRun(t.Context(), 880001, ts.modelID)
 	if err != nil {
 		t.Fatalf("resolve agent run: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestBifrost_PerAgentKeyLifecycleAndResolution(t *testing.T) {
 	if err := ts.modelSvc.RevokeAgentKey(t.Context(), 880001); err != nil {
 		t.Fatalf("revoke key: %v", err)
 	}
-	if _, err := ts.modelSvc.ResolveForRun(t.Context(), 880001, ts.modelID, false); err == nil {
+	if _, err := ts.modelSvc.ResolveForRun(t.Context(), 880001, ts.modelID); err == nil {
 		t.Fatal("resolved after revoke")
 	}
 }

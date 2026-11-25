@@ -44,7 +44,6 @@ type UsageRow struct {
 	Scope        string    `gorm:"column:scope;size:16"`
 	ScopeKey     string    `gorm:"column:scope_key;size:160"`
 	Runs         int64     `gorm:"column:runs"`
-	TestRuns     int64     `gorm:"column:test_runs"`
 	InputTokens  int64     `gorm:"column:input_tokens"`
 	OutputTokens int64     `gorm:"column:output_tokens"`
 	CostUSD      float64   `gorm:"column:cost_usd"`
@@ -54,7 +53,7 @@ func (UsageRow) TableName() string { return "agent_usage_daily" }
 
 func (r UsageRow) toDomain() domain.Usage {
 	return domain.Usage{
-		Day: r.Day, Scope: r.Scope, ScopeKey: r.ScopeKey, Runs: r.Runs, TestRuns: r.TestRuns,
+		Day: r.Day, Scope: r.Scope, ScopeKey: r.ScopeKey, Runs: r.Runs,
 		InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUSD: r.CostUSD,
 	}
 }
@@ -169,7 +168,7 @@ func (s *Store) TopUsage(ctx context.Context, day time.Time, scope, metric strin
 	return out, nil
 }
 
-func (s *Store) incrementDailyRuns(ctx context.Context, tx *gorm.DB, day time.Time, userID, agentID int64, test bool) error {
+func (s *Store) incrementDailyRuns(ctx context.Context, tx *gorm.DB, day time.Time, userID, agentID int64) error {
 	rows := []struct {
 		scope string
 		key   string
@@ -178,31 +177,18 @@ func (s *Store) incrementDailyRuns(ctx context.Context, tx *gorm.DB, day time.Ti
 		{domain.QuotaScopeAgent, intKey(agentID)},
 	}
 	for _, row := range rows {
-		column := "runs"
-		if test {
-			column = "test_runs"
-		}
 		err := tx.WithContext(ctx).Exec(`
-			INSERT INTO agent_usage_daily (day, scope, scope_key, runs, test_runs, input_tokens, output_tokens, cost_usd, updated_at)
-			VALUES (?, ?, ?, ?, ?, 0, 0, 0, now())
+			INSERT INTO agent_usage_daily (day, scope, scope_key, runs, input_tokens, output_tokens, cost_usd, updated_at)
+			VALUES (?, ?, ?, 1, 0, 0, 0, now())
 			ON CONFLICT (day, scope, scope_key) DO UPDATE SET
 				runs = agent_usage_daily.runs + EXCLUDED.runs,
-				test_runs = agent_usage_daily.test_runs + EXCLUDED.test_runs,
 				updated_at = now()
-		`, dayKey(day), row.scope, row.key, boolInt(column == "runs"), boolInt(column == "test_runs")).Error
+		`, dayKey(day), row.scope, row.key).Error
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// IncrementTestRuns accounts a playground run without consuming the IM daily
-// run quota.
-func (s *Store) IncrementTestRuns(ctx context.Context, day time.Time, userID, agentID int64) error {
-	return transientOrDomain(s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return s.incrementDailyRuns(ctx, tx, day, userID, agentID, true)
-	}))
 }
 
 // RecordUsageEvent persists one model call's usage exactly once and updates the
@@ -212,11 +198,11 @@ func (s *Store) RecordUsageEvent(ctx context.Context, day time.Time, ev domain.U
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		res := tx.WithContext(ctx).Exec(`
 			INSERT INTO agent_usage_events (
-				run_id, attempt_id, step, kind, agent_id, actor_user_id, topic,
+				run_id, attempt_id, step, agent_id, actor_user_id, topic,
 				model_id, model_key, provider, input_tokens, output_tokens, cost_usd, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
 			ON CONFLICT (run_id, attempt_id, step) DO NOTHING
-		`, ev.RunID, ev.AttemptID, ev.Step, ev.Kind, ev.AgentID, ev.ActorUserID, ev.Topic,
+		`, ev.RunID, ev.AttemptID, ev.Step, ev.AgentID, ev.ActorUserID, ev.Topic,
 			ev.ModelID, ev.ModelKey, ev.Provider, ev.InputTokens, ev.OutputTokens, ev.CostUSD)
 		if res.Error != nil {
 			return res.Error
@@ -231,8 +217,8 @@ func (s *Store) RecordUsageEvent(ctx context.Context, day time.Time, ev domain.U
 		}
 		for _, sc := range scopes {
 			if err := tx.WithContext(ctx).Exec(`
-				INSERT INTO agent_usage_daily (day, scope, scope_key, runs, test_runs, input_tokens, output_tokens, cost_usd, updated_at)
-				VALUES (?, ?, ?, 0, 0, ?, ?, ?, now())
+				INSERT INTO agent_usage_daily (day, scope, scope_key, runs, input_tokens, output_tokens, cost_usd, updated_at)
+				VALUES (?, ?, ?, 0, ?, ?, ?, now())
 				ON CONFLICT (day, scope, scope_key) DO UPDATE SET
 					input_tokens = agent_usage_daily.input_tokens + EXCLUDED.input_tokens,
 					output_tokens = agent_usage_daily.output_tokens + EXCLUDED.output_tokens,
@@ -262,13 +248,6 @@ func dayKey(t time.Time) string {
 
 func intKey(v int64) string {
 	return strconv.FormatInt(v, 10)
-}
-
-func boolInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 // ClaimRunWithQuota is the only path a worker may use to start an execution. It
@@ -330,7 +309,7 @@ func (s *Store) ClaimRunWithQuota(ctx context.Context, runID uint64, lease time.
 			return err
 		}
 		if over, metric, limit, used := budgetExceeded(userLimits, userUsage); over {
-			claimed = &domain.AgentRun{ID: row.ID, EventID: row.EventID, AgentID: row.AgentID, ActorUserID: row.ActorUserID, Topic: row.Topic, Kind: row.Kind}
+			claimed = &domain.AgentRun{ID: row.ID, EventID: row.EventID, AgentID: row.AgentID, ActorUserID: row.ActorUserID, Topic: row.Topic}
 			return &domain.BudgetError{
 				Scope: domain.QuotaScopeUser, Metric: metric, Limit: limit, Used: used,
 				RetryAt: retryAt, RetryAfter: time.Until(retryAt),
@@ -338,7 +317,7 @@ func (s *Store) ClaimRunWithQuota(ctx context.Context, runID uint64, lease time.
 			}
 		}
 		if over, metric, limit, used := budgetExceeded(agentLimits, agentUsage); over {
-			claimed = &domain.AgentRun{ID: row.ID, EventID: row.EventID, AgentID: row.AgentID, ActorUserID: row.ActorUserID, Topic: row.Topic, Kind: row.Kind}
+			claimed = &domain.AgentRun{ID: row.ID, EventID: row.EventID, AgentID: row.AgentID, ActorUserID: row.ActorUserID, Topic: row.Topic}
 			return &domain.BudgetError{
 				Scope: domain.QuotaScopeAgent, Metric: metric, Limit: limit, Used: used,
 				RetryAt: retryAt, RetryAfter: time.Until(retryAt),
@@ -495,7 +474,7 @@ func (s *Store) EnqueueRunWithQuota(ctx context.Context, candidate *domain.Agent
 		created = res.RowsAffected == 1
 		if created {
 			candidate.ID = row.ID
-			if err := locked.incrementDailyRuns(ctx, tx, day, candidate.ActorUserID, candidate.AgentID, false); err != nil {
+			if err := locked.incrementDailyRuns(ctx, tx, day, candidate.ActorUserID, candidate.AgentID); err != nil {
 				return err
 			}
 		}
@@ -513,9 +492,6 @@ func (s *Store) EnqueueRunWithQuota(ctx context.Context, candidate *domain.Agent
 func (s *Store) EnqueueDeferredRun(ctx context.Context, candidate *domain.AgentRun, day time.Time, retryAt time.Time, maxQueued int) error {
 	if candidate.Status == "" {
 		candidate.Status = domain.RunQueued
-	}
-	if candidate.Kind == "" {
-		candidate.Kind = domain.RunKindIM
 	}
 	if candidate.CreatedAt.IsZero() {
 		candidate.CreatedAt = time.Now()
@@ -561,7 +537,7 @@ func (s *Store) EnqueueDeferredRun(ctx context.Context, candidate *domain.AgentR
 			return nil
 		}
 		candidate.ID = row.ID
-		return locked.incrementDailyRuns(ctx, tx, day, candidate.ActorUserID, candidate.AgentID, false)
+		return locked.incrementDailyRuns(ctx, tx, day, candidate.ActorUserID, candidate.AgentID)
 	}))
 }
 

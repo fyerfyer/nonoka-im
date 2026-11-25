@@ -152,25 +152,10 @@ func TestSDKResourcesEndToEnd(t *testing.T) {
 		t.Fatalf("agent shares: %+v err=%v", shares, err)
 	}
 
-	// Draft test and run history.
-	testRun, err := client.Agents.Test(ctx, agent.ID, "hello sdk test")
-	if err != nil || testRun.Kind != "test" {
-		t.Fatalf("draft test: %+v err=%v", testRun, err)
-	}
+	// Run history starts empty for a freshly published agent.
 	runs, err := client.Agents.Runs(ctx, agent.ID, sdk.ListOptions{})
-	if err != nil || len(runs.Items) == 0 {
+	if err != nil || len(runs.Items) != 0 {
 		t.Fatalf("agent runs: %+v err=%v", runs, err)
-	}
-	runDetail, err := client.Runs.Get(ctx, testRun.ID)
-	if err != nil || runDetail.InputText != "hello sdk test" {
-		t.Fatalf("run detail: %+v err=%v", runDetail, err)
-	}
-	if err := client.Runs.Cancel(ctx, testRun.ID); err != nil {
-		t.Fatalf("cancel run: %v", err)
-	}
-	cancelled, err := client.Runs.Get(ctx, testRun.ID)
-	if err != nil || cancelled.Status != "cancelled" {
-		t.Fatalf("cancelled run: %+v err=%v", cancelled, err)
 	}
 
 	// Approval inbox and one-shot decision via SDK.

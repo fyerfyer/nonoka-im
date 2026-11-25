@@ -88,20 +88,6 @@ type AgentVersion struct {
 	CreatedAt         time.Time
 }
 
-// RunConfig is the frozen draft configuration used by a test run. It mirrors
-// the fields that would become an AgentVersion on publish, but test runs never
-// create a version row.
-type RunConfig struct {
-	Instruction       string            `json:"instruction"`
-	ModelID           int64             `json:"modelId"`
-	Tools             []string          `json:"tools"`
-	CapabilityPresets []string          `json:"capabilityPresets"`
-	ToolPolicies      map[string]string `json:"toolPolicies"`
-	MaxTokens         int               `json:"maxTokens"`
-	MCPBindings       []MCPBinding      `json:"mcpBindings"`
-	Skills            []SkillBinding    `json:"skills"`
-}
-
 // AgentSpec is the editable draft configuration of an agent. It references a
 // curated platform model and freezes that reference on publish.
 type AgentSpec struct {

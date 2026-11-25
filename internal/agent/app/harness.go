@@ -62,8 +62,6 @@ type ResolvedAgent struct {
 	// ApprovalTools are tool names whose calls interrupt for human
 	// confirmation (write-class MCP tools and future side-effect tools).
 	ApprovalTools []string
-	// Test marks a playground run that must not send IM cards or replies.
-	Test bool
 }
 
 // approvalTTL bounds how long a pending approval waits for the user.
@@ -106,18 +104,16 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 		return h.failRun(ctx, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("topic authorization unavailable")})
 	}
 	_, authSpan := otel.Tracer("nonoka-im/agent/harness").Start(ctx, "agent.authorize_topic")
-	if !agent.Test {
-		if err := h.Authorizer.CanAccessTopic(ctx, ev.SenderID, ev.Topic); err != nil {
-			authSpan.End()
-			return h.failAuth(ctx, run, err)
-		}
-		if err := h.Authorizer.CanAccessTopic(ctx, agent.BotID, ev.Topic); err != nil {
-			authSpan.End()
-			return h.failAuth(ctx, run, err)
-		}
+	if err := h.Authorizer.CanAccessTopic(ctx, ev.SenderID, ev.Topic); err != nil {
+		authSpan.End()
+		return h.failAuth(ctx, run, err)
+	}
+	if err := h.Authorizer.CanAccessTopic(ctx, agent.BotID, ev.Topic); err != nil {
+		authSpan.End()
+		return h.failAuth(ctx, run, err)
 	}
 	authSpan.End()
-	if h.Store == nil || h.Runtime == nil || (!agent.Test && h.Sender == nil) || run == nil || session == nil {
+	if h.Store == nil || h.Runtime == nil || h.Sender == nil || run == nil || session == nil {
 		return h.failRun(ctx, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("agent harness dependencies unavailable")})
 	}
 	builder := h.Builder
@@ -141,7 +137,7 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 	in.OnEvent = h.eventSink(ctx, run, agent)
 	h.attachCurrentMessage(ctx, &in, ev, agent)
 	if h.Quota != nil {
-		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model, runKind(run))
+		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model)
 		if gerr != nil {
 			return h.failRun(ctx, run, gerr)
 		}
@@ -195,11 +191,6 @@ func (h *Harness) parkForApproval(parent context.Context, ev messaging.MessageEv
 		Type: realtime.RunApprovalNeeded, ApprovalID: saved.ID, Tool: interrupt.Tool,
 		Summary: interrupt.Summary, Status: domain.ApprovalPending,
 	}, false)
-	// Playground runs surface the approval through the run stream only; they
-	// must not post a card into a real conversation.
-	if agent.Test {
-		return nil
-	}
 	// Card delivery failure must not lose the approval: the run is already
 	// waiting_approval and the user can act via the approvals API.
 	card, err := json.Marshal(cardPayload{Version: 1, RunID: run.ID, ApprovalID: saved.ID, Tool: interrupt.Tool, Summary: interrupt.Summary, Target: ev.Topic, Status: domain.ApprovalPending, RequestedBy: ev.SenderID, ExpiresAt: saved.ExpiresAt.Unix()})
@@ -231,16 +222,14 @@ func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, a
 	if run.CheckpointID == "" || approval == nil || approval.RunID != run.ID || approval.ToolCallID == "" {
 		return h.failRun(ctx, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("resume mismatch: run %d approval %v", run.ID, approval)})
 	}
-	if h.Authorizer == nil || h.Store == nil || h.Runtime == nil || (!agent.Test && h.Sender == nil) {
+	if h.Authorizer == nil || h.Store == nil || h.Runtime == nil || h.Sender == nil {
 		return h.failRun(ctx, run, &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("agent harness dependencies unavailable")})
 	}
-	if !agent.Test {
-		if err := h.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
-			return h.failAuth(ctx, run, err)
-		}
-		if err := h.Authorizer.CanAccessTopic(ctx, agent.BotID, run.Topic); err != nil {
-			return h.failAuth(ctx, run, err)
-		}
+	if err := h.Authorizer.CanAccessTopic(ctx, run.ActorUserID, run.Topic); err != nil {
+		return h.failAuth(ctx, run, err)
+	}
+	if err := h.Authorizer.CanAccessTopic(ctx, agent.BotID, run.Topic); err != nil {
+		return h.failAuth(ctx, run, err)
 	}
 	if ext, ok := h.Authorizer.(interface {
 		CanUseAgent(context.Context, int64, int64) error
@@ -275,7 +264,7 @@ func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, a
 		OnEvent:       h.eventSink(ctx, run, agent),
 	}
 	if h.Quota != nil {
-		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model, runKind(run))
+		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model)
 		if gerr != nil {
 			return h.failRun(ctx, run, gerr)
 		}
@@ -398,20 +387,17 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer finishCancel()
 	replyMsgID := int64(0)
-	if !agent.Test {
-		clientID := stableClientID(ev.EventID, agent.ID)
-		sendCtx := tools.WithRunContext(ctx, tools.RunContext{AgentID: agent.ID, BotID: agent.BotID, ActorUserID: ev.SenderID, Topic: ev.Topic, EventID: ev.EventID})
-		sendCtx, sendCancel := context.WithTimeout(context.WithoutCancel(sendCtx), 10*time.Second)
-		defer sendCancel()
-		var err error
-		replyMsgID, err = h.Sender.SendWithReceipt(sendCtx, ev.Topic, res.Text, clientID)
-		if err != nil {
-			class, retryable := port.Classify(err)
-			_ = h.Store.FailRun(finishCtx, run, domain.Failure{
-				Class: string(class), Code: "reply_failed", Message: err.Error(), Retryable: retryable,
-			}, h.MaxAttempts, nil)
-			return err
-		}
+	clientID := stableClientID(ev.EventID, agent.ID)
+	sendCtx := tools.WithRunContext(ctx, tools.RunContext{AgentID: agent.ID, BotID: agent.BotID, ActorUserID: ev.SenderID, Topic: ev.Topic, EventID: ev.EventID})
+	sendCtx, sendCancel := context.WithTimeout(context.WithoutCancel(sendCtx), 10*time.Second)
+	defer sendCancel()
+	replyMsgID, err := h.Sender.SendWithReceipt(sendCtx, ev.Topic, res.Text, clientID)
+	if err != nil {
+		class, retryable := port.Classify(err)
+		_ = h.Store.FailRun(finishCtx, run, domain.Failure{
+			Class: string(class), Code: "reply_failed", Message: err.Error(), Retryable: retryable,
+		}, h.MaxAttempts, nil)
+		return err
 	}
 
 	var snapshot *domain.AgentContextSnapshot
@@ -421,9 +407,6 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 	values := map[string]interface{}{
 		"status": domain.RunCompleted, "reply_msg_id": replyMsgID,
 		"model_key": agent.Model.ModelKey, "finished_at": time.Now(),
-	}
-	if agent.Test {
-		values["output_text"] = res.Text
 	}
 	// The reply is already delivered at this point; losing the commit would
 	// drop the turn/snapshot and leave the run stuck in "running", so
@@ -439,9 +422,7 @@ func (h *Harness) finalize(ctx context.Context, ev messaging.MessageEvent, agent
 	completed := realtime.RunEvent{
 		Type: realtime.RunCompleted, ReplyMsgID: replyMsgID, Status: domain.RunCompleted,
 		InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens,
-	}
-	if !agent.Test {
-		completed.ClientMessageID = stableClientID(ev.EventID, agent.ID)
+		ClientMessageID: clientID,
 	}
 	h.emitRunEvent(ctx, run, agent, completed, false)
 	return nil
@@ -535,13 +516,6 @@ func failureRetryAt(err error) string {
 		return time.Now().Add(d).UTC().Format(time.RFC3339)
 	}
 	return ""
-}
-
-func runKind(run *domain.AgentRun) string {
-	if run != nil && run.Kind == domain.RunKindTest {
-		return domain.RunKindTest
-	}
-	return domain.RunKindIM
 }
 
 func stableClientID(eventID string, agentID int64) string {

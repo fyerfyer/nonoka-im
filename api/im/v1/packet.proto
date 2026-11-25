@@ -48,7 +48,8 @@ message AgentRunEvent {
   int64 bot_user_id = 6;
   int64 actor_user_id = 7;
   int64 trigger_msg_id = 8;
-  bool test = 9;
+  reserved 9;
+  reserved "test";
   string delta = 10;
   string tool = 11;
   string tool_call_id = 12;

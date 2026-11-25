@@ -26,7 +26,6 @@ type QuotaStore interface {
 	UsageSeries(ctx context.Context, scope, key string, from, to time.Time) ([]domain.Usage, error)
 	TopUsage(ctx context.Context, day time.Time, scope, metric string, limit int) ([]domain.Usage, error)
 	RecordUsageEvent(ctx context.Context, day time.Time, event domain.UsageEvent) (bool, error)
-	IncrementTestRuns(ctx context.Context, day time.Time, userID, agentID int64) error
 
 	EnqueueRunWithQuota(ctx context.Context, run *domain.AgentRun, day time.Time, retryAt time.Time, userLimits, agentLimits domain.QuotaLimits, maxSessionQueued, maxGlobalQueued int) (bool, *domain.QuotaError, error)
 	EnqueueRejectedRun(ctx context.Context, run *domain.AgentRun, code, class, message string, retryAt *time.Time) error
@@ -164,10 +163,6 @@ func (s *QuotaService) RecordUsage(ctx context.Context, ev domain.UsageEvent) (b
 	return s.Store.RecordUsageEvent(ctx, s.Day(time.Now()), ev)
 }
 
-func (s *QuotaService) RecordTestRun(ctx context.Context, userID, agentID int64) error {
-	return s.Store.IncrementTestRuns(ctx, s.Day(time.Now()), userID, agentID)
-}
-
 func (s *QuotaService) Usage(ctx context.Context, scope, key string, days int) ([]domain.Usage, domain.Usage, error) {
 	if days <= 0 {
 		days = 7
@@ -186,7 +181,6 @@ func (s *QuotaService) Usage(ctx context.Context, scope, key string, days int) (
 	total.Scope, total.ScopeKey = scope, key
 	for _, row := range rows {
 		total.Runs += row.Runs
-		total.TestRuns += row.TestRuns
 		total.InputTokens += row.InputTokens
 		total.OutputTokens += row.OutputTokens
 		total.CostUSD += row.CostUSD

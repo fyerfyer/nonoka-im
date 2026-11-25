@@ -13,14 +13,6 @@ const (
 	RunCancelled       = "cancelled"
 )
 
-// Run kinds. IM runs are triggered by Kafka events and reply through the IM
-// pipeline; test runs execute a frozen draft configuration for the playground
-// and never send IM messages.
-const (
-	RunKindIM   = "im"
-	RunKindTest = "test"
-)
-
 // Durable run-step types. Delta events are intentionally absent: they are
 // transient and only kept in the Redis run-event buffer.
 const (
@@ -63,13 +55,6 @@ type AgentRun struct {
 	NextAttemptAt *time.Time
 	ReplyMsgID    int64
 	CheckpointID  string
-	// Kind distinguishes IM-triggered runs from playground test runs.
-	Kind string
-	// InputText and OutputText are test-run payloads. IM runs read their
-	// input from the triggering message and write their reply to IM.
-	InputText      string
-	OutputText     string
-	ConfigSnapshot string
 	// SideEffectAt records that a write tool already produced an external
 	// effect during this run. Retryable failures after this point are forced
 	// terminal until an operator explicitly acknowledges the risk.
