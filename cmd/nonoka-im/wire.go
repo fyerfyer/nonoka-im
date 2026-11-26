@@ -22,9 +22,15 @@ import (
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
+	botadapters "nonoka-im/internal/bot/adapters"
+	botapp "nonoka-im/internal/bot/app"
+	botdelivery "nonoka-im/internal/bot/delivery"
+	botratelimit "nonoka-im/internal/bot/ratelimit"
+	botstream "nonoka-im/internal/bot/stream"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	agentdata "nonoka-im/internal/data/agent"
+	botdata "nonoka-im/internal/data/bot"
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
@@ -342,6 +348,88 @@ func provideQuotaService(store *agentdata.Store, az *authz.OpenFGA, auditor *aud
 	return svc
 }
 
+func provideBotStore(db *gorm.DB) *botdata.Store { return botdata.NewStore(db) }
+
+func provideBotService(store *botdata.Store, az *authz.OpenFGA, auditor *audit.Service, logger log.Logger) (*botapp.Service, error) {
+	sealer, err := botadapters.NewSealer()
+	if err != nil {
+		return nil, err
+	}
+	return botapp.NewService(store, az, sealer, botadapters.NewWebhookGuard(), auditor, logger), nil
+}
+
+func provideBotAuth(store *botdata.Store, logger log.Logger) *botapp.AuthService {
+	return botapp.NewAuthService(store, logger)
+}
+
+func provideBotReader(query *imapp.QueryService) *botadapters.Reader {
+	return &botadapters.Reader{Query: query}
+}
+
+func provideBotSender(messages *imapp.MessageService) *botadapters.Sender {
+	return &botadapters.Sender{Messages: messages}
+}
+
+func provideBotUsers(users biz.AuthRepo) botadapters.Users {
+	return botadapters.Users{Repo: users}
+}
+
+func provideBotGroupMembers(groups imdata.GroupRepo) botadapters.GroupMembers {
+	return botadapters.GroupMembers{Repo: groups}
+}
+
+func provideBotRecipients(members botadapters.GroupMembers) botadapters.Recipients {
+	return botadapters.Recipients{Groups: members}
+}
+
+func provideBotDelivery(store *botdata.Store, reader *botadapters.Reader, users botadapters.Users, sender *botadapters.Sender, logger log.Logger) (*botapp.DeliveryService, error) {
+	sealer, err := botadapters.NewSealer()
+	if err != nil {
+		return nil, err
+	}
+	webhookSender := botdelivery.NewSender(botadapters.NewWebhookGuard(), logger)
+	return botapp.NewDeliveryService(store, reader, users, webhookSender, sealer, logger), nil
+}
+
+func provideBotStreamPublisher(dispatch *conf.Dispatch, local GatewayGrpcAddr, logger log.Logger) (*botadapters.StreamPublisher, func(), error) {
+	var addrs []string
+	if dispatch != nil {
+		for _, node := range dispatch.Gateways {
+			if node.GetGatewayGrpcAddr() != "" {
+				addrs = append(addrs, node.GetGatewayGrpcAddr())
+			}
+		}
+	}
+	if len(addrs) == 0 && local != "" {
+		addrs = append(addrs, string(local))
+	}
+	if len(addrs) == 0 {
+		return &botadapters.StreamPublisher{}, func() {}, nil
+	}
+	pusher, err := realtime.NewGatewayPusher(addrs, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &botadapters.StreamPublisher{Transport: pusher}, func() { _ = pusher.Close() }, nil
+}
+
+func provideBotStreamService(store *botdata.Store, az *authz.OpenFGA, streams *botstream.RedisStore, sender *botadapters.Sender, recipients botadapters.Recipients, publisher *botadapters.StreamPublisher, logger log.Logger) *botapp.StreamService {
+	svc := botapp.NewStreamService(store, az, streams, sender, recipients, publisher, logger)
+	return svc
+}
+
+func provideBotStreamStore(redisClient redis.UniversalClient) *botstream.RedisStore {
+	return botstream.NewRedisStore(redisClient)
+}
+
+func provideBotHTTP(bots *botapp.Service, auth *botapp.AuthService, delivery *botapp.DeliveryService, streams *botapp.StreamService, reader *botadapters.Reader, sender *botadapters.Sender, limiter *botratelimit.Limiter, logger log.Logger) *service.BotHTTP {
+	return service.NewBotHTTP(bots, auth, delivery, streams, reader, sender, limiter, logger)
+}
+
+func provideBotRateLimiter(redisClient redis.UniversalClient) *botratelimit.Limiter {
+	return botratelimit.New(redisClient)
+}
+
 func envString(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
@@ -573,6 +661,20 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideAgentMCPService,
 		provideAgentSkillService,
 		provideModelService,
+		provideBotStore,
+		provideBotService,
+		provideBotAuth,
+		provideBotReader,
+		provideBotSender,
+		provideBotUsers,
+		provideBotGroupMembers,
+		provideBotRecipients,
+		provideBotDelivery,
+		provideBotStreamPublisher,
+		provideBotStreamService,
+		provideBotStreamStore,
+		provideBotRateLimiter,
+		provideBotHTTP,
 		agentdata.NewStore,
 		platformdata.NewStore,
 		provideMetrics,

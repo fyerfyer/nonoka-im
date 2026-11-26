@@ -185,6 +185,27 @@ func (s *QueryService) MessageForUser(ctx context.Context, userID int64, topic s
 	return s.Reader.GetMessageForUser(ctx, userID, topic, msgID)
 }
 
+// MessageByClientID loads one message by its sender idempotency key after
+// authorization. It is used by bot send receipts.
+func (s *QueryService) MessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (domain.InboxMessage, error) {
+	topic, err := s.authorize(ctx, userID, topic)
+	if err != nil {
+		return domain.InboxMessage{}, err
+	}
+	return s.Reader.GetMessageByClientID(ctx, userID, topic, clientMsgID)
+}
+
+// MessageHistory returns an authorized backward page for bot history APIs.
+func (s *QueryService) MessageHistory(ctx context.Context, userID int64, topic string, limit int, beforeSeq uint64) ([]domain.InboxMessage, error) {
+	result, err := s.Pull(ctx, PullRequest{
+		UserID: userID, Topic: topic, EndSeq: beforeSeq, Limit: limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
+}
+
 // Recall removes a message within the configured window.
 func (s *QueryService) Recall(ctx context.Context, userID int64, topic string, topicSeq uint64, msgID int64, window time.Duration) error {
 	topic, err := s.authorize(ctx, userID, topic)

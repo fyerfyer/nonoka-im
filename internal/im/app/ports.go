@@ -72,6 +72,7 @@ type MessageReader interface {
 	GetHistoryMessages(ctx context.Context, userID int64, topic string, endSeq uint64, limit int) ([]domain.InboxMessage, bool, error)
 	GetRecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]domain.InboxMessage, error)
 	GetMessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (domain.InboxMessage, error)
+	GetMessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (domain.InboxMessage, error)
 	GetMentionMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]domain.MentionMessage, error)
 	GetTopicMaxSeq(ctx context.Context, topic string) (uint64, error)
 	GetMessageSender(ctx context.Context, topic string, topicSeq uint64) (int64, error)

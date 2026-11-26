@@ -196,6 +196,47 @@ func (p *GatewayPusher) PushRunEventToUser(ctx context.Context, userID int64, ev
 	return 0, fmt.Errorf("push run event to user %d failed on all gateways", userID)
 }
 
+// PushBotStreamEventToUser delivers a transient external-bot reply stream event
+// to one user's online devices.
+func (p *GatewayPusher) PushBotStreamEventToUser(ctx context.Context, userID int64, event BotStreamEvent) (int32, error) {
+	ctx = internalPushContext(ctx)
+	req := &pb.PushBotStreamEventToUserRequest{UserId: userID, Event: event.ToProto()}
+	if p.router != nil {
+		nodeMap, err := p.router.ResolveUserNodes(ctx, []int64{userID})
+		if err == nil {
+			aliveMap, aliveErr := p.router.GetAliveNodesMap(ctx)
+			if aliveErr == nil {
+				for nodeID := range nodeMap {
+					node, ok := aliveMap[nodeID]
+					if !ok || node.GrpcAddr == "" {
+						continue
+					}
+					gc, err := p.getOrCreateDynamicConn(node.GrpcAddr)
+					if err != nil {
+						continue
+					}
+					resp, err := gc.client.PushBotStreamEventToUser(ctx, req)
+					if err == nil && resp.GetDeliveredCount() > 0 {
+						return resp.GetDeliveredCount(), nil
+					}
+				}
+				return 0, fmt.Errorf("push bot stream event to user %d failed: no online session", userID)
+			}
+		}
+	}
+	p.connMu.RLock()
+	conns := make([]*gatewayConn, len(p.staticConns))
+	copy(conns, p.staticConns)
+	p.connMu.RUnlock()
+	for _, gc := range conns {
+		resp, err := gc.client.PushBotStreamEventToUser(ctx, req)
+		if err == nil && resp.GetDeliveredCount() > 0 {
+			return resp.GetDeliveredCount(), nil
+		}
+	}
+	return 0, fmt.Errorf("push bot stream event to user %d failed on all gateways", userID)
+}
+
 // pushToUserStatic pushes to a single user using the static gateway list.
 func (p *GatewayPusher) pushToUserStatic(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
 

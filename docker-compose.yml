@@ -226,6 +226,8 @@ services:
       MEDIA_URL_SECRET: ${MEDIA_URL_SECRET:-}
       AGENT_MCP_ALLOW_PRIVATE: ${AGENT_MCP_ALLOW_PRIVATE:-false}
       AGENT_MCP_ALLOW_INSECURE_HTTP: ${AGENT_MCP_ALLOW_INSECURE_HTTP:-false}
+      BOT_WEBHOOK_ALLOW_PRIVATE: ${BOT_WEBHOOK_ALLOW_PRIVATE:-true}
+      BOT_WEBHOOK_ALLOW_INSECURE_HTTP: ${BOT_WEBHOOK_ALLOW_INSECURE_HTTP:-true}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
       SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
@@ -347,6 +349,51 @@ services:
       - ./configs/agent-worker.yaml:/app/configs/agent-worker.yaml:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  bot-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nonoka_bot_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      openfga:
+        condition: service_started
+    environment:
+      POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_DATABASE: nonoka_im
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:19092
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
+      OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      OPENFGA_MODEL_ID: ${OPENFGA_MODEL_ID:-}
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
+      BOT_SECRET_KEY: ${BOT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-nonoka-local-agent-secret-key-change-me}
+      BOT_WEBHOOK_ALLOW_PRIVATE: ${BOT_WEBHOOK_ALLOW_PRIVATE:-true}
+      BOT_WEBHOOK_ALLOW_INSECURE_HTTP: ${BOT_WEBHOOK_ALLOW_INSECURE_HTTP:-true}
+      BOT_DELIVERY_WORKERS: ${BOT_DELIVERY_WORKERS:-8}
+      BOT_PROBE_ADDR: ${BOT_PROBE_ADDR:-:8092}
+      BOT_METRICS_ADDR: ${BOT_METRICS_ADDR:-:8093}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["/app/bot-worker", "-conf", "/app/configs/bot-worker.yaml"]
+    volumes:
+      - ./configs/bot-worker.yaml:/app/configs/bot-worker.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8092/healthz > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 6

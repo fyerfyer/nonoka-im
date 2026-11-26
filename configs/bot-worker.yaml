@@ -1,0 +1,32 @@
+# External bot delivery worker configuration.
+#
+# Precedence: built-in defaults < this file < environment variables.
+# Secrets (JWT secret, seal key) stay in the environment and are never written
+# here.
+
+data:
+  database:
+    source: "host=127.0.0.1 user=postgres password=root dbname=nonoka_im port=5432 sslmode=disable"
+  mongodb:
+    uri: "mongodb://127.0.0.1:27017"
+    database: "nonoka_im"
+  redis:
+    addr: "127.0.0.1:6379"
+    read_timeout: 0.2s
+    write_timeout: 0.2s
+  kafka:
+    brokers:
+      - "127.0.0.1:9092"
+    topic: "agent-events"
+    consumer_group: "nonoka-bot-worker"
+    dlq_topic: "agent-events-dlq"
+    worker_count: 4
+    max_retries: 2
+    max_wait: 10s
+    commit_batch_size: 100
+    commit_flush_interval: 1s
+
+observability:
+  health_addr: ":8092"
+  metrics_addr: ":8093"
+  otlp_traces_endpoint: ""

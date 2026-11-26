@@ -19,6 +19,7 @@ enum Command {
   CMD_SEND_RECEIPT = 9;     // server -> client: send receipt (msg_id/topic_seq confirmation)
   CMD_RECALL = 10;          // bi-directional: recall a message
   CMD_AGENT_RUN_EVENT = 11; // server -> client: transient agent run stream event
+  CMD_BOT_STREAM_EVENT = 12; // server -> client: transient external-bot reply stream event
 }
 
 // AgentRunEventType is the closed set of transient run stream events.
@@ -78,6 +79,30 @@ message AgentRunEvent {
   repeated AgentRunCitation citations = 26;
 }
 
+// BotStreamEvent is a transient progress event for one external-bot reply
+// stream. Deltas are never persisted; the final answer arrives as a normal IM
+// message keyed by client_msg_id. (stream_id, seq) is the ordering key.
+enum BotStreamEventType {
+  BOT_STREAM_EVENT_UNKNOWN = 0;
+  BOT_STREAM_STARTED = 1;
+  BOT_STREAM_DELTA = 2;
+  BOT_STREAM_FINAL = 3;
+  BOT_STREAM_ABORTED = 4;
+}
+
+message BotStreamEvent {
+  string stream_id = 1;
+  uint64 seq = 2;
+  BotStreamEventType type = 3;
+  string topic = 4;
+  int64 bot_id = 5;
+  int64 bot_user_id = 6;
+  string delta = 7;
+  string client_msg_id = 8;
+  int64 reply_msg_id = 9;
+  int64 timestamp_ms = 10;
+}
+
 // Packet is the unified wire format for all WebSocket messages.
 // The payload is self-describing via oneof — clients no longer need to
 // guess the serialization format for each command.
@@ -116,6 +141,7 @@ message Packet {
     RecallRequest recall_req = 90;
     RecallNotice recall_notice = 100;
     AgentRunEvent agent_run_event = 110;
+    BotStreamEvent bot_stream_event = 111;
 
     // Unified error response (can be returned for any command).
     ErrorResponse error = 99;

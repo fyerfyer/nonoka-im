@@ -2,6 +2,7 @@ package mongostore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -398,6 +399,45 @@ func (s *Store) GetMessageForUser(ctx context.Context, userID int64, topic strin
 		return domain.InboxMessage{}, err
 	}
 	return toDomainInbox(row), nil
+}
+
+// GetMessageByClientID loads a message by its idempotency key after the caller
+// has verified topic access. P2P/system messages live in the user's inbox;
+// group messages live in the topic message collection.
+func (s *Store) GetMessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (domain.InboxMessage, error) {
+	if clientMsgID == "" {
+		return domain.InboxMessage{}, domain.ErrNotFound
+	}
+	switch domain.ParseTopicType(topic) {
+	case domain.TopicTypeP2P, domain.TopicTypeSystem:
+		var row inboxMessageRow
+		s.incMongoOp(CollectionInboxes, "find")
+		err := s.collection(CollectionInboxes).FindOne(ctx, bson.M{
+			"user_id": userID, "topic": topic, "client_msg_id": clientMsgID,
+		}).Decode(&row)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return domain.InboxMessage{}, domain.ErrNotFound
+		}
+		if err != nil {
+			return domain.InboxMessage{}, fmt.Errorf("find message by client id: %w", err)
+		}
+		return toDomainInbox(&row), nil
+	case domain.TopicTypeGroup:
+		var row storedMessageRow
+		s.incMongoOp(CollectionMessages, "find")
+		err := s.collection(CollectionMessages).FindOne(ctx, bson.M{
+			"topic": topic, "sender_id": userID, "client_msg_id": clientMsgID,
+		}).Decode(&row)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return domain.InboxMessage{}, domain.ErrNotFound
+		}
+		if err != nil {
+			return domain.InboxMessage{}, fmt.Errorf("find group message by client id: %w", err)
+		}
+		return domain.InboxMessage{Message: toDomainMessage(&row), UserID: userID}, nil
+	default:
+		return domain.InboxMessage{}, domain.ErrNotFound
+	}
 }
 
 func (s *Store) GetMentionMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]domain.MentionMessage, error) {

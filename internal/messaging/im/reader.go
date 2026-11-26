@@ -12,6 +12,7 @@ import (
 type Query interface {
 	RecentMessages(ctx context.Context, userID int64, topic string, limit int) ([]domain.InboxMessage, error)
 	MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (domain.InboxMessage, error)
+	MessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (domain.InboxMessage, error)
 	SearchMessages(ctx context.Context, userID int64, topic, query string, filter domain.SearchFilter, limit, offset int) ([]domain.SearchHit, bool, error)
 }
 
@@ -57,14 +58,26 @@ func (r *Reader) MessageForUser(ctx context.Context, userID int64, topic string,
 	if err != nil {
 		return messaging.Message{}, messaging.ErrNotFound
 	}
+	return messagingMessage(row), nil
+}
+
+func (r *Reader) MessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (messaging.Message, error) {
+	row, err := r.Query.MessageByClientID(ctx, userID, topic, clientMsgID)
+	if err != nil {
+		return messaging.Message{}, messaging.ErrNotFound
+	}
+	return messagingMessage(row), nil
+}
+
+func messagingMessage(row domain.InboxMessage) messaging.Message {
 	msg := messaging.Message{
-		ID: row.ID, SenderID: row.SenderID, Timestamp: row.Timestamp,
-		Type: int32(row.Type), Content: row.Content,
+		ID: row.ID, SenderID: row.SenderID,
+		Timestamp: row.Timestamp, Type: int32(row.Type), Content: row.Content,
 	}
 	if row.Type == domain.MessageTypeImage || row.Type == domain.MessageTypeFile {
 		if meta, ok := messaging.ParseMediaContent(row.Content); ok {
 			msg.FileID, msg.FileName, msg.Mime, msg.Size = meta.FileID, meta.Name, meta.Mime, meta.Size
 		}
 	}
-	return msg, nil
+	return msg
 }
