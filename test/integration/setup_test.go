@@ -21,9 +21,14 @@ import (
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
+	botadapters "nonoka-im/internal/bot/adapters"
+	botapp "nonoka-im/internal/bot/app"
+	botdelivery "nonoka-im/internal/bot/delivery"
+	botstream "nonoka-im/internal/bot/stream"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	agentdata "nonoka-im/internal/data/agent"
+	botdata "nonoka-im/internal/data/bot"
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
@@ -107,6 +112,9 @@ type testServer struct {
 	modelServiceID int64
 	modelID        int64
 	modelSvc       *llm.Service
+	botStore       *botdata.Store
+	botDelivery    *botapp.DeliveryService
+	botStreams     *botapp.StreamService
 }
 
 type testUserDirectory struct{ repo biz.AuthRepo }
@@ -245,6 +253,20 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Store: platformStore, Sealer: sealer,
 		Guard: &agentmcp.Guard{AllowPrivate: true, AllowInsecure: true},
 	}
+	botStore := botdata.NewStore(d.DB())
+	botSealer := botadapters.Sealer{Key: []byte(strings.Repeat("s", 32))}
+	botGuard := &agentmcp.Guard{AllowPrivate: true, AllowInsecure: true}
+	botSvc := botapp.NewService(botStore, fgaAuthorizer, botSealer, botGuard, auditSvc, testLogger)
+	botAuth := botapp.NewAuthService(botStore, testLogger)
+	botReader := &botadapters.Reader{Query: query}
+	botSender := &botadapters.Sender{Messages: messageApp}
+	botUsers := botadapters.Users{Repo: authRepo}
+	botMembers := botadapters.GroupMembers{Repo: groupRepo}
+	botDeliverySvc := botapp.NewDeliveryService(botStore, botReader, botUsers, botdelivery.NewSender(botGuard, testLogger), botSealer, testLogger)
+	botDeliverySvc.Config = botapp.DeliveryConfig{MaxAttempts: 3, Jitter: false}
+	botStreamSvc := botapp.NewStreamService(botStore, fgaAuthorizer, botstream.NewRedisStore(d.Redis), botSender, botadapters.Recipients{Groups: botMembers}, nil, testLogger)
+	botHTTP := service.NewBotHTTP(botSvc, botAuth, botDeliverySvc, botStreamSvc, botReader, botSender, nil, testLogger)
+
 	agentSvc := service.NewAgentHTTP(
 		admin.NewAgentService(agentStore, platformStore, modelSvc, modelSvc, fgaAuthorizer, groupRepo, testUserDirectory{repo: authRepo}, auditSvc, testLogger),
 		admin.NewRunService(agentStore, fgaAuthorizer, realtime.NewMemoryRunEventStore(), nil),
@@ -295,7 +317,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	fileSvc := service.NewFileService(fileApp, testLogger)
 	outboxSvc := &imapp.OutboxService{Repo: storage, Log: log.NewHelper(testLogger)}
 	outboxAdmin := service.NewOutboxAdminHTTP(messagingim.NewOutboxAdmin(outboxSvc), fgaAuthorizer, auditSvc)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, outboxAdmin, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, botHTTP, outboxAdmin, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	go func() {
 		if err := hs.Start(ctx); err != nil {
 			select {
@@ -316,6 +338,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		query: query, groupRepo: groupRepo, botIndex: botIndex, fileSvc: fileSvc,
 		grpcCleanup: grpcCleanup, openFGA: fgaAuthorizer, fgaCleanup: fgaCleanup,
 		modelServiceID: 0, modelID: int64(models[0].ID), modelSvc: modelSvc,
+		botStore: botStore, botDelivery: botDeliverySvc, botStreams: botStreamSvc,
 	}
 }
 

@@ -97,6 +97,11 @@ test-kafka:
 test-arch:
 	@go test ./test/architecture/... -count=1
 
+.PHONY: test-bots
+# run external bot API / webhook delivery integration tests
+test-bots:
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestBotAPI_|TestBotDelivery_' -count=1 -timeout 120s
+
 .PHONY: test-unit
 # run unit tests (still uses real test infrastructure where a test requires it)
 test-unit:
@@ -144,6 +149,10 @@ test: test-deps-up
 	@echo "========================================"
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestQuota|TestAudit|TestFile|TestBifrost' -count=1 -timeout 300s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
+	@echo "=== Running External Bot Tests       ==="
+	@echo "========================================"
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestBotAPI_|TestBotDelivery_' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"
 	@$(MAKE) test-deps-down
@@ -155,7 +164,7 @@ build:
 
 .PHONY: demo
 # start the full demo stack (postgres / redis / mongo / kafka / openfga /
-# nonoka-im / msgworker / agent-worker / web); the agent worker stays idle
+# nonoka-im / msgworker / agent-worker / bot-worker / web); the agent worker stays idle
 # unless a model API key (DEEPSEEK_API_KEY) is available
 demo:
 	docker compose -f docker-compose.yml up -d --build

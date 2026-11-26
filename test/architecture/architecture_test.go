@@ -78,9 +78,22 @@ func TestPureDomains(t *testing.T) {
 	for _, pkg := range []string{
 		"nonoka-im/internal/agent/domain",
 		"nonoka-im/internal/im/domain",
+		"nonoka-im/internal/bot/domain",
 	} {
 		assertNoDeps(t, pkg, forbidden...)
 	}
+}
+
+func TestBotAppDoesNotDependOnAdapters(t *testing.T) {
+	assertNoDeps(t, "nonoka-im/internal/bot/app",
+		"nonoka-im/internal/data",
+		"nonoka-im/internal/bot/adapters",
+		"nonoka-im/internal/bot/delivery",
+		"nonoka-im/internal/bot/stream",
+		"nonoka-im/internal/service",
+		"gorm.io/gorm",
+		"go.mongodb.org/mongo-driver",
+	)
 }
 
 func TestIMAppDoesNotDependOnAdapters(t *testing.T) {
