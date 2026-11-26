@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { userApi } from "@/lib/api";
 import { agentApi, type ManagedAgent } from "@/lib/api/agents";
+import { botsApi, type Bot as ExternalBot } from "@/lib/api/bots";
 import { User } from "@/types";
 import { getP2PTopic } from "@/lib/topic";
 import { useAuthStore } from "@/stores/authStore";
@@ -27,7 +28,7 @@ interface NewChatDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Tab = "users" | "agents";
+type Tab = "users" | "agents" | "bots";
 
 export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
   const [tab, setTab] = useState<Tab>("users");
@@ -36,6 +37,8 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
   const [results, setResults] = useState<User[]>([]);
   const [agents, setAgents] = useState<ManagedAgent[] | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  const [bots, setBots] = useState<ExternalBot[] | null>(null);
+  const [botsLoading, setBotsLoading] = useState(false);
   const router = useRouter();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,9 +92,25 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
     }
   }, []);
 
+  const loadBots = useCallback(async () => {
+    setBotsLoading(true);
+    try {
+      const res = await botsApi.directory();
+      setBots(res.items.filter((bot) => bot.status === "active"));
+    } catch (err) {
+      toast.error(
+        `Failed to load bots: ${err instanceof Error ? err.message : "unknown"}`
+      );
+      setBots([]);
+    } finally {
+      setBotsLoading(false);
+    }
+  }, []);
+
   const switchTab = (next: Tab) => {
     setTab(next);
     if (next === "agents") void loadAgents();
+    if (next === "bots") void loadBots();
   };
 
   const handleSelectUser = (targetUser: User) => {
@@ -102,6 +121,20 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
       type: "p2p",
       peerId: targetUser.userId,
       peerUsername: targetUser.username,
+    });
+    onOpenChange(false);
+    router.push(`/chat/${encodeURIComponent(topic)}`);
+  };
+
+  const handleSelectBot = (bot: ExternalBot) => {
+    const currentUserId = useAuthStore.getState().user?.userId || 0;
+    const topic = getP2PTopic(currentUserId, Number(bot.botUserId));
+    useChatStore.getState().upsertConversation({
+      topic,
+      type: "p2p",
+      peerId: Number(bot.botUserId),
+      peerUsername: bot.name,
+      peerIsBot: true,
     });
     onOpenChange(false);
     router.push(`/chat/${encodeURIComponent(topic)}`);
@@ -132,6 +165,7 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
             [
               { id: "users", label: "Users", icon: UserIcon },
               { id: "agents", label: "Agents", icon: Bot },
+              { id: "bots", label: "Bots", icon: Bot },
             ] as const
           ).map((item) => (
             <button
@@ -196,7 +230,7 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
               )}
             </div>
           </>
-        ) : (
+        ) : tab === "agents" ? (
           <div className="max-h-[300px] overflow-y-auto">
             {agentsLoading ? (
               <div className="flex justify-center py-8">
@@ -241,6 +275,58 @@ export function NewChatDialog({ open, onOpenChange }: NewChatDialogProps) {
                       </span>
                       <span className="max-w-full truncate text-xs text-muted-foreground">
                         {agent.description || "No description"}
+                      </span>
+                    </div>
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="max-h-[300px] overflow-y-auto">
+            {botsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : !bots || bots.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <p className="text-sm text-muted-foreground">
+                  No external bots yet. Create one in the Developer console.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    onOpenChange(false);
+                    router.push("/developer");
+                  }}
+                >
+                  Go to Developer console
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {bots.map((bot) => (
+                  <Button
+                    key={bot.id}
+                    variant="ghost"
+                    className="h-auto justify-start gap-3 px-2 py-2"
+                    onClick={() => handleSelectBot(bot)}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        <Bot className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex min-w-0 flex-col items-start gap-0.5">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        <span className="truncate">{bot.name}</span>
+                        <Badge variant="secondary" className="px-1.5 text-[10px]">
+                          BOT
+                        </Badge>
+                      </span>
+                      <span className="max-w-full truncate text-xs text-muted-foreground">
+                        @{bot.username}
                       </span>
                     </div>
                   </Button>

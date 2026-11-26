@@ -7,6 +7,19 @@ import {
   GroupMember,
 } from "@/types";
 
+export interface BotStreamPayload {
+  streamId: string;
+  seq: number;
+  type: "started" | "delta" | "final" | "aborted";
+  topic: string;
+  botId: number;
+  botUserId: number;
+  delta?: string;
+  clientMsgId?: string;
+  replyMsgId?: number;
+  timestampMs?: number;
+}
+
 interface ChatStore {
   conversations: Map<string, Conversation>;
   activeTopic: string | null;
@@ -32,6 +45,20 @@ interface ChatStore {
     patch: Partial<ChatMessage>
   ) => void;
   appendStreamDelta: (topic: string, runId: number, delta: string) => void;
+  upsertBotStreamMessage: (topic: string, msg: ChatMessage) => void;
+  appendBotStreamDelta: (
+    topic: string,
+    streamId: string,
+    seq: number,
+    delta: string
+  ) => void;
+  updateBotStreamMessage: (
+    topic: string,
+    streamId: string,
+    patch: Partial<ChatMessage>
+  ) => void;
+  removeBotStreamMessage: (topic: string, streamId: string) => void;
+  applyBotStreamEvent: (event: BotStreamPayload) => void;
   removeMessage: (topic: string, clientMsgId: string) => void;
   hasMessageID: (topic: string, msgId: number) => boolean;
   setMessageCitations: (topic: string, msgId: number, citations: ChatMessage["citations"]) => void;
@@ -146,7 +173,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => {
       const map = new Map(state.conversations);
       const conv = ensureConversation(map, topic);
-      const exists = conv.messages.some(
+      const existsIdx = conv.messages.findIndex(
         (m) =>
           m.clientMsgId === msg.clientMsgId ||
           (msg.topicSeq !== undefined &&
@@ -155,9 +182,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             // numbers; compare numerically so duplicates are caught.
             Number(m.topicSeq) === Number(msg.topicSeq))
       );
-      const messages = exists
-        ? conv.messages
-        : insertBySeq(conv.messages, msg);
+      let messages = conv.messages;
+      if (existsIdx >= 0) {
+        const existing = conv.messages[existsIdx];
+        // A real message replaces its local bot-stream placeholder.
+        if ((existing.streaming || existing.botStreamId) && msg.msgId) {
+          messages = [...conv.messages];
+          messages[existsIdx] = {
+            ...existing,
+            ...msg,
+            streaming: false,
+            streamStatus: "completed",
+          };
+        }
+      } else {
+        messages = insertBySeq(conv.messages, msg);
+      }
       const msgSeq = msg.topicSeq !== undefined ? Number(msg.topicSeq) : undefined;
       map.set(topic, {
         ...conv,
@@ -197,6 +237,165 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       });
       return { conversations: map };
     }),
+  upsertBotStreamMessage: (topic, msg) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = ensureConversation(map, topic);
+      if (conv.messages.some((m) => m.botStreamId === msg.botStreamId)) {
+        return state;
+      }
+      map.set(topic, {
+        ...conv,
+        messages: [...conv.messages, msg],
+        lastMsgPreview: msg.content || "Bot is responding…",
+        lastMsgAt: msg.timestamp,
+      });
+      return { conversations: map };
+    }),
+  appendBotStreamDelta: (topic, streamId, seq, delta) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const idx = conv.messages.findIndex((m) => m.botStreamId === streamId);
+      if (idx < 0) return state;
+      const current = conv.messages[idx];
+      if ((current.botStreamSeq ?? 0) >= seq) return state;
+      const messages = [...conv.messages];
+      const next = {
+        ...current,
+        content: current.content + delta,
+        botStreamSeq: seq,
+        streaming: true,
+        streamStatus: "streaming" as const,
+      };
+      messages[idx] = next;
+      map.set(topic, {
+        ...conv,
+        messages,
+        lastMsgPreview: next.content.slice(-120) || "Bot is responding…",
+        lastMsgAt: next.timestamp,
+      });
+      return { conversations: map };
+    }),
+  updateBotStreamMessage: (topic, streamId, patch) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const idx = conv.messages.findIndex((m) => m.botStreamId === streamId);
+      if (idx < 0) return state;
+      const messages = [...conv.messages];
+      messages[idx] = { ...messages[idx], ...patch };
+      map.set(topic, { ...conv, messages });
+      return { conversations: map };
+    }),
+  removeBotStreamMessage: (topic, streamId) =>
+    set((state) => {
+      const map = new Map(state.conversations);
+      const conv = map.get(topic);
+      if (!conv) return state;
+      const messages = conv.messages.filter((m) => m.botStreamId !== streamId);
+      if (messages.length === conv.messages.length) return state;
+      map.set(topic, { ...conv, messages });
+      return { conversations: map };
+    }),
+  applyBotStreamEvent: (event) => {
+    if (!event.streamId || !event.topic) return;
+    const chat = get();
+    if (event.type === "aborted") {
+      chat.removeBotStreamMessage(event.topic, event.streamId);
+      return;
+    }
+    const timestamp = event.timestampMs ? event.timestampMs / 1000 : Date.now() / 1000;
+    if (event.type === "started") {
+      chat.upsertBotStreamMessage(event.topic, {
+        clientMsgId: event.clientMsgId || `botstream:${event.streamId}`,
+        topic: event.topic,
+        senderId: event.botUserId,
+        content: "",
+        msgType: 1,
+        timestamp,
+        status: "sending",
+        streaming: true,
+        streamStatus: "starting",
+        botStreamId: event.streamId,
+        botStreamSeq: 0,
+      });
+      return;
+    }
+    if (event.type === "delta") {
+      const conv = chat.conversations.get(event.topic);
+      const exists = conv?.messages.some((m) => m.botStreamId === event.streamId);
+      if (!exists) {
+        chat.upsertBotStreamMessage(event.topic, {
+          clientMsgId: event.clientMsgId || `botstream:${event.streamId}`,
+          topic: event.topic,
+          senderId: event.botUserId,
+          content: "",
+          msgType: 1,
+          timestamp,
+          status: "sending",
+          streaming: true,
+          streamStatus: "starting",
+          botStreamId: event.streamId,
+          botStreamSeq: 0,
+        });
+      }
+      if (event.delta) {
+        chat.appendBotStreamDelta(
+          event.topic,
+          event.streamId,
+          event.seq,
+          event.delta
+        );
+      }
+      return;
+    }
+    if (event.type === "final") {
+      const conv = chat.conversations.get(event.topic);
+      const existing = conv?.messages.find(
+        (m) => m.botStreamId === event.streamId
+      );
+      if (existing?.msgId !== undefined) {
+        // The durable message already replaced the placeholder.
+        return;
+      }
+      if (!existing) {
+        chat.upsertBotStreamMessage(event.topic, {
+          clientMsgId: event.clientMsgId || `botstream:${event.streamId}`,
+          topic: event.topic,
+          senderId: event.botUserId,
+          content: event.delta || "",
+          msgType: 1,
+          timestamp,
+          status: "sending",
+          streaming: false,
+          streamStatus: "completed",
+          botStreamId: event.streamId,
+          botStreamSeq: event.seq,
+        });
+        return;
+      }
+      chat.updateBotStreamMessage(event.topic, event.streamId, {
+        content: event.delta || existing.content,
+        streaming: false,
+        streamStatus: "completed",
+        botStreamSeq: Math.max(existing.botStreamSeq ?? 0, event.seq),
+      });
+      // If the durable message already arrived, drop the placeholder.
+      const durable = conv?.messages.find(
+        (m) =>
+          m !== existing &&
+          m.msgId !== undefined &&
+          event.clientMsgId !== undefined &&
+          m.clientMsgId === event.clientMsgId
+      );
+      if (durable) {
+        chat.removeBotStreamMessage(event.topic, event.streamId);
+      }
+    }
+  },
   updateStreamMessage: (topic, runId, patch) =>
     set((state) => {
       const map = new Map(state.conversations);
