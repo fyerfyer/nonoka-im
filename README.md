@@ -25,6 +25,8 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 - **运营可观测性**：Agent run/queue/tool/MCP/approval/stream metrics、OTLP trace（demo 默认 Jaeger）、Run detail trace link、Admin DLQ 列表与幂等批量 replay，以及 Prometheus 告警规则和可选通用 JSON webhook。
 - **附件链路**：JWT 上传/下载 + 短 TTL 签名媒体 URL；Composer 支持粘贴/拖拽/多附件 tray；视觉模型走多模态 image part，非视觉模型明确降级。
 - **Go SDK 与示例应用**：提供开箱即用的 Go SDK（[pkg/sdk](pkg/sdk)）以及完整聊天示例（[examples/chatapp](examples/chatapp)）。
+- **External Bot SDK**：外部 bot 通过 bot token + 签名 Webhook 接收 mention/DM 事件，支持幂等发送、重试、投递日志和 ephemeral 流式回复；参考实现位于 [pkg/botsdk](pkg/botsdk)，协议见 [docs/bot-protocol.md](docs/bot-protocol.md)，示例见 [examples/bot](examples/bot)。
+- **Developer Console**：`/developer` 管理 bot、token、Webhook、投递日志与 quickstart。
 - **多存储选型**：
   - PostgreSQL：用户、认证数据。
   - Redis：会话、序列号、群组成员、网关发现、消息状态、推送重试队列。
@@ -98,7 +100,9 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 ├── api/im/v1                  # Protobuf API 定义（auth / message / dispatch / push / packet）
 ├── cmd
 │   ├── nonoka-im              # 主服务入口：HTTP/gRPC API + WebSocket Gateway
-│   └── msgworker              # 消息工作者入口：消费 Kafka、落库、推送
+│   ├── msgworker              # 消息工作者入口：消费 Kafka、落库、推送
+│   ├── agent-worker           # Agent run 消费、执行、审批与 sweeper
+│   └── bot-worker             # 外部 bot Webhook 事件消费与投递
 ├── internal
 │   ├── biz                    # 业务用例层（auth / group / conversation 等）
 │   ├── conf                   # 配置 Protobuf 与解析
@@ -107,7 +111,8 @@ Nonoka IM 是一个基于 [Kratos](https://github.com/go-kratos/kratos) 微服�
 │   ├── msgworker              # Kafka 消费、序列号、存储、推送、重试
 │   ├── server                 # HTTP / gRPC 服务器注册
 │   └── service                # Kratos Service 实现（auth / message / dispatch / push / group / conversation）
-├── pkg/sdk                    # Go SDK
+├── pkg/sdk                    # Go SDK（人类/Agent 客户端）
+├── pkg/botsdk                 # Go External Bot SDK
 ├── examples/chatapp           # 完整聊天示例
 ├── web/app                    # 官方 Web 客户端（Next.js App Router）
 │   ├── app                    # 页面路由（登录、注册、聊天）
@@ -446,6 +451,8 @@ cd cmd/nonoka-im && wire
 ## 相关文档
 
 - [SDK 使用说明](pkg/sdk/README.md)
+- [External Bot 协议](docs/bot-protocol.md)
+- [External Bot 示例](examples/bot/main.go)
 
 ## 许可证
 
