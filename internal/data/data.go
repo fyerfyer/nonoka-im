@@ -59,7 +59,7 @@ func (d *Data) CleanTestData() error {
 		agent_approvals, agent_tool_invocations, idempotency_keys,
 		model_catalog, agent_gateway_keys, platform_gateway_keys, gateway_key_cleanup,
 		agent_quotas, agent_usage_daily, agent_usage_events, agent_quota_notices,
-		audit_events RESTART IDENTITY CASCADE`).Error
+		audit_events, bots, bot_tokens, bot_webhooks, bot_deliveries RESTART IDENTITY CASCADE`).Error
 	})
 }
 

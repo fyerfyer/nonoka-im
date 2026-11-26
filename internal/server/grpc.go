@@ -78,7 +78,8 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		grpc.Middleware(
 			recovery.Recovery(),
 			selector.Server(requireInternalPushToken).Match(func(ctx context.Context, operation string) bool {
-				return operation == "/api.im.v1.PushService/PushRunEventToUser"
+				return operation == "/api.im.v1.PushService/PushRunEventToUser" ||
+					operation == "/api.im.v1.PushService/PushBotStreamEventToUser"
 			}).Build(),
 			selector.Server(
 				jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
@@ -95,7 +96,8 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 					"/api.im.v1.PushService/PushReceiptToUser",
 					"/api.im.v1.PushService/BatchPushReceiptToUsers",
 					"/api.im.v1.PushService/BatchPushReceiptsToUsers",
-					"/api.im.v1.PushService/PushRunEventToUser":
+					"/api.im.v1.PushService/PushRunEventToUser",
+					"/api.im.v1.PushService/PushBotStreamEventToUser":
 					return false
 				}
 				return true

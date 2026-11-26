@@ -13,12 +13,13 @@ COPY . .
 RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=docker" -o /src/bin/nonoka-im ./cmd/nonoka-im
 RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=docker" -o /src/bin/msgworker ./cmd/msgworker
 RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=docker" -o /src/bin/agent-worker ./cmd/agent-worker
+RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=docker" -o /src/bin/bot-worker ./cmd/bot-worker
 
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata
 
-COPY --from=builder /src/bin/nonoka-im /src/bin/msgworker /src/bin/agent-worker /app/
+COPY --from=builder /src/bin/nonoka-im /src/bin/msgworker /src/bin/agent-worker /src/bin/bot-worker /app/
 
 WORKDIR /app
 

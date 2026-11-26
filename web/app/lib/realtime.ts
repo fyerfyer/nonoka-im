@@ -3,7 +3,7 @@ import { dispatchApi, refreshAuth, forceReLogin } from "@/lib/api";
 import type { RunEvent } from "@/lib/api/agents";
 import { generateClientMsgId } from "@/lib/uuid";
 
-const { Packet, Command, AgentRunEventType } = api.im.v1;
+const { Packet, Command, AgentRunEventType, BotStreamEventType } = api.im.v1;
 
 export type RealtimeEventType =
   | "connected"
@@ -16,6 +16,7 @@ export type RealtimeEventType =
   | "readReceipt"
   | "recall"
   | "agentRunEvent"
+  | "botStreamEvent"
   | "error";
 
 export interface RealtimeMessage {
@@ -52,6 +53,19 @@ export interface ReadReceiptPayload {
 
 export interface RecallPayload { topic: string; topicSeq: number; msgId: number; senderId: number; recalledAt: number; }
 
+export interface BotStreamPayload {
+  streamId: string;
+  seq: number;
+  type: "started" | "delta" | "final" | "aborted";
+  topic: string;
+  botId: number;
+  botUserId: number;
+  delta?: string;
+  clientMsgId?: string;
+  replyMsgId?: number;
+  timestampMs?: number;
+}
+
 type PacketType = InstanceType<typeof Packet>;
 
 const RUN_EVENT_TYPES: Record<number, RunEvent["type"]> = {
@@ -65,6 +79,13 @@ const RUN_EVENT_TYPES: Record<number, RunEvent["type"]> = {
   [AgentRunEventType.AGENT_RUN_FAILED]: "failed",
   [AgentRunEventType.AGENT_RUN_CANCELLED]: "cancelled",
   [AgentRunEventType.AGENT_RUN_HEARTBEAT]: "heartbeat",
+};
+
+const BOT_STREAM_TYPES: Record<number, BotStreamPayload["type"]> = {
+  [BotStreamEventType.BOT_STREAM_STARTED]: "started",
+  [BotStreamEventType.BOT_STREAM_DELTA]: "delta",
+  [BotStreamEventType.BOT_STREAM_FINAL]: "final",
+  [BotStreamEventType.BOT_STREAM_ABORTED]: "aborted",
 };
 
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -424,6 +445,23 @@ export class RealtimeClient extends EventTarget {
       if (Number(pkt.cmd) === Command.CMD_RECALL && pkt.recallNotice) {
         const r = pkt.recallNotice;
         this.dispatch("recall", { topic: r.topic, topicSeq: Number(r.topicSeq), msgId: Number(r.msgId), senderId: Number(r.senderId), recalledAt: Number(r.recalledAt) } as RecallPayload);
+        return;
+      }
+
+      if (Number(pkt.cmd) === Command.CMD_BOT_STREAM_EVENT && pkt.botStreamEvent) {
+        const e = pkt.botStreamEvent;
+        this.dispatch("botStreamEvent", {
+          streamId: e.streamId,
+          seq: Number(e.seq),
+          type: BOT_STREAM_TYPES[Number(e.type)] || "delta",
+          topic: e.topic,
+          botId: Number(e.botId),
+          botUserId: Number(e.botUserId),
+          delta: e.delta || undefined,
+          clientMsgId: e.clientMsgId || undefined,
+          replyMsgId: Number(e.replyMsgId) || undefined,
+          timestampMs: Number(e.timestampMs) || undefined,
+        } as BotStreamPayload);
         return;
       }
 

@@ -78,6 +78,10 @@ export function useRealtime() {
         const detail = (e as CustomEvent).detail as RunEvent;
         useRunStreamStore.getState().applyEvent(detail);
       },
+      botStreamEvent: (e) => {
+        const detail = (e as CustomEvent).detail;
+        useChatStore.getState().applyBotStreamEvent(detail);
+      },
       error: (e) => {
         const detail = (e as CustomEvent).detail;
         console.error("realtime error", detail);

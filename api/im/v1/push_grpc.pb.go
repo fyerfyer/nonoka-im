@@ -25,6 +25,7 @@ const (
 	PushService_BatchPushReceiptToUsers_FullMethodName  = "/api.im.v1.PushService/BatchPushReceiptToUsers"
 	PushService_BatchPushReceiptsToUsers_FullMethodName = "/api.im.v1.PushService/BatchPushReceiptsToUsers"
 	PushService_PushRunEventToUser_FullMethodName       = "/api.im.v1.PushService/PushRunEventToUser"
+	PushService_PushBotStreamEventToUser_FullMethodName = "/api.im.v1.PushService/PushBotStreamEventToUser"
 )
 
 // PushServiceClient is the client API for PushService service.
@@ -47,6 +48,9 @@ type PushServiceClient interface {
 	// PushRunEventToUser delivers one transient agent run stream event to all
 	// online devices of a user. It is called only by trusted Agent Workers.
 	PushRunEventToUser(ctx context.Context, in *PushRunEventToUserRequest, opts ...grpc.CallOption) (*PushRunEventToUserReply, error)
+	// PushBotStreamEventToUser delivers one transient external-bot reply stream
+	// event to all online devices of a user.
+	PushBotStreamEventToUser(ctx context.Context, in *PushBotStreamEventToUserRequest, opts ...grpc.CallOption) (*PushBotStreamEventToUserReply, error)
 }
 
 type pushServiceClient struct {
@@ -117,6 +121,16 @@ func (c *pushServiceClient) PushRunEventToUser(ctx context.Context, in *PushRunE
 	return out, nil
 }
 
+func (c *pushServiceClient) PushBotStreamEventToUser(ctx context.Context, in *PushBotStreamEventToUserRequest, opts ...grpc.CallOption) (*PushBotStreamEventToUserReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PushBotStreamEventToUserReply)
+	err := c.cc.Invoke(ctx, PushService_PushBotStreamEventToUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PushServiceServer is the server API for PushService service.
 // All implementations must embed UnimplementedPushServiceServer
 // for forward compatibility.
@@ -137,6 +151,9 @@ type PushServiceServer interface {
 	// PushRunEventToUser delivers one transient agent run stream event to all
 	// online devices of a user. It is called only by trusted Agent Workers.
 	PushRunEventToUser(context.Context, *PushRunEventToUserRequest) (*PushRunEventToUserReply, error)
+	// PushBotStreamEventToUser delivers one transient external-bot reply stream
+	// event to all online devices of a user.
+	PushBotStreamEventToUser(context.Context, *PushBotStreamEventToUserRequest) (*PushBotStreamEventToUserReply, error)
 	mustEmbedUnimplementedPushServiceServer()
 }
 
@@ -164,6 +181,9 @@ func (UnimplementedPushServiceServer) BatchPushReceiptsToUsers(context.Context, 
 }
 func (UnimplementedPushServiceServer) PushRunEventToUser(context.Context, *PushRunEventToUserRequest) (*PushRunEventToUserReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method PushRunEventToUser not implemented")
+}
+func (UnimplementedPushServiceServer) PushBotStreamEventToUser(context.Context, *PushBotStreamEventToUserRequest) (*PushBotStreamEventToUserReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method PushBotStreamEventToUser not implemented")
 }
 func (UnimplementedPushServiceServer) mustEmbedUnimplementedPushServiceServer() {}
 func (UnimplementedPushServiceServer) testEmbeddedByValue()                     {}
@@ -294,6 +314,24 @@ func _PushService_PushRunEventToUser_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PushService_PushBotStreamEventToUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushBotStreamEventToUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PushServiceServer).PushBotStreamEventToUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PushService_PushBotStreamEventToUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PushServiceServer).PushBotStreamEventToUser(ctx, req.(*PushBotStreamEventToUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PushService_ServiceDesc is the grpc.ServiceDesc for PushService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -324,6 +362,10 @@ var PushService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PushRunEventToUser",
 			Handler:    _PushService_PushRunEventToUser_Handler,
+		},
+		{
+			MethodName: "PushBotStreamEventToUser",
+			Handler:    _PushService_PushBotStreamEventToUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

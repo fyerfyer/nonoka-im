@@ -268,12 +268,12 @@ function resolveSender(
   senderId: number,
   conversation: Conversation,
   memberNames: Map<number, string> | undefined,
-  agentNames: Map<number, { name: string }>
+  agentNames: Map<number, { name: string; kind?: "agent" | "bot" }>
 ): { name: string; isAgent: boolean } {
   // Bot users resolve to their agent display name; member tables only carry
   // the raw "agent_xxx" username.
   const agent = agentNames.get(Number(senderId));
-  if (agent) return { name: agent.name, isAgent: true };
+  if (agent) return { name: agent.name, isAgent: agent.kind !== "bot" };
   if (conversation.type === "group") {
     // senderId may be a proto-JSON string at runtime; coerce for the lookup.
     const name = memberNames?.get(Number(senderId)) || "Unknown";

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, MessageSquare, Plus, Search, Settings2, Sparkles } from "lucide-react";
+import { Bot, Code2, MessageSquare, Plus, Search, Settings2, Sparkles } from "lucide-react";
 import { agentsQuery, catalogQuery } from "@/lib/queries/agents";
 import { useAuthStore } from "@/stores/authStore";
 import { useAuth } from "@/hooks/useAuth";
@@ -65,6 +65,10 @@ export function AgentDirectory() {
               <span className="hidden sm:inline">Platform</span>
             </Button>
           )}
+          <Button variant="ghost" size="sm" onClick={() => router.push("/developer")}>
+            <Code2 />
+            <span className="hidden sm:inline">Developer</span>
+          </Button>
           <Button size="sm" onClick={() => router.push("/agents/new")}>
             <Plus />
             New agent

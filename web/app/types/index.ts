@@ -48,6 +48,8 @@ export interface ChatMessage {
   // Client-only streaming state. These fields never come from the server.
   runId?: number;
   streaming?: boolean;
+  botStreamId?: string;
+  botStreamSeq?: number;
   streamStatus?:
     | "starting"
     | "streaming"

@@ -23,6 +23,9 @@ service PushService {
   // PushRunEventToUser delivers one transient agent run stream event to all
   // online devices of a user. It is called only by trusted Agent Workers.
   rpc PushRunEventToUser (PushRunEventToUserRequest) returns (PushRunEventToUserReply);
+  // PushBotStreamEventToUser delivers one transient external-bot reply stream
+  // event to all online devices of a user.
+  rpc PushBotStreamEventToUser (PushBotStreamEventToUserRequest) returns (PushBotStreamEventToUserReply);
 }
 
 // PushToUserRequest is sent by MsgWorker to Gateway.
@@ -92,6 +95,16 @@ message PushRunEventToUserRequest {
 }
 
 message PushRunEventToUserReply {
+  bool success = 1;
+  int32 delivered_count = 2;
+}
+
+message PushBotStreamEventToUserRequest {
+  int64 user_id = 1;
+  BotStreamEvent event = 2;
+}
+
+message PushBotStreamEventToUserReply {
   bool success = 1;
   int32 delivered_count = 2;
 }

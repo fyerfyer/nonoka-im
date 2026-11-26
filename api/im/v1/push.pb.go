@@ -696,6 +696,110 @@ func (x *PushRunEventToUserReply) GetDeliveredCount() int32 {
 	return 0
 }
 
+type PushBotStreamEventToUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Event         *BotStreamEvent        `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushBotStreamEventToUserRequest) Reset() {
+	*x = PushBotStreamEventToUserRequest{}
+	mi := &file_im_v1_push_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushBotStreamEventToUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushBotStreamEventToUserRequest) ProtoMessage() {}
+
+func (x *PushBotStreamEventToUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushBotStreamEventToUserRequest.ProtoReflect.Descriptor instead.
+func (*PushBotStreamEventToUserRequest) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PushBotStreamEventToUserRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *PushBotStreamEventToUserRequest) GetEvent() *BotStreamEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+type PushBotStreamEventToUserReply struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Success        bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	DeliveredCount int32                  `protobuf:"varint,2,opt,name=delivered_count,json=deliveredCount,proto3" json:"delivered_count,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PushBotStreamEventToUserReply) Reset() {
+	*x = PushBotStreamEventToUserReply{}
+	mi := &file_im_v1_push_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushBotStreamEventToUserReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushBotStreamEventToUserReply) ProtoMessage() {}
+
+func (x *PushBotStreamEventToUserReply) ProtoReflect() protoreflect.Message {
+	mi := &file_im_v1_push_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushBotStreamEventToUserReply.ProtoReflect.Descriptor instead.
+func (*PushBotStreamEventToUserReply) Descriptor() ([]byte, []int) {
+	return file_im_v1_push_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PushBotStreamEventToUserReply) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PushBotStreamEventToUserReply) GetDeliveredCount() int32 {
+	if x != nil {
+		return x.DeliveredCount
+	}
+	return 0
+}
+
 var File_im_v1_push_proto protoreflect.FileDescriptor
 
 const file_im_v1_push_proto_rawDesc = "" +
@@ -738,7 +842,13 @@ const file_im_v1_push_proto_rawDesc = "" +
 	"\x05event\x18\x02 \x01(\v2\x18.api.im.v1.AgentRunEventR\x05event\"\\\n" +
 	"\x17PushRunEventToUserReply\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12'\n" +
-	"\x0fdelivered_count\x18\x02 \x01(\x05R\x0edeliveredCount2\xcd\x04\n" +
+	"\x0fdelivered_count\x18\x02 \x01(\x05R\x0edeliveredCount\"k\n" +
+	"\x1fPushBotStreamEventToUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12/\n" +
+	"\x05event\x18\x02 \x01(\v2\x19.api.im.v1.BotStreamEventR\x05event\"b\n" +
+	"\x1dPushBotStreamEventToUserReply\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12'\n" +
+	"\x0fdelivered_count\x18\x02 \x01(\x05R\x0edeliveredCount2\xbf\x05\n" +
 	"\vPushService\x12F\n" +
 	"\n" +
 	"PushToUser\x12\x1c.api.im.v1.PushToUserRequest\x1a\x1a.api.im.v1.PushToUserReply\x12X\n" +
@@ -746,7 +856,8 @@ const file_im_v1_push_proto_rawDesc = "" +
 	"\x11PushReceiptToUser\x12#.api.im.v1.PushReceiptToUserRequest\x1a!.api.im.v1.PushReceiptToUserReply\x12m\n" +
 	"\x17BatchPushReceiptToUsers\x12).api.im.v1.BatchPushReceiptToUsersRequest\x1a'.api.im.v1.BatchPushReceiptToUsersReply\x12p\n" +
 	"\x18BatchPushReceiptsToUsers\x12*.api.im.v1.BatchPushReceiptsToUsersRequest\x1a(.api.im.v1.BatchPushReceiptsToUsersReply\x12^\n" +
-	"\x12PushRunEventToUser\x12$.api.im.v1.PushRunEventToUserRequest\x1a\".api.im.v1.PushRunEventToUserReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
+	"\x12PushRunEventToUser\x12$.api.im.v1.PushRunEventToUserRequest\x1a\".api.im.v1.PushRunEventToUserReply\x12p\n" +
+	"\x18PushBotStreamEventToUser\x12*.api.im.v1.PushBotStreamEventToUserRequest\x1a(.api.im.v1.PushBotStreamEventToUserReplyB\x18Z\x16nonoka-im/api/im/v1;v1b\x06proto3"
 
 var (
 	file_im_v1_push_proto_rawDescOnce sync.Once
@@ -760,7 +871,7 @@ func file_im_v1_push_proto_rawDescGZIP() []byte {
 	return file_im_v1_push_proto_rawDescData
 }
 
-var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_im_v1_push_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_im_v1_push_proto_goTypes = []any{
 	(*PushToUserRequest)(nil),               // 0: api.im.v1.PushToUserRequest
 	(*PushToUserReply)(nil),                 // 1: api.im.v1.PushToUserReply
@@ -775,36 +886,42 @@ var file_im_v1_push_proto_goTypes = []any{
 	(*BatchPushReceiptsToUsersReply)(nil),   // 10: api.im.v1.BatchPushReceiptsToUsersReply
 	(*PushRunEventToUserRequest)(nil),       // 11: api.im.v1.PushRunEventToUserRequest
 	(*PushRunEventToUserReply)(nil),         // 12: api.im.v1.PushRunEventToUserReply
-	(*MessagePush)(nil),                     // 13: api.im.v1.MessagePush
-	(*SendReceipt)(nil),                     // 14: api.im.v1.SendReceipt
-	(*AgentRunEvent)(nil),                   // 15: api.im.v1.AgentRunEvent
+	(*PushBotStreamEventToUserRequest)(nil), // 13: api.im.v1.PushBotStreamEventToUserRequest
+	(*PushBotStreamEventToUserReply)(nil),   // 14: api.im.v1.PushBotStreamEventToUserReply
+	(*MessagePush)(nil),                     // 15: api.im.v1.MessagePush
+	(*SendReceipt)(nil),                     // 16: api.im.v1.SendReceipt
+	(*AgentRunEvent)(nil),                   // 17: api.im.v1.AgentRunEvent
+	(*BotStreamEvent)(nil),                  // 18: api.im.v1.BotStreamEvent
 }
 var file_im_v1_push_proto_depIdxs = []int32{
-	13, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
-	13, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
-	14, // 2: api.im.v1.PushReceiptToUserRequest.receipt:type_name -> api.im.v1.SendReceipt
-	14, // 3: api.im.v1.BatchPushReceiptToUsersRequest.receipt:type_name -> api.im.v1.SendReceipt
-	14, // 4: api.im.v1.ReceiptBatchItem.receipt:type_name -> api.im.v1.SendReceipt
+	15, // 0: api.im.v1.PushToUserRequest.message:type_name -> api.im.v1.MessagePush
+	15, // 1: api.im.v1.BatchPushToUsersRequest.message:type_name -> api.im.v1.MessagePush
+	16, // 2: api.im.v1.PushReceiptToUserRequest.receipt:type_name -> api.im.v1.SendReceipt
+	16, // 3: api.im.v1.BatchPushReceiptToUsersRequest.receipt:type_name -> api.im.v1.SendReceipt
+	16, // 4: api.im.v1.ReceiptBatchItem.receipt:type_name -> api.im.v1.SendReceipt
 	8,  // 5: api.im.v1.BatchPushReceiptsToUsersRequest.items:type_name -> api.im.v1.ReceiptBatchItem
 	8,  // 6: api.im.v1.BatchPushReceiptsToUsersReply.failed_items:type_name -> api.im.v1.ReceiptBatchItem
-	15, // 7: api.im.v1.PushRunEventToUserRequest.event:type_name -> api.im.v1.AgentRunEvent
-	0,  // 8: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
-	2,  // 9: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
-	4,  // 10: api.im.v1.PushService.PushReceiptToUser:input_type -> api.im.v1.PushReceiptToUserRequest
-	6,  // 11: api.im.v1.PushService.BatchPushReceiptToUsers:input_type -> api.im.v1.BatchPushReceiptToUsersRequest
-	9,  // 12: api.im.v1.PushService.BatchPushReceiptsToUsers:input_type -> api.im.v1.BatchPushReceiptsToUsersRequest
-	11, // 13: api.im.v1.PushService.PushRunEventToUser:input_type -> api.im.v1.PushRunEventToUserRequest
-	1,  // 14: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
-	3,  // 15: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
-	5,  // 16: api.im.v1.PushService.PushReceiptToUser:output_type -> api.im.v1.PushReceiptToUserReply
-	7,  // 17: api.im.v1.PushService.BatchPushReceiptToUsers:output_type -> api.im.v1.BatchPushReceiptToUsersReply
-	10, // 18: api.im.v1.PushService.BatchPushReceiptsToUsers:output_type -> api.im.v1.BatchPushReceiptsToUsersReply
-	12, // 19: api.im.v1.PushService.PushRunEventToUser:output_type -> api.im.v1.PushRunEventToUserReply
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	17, // 7: api.im.v1.PushRunEventToUserRequest.event:type_name -> api.im.v1.AgentRunEvent
+	18, // 8: api.im.v1.PushBotStreamEventToUserRequest.event:type_name -> api.im.v1.BotStreamEvent
+	0,  // 9: api.im.v1.PushService.PushToUser:input_type -> api.im.v1.PushToUserRequest
+	2,  // 10: api.im.v1.PushService.BatchPushToUsers:input_type -> api.im.v1.BatchPushToUsersRequest
+	4,  // 11: api.im.v1.PushService.PushReceiptToUser:input_type -> api.im.v1.PushReceiptToUserRequest
+	6,  // 12: api.im.v1.PushService.BatchPushReceiptToUsers:input_type -> api.im.v1.BatchPushReceiptToUsersRequest
+	9,  // 13: api.im.v1.PushService.BatchPushReceiptsToUsers:input_type -> api.im.v1.BatchPushReceiptsToUsersRequest
+	11, // 14: api.im.v1.PushService.PushRunEventToUser:input_type -> api.im.v1.PushRunEventToUserRequest
+	13, // 15: api.im.v1.PushService.PushBotStreamEventToUser:input_type -> api.im.v1.PushBotStreamEventToUserRequest
+	1,  // 16: api.im.v1.PushService.PushToUser:output_type -> api.im.v1.PushToUserReply
+	3,  // 17: api.im.v1.PushService.BatchPushToUsers:output_type -> api.im.v1.BatchPushToUsersReply
+	5,  // 18: api.im.v1.PushService.PushReceiptToUser:output_type -> api.im.v1.PushReceiptToUserReply
+	7,  // 19: api.im.v1.PushService.BatchPushReceiptToUsers:output_type -> api.im.v1.BatchPushReceiptToUsersReply
+	10, // 20: api.im.v1.PushService.BatchPushReceiptsToUsers:output_type -> api.im.v1.BatchPushReceiptsToUsersReply
+	12, // 21: api.im.v1.PushService.PushRunEventToUser:output_type -> api.im.v1.PushRunEventToUserReply
+	14, // 22: api.im.v1.PushService.PushBotStreamEventToUser:output_type -> api.im.v1.PushBotStreamEventToUserReply
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_im_v1_push_proto_init() }
@@ -820,7 +937,7 @@ func file_im_v1_push_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_im_v1_push_proto_rawDesc), len(file_im_v1_push_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

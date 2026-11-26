@@ -28,7 +28,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, outbox *service.OutboxAdminHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, bots *service.BotHTTP, outbox *service.OutboxAdminHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 		httpapi.RequestIDMiddleware(),
@@ -60,7 +60,14 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 			return []byte(authConf.JwtSecret), nil
 		}),
 	).Match(func(ctx context.Context, operation string) bool {
-		// Skip JWT validation for public endpoints
+		// Skip JWT validation for public endpoints and bot runtime routes.
+		// Bot runtime routes authenticate an opaque bot token in the handler.
+		if tr, ok := transport.FromServerContext(ctx); ok {
+			if requestTransport, ok := tr.(interface{ Request() *http.Request }); ok && requestTransport.Request() != nil &&
+				strings.HasPrefix(requestTransport.Request().URL.Path, "/v1/bot/") {
+				return false
+			}
+		}
 		switch operation {
 		case "/api.im.v1.AuthService/Register",
 			"/api.im.v1.AuthService/Login",
@@ -217,6 +224,36 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.GET("/v1/models", agents.ListModels)
 		r.POST("/v1/models/sync", agents.SyncModels)
 		r.PATCH("/v1/models/{id}", agents.UpdateModel)
+	}
+	if bots != nil {
+		r := srv.Route("/")
+		// Management API (user JWT).
+		r.GET("/v1/bots", bots.List)
+		r.POST("/v1/bots", bots.Create)
+		r.GET("/v1/bots/directory", bots.Directory)
+		r.GET("/v1/bots/{id}", bots.Detail)
+		r.PATCH("/v1/bots/{id}", bots.Update)
+		r.DELETE("/v1/bots/{id}", bots.Delete)
+		r.POST("/v1/bots/{id}/tokens", bots.CreateToken)
+		r.GET("/v1/bots/{id}/tokens", bots.ListTokens)
+		r.DELETE("/v1/bots/{id}/tokens/{tokenId}", bots.RevokeToken)
+		r.GET("/v1/bots/{id}/webhook", bots.GetWebhook)
+		r.PUT("/v1/bots/{id}/webhook", bots.PutWebhook)
+		r.DELETE("/v1/bots/{id}/webhook", bots.DeleteWebhook)
+		r.POST("/v1/bots/{id}/webhook/rotate", bots.RotateWebhookSecret)
+		r.POST("/v1/bots/{id}/webhook/test", bots.TestWebhook)
+		r.GET("/v1/bots/{id}/deliveries", bots.ListDeliveries)
+		r.POST("/v1/bots/{id}/deliveries/{deliveryId}/replay", bots.ReplayDelivery)
+		r.GET("/v1/bots/{id}/usage", bots.Usage)
+		// Runtime API (bot token, authenticated in the handler).
+		r.GET("/v1/bot/me", bots.Me)
+		r.POST("/v1/bot/messages", bots.SendMessage)
+		r.GET("/v1/bot/messages/by-client-id/{clientMsgId}", bots.MessageByClientID)
+		r.GET("/v1/bot/messages", bots.History)
+		r.POST("/v1/bot/streams", bots.CreateStream)
+		r.POST("/v1/bot/streams/{streamId}/chunks", bots.AppendStream)
+		r.POST("/v1/bot/streams/{streamId}/finalize", bots.FinalizeStream)
+		r.DELETE("/v1/bot/streams/{streamId}", bots.AbortStream)
 	}
 	if outbox != nil {
 		r := srv.Route("/")

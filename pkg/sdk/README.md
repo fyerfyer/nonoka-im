@@ -173,6 +173,12 @@ for event := range client.Realtime.Events() {
 One dispatcher reads the WebSocket and fans typed events out to all
 subscriptions, preserving per-topic order.
 
+## External bots
+
+`pkg/sdk` is the human/Agent client. External bots use the separate
+[`pkg/botsdk`](../botsdk/README.md) package and the
+[External Bot Protocol](../../docs/bot-protocol.md).
+
 ## Breaking changes from the old SDK
 
 - `sdk.Options`/`NewClient` were replaced by `Config`/`New`.

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { agentApi } from "@/lib/api/agents";
+import { botsApi } from "@/lib/api/bots";
 
 export interface AgentName {
   name: string;
+  kind: "agent" | "bot";
 }
 
 let cachedNames: Map<number, AgentName> | null = null;
@@ -19,10 +21,20 @@ function loadAgentNames(): Promise<Map<number, AgentName>> {
   if (cachedNames) return Promise.resolve(cachedNames);
   if (inflight) return inflight;
   inflight = (async () => {
-    const reply = await agentApi.list();
+    const [agents, bots] = await Promise.allSettled([
+      agentApi.list(),
+      botsApi.directory(),
+    ]);
     const map = new Map<number, AgentName>();
-    for (const agent of reply.items) {
-      map.set(Number(agent.botUserId), { name: agent.name });
+    if (bots.status === "fulfilled") {
+      for (const bot of bots.value.items) {
+        map.set(Number(bot.botUserId), { name: bot.name, kind: "bot" });
+      }
+    }
+    if (agents.status === "fulfilled") {
+      for (const agent of agents.value.items) {
+        map.set(Number(agent.botUserId), { name: agent.name, kind: "agent" });
+      }
     }
     cachedNames = map;
     return map;

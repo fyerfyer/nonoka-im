@@ -127,6 +127,25 @@ func (s *PushService) PushRunEventToUser(ctx context.Context, req *pb.PushRunEve
 	return &pb.PushRunEventToUserReply{Success: delivered > 0, DeliveredCount: int32(delivered)}, nil
 }
 
+// PushBotStreamEventToUser delivers one transient external-bot reply event to
+// all online devices of a user.
+func (s *PushService) PushBotStreamEventToUser(ctx context.Context, req *pb.PushBotStreamEventToUserRequest) (*pb.PushBotStreamEventToUserReply, error) {
+	event := req.GetEvent()
+	if event == nil {
+		return &pb.PushBotStreamEventToUserReply{Success: false}, nil
+	}
+	packet := &pb.Packet{
+		Cmd: pb.Command_CMD_BOT_STREAM_EVENT,
+		Payload: &pb.Packet_BotStreamEvent{
+			BotStreamEvent: event,
+		},
+	}
+	delivered := s.manager.BroadcastToUser(req.GetUserId(), packet)
+	s.log.Debugf("push bot stream event: user_id=%d stream_id=%s type=%s delivered=%d",
+		req.GetUserId(), event.GetStreamId(), event.GetType(), delivered)
+	return &pb.PushBotStreamEventToUserReply{Success: delivered > 0, DeliveredCount: int32(delivered)}, nil
+}
+
 // PushReceiptToUser delivers a send receipt to all online devices of a user.
 func (s *PushService) PushReceiptToUser(ctx context.Context, req *pb.PushReceiptToUserRequest) (*pb.PushReceiptToUserReply, error) {
 	receipt := req.GetReceipt()

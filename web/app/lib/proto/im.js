@@ -14034,6 +14034,7 @@ export const api = $root.api = (() => {
              * @property {number} CMD_SEND_RECEIPT=9 CMD_SEND_RECEIPT value
              * @property {number} CMD_RECALL=10 CMD_RECALL value
              * @property {number} CMD_AGENT_RUN_EVENT=11 CMD_AGENT_RUN_EVENT value
+             * @property {number} CMD_BOT_STREAM_EVENT=12 CMD_BOT_STREAM_EVENT value
              */
             v1.Command = (function() {
                 const valuesById = {}, values = $Object.create(valuesById);
@@ -14049,6 +14050,7 @@ export const api = $root.api = (() => {
                 values[valuesById[9] = "CMD_SEND_RECEIPT"] = 9;
                 values[valuesById[10] = "CMD_RECALL"] = 10;
                 values[valuesById[11] = "CMD_AGENT_RUN_EVENT"] = 11;
+                values[valuesById[12] = "CMD_BOT_STREAM_EVENT"] = 12;
                 return values;
             })();
 
@@ -15708,6 +15710,662 @@ export const api = $root.api = (() => {
                 return AgentRunEvent;
             })();
 
+            /**
+             * BotStreamEventType enum.
+             * @name api.im.v1.BotStreamEventType
+             * @enum {number}
+             * @property {number} BOT_STREAM_EVENT_UNKNOWN=0 BOT_STREAM_EVENT_UNKNOWN value
+             * @property {number} BOT_STREAM_STARTED=1 BOT_STREAM_STARTED value
+             * @property {number} BOT_STREAM_DELTA=2 BOT_STREAM_DELTA value
+             * @property {number} BOT_STREAM_FINAL=3 BOT_STREAM_FINAL value
+             * @property {number} BOT_STREAM_ABORTED=4 BOT_STREAM_ABORTED value
+             */
+            v1.BotStreamEventType = (function() {
+                const valuesById = {}, values = $Object.create(valuesById);
+                values[valuesById[0] = "BOT_STREAM_EVENT_UNKNOWN"] = 0;
+                values[valuesById[1] = "BOT_STREAM_STARTED"] = 1;
+                values[valuesById[2] = "BOT_STREAM_DELTA"] = 2;
+                values[valuesById[3] = "BOT_STREAM_FINAL"] = 3;
+                values[valuesById[4] = "BOT_STREAM_ABORTED"] = 4;
+                return values;
+            })();
+
+            v1.BotStreamEvent = (function() {
+
+                /**
+                 * Properties of a BotStreamEvent.
+                 * @typedef {Object} api.im.v1.BotStreamEvent.$Properties
+                 * @property {string|null} [streamId] BotStreamEvent streamId
+                 * @property {number|Long|null} [seq] BotStreamEvent seq
+                 * @property {api.im.v1.BotStreamEventType|null} [type] BotStreamEvent type
+                 * @property {string|null} [topic] BotStreamEvent topic
+                 * @property {number|Long|null} [botId] BotStreamEvent botId
+                 * @property {number|Long|null} [botUserId] BotStreamEvent botUserId
+                 * @property {string|null} [delta] BotStreamEvent delta
+                 * @property {string|null} [clientMsgId] BotStreamEvent clientMsgId
+                 * @property {number|Long|null} [replyMsgId] BotStreamEvent replyMsgId
+                 * @property {number|Long|null} [timestampMs] BotStreamEvent timestampMs
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a BotStreamEvent.
+                 * @memberof api.im.v1
+                 * @interface IBotStreamEvent
+                 * @augments api.im.v1.BotStreamEvent.$Properties
+                 * @deprecated Use api.im.v1.BotStreamEvent.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a BotStreamEvent.
+                 * @typedef {api.im.v1.BotStreamEvent.$Properties} api.im.v1.BotStreamEvent.$Shape
+                 */
+
+                /**
+                 * Constructs a new BotStreamEvent.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a BotStreamEvent.
+                 * @constructor
+                 * @param {api.im.v1.BotStreamEvent.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const BotStreamEvent = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * BotStreamEvent streamId.
+                 * @member {string} streamId
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.streamId = "";
+
+                /**
+                 * BotStreamEvent seq.
+                 * @member {number|Long} seq
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.seq = $util.Long ? $util.Long.fromBits(0,0,true) : 0;
+
+                /**
+                 * BotStreamEvent type.
+                 * @member {api.im.v1.BotStreamEventType} type
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.type = 0;
+
+                /**
+                 * BotStreamEvent topic.
+                 * @member {string} topic
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.topic = "";
+
+                /**
+                 * BotStreamEvent botId.
+                 * @member {number|Long} botId
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.botId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * BotStreamEvent botUserId.
+                 * @member {number|Long} botUserId
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.botUserId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * BotStreamEvent delta.
+                 * @member {string} delta
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.delta = "";
+
+                /**
+                 * BotStreamEvent clientMsgId.
+                 * @member {string} clientMsgId
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.clientMsgId = "";
+
+                /**
+                 * BotStreamEvent replyMsgId.
+                 * @member {number|Long} replyMsgId
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.replyMsgId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * BotStreamEvent timestampMs.
+                 * @member {number|Long} timestampMs
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 */
+                BotStreamEvent.prototype.timestampMs = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * Creates a new BotStreamEvent instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {api.im.v1.BotStreamEvent.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.BotStreamEvent} BotStreamEvent instance
+                 * @type {{
+                 *   (properties: api.im.v1.BotStreamEvent.$Shape): api.im.v1.BotStreamEvent & api.im.v1.BotStreamEvent.$Shape;
+                 *   (properties?: api.im.v1.BotStreamEvent.$Properties): api.im.v1.BotStreamEvent;
+                 * }}
+                 */
+                BotStreamEvent.create = function(properties) {
+                    return new BotStreamEvent(properties);
+                };
+
+                /**
+                 * Encodes the specified BotStreamEvent message. Does not implicitly {@link api.im.v1.BotStreamEvent.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {api.im.v1.BotStreamEvent.$Properties} message BotStreamEvent message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                BotStreamEvent.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.streamId != null && $Object.hasOwnProperty.call(message, "streamId"))
+                        writer.uint32(/* id 1, wireType 2 =*/10).string(message.streamId);
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).uint64(message.seq);
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        writer.uint32(/* id 3, wireType 0 =*/24).int32(message.type);
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        writer.uint32(/* id 4, wireType 2 =*/34).string(message.topic);
+                    if (message.botId != null && $Object.hasOwnProperty.call(message, "botId"))
+                        writer.uint32(/* id 5, wireType 0 =*/40).int64(message.botId);
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        writer.uint32(/* id 6, wireType 0 =*/48).int64(message.botUserId);
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        writer.uint32(/* id 7, wireType 2 =*/58).string(message.delta);
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        writer.uint32(/* id 8, wireType 2 =*/66).string(message.clientMsgId);
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        writer.uint32(/* id 9, wireType 0 =*/72).int64(message.replyMsgId);
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        writer.uint32(/* id 10, wireType 0 =*/80).int64(message.timestampMs);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified BotStreamEvent message, length delimited. Does not implicitly {@link api.im.v1.BotStreamEvent.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {api.im.v1.BotStreamEvent.$Properties} message BotStreamEvent message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                BotStreamEvent.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a BotStreamEvent message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.BotStreamEvent & api.im.v1.BotStreamEvent.$Shape} BotStreamEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                BotStreamEvent.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.BotStreamEvent(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.streamId = value;
+                                else
+                                    delete message.streamId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.uint64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.seq = value;
+                                else
+                                    delete message.seq;
+                                continue;
+                            }
+                        case 3: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.type = value;
+                                else
+                                    delete message.type;
+                                continue;
+                            }
+                        case 4: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.topic = value;
+                                else
+                                    delete message.topic;
+                                continue;
+                            }
+                        case 5: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.botId = value;
+                                else
+                                    delete message.botId;
+                                continue;
+                            }
+                        case 6: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.botUserId = value;
+                                else
+                                    delete message.botUserId;
+                                continue;
+                            }
+                        case 7: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.delta = value;
+                                else
+                                    delete message.delta;
+                                continue;
+                            }
+                        case 8: {
+                                if (wireType !== 2)
+                                    break;
+                                if ((value = reader.stringVerify()).length)
+                                    message.clientMsgId = value;
+                                else
+                                    delete message.clientMsgId;
+                                continue;
+                            }
+                        case 9: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.replyMsgId = value;
+                                else
+                                    delete message.replyMsgId;
+                                continue;
+                            }
+                        case 10: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.timestampMs = value;
+                                else
+                                    delete message.timestampMs;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a BotStreamEvent message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.BotStreamEvent & api.im.v1.BotStreamEvent.$Shape} BotStreamEvent
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                BotStreamEvent.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a BotStreamEvent message.
+                 * @function verify
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                BotStreamEvent.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.streamId != null && $Object.hasOwnProperty.call(message, "streamId"))
+                        if (!$util.isString(message.streamId))
+                            return "streamId: string expected";
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        if (!$util.isInteger(message.seq) && !(message.seq && $util.isInteger(message.seq.low) && $util.isInteger(message.seq.high)))
+                            return "seq: integer|Long expected";
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        switch (message.type) {
+                        default:
+                            return "type: enum value expected";
+                        case 0:
+                        case 1:
+                        case 2:
+                        case 3:
+                        case 4:
+                            break;
+                        }
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        if (!$util.isString(message.topic))
+                            return "topic: string expected";
+                    if (message.botId != null && $Object.hasOwnProperty.call(message, "botId"))
+                        if (!$util.isInteger(message.botId) && !(message.botId && $util.isInteger(message.botId.low) && $util.isInteger(message.botId.high)))
+                            return "botId: integer|Long expected";
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        if (!$util.isInteger(message.botUserId) && !(message.botUserId && $util.isInteger(message.botUserId.low) && $util.isInteger(message.botUserId.high)))
+                            return "botUserId: integer|Long expected";
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        if (!$util.isString(message.delta))
+                            return "delta: string expected";
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        if (!$util.isString(message.clientMsgId))
+                            return "clientMsgId: string expected";
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        if (!$util.isInteger(message.replyMsgId) && !(message.replyMsgId && $util.isInteger(message.replyMsgId.low) && $util.isInteger(message.replyMsgId.high)))
+                            return "replyMsgId: integer|Long expected";
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        if (!$util.isInteger(message.timestampMs) && !(message.timestampMs && $util.isInteger(message.timestampMs.low) && $util.isInteger(message.timestampMs.high)))
+                            return "timestampMs: integer|Long expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a BotStreamEvent message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.BotStreamEvent} BotStreamEvent
+                 */
+                BotStreamEvent.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.BotStreamEvent)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.BotStreamEvent: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.BotStreamEvent();
+                    if (object.streamId != null)
+                        if (typeof object.streamId !== "string" || object.streamId.length)
+                            message.streamId = $String(object.streamId);
+                    if (object.seq != null)
+                        if (typeof object.seq === "object" ? object.seq.low || object.seq.high : $Number(object.seq) !== 0)
+                            if ($util.Long)
+                                message.seq = $util.Long.fromValue(object.seq, true);
+                            else if (typeof object.seq === "string")
+                                message.seq = $parseInt(object.seq, 10);
+                            else if (typeof object.seq === "number")
+                                message.seq = object.seq;
+                            else if (typeof object.seq === "object")
+                                message.seq = new $util.LongBits(object.seq.low >>> 0, object.seq.high >>> 0).toNumber(true);
+                    if (object.type !== 0 && (typeof object.type !== "string" || $root.api.im.v1.BotStreamEventType[object.type] !== 0))
+                        switch (object.type) {
+                        default:
+                            if (typeof object.type === "number") {
+                                message.type = object.type;
+                                break;
+                            }
+                            break;
+                        case "BOT_STREAM_EVENT_UNKNOWN":
+                        case 0:
+                            message.type = 0;
+                            break;
+                        case "BOT_STREAM_STARTED":
+                        case 1:
+                            message.type = 1;
+                            break;
+                        case "BOT_STREAM_DELTA":
+                        case 2:
+                            message.type = 2;
+                            break;
+                        case "BOT_STREAM_FINAL":
+                        case 3:
+                            message.type = 3;
+                            break;
+                        case "BOT_STREAM_ABORTED":
+                        case 4:
+                            message.type = 4;
+                            break;
+                        }
+                    if (object.topic != null)
+                        if (typeof object.topic !== "string" || object.topic.length)
+                            message.topic = $String(object.topic);
+                    if (object.botId != null)
+                        if (typeof object.botId === "object" ? object.botId.low || object.botId.high : $Number(object.botId) !== 0)
+                            if ($util.Long)
+                                message.botId = $util.Long.fromValue(object.botId, false);
+                            else if (typeof object.botId === "string")
+                                message.botId = $parseInt(object.botId, 10);
+                            else if (typeof object.botId === "number")
+                                message.botId = object.botId;
+                            else if (typeof object.botId === "object")
+                                message.botId = new $util.LongBits(object.botId.low >>> 0, object.botId.high >>> 0).toNumber();
+                    if (object.botUserId != null)
+                        if (typeof object.botUserId === "object" ? object.botUserId.low || object.botUserId.high : $Number(object.botUserId) !== 0)
+                            if ($util.Long)
+                                message.botUserId = $util.Long.fromValue(object.botUserId, false);
+                            else if (typeof object.botUserId === "string")
+                                message.botUserId = $parseInt(object.botUserId, 10);
+                            else if (typeof object.botUserId === "number")
+                                message.botUserId = object.botUserId;
+                            else if (typeof object.botUserId === "object")
+                                message.botUserId = new $util.LongBits(object.botUserId.low >>> 0, object.botUserId.high >>> 0).toNumber();
+                    if (object.delta != null)
+                        if (typeof object.delta !== "string" || object.delta.length)
+                            message.delta = $String(object.delta);
+                    if (object.clientMsgId != null)
+                        if (typeof object.clientMsgId !== "string" || object.clientMsgId.length)
+                            message.clientMsgId = $String(object.clientMsgId);
+                    if (object.replyMsgId != null)
+                        if (typeof object.replyMsgId === "object" ? object.replyMsgId.low || object.replyMsgId.high : $Number(object.replyMsgId) !== 0)
+                            if ($util.Long)
+                                message.replyMsgId = $util.Long.fromValue(object.replyMsgId, false);
+                            else if (typeof object.replyMsgId === "string")
+                                message.replyMsgId = $parseInt(object.replyMsgId, 10);
+                            else if (typeof object.replyMsgId === "number")
+                                message.replyMsgId = object.replyMsgId;
+                            else if (typeof object.replyMsgId === "object")
+                                message.replyMsgId = new $util.LongBits(object.replyMsgId.low >>> 0, object.replyMsgId.high >>> 0).toNumber();
+                    if (object.timestampMs != null)
+                        if (typeof object.timestampMs === "object" ? object.timestampMs.low || object.timestampMs.high : $Number(object.timestampMs) !== 0)
+                            if ($util.Long)
+                                message.timestampMs = $util.Long.fromValue(object.timestampMs, false);
+                            else if (typeof object.timestampMs === "string")
+                                message.timestampMs = $parseInt(object.timestampMs, 10);
+                            else if (typeof object.timestampMs === "number")
+                                message.timestampMs = object.timestampMs;
+                            else if (typeof object.timestampMs === "object")
+                                message.timestampMs = new $util.LongBits(object.timestampMs.low >>> 0, object.timestampMs.high >>> 0).toNumber();
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a BotStreamEvent message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {api.im.v1.BotStreamEvent} message BotStreamEvent
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                BotStreamEvent.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        object.streamId = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, true);
+                            object.seq = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.seq = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.type = options.enums === $String ? "BOT_STREAM_EVENT_UNKNOWN" : 0;
+                        object.topic = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.botId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.botId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.botUserId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.botUserId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.delta = "";
+                        object.clientMsgId = "";
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.replyMsgId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.replyMsgId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.timestampMs = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.timestampMs = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                    }
+                    if (message.streamId != null && $Object.hasOwnProperty.call(message, "streamId"))
+                        object.streamId = message.streamId;
+                    if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.seq = typeof message.seq === "number" ? $BigInt(message.seq) : $util.Long.fromBits(message.seq.low >>> 0, message.seq.high >>> 0, true).toBigInt();
+                        else if (typeof message.seq === "number")
+                            object.seq = options.longs === $String ? $String(message.seq) : message.seq;
+                        else
+                            object.seq = options.longs === $String ? $util.Long.prototype.toString.call(message.seq) : options.longs === $Number ? new $util.LongBits(message.seq.low >>> 0, message.seq.high >>> 0).toNumber(true) : message.seq;
+                    if (message.type != null && $Object.hasOwnProperty.call(message, "type"))
+                        object.type = options.enums === $String ? $root.api.im.v1.BotStreamEventType[message.type] === $undefined ? message.type : $root.api.im.v1.BotStreamEventType[message.type] : message.type;
+                    if (message.topic != null && $Object.hasOwnProperty.call(message, "topic"))
+                        object.topic = message.topic;
+                    if (message.botId != null && $Object.hasOwnProperty.call(message, "botId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.botId = typeof message.botId === "number" ? $BigInt(message.botId) : $util.Long.fromBits(message.botId.low >>> 0, message.botId.high >>> 0, false).toBigInt();
+                        else if (typeof message.botId === "number")
+                            object.botId = options.longs === $String ? $String(message.botId) : message.botId;
+                        else
+                            object.botId = options.longs === $String ? $util.Long.prototype.toString.call(message.botId) : options.longs === $Number ? new $util.LongBits(message.botId.low >>> 0, message.botId.high >>> 0).toNumber() : message.botId;
+                    if (message.botUserId != null && $Object.hasOwnProperty.call(message, "botUserId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.botUserId = typeof message.botUserId === "number" ? $BigInt(message.botUserId) : $util.Long.fromBits(message.botUserId.low >>> 0, message.botUserId.high >>> 0, false).toBigInt();
+                        else if (typeof message.botUserId === "number")
+                            object.botUserId = options.longs === $String ? $String(message.botUserId) : message.botUserId;
+                        else
+                            object.botUserId = options.longs === $String ? $util.Long.prototype.toString.call(message.botUserId) : options.longs === $Number ? new $util.LongBits(message.botUserId.low >>> 0, message.botUserId.high >>> 0).toNumber() : message.botUserId;
+                    if (message.delta != null && $Object.hasOwnProperty.call(message, "delta"))
+                        object.delta = message.delta;
+                    if (message.clientMsgId != null && $Object.hasOwnProperty.call(message, "clientMsgId"))
+                        object.clientMsgId = message.clientMsgId;
+                    if (message.replyMsgId != null && $Object.hasOwnProperty.call(message, "replyMsgId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.replyMsgId = typeof message.replyMsgId === "number" ? $BigInt(message.replyMsgId) : $util.Long.fromBits(message.replyMsgId.low >>> 0, message.replyMsgId.high >>> 0, false).toBigInt();
+                        else if (typeof message.replyMsgId === "number")
+                            object.replyMsgId = options.longs === $String ? $String(message.replyMsgId) : message.replyMsgId;
+                        else
+                            object.replyMsgId = options.longs === $String ? $util.Long.prototype.toString.call(message.replyMsgId) : options.longs === $Number ? new $util.LongBits(message.replyMsgId.low >>> 0, message.replyMsgId.high >>> 0).toNumber() : message.replyMsgId;
+                    if (message.timestampMs != null && $Object.hasOwnProperty.call(message, "timestampMs"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.timestampMs = typeof message.timestampMs === "number" ? $BigInt(message.timestampMs) : $util.Long.fromBits(message.timestampMs.low >>> 0, message.timestampMs.high >>> 0, false).toBigInt();
+                        else if (typeof message.timestampMs === "number")
+                            object.timestampMs = options.longs === $String ? $String(message.timestampMs) : message.timestampMs;
+                        else
+                            object.timestampMs = options.longs === $String ? $util.Long.prototype.toString.call(message.timestampMs) : options.longs === $Number ? new $util.LongBits(message.timestampMs.low >>> 0, message.timestampMs.high >>> 0).toNumber() : message.timestampMs;
+                    return object;
+                };
+
+                /**
+                 * Converts this BotStreamEvent to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                BotStreamEvent.prototype.toJSON = function() {
+                    return BotStreamEvent.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for BotStreamEvent
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.BotStreamEvent
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                BotStreamEvent.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.BotStreamEvent";
+                };
+
+                return BotStreamEvent;
+            })();
+
             v1.Packet = (function() {
 
                 /**
@@ -15729,8 +16387,9 @@ export const api = $root.api = (() => {
                  * @property {api.im.v1.RecallRequest.$Properties|null} [recallReq] Packet recallReq
                  * @property {api.im.v1.RecallNotice.$Properties|null} [recallNotice] Packet recallNotice
                  * @property {api.im.v1.AgentRunEvent.$Properties|null} [agentRunEvent] Packet agentRunEvent
+                 * @property {api.im.v1.BotStreamEvent.$Properties|null} [botStreamEvent] Packet botStreamEvent
                  * @property {api.im.v1.ErrorResponse.$Properties|null} [error] Packet error
-                 * @property {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error"} [payload] Packet payload
+                 * @property {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"botStreamEvent"|"error"} [payload] Packet payload
                  * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
                  */
 
@@ -15761,10 +16420,11 @@ export const api = $root.api = (() => {
                  *   recallReq?: api.im.v1.RecallRequest.$Shape|null;
                  *   recallNotice?: api.im.v1.RecallNotice.$Shape|null;
                  *   agentRunEvent?: api.im.v1.AgentRunEvent.$Shape|null;
+                 *   botStreamEvent?: api.im.v1.BotStreamEvent.$Shape|null;
                  *   error?: api.im.v1.ErrorResponse.$Shape|null;
                  *   $unknowns?: Array.<Uint8Array>;
                  * } & (
-                 *   ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; agentRunEvent?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; agentRunEvent?: null; error?: null }|{ payload?: "agentRunEvent"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent: api.im.v1.AgentRunEvent.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; error: api.im.v1.ErrorResponse.$Shape })
+                 *   ({ payload?: undefined; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "authReq"; authReq: api.im.v1.AuthRequest.$Shape; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "authResp"; authReq?: null; authResp: api.im.v1.AuthResponse.$Shape; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "sendReq"; authReq?: null; authResp?: null; sendReq: api.im.v1.SendMessageRequest.$Shape; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "sendReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply: api.im.v1.SendMessageReply.$Shape; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "pullReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq: api.im.v1.PullRequest.$Shape; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "pullReply"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply: api.im.v1.PullReply.$Shape; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "ackReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq: api.im.v1.AckRequest.$Shape; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "notify"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify: api.im.v1.MessagePush.$Shape; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "readReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt: api.im.v1.ReadReceipt.$Shape; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "deliveryReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt: api.im.v1.DeliveryReceipt.$Shape; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "sendReceipt"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt: api.im.v1.SendReceipt.$Shape; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "recallReq"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq: api.im.v1.RecallRequest.$Shape; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "recallNotice"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice: api.im.v1.RecallNotice.$Shape; agentRunEvent?: null; botStreamEvent?: null; error?: null }|{ payload?: "agentRunEvent"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent: api.im.v1.AgentRunEvent.$Shape; botStreamEvent?: null; error?: null }|{ payload?: "botStreamEvent"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent: api.im.v1.BotStreamEvent.$Shape; error?: null }|{ payload?: "error"; authReq?: null; authResp?: null; sendReq?: null; sendReply?: null; pullReq?: null; pullReply?: null; ackReq?: null; notify?: null; readReceipt?: null; deliveryReceipt?: null; sendReceipt?: null; recallReq?: null; recallNotice?: null; agentRunEvent?: null; botStreamEvent?: null; error: api.im.v1.ErrorResponse.$Shape })
                  * )} api.im.v1.Packet.$Shape
                  */
 
@@ -15912,6 +16572,14 @@ export const api = $root.api = (() => {
                 Packet.prototype.agentRunEvent = null;
 
                 /**
+                 * Packet botStreamEvent.
+                 * @member {api.im.v1.BotStreamEvent.$Properties|null|undefined} botStreamEvent
+                 * @memberof api.im.v1.Packet
+                 * @instance
+                 */
+                Packet.prototype.botStreamEvent = null;
+
+                /**
                  * Packet error.
                  * @member {api.im.v1.ErrorResponse.$Properties|null|undefined} error
                  * @memberof api.im.v1.Packet
@@ -15924,12 +16592,12 @@ export const api = $root.api = (() => {
 
                 /**
                  * Packet payload.
-                 * @member {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"error"|undefined} payload
+                 * @member {"authReq"|"authResp"|"sendReq"|"sendReply"|"pullReq"|"pullReply"|"ackReq"|"notify"|"readReceipt"|"deliveryReceipt"|"sendReceipt"|"recallReq"|"recallNotice"|"agentRunEvent"|"botStreamEvent"|"error"|undefined} payload
                  * @memberof api.im.v1.Packet
                  * @instance
                  */
                 $Object.defineProperty(Packet.prototype, "payload", {
-                    get: $util.oneOfGetter($oneOfFields = ["authReq", "authResp", "sendReq", "sendReply", "pullReq", "pullReply", "ackReq", "notify", "readReceipt", "deliveryReceipt", "sendReceipt", "recallReq", "recallNotice", "agentRunEvent", "error"]),
+                    get: $util.oneOfGetter($oneOfFields = ["authReq", "authResp", "sendReq", "sendReply", "pullReq", "pullReply", "ackReq", "notify", "readReceipt", "deliveryReceipt", "sendReceipt", "recallReq", "recallNotice", "agentRunEvent", "botStreamEvent", "error"]),
                     set: $util.oneOfSetter($oneOfFields)
                 });
 
@@ -15999,6 +16667,8 @@ export const api = $root.api = (() => {
                         $root.api.im.v1.RecallNotice.encode(message.recallNotice, writer.uint32(/* id 100, wireType 2 =*/802).fork(), _depth + 1).ldelim();
                     if (message.agentRunEvent != null && $Object.hasOwnProperty.call(message, "agentRunEvent"))
                         $root.api.im.v1.AgentRunEvent.encode(message.agentRunEvent, writer.uint32(/* id 110, wireType 2 =*/882).fork(), _depth + 1).ldelim();
+                    if (message.botStreamEvent != null && $Object.hasOwnProperty.call(message, "botStreamEvent"))
+                        $root.api.im.v1.BotStreamEvent.encode(message.botStreamEvent, writer.uint32(/* id 111, wireType 2 =*/890).fork(), _depth + 1).ldelim();
                     if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
                         for (let i = 0; i < message.$unknowns.length; ++i)
                             writer.raw(message.$unknowns[i]);
@@ -16162,6 +16832,13 @@ export const api = $root.api = (() => {
                                 message.payload = "agentRunEvent";
                                 continue;
                             }
+                        case 111: {
+                                if (wireType !== 2)
+                                    break;
+                                message.botStreamEvent = $root.api.im.v1.BotStreamEvent.decode(reader, reader.uint32(), $undefined, _depth + 1, message.botStreamEvent);
+                                message.payload = "botStreamEvent";
+                                continue;
+                            }
                         case 99: {
                                 if (wireType !== 2)
                                     break;
@@ -16229,6 +16906,7 @@ export const api = $root.api = (() => {
                         case 9:
                         case 10:
                         case 11:
+                        case 12:
                             break;
                         }
                     if (message.seq != null && $Object.hasOwnProperty.call(message, "seq"))
@@ -16372,6 +17050,16 @@ export const api = $root.api = (() => {
                                 return "agentRunEvent." + error;
                         }
                     }
+                    if (message.botStreamEvent != null && $Object.hasOwnProperty.call(message, "botStreamEvent")) {
+                        if (properties.payload === 1)
+                            return "payload: multiple values";
+                        properties.payload = 1;
+                        {
+                            let error = $root.api.im.v1.BotStreamEvent.verify(message.botStreamEvent, _depth + 1);
+                            if (error)
+                                return "botStreamEvent." + error;
+                        }
+                    }
                     if (message.error != null && $Object.hasOwnProperty.call(message, "error")) {
                         if (properties.payload === 1)
                             return "payload: multiple values";
@@ -16459,6 +17147,10 @@ export const api = $root.api = (() => {
                         case 11:
                             message.cmd = 11;
                             break;
+                        case "CMD_BOT_STREAM_EVENT":
+                        case 12:
+                            message.cmd = 12;
+                            break;
                         }
                     if (object.seq != null)
                         if (typeof object.seq === "object" ? object.seq.low || object.seq.high : $Number(object.seq) !== 0)
@@ -16539,6 +17231,11 @@ export const api = $root.api = (() => {
                         if (!$util.isObject(object.agentRunEvent))
                             throw $TypeError(".api.im.v1.Packet.agentRunEvent: object expected");
                         message.agentRunEvent = $root.api.im.v1.AgentRunEvent.fromObject(object.agentRunEvent, _depth + 1);
+                    }
+                    if (object.botStreamEvent != null) {
+                        if (!$util.isObject(object.botStreamEvent))
+                            throw $TypeError(".api.im.v1.Packet.botStreamEvent: object expected");
+                        message.botStreamEvent = $root.api.im.v1.BotStreamEvent.fromObject(object.botStreamEvent, _depth + 1);
                     }
                     if (object.error != null) {
                         if (!$util.isObject(object.error))
@@ -16656,6 +17353,11 @@ export const api = $root.api = (() => {
                         object.agentRunEvent = $root.api.im.v1.AgentRunEvent.toObject(message.agentRunEvent, options, _depth + 1);
                         if (options.oneofs)
                             object.payload = "agentRunEvent";
+                    }
+                    if (message.botStreamEvent != null && $Object.hasOwnProperty.call(message, "botStreamEvent")) {
+                        object.botStreamEvent = $root.api.im.v1.BotStreamEvent.toObject(message.botStreamEvent, options, _depth + 1);
+                        if (options.oneofs)
+                            object.payload = "botStreamEvent";
                     }
                     return object;
                 };
@@ -20221,6 +20923,47 @@ export const api = $root.api = (() => {
                     path: { value: "/api.im.v1.PushService/PushRunEventToUser" },
                     requestType: { value: "PushRunEventToUserRequest" },
                     responseType: { value: "PushRunEventToUserReply" },
+                    requestStream: { value: $undefined },
+                    responseStream: { value: $undefined }
+                });
+
+                /**
+                 * Callback as used by {@link api.im.v1.PushService#pushBotStreamEventToUser}.
+                 * @memberof api.im.v1.PushService
+                 * @typedef PushBotStreamEventToUserCallback
+                 * @type {function}
+                 * @param {Error|null} error Error, if any
+                 * @param {api.im.v1.PushBotStreamEventToUserReply} [response] PushBotStreamEventToUserReply
+                 */
+
+                /**
+                 * Calls PushBotStreamEventToUser.
+                 * @memberof api.im.v1.PushService
+                 * @typedef PushBotStreamEventToUser
+                 * @type {{
+                 *   (request: api.im.v1.IPushBotStreamEventToUserRequest, callback: api.im.v1.PushService.PushBotStreamEventToUserCallback): void;
+                 *   (request: api.im.v1.IPushBotStreamEventToUserRequest): Promise<api.im.v1.PushBotStreamEventToUserReply>;
+                 *   readonly name: "PushBotStreamEventToUser";
+                 *   readonly path: "/api.im.v1.PushService/PushBotStreamEventToUser";
+                 *   readonly requestType: "PushBotStreamEventToUserRequest";
+                 *   readonly responseType: "PushBotStreamEventToUserReply";
+                 *   readonly requestStream: undefined;
+                 *   readonly responseStream: undefined;
+                 * }}
+                 */
+
+                /**
+                 * Calls PushBotStreamEventToUser.
+                 * @name api.im.v1.PushService#pushBotStreamEventToUser
+                 * @type {api.im.v1.PushService.PushBotStreamEventToUser}
+                 */
+                $Object.defineProperties(PushService.prototype.pushBotStreamEventToUser = function(request, callback) {
+                    return $protobuf.rpc.Service.prototype.rpcCall.call(this, PushService.prototype.pushBotStreamEventToUser, $root.api.im.v1.PushBotStreamEventToUserRequest, $root.api.im.v1.PushBotStreamEventToUserReply, request, callback);
+                }, {
+                    name: { value: "PushBotStreamEventToUser" },
+                    path: { value: "/api.im.v1.PushService/PushBotStreamEventToUser" },
+                    requestType: { value: "PushBotStreamEventToUserRequest" },
+                    responseType: { value: "PushBotStreamEventToUserReply" },
                     requestStream: { value: $undefined },
                     responseStream: { value: $undefined }
                 });
@@ -24210,6 +24953,603 @@ export const api = $root.api = (() => {
                 };
 
                 return PushRunEventToUserReply;
+            })();
+
+            v1.PushBotStreamEventToUserRequest = (function() {
+
+                /**
+                 * Properties of a PushBotStreamEventToUserRequest.
+                 * @typedef {Object} api.im.v1.PushBotStreamEventToUserRequest.$Properties
+                 * @property {number|Long|null} [userId] PushBotStreamEventToUserRequest userId
+                 * @property {api.im.v1.BotStreamEvent.$Properties|null} [event] PushBotStreamEventToUserRequest event
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a PushBotStreamEventToUserRequest.
+                 * @memberof api.im.v1
+                 * @interface IPushBotStreamEventToUserRequest
+                 * @augments api.im.v1.PushBotStreamEventToUserRequest.$Properties
+                 * @deprecated Use api.im.v1.PushBotStreamEventToUserRequest.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a PushBotStreamEventToUserRequest.
+                 * @typedef {api.im.v1.PushBotStreamEventToUserRequest.$Properties} api.im.v1.PushBotStreamEventToUserRequest.$Shape
+                 */
+
+                /**
+                 * Constructs a new PushBotStreamEventToUserRequest.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a PushBotStreamEventToUserRequest.
+                 * @constructor
+                 * @param {api.im.v1.PushBotStreamEventToUserRequest.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const PushBotStreamEventToUserRequest = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * PushBotStreamEventToUserRequest userId.
+                 * @member {number|Long} userId
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @instance
+                 */
+                PushBotStreamEventToUserRequest.prototype.userId = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+                /**
+                 * PushBotStreamEventToUserRequest event.
+                 * @member {api.im.v1.BotStreamEvent.$Properties|null|undefined} event
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @instance
+                 */
+                PushBotStreamEventToUserRequest.prototype.event = null;
+
+                /**
+                 * Creates a new PushBotStreamEventToUserRequest instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserRequest.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.PushBotStreamEventToUserRequest} PushBotStreamEventToUserRequest instance
+                 * @type {{
+                 *   (properties: api.im.v1.PushBotStreamEventToUserRequest.$Shape): api.im.v1.PushBotStreamEventToUserRequest & api.im.v1.PushBotStreamEventToUserRequest.$Shape;
+                 *   (properties?: api.im.v1.PushBotStreamEventToUserRequest.$Properties): api.im.v1.PushBotStreamEventToUserRequest;
+                 * }}
+                 */
+                PushBotStreamEventToUserRequest.create = function(properties) {
+                    return new PushBotStreamEventToUserRequest(properties);
+                };
+
+                /**
+                 * Encodes the specified PushBotStreamEventToUserRequest message. Does not implicitly {@link api.im.v1.PushBotStreamEventToUserRequest.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserRequest.$Properties} message PushBotStreamEventToUserRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushBotStreamEventToUserRequest.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).int64(message.userId);
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event"))
+                        $root.api.im.v1.BotStreamEvent.encode(message.event, writer.uint32(/* id 2, wireType 2 =*/18).fork(), _depth + 1).ldelim();
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified PushBotStreamEventToUserRequest message, length delimited. Does not implicitly {@link api.im.v1.PushBotStreamEventToUserRequest.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserRequest.$Properties} message PushBotStreamEventToUserRequest message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushBotStreamEventToUserRequest.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a PushBotStreamEventToUserRequest message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushBotStreamEventToUserRequest & api.im.v1.PushBotStreamEventToUserRequest.$Shape} PushBotStreamEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushBotStreamEventToUserRequest.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.PushBotStreamEventToUserRequest(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (typeof (value = reader.int64()) === "object" ? value.low || value.high : value !== 0)
+                                    message.userId = value;
+                                else
+                                    delete message.userId;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 2)
+                                    break;
+                                message.event = $root.api.im.v1.BotStreamEvent.decode(reader, reader.uint32(), $undefined, _depth + 1, message.event);
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a PushBotStreamEventToUserRequest message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushBotStreamEventToUserRequest & api.im.v1.PushBotStreamEventToUserRequest.$Shape} PushBotStreamEventToUserRequest
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushBotStreamEventToUserRequest.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a PushBotStreamEventToUserRequest message.
+                 * @function verify
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                PushBotStreamEventToUserRequest.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (!$util.isInteger(message.userId) && !(message.userId && $util.isInteger(message.userId.low) && $util.isInteger(message.userId.high)))
+                            return "userId: integer|Long expected";
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event")) {
+                        let error = $root.api.im.v1.BotStreamEvent.verify(message.event, _depth + 1);
+                        if (error)
+                            return "event." + error;
+                    }
+                    return null;
+                };
+
+                /**
+                 * Creates a PushBotStreamEventToUserRequest message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.PushBotStreamEventToUserRequest} PushBotStreamEventToUserRequest
+                 */
+                PushBotStreamEventToUserRequest.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.PushBotStreamEventToUserRequest)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.PushBotStreamEventToUserRequest: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.PushBotStreamEventToUserRequest();
+                    if (object.userId != null)
+                        if (typeof object.userId === "object" ? object.userId.low || object.userId.high : $Number(object.userId) !== 0)
+                            if ($util.Long)
+                                message.userId = $util.Long.fromValue(object.userId, false);
+                            else if (typeof object.userId === "string")
+                                message.userId = $parseInt(object.userId, 10);
+                            else if (typeof object.userId === "number")
+                                message.userId = object.userId;
+                            else if (typeof object.userId === "object")
+                                message.userId = new $util.LongBits(object.userId.low >>> 0, object.userId.high >>> 0).toNumber();
+                    if (object.event != null) {
+                        if (!$util.isObject(object.event))
+                            throw $TypeError(".api.im.v1.PushBotStreamEventToUserRequest.event: object expected");
+                        message.event = $root.api.im.v1.BotStreamEvent.fromObject(object.event, _depth + 1);
+                    }
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a PushBotStreamEventToUserRequest message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserRequest} message PushBotStreamEventToUserRequest
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                PushBotStreamEventToUserRequest.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        if ($util.Long) {
+                            let long = new $util.Long(0, 0, false);
+                            object.userId = options.longs === $String ? long.toString() : options.longs === $Number ? long.toNumber() : typeof $BigInt !== "undefined" && options.longs === $BigInt ? long.toBigInt() : long;
+                        } else
+                            object.userId = options.longs === $String ? "0" : typeof $BigInt !== "undefined" && options.longs === $BigInt ? $BigInt("0") : 0;
+                        object.event = null;
+                    }
+                    if (message.userId != null && $Object.hasOwnProperty.call(message, "userId"))
+                        if (typeof $BigInt !== "undefined" && options.longs === $BigInt)
+                            object.userId = typeof message.userId === "number" ? $BigInt(message.userId) : $util.Long.fromBits(message.userId.low >>> 0, message.userId.high >>> 0, false).toBigInt();
+                        else if (typeof message.userId === "number")
+                            object.userId = options.longs === $String ? $String(message.userId) : message.userId;
+                        else
+                            object.userId = options.longs === $String ? $util.Long.prototype.toString.call(message.userId) : options.longs === $Number ? new $util.LongBits(message.userId.low >>> 0, message.userId.high >>> 0).toNumber() : message.userId;
+                    if (message.event != null && $Object.hasOwnProperty.call(message, "event"))
+                        object.event = $root.api.im.v1.BotStreamEvent.toObject(message.event, options, _depth + 1);
+                    return object;
+                };
+
+                /**
+                 * Converts this PushBotStreamEventToUserRequest to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                PushBotStreamEventToUserRequest.prototype.toJSON = function() {
+                    return PushBotStreamEventToUserRequest.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for PushBotStreamEventToUserRequest
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.PushBotStreamEventToUserRequest
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                PushBotStreamEventToUserRequest.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.PushBotStreamEventToUserRequest";
+                };
+
+                return PushBotStreamEventToUserRequest;
+            })();
+
+            v1.PushBotStreamEventToUserReply = (function() {
+
+                /**
+                 * Properties of a PushBotStreamEventToUserReply.
+                 * @typedef {Object} api.im.v1.PushBotStreamEventToUserReply.$Properties
+                 * @property {boolean|null} [success] PushBotStreamEventToUserReply success
+                 * @property {number|null} [deliveredCount] PushBotStreamEventToUserReply deliveredCount
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+
+                /**
+                 * Properties of a PushBotStreamEventToUserReply.
+                 * @memberof api.im.v1
+                 * @interface IPushBotStreamEventToUserReply
+                 * @augments api.im.v1.PushBotStreamEventToUserReply.$Properties
+                 * @deprecated Use api.im.v1.PushBotStreamEventToUserReply.$Properties instead.
+                 */
+
+                /**
+                 * Shape of a PushBotStreamEventToUserReply.
+                 * @typedef {api.im.v1.PushBotStreamEventToUserReply.$Properties} api.im.v1.PushBotStreamEventToUserReply.$Shape
+                 */
+
+                /**
+                 * Constructs a new PushBotStreamEventToUserReply.
+                 * @memberof api.im.v1
+                 * @classdesc Represents a PushBotStreamEventToUserReply.
+                 * @constructor
+                 * @param {api.im.v1.PushBotStreamEventToUserReply.$Properties=} [properties] Properties to set
+                 * @property {Array.<Uint8Array>} [$unknowns] Unknown fields preserved while decoding when enabled
+                 */
+                const PushBotStreamEventToUserReply = function (properties) {
+                    if (properties)
+                        for (let keys = $Object.keys(properties), i = 0; i < keys.length; ++i)
+                            if (properties[keys[i]] != null && keys[i] !== "__proto__")
+                                this[keys[i]] = properties[keys[i]];
+                };
+
+                /**
+                 * PushBotStreamEventToUserReply success.
+                 * @member {boolean} success
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @instance
+                 */
+                PushBotStreamEventToUserReply.prototype.success = false;
+
+                /**
+                 * PushBotStreamEventToUserReply deliveredCount.
+                 * @member {number} deliveredCount
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @instance
+                 */
+                PushBotStreamEventToUserReply.prototype.deliveredCount = 0;
+
+                /**
+                 * Creates a new PushBotStreamEventToUserReply instance using the specified properties.
+                 * @function create
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserReply.$Properties=} [properties] Properties to set
+                 * @returns {api.im.v1.PushBotStreamEventToUserReply} PushBotStreamEventToUserReply instance
+                 * @type {{
+                 *   (properties: api.im.v1.PushBotStreamEventToUserReply.$Shape): api.im.v1.PushBotStreamEventToUserReply & api.im.v1.PushBotStreamEventToUserReply.$Shape;
+                 *   (properties?: api.im.v1.PushBotStreamEventToUserReply.$Properties): api.im.v1.PushBotStreamEventToUserReply;
+                 * }}
+                 */
+                PushBotStreamEventToUserReply.create = function(properties) {
+                    return new PushBotStreamEventToUserReply(properties);
+                };
+
+                /**
+                 * Encodes the specified PushBotStreamEventToUserReply message. Does not implicitly {@link api.im.v1.PushBotStreamEventToUserReply.verify|verify} messages.
+                 * @function encode
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserReply.$Properties} message PushBotStreamEventToUserReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushBotStreamEventToUserReply.encode = function (message, writer, _depth) {
+                    if (!writer)
+                        writer = $Writer.create();
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        writer.uint32(/* id 1, wireType 0 =*/8).bool(message.success);
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        writer.uint32(/* id 2, wireType 0 =*/16).int32(message.deliveredCount);
+                    if (message.$unknowns != null && $Object.hasOwnProperty.call(message, "$unknowns"))
+                        for (let i = 0; i < message.$unknowns.length; ++i)
+                            writer.raw(message.$unknowns[i]);
+                    return writer;
+                };
+
+                /**
+                 * Encodes the specified PushBotStreamEventToUserReply message, length delimited. Does not implicitly {@link api.im.v1.PushBotStreamEventToUserReply.verify|verify} messages.
+                 * @function encodeDelimited
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserReply.$Properties} message PushBotStreamEventToUserReply message or plain object to encode
+                 * @param {$protobuf.Writer} [writer] Writer to encode to
+                 * @returns {$protobuf.Writer} Writer
+                 */
+                PushBotStreamEventToUserReply.encodeDelimited = function(message, writer) {
+                    return this.encode(message, writer && writer.len ? writer.fork() : writer).ldelim();
+                };
+
+                /**
+                 * Decodes a PushBotStreamEventToUserReply message from the specified reader or buffer.
+                 * @function decode
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @param {number} [length] Message length if known beforehand
+                 * @returns {api.im.v1.PushBotStreamEventToUserReply & api.im.v1.PushBotStreamEventToUserReply.$Shape} PushBotStreamEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushBotStreamEventToUserReply.decode = function (reader, length, _end, _depth, _target) {
+                    if (!(reader instanceof $Reader))
+                        reader = $Reader.create(reader);
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $Reader.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let end = length === $undefined ? reader.len : reader.pos + length, message = _target || new $root.api.im.v1.PushBotStreamEventToUserReply(), value;
+                    while (reader.pos < end) {
+                        let start = reader.pos;
+                        let tag = reader.tag();
+                        if (tag === _end) {
+                            _end = $undefined;
+                            break;
+                        }
+                        let wireType = tag & 7;
+                        switch (tag >>>= 3) {
+                        case 1: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.bool())
+                                    message.success = value;
+                                else
+                                    delete message.success;
+                                continue;
+                            }
+                        case 2: {
+                                if (wireType !== 0)
+                                    break;
+                                if (value = reader.int32())
+                                    message.deliveredCount = value;
+                                else
+                                    delete message.deliveredCount;
+                                continue;
+                            }
+                        }
+                        reader.skipType(wireType, _depth, tag);
+                        if (!reader.discardUnknown) {
+                            $util.makeProp(message, "$unknowns", false);
+                            (message.$unknowns || (message.$unknowns = [])).push(reader.raw(start, reader.pos));
+                        }
+                    }
+                    if (_end !== $undefined)
+                        throw $Error("missing end group");
+                    return message;
+                };
+
+                /**
+                 * Decodes a PushBotStreamEventToUserReply message from the specified reader or buffer, length delimited.
+                 * @function decodeDelimited
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+                 * @returns {api.im.v1.PushBotStreamEventToUserReply & api.im.v1.PushBotStreamEventToUserReply.$Shape} PushBotStreamEventToUserReply
+                 * @throws {Error} If the payload is not a reader or valid buffer
+                 * @throws {$protobuf.util.ProtocolError} If required fields are missing
+                 */
+                PushBotStreamEventToUserReply.decodeDelimited = function(reader) {
+                    if (!(reader instanceof $Reader))
+                        reader = new $Reader(reader);
+                    return this.decode(reader, reader.uint32());
+                };
+
+                /**
+                 * Verifies a PushBotStreamEventToUserReply message.
+                 * @function verify
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {Object.<string,*>} message Plain object to verify
+                 * @returns {string|null} `null` if valid, otherwise the reason why it is not
+                 */
+                PushBotStreamEventToUserReply.verify = function (message, _depth) {
+                    if (typeof message !== "object" || message === null)
+                        return "object expected";
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        return "max depth exceeded";
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        if (typeof message.success !== "boolean")
+                            return "success: boolean expected";
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        if (!$util.isInteger(message.deliveredCount))
+                            return "deliveredCount: integer expected";
+                    return null;
+                };
+
+                /**
+                 * Creates a PushBotStreamEventToUserReply message from a plain object. Also converts values to their respective internal types.
+                 * @function fromObject
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {Object.<string,*>} object Plain object
+                 * @returns {api.im.v1.PushBotStreamEventToUserReply} PushBotStreamEventToUserReply
+                 */
+                PushBotStreamEventToUserReply.fromObject = function (object, _depth) {
+                    if (object instanceof $root.api.im.v1.PushBotStreamEventToUserReply)
+                        return object;
+                    if (!$util.isObject(object))
+                        throw $TypeError(".api.im.v1.PushBotStreamEventToUserReply: object expected");
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let message = new $root.api.im.v1.PushBotStreamEventToUserReply();
+                    if (object.success != null)
+                        if (object.success)
+                            message.success = $Boolean(object.success);
+                    if (object.deliveredCount != null)
+                        if ($Number(object.deliveredCount) !== 0)
+                            message.deliveredCount = object.deliveredCount | 0;
+                    return message;
+                };
+
+                /**
+                 * Creates a plain object from a PushBotStreamEventToUserReply message. Also converts values to other types if specified.
+                 * @function toObject
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {api.im.v1.PushBotStreamEventToUserReply} message PushBotStreamEventToUserReply
+                 * @param {$protobuf.IConversionOptions} [options] Conversion options
+                 * @returns {Object.<string,*>} Plain object
+                 */
+                PushBotStreamEventToUserReply.toObject = function (message, options, _depth) {
+                    if (!options)
+                        options = {};
+                    if (_depth === $undefined)
+                        _depth = 0;
+                    if (_depth > $util.recursionLimit)
+                        throw $Error("max depth exceeded");
+                    let object = {};
+                    if (options.defaults) {
+                        object.success = false;
+                        object.deliveredCount = 0;
+                    }
+                    if (message.success != null && $Object.hasOwnProperty.call(message, "success"))
+                        object.success = message.success;
+                    if (message.deliveredCount != null && $Object.hasOwnProperty.call(message, "deliveredCount"))
+                        object.deliveredCount = message.deliveredCount;
+                    return object;
+                };
+
+                /**
+                 * Converts this PushBotStreamEventToUserReply to JSON.
+                 * @function toJSON
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @instance
+                 * @returns {Object.<string,*>} JSON object
+                 */
+                PushBotStreamEventToUserReply.prototype.toJSON = function() {
+                    return PushBotStreamEventToUserReply.toObject(this, $protobuf.util.toJSONOptions);
+                };
+
+                /**
+                 * Gets the type url for PushBotStreamEventToUserReply
+                 * @function getTypeUrl
+                 * @memberof api.im.v1.PushBotStreamEventToUserReply
+                 * @static
+                 * @param {string} [prefix] Custom type url prefix, defaults to `"type.googleapis.com"`
+                 * @returns {string} The type url
+                 */
+                PushBotStreamEventToUserReply.getTypeUrl = function(prefix) {
+                    if (prefix === $undefined)
+                        prefix = "type.googleapis.com";
+                    return prefix + "/api.im.v1.PushBotStreamEventToUserReply";
+                };
+
+                return PushBotStreamEventToUserReply;
             })();
 
             v1.UserService = (function() {

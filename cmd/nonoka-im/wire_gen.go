@@ -24,9 +24,15 @@ import (
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/biz"
+	"nonoka-im/internal/bot/adapters"
+	app3 "nonoka-im/internal/bot/app"
+	"nonoka-im/internal/bot/delivery"
+	"nonoka-im/internal/bot/ratelimit"
+	"nonoka-im/internal/bot/stream"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	"nonoka-im/internal/data/agent"
+	"nonoka-im/internal/data/bot"
 	"nonoka-im/internal/data/im"
 	"nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
@@ -129,6 +135,40 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	quotaService := provideQuotaService(agentdataStore, openFGA, auditService)
 	idempotency := provideIdempotency(dataData)
 	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, llmService, quotaService, auditService, idempotency)
+	botdataStore := provideBotStore(db)
+	appService, err := provideBotService(botdataStore, openFGA, auditService, logger)
+	if err != nil {
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	appAuthService := provideBotAuth(botdataStore, logger)
+	reader := provideBotReader(queryService)
+	users := provideBotUsers(authRepo)
+	sender := provideBotSender(messageService)
+	deliveryService, err := provideBotDelivery(botdataStore, reader, users, sender, logger)
+	if err != nil {
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	redisStore := provideBotStreamStore(universalClient)
+	groupMembers := provideBotGroupMembers(groupRepo)
+	recipients := provideBotRecipients(groupMembers)
+	mainNodeID := provideNodeID()
+	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
+	streamPublisher, cleanup4, err := provideBotStreamPublisher(dispatch, gatewayGrpcAddr, logger)
+	if err != nil {
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	streamService := provideBotStreamService(botdataStore, openFGA, redisStore, sender, recipients, streamPublisher, logger)
+	limiter := provideBotRateLimiter(universalClient)
+	botHTTP := provideBotHTTP(appService, appAuthService, deliveryService, streamService, reader, sender, limiter, logger)
 	outboxService := provideIMOutboxService(store, logger)
 	outboxAdmin := provideOutboxAdmin(outboxService)
 	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA, auditService)
@@ -137,13 +177,12 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, outboxAdminHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
-	mainNodeID := provideNodeID()
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
-	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
 	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
 	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig, llmService)
 	return app, func() {
+		cleanup4()
 		cleanup3()
 		cleanup2()
 		cleanup()
@@ -442,6 +481,88 @@ func provideQuotaService(store *agentdata.Store, az *authz.OpenFGA, auditor *aud
 	svc.Authz = az
 	svc.Audit = auditor
 	return svc
+}
+
+func provideBotStore(db *gorm.DB) *botdata.Store { return botdata.NewStore(db) }
+
+func provideBotService(store *botdata.Store, az *authz.OpenFGA, auditor *audit.Service, logger log.Logger) (*app3.Service, error) {
+	sealer, err := adapters.NewSealer()
+	if err != nil {
+		return nil, err
+	}
+	return app3.NewService(store, az, sealer, adapters.NewWebhookGuard(), auditor, logger), nil
+}
+
+func provideBotAuth(store *botdata.Store, logger log.Logger) *app3.AuthService {
+	return app3.NewAuthService(store, logger)
+}
+
+func provideBotReader(query *app.QueryService) *adapters.Reader {
+	return &adapters.Reader{Query: query}
+}
+
+func provideBotSender(messages *app.MessageService) *adapters.Sender {
+	return &adapters.Sender{Messages: messages}
+}
+
+func provideBotUsers(users biz.AuthRepo) adapters.Users {
+	return adapters.Users{Repo: users}
+}
+
+func provideBotGroupMembers(groups imdata.GroupRepo) adapters.GroupMembers {
+	return adapters.GroupMembers{Repo: groups}
+}
+
+func provideBotRecipients(members adapters.GroupMembers) adapters.Recipients {
+	return adapters.Recipients{Groups: members}
+}
+
+func provideBotDelivery(store *botdata.Store, reader *adapters.Reader, users adapters.Users, sender *adapters.Sender, logger log.Logger) (*app3.DeliveryService, error) {
+	sealer, err := adapters.NewSealer()
+	if err != nil {
+		return nil, err
+	}
+	webhookSender := delivery.NewSender(adapters.NewWebhookGuard(), logger)
+	return app3.NewDeliveryService(store, reader, users, webhookSender, sealer, logger), nil
+}
+
+func provideBotStreamPublisher(dispatch *conf.Dispatch, local GatewayGrpcAddr, logger log.Logger) (*adapters.StreamPublisher, func(), error) {
+	var addrs []string
+	if dispatch != nil {
+		for _, node := range dispatch.Gateways {
+			if node.GetGatewayGrpcAddr() != "" {
+				addrs = append(addrs, node.GetGatewayGrpcAddr())
+			}
+		}
+	}
+	if len(addrs) == 0 && local != "" {
+		addrs = append(addrs, string(local))
+	}
+	if len(addrs) == 0 {
+		return &adapters.StreamPublisher{}, func() {}, nil
+	}
+	pusher, err := realtime.NewGatewayPusher(addrs, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &adapters.StreamPublisher{Transport: pusher}, func() { _ = pusher.Close() }, nil
+}
+
+func provideBotStreamService(store *botdata.Store, az *authz.OpenFGA, streams *stream.RedisStore, sender *adapters.Sender, recipients adapters.Recipients, publisher *adapters.StreamPublisher, logger log.Logger) *app3.StreamService {
+	svc := app3.NewStreamService(store, az, streams, sender, recipients, publisher, logger)
+	return svc
+}
+
+func provideBotStreamStore(redisClient redis.UniversalClient) *stream.RedisStore {
+	return stream.NewRedisStore(redisClient)
+}
+
+func provideBotHTTP(bots *app3.Service, auth *app3.AuthService, delivery2 *app3.DeliveryService, streams *app3.StreamService, reader *adapters.Reader, sender *adapters.Sender, limiter *ratelimit.Limiter, logger log.Logger) *service.BotHTTP {
+	return service.NewBotHTTP(bots, auth, delivery2, streams, reader, sender, limiter, logger)
+}
+
+func provideBotRateLimiter(redisClient redis.UniversalClient) *ratelimit.Limiter {
+	return ratelimit.New(redisClient)
 }
 
 func envString(key, fallback string) string {
