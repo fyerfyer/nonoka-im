@@ -55,6 +55,11 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, &SendError{ClientMessageID: clientID, Err: err}
 			}
+			// Only connection-class failures fall back to HTTP. A server
+			// validation/authorization error must be returned as-is.
+			if !errors.Is(err, ErrNotConnected) && !errors.Is(err, ErrConnectionClosed) && !errors.Is(err, ErrRequestTimeout) {
+				return nil, &SendError{ClientMessageID: clientID, Err: err}
+			}
 			// The WebSocket may have dropped after the client observed it as
 			// connected. The same client message ID makes the HTTP fallback
 			// idempotent, so retry through the durable API instead of failing.

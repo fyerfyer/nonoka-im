@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -122,9 +123,19 @@ func runSDKLoad(wsURLs []string) {
 				return
 			}
 			events, cancel := client.Realtime.Subscribe()
+			capacity := *sdkInflight
+			if capacity <= 0 {
+				capacity = int(math.Ceil(*msgRate * 2))
+			}
+			if capacity < 1 {
+				capacity = 1
+			}
+			if capacity > 16 {
+				capacity = 16
+			}
 			ring[idx] = &sdkUser{
 				id: pair.UserID, client: client, events: events, cancel: cancel,
-				sendSem: make(chan struct{}, 2),
+				sendSem: make(chan struct{}, capacity),
 			}
 		}(i)
 	}

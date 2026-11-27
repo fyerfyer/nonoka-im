@@ -40,6 +40,7 @@ var (
 	tokensFile     = flag.String("tokens-file", "", "Optional CSV file with userID,token pairs; skips register/login")
 	reconnectEvery = flag.Duration("reconnect-every", 0, "SDK mode: force a reconnect storm at this interval (0 disables)")
 	sdkPipeline    = flag.Bool("sdk-pipeline", false, "SDK mode: allow multiple in-flight sends per user")
+	sdkInflight    = flag.Int("sdk-inflight", 0, "SDK mode: max in-flight sends per user (0 = auto from msg-rate)")
 	reconnectUsers = flag.Int("reconnect-users", 1, "SDK mode: users reconnected per storm interval")
 )
 

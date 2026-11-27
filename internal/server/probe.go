@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -49,6 +50,13 @@ func NewProbeServer(name, addr string, metrics http.Handler, ready func(context.
 	if metrics != nil {
 		mux.Handle("/metrics", metrics)
 	}
+	// Job workers expose the same CPU/heap profile endpoints as the gateway
+	// on their internal probe port.
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	return &ProbeServer{name: name, addr: addr, handler: mux, log: log.NewHelper(logger), ready: ready}
 }
 
