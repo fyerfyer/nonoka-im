@@ -11,7 +11,6 @@ import (
 
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/port"
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/data"
 	agentdata "nonoka-im/internal/data/agent"
@@ -219,6 +218,7 @@ func (authzDeniedStub) CanReadFile(context.Context, int64, string) error      { 
 func (authzDeniedStub) CanExecuteTool(context.Context, int64, int64, string, string, string, string) error {
 	return nil
 }
+func (a authzDeniedStub) IsDenied(err error) bool { return errors.Is(err, port.ErrAuthDenied) }
 
 func TestHandleResolvedAuthDeniedMarksRunTerminal(t *testing.T) {
 	store := setupHarnessStore(t)
@@ -232,7 +232,7 @@ func TestHandleResolvedAuthDeniedMarksRunTerminal(t *testing.T) {
 	})
 	h := &Harness{
 		Store: store, Runtime: stubRuntime{result: port.Result{Text: "unused"}},
-		Authorizer: authzDeniedStub{err: authz.ErrDenied}, Sender: &recordingSender{},
+		Authorizer: authzDeniedStub{err: port.ErrAuthDenied}, Sender: &recordingSender{},
 		MaxAttempts: 1,
 	}
 	ev := messaging.MessageEvent{SchemaVersion: messaging.SchemaVersion, EventID: eventID, MsgID: 1002, TopicSeq: 101, Topic: topic, SenderID: actorID, Content: "hello"}

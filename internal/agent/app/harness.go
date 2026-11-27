@@ -18,7 +18,6 @@ import (
 	agentmetrics "nonoka-im/internal/agent/metrics"
 	"nonoka-im/internal/agent/port"
 	"nonoka-im/internal/agent/tools"
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/messaging"
 	"nonoka-im/internal/realtime"
 
@@ -40,7 +39,7 @@ type RunStore interface {
 type Harness struct {
 	Store       RunStore
 	Runtime     port.Runtime
-	Authorizer  authz.Authorizer
+	Authorizer  Authorizer
 	Sender      ReplySender
 	Builder     agentcontext.Builder
 	Files       FileReader
@@ -361,7 +360,7 @@ func (h *Harness) failRun(parent context.Context, run *domain.AgentRun, err erro
 // failAuth distinguishes a real authorization denial from an OpenFGA outage.
 // A denial is terminal; an outage is retryable infrastructure noise.
 func (h *Harness) failAuth(ctx context.Context, run *domain.AgentRun, err error) error {
-	if errors.Is(err, authz.ErrDenied) {
+	if IsDenied(h.Authorizer, err) {
 		return h.failRun(ctx, run, fmt.Errorf("%w: %v", port.ErrAuthDenied, err))
 	}
 	return h.failRun(ctx, run, &port.Error{Class: port.ClassTransientInfra, Err: err})

@@ -10,6 +10,29 @@ import (
 // error instead of a transient storage outage.
 var ErrMessageNotFound = errors.New("message not found")
 
+// Authorizer is the consumer-owned authorization surface used by the harness
+// and built-in tools. The authz adapter implements it; the application layer
+// does not import the adapter package.
+type Authorizer interface {
+	CanAccessTopic(ctx context.Context, userID int64, topic string) error
+	CanReadFile(ctx context.Context, userID int64, fileID string) error
+}
+
+// DeniedClassifier is optional. Adapters that can distinguish a policy denial
+// from a transient authz outage implement it so the harness can choose between
+// a terminal and retryable failure.
+type DeniedClassifier interface {
+	IsDenied(error) bool
+}
+
+// IsDenied reports whether an authorizer error is a policy denial.
+func IsDenied(a Authorizer, err error) bool {
+	if classifier, ok := a.(DeniedClassifier); ok {
+		return classifier.IsDenied(err)
+	}
+	return false
+}
+
 // Message is the read-model view of one persisted IM message. The agent layer
 // never sees MongoDB documents or the msgworker storage type.
 type Message struct {

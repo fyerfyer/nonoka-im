@@ -7,7 +7,6 @@ import (
 	"errors"
 
 	"nonoka-im/internal/agent/domain"
-	"nonoka-im/internal/authz"
 )
 
 var (
@@ -94,7 +93,7 @@ type Authorizer interface {
 	SetAgentOwner(ctx context.Context, agentID, userID int64) error
 	SetAgentToolBinding(ctx context.Context, agentID int64, tool string, enabled bool) error
 	SetAgentShare(ctx context.Context, agentID int64, kind, target, role string, enabled bool) error
-	ListAgentShares(ctx context.Context, agentID int64) ([]authz.AgentShare, error)
+	ListAgentShares(ctx context.Context, agentID int64) ([]domain.AgentShare, error)
 	DeleteAgentTuples(ctx context.Context, agentID int64, tools []string) error
 	SetGroupMember(ctx context.Context, groupID string, userID int64, enabled bool) error
 }

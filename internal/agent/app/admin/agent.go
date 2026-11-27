@@ -10,7 +10,6 @@ import (
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/agent/tools/catalog"
 	"nonoka-im/internal/audit"
-	"nonoka-im/internal/authz"
 
 	"github.com/go-kratos/kratos/v2/log"
 )
@@ -391,7 +390,7 @@ func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, t
 	})
 }
 
-func (s *AgentService) Shares(ctx context.Context, userID, agentID int64) ([]authz.AgentShare, error) {
+func (s *AgentService) Shares(ctx context.Context, userID, agentID int64) ([]domain.AgentShare, error) {
 	if err := s.requireManager(ctx, userID, agentID); err != nil {
 		return nil, err
 	}
@@ -438,10 +437,10 @@ func auditAgentPtr(a *domain.Agent) map[string]any {
 func (s *AgentService) VerifyBotSend(ctx context.Context, agentID, botID int64, topic string) error {
 	agent, err := s.Store.GetAgent(ctx, agentID)
 	if err != nil || agent.BotUserID != botID || agent.CurrentVersion <= 0 || agent.Status != "active" {
-		return authz.ErrDenied
+		return ErrForbidden
 	}
 	if err := s.Authz.CanAccessTopic(ctx, botID, topic); err != nil {
-		return authz.ErrDenied
+		return ErrForbidden
 	}
 	return nil
 }

@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"nonoka-im/internal/agent/tools"
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/topic"
 )
 
@@ -51,7 +50,7 @@ type GroupRef struct {
 // checked where the bot acts on the topic.
 type MessageTools struct {
 	Reader     MessageReader
-	Authorizer authz.Authorizer
+	Authorizer Authorizer
 	Sender     ReplySender
 	Files      FileReader
 	Directory  Directory

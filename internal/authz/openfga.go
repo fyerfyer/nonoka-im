@@ -16,6 +16,7 @@ import (
 	fga "github.com/openfga/go-sdk"
 	fgaclient "github.com/openfga/go-sdk/client"
 	"github.com/openfga/go-sdk/credentials"
+	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/topic"
 )
 
@@ -37,11 +38,9 @@ type cachedCheck struct {
 	expires time.Time
 }
 
-type AgentShare struct {
-	Kind   string `json:"kind"`
-	Target string `json:"target"`
-	Role   string `json:"role"`
-}
+// AgentShare is the domain type; the alias keeps existing authz callers
+// source-compatible while management code depends on agent/domain only.
+type AgentShare = domain.AgentShare
 
 func NewOpenFGA(apiURL, storeID, modelID string) (*OpenFGA, error) {
 	if apiURL == "" || storeID == "" || modelID == "" {
@@ -180,6 +179,11 @@ func truthy(value string) bool {
 
 func user(id int64) string  { return "user:" + strconv.FormatInt(id, 10) }
 func agent(id int64) string { return "agent:" + strconv.FormatInt(id, 10) }
+
+// IsDenied reports whether err is an authorization policy denial rather than
+// an OpenFGA outage. It satisfies agent/app.DeniedClassifier without making
+// the application depend on this adapter package.
+func (a *OpenFGA) IsDenied(err error) bool { return errors.Is(err, ErrDenied) }
 
 func (a *OpenFGA) check(ctx context.Context, subject, relation, object string) error {
 	if a == nil || a.client == nil {

@@ -46,6 +46,14 @@ var (
 // Agent is the identity and lifecycle record of an agent. Draft* fields are
 // the editable configuration; a published AgentVersion is the immutable
 // runtime snapshot.
+// AgentShare is one OpenFGA-derived share entry. It lives in the domain so
+// management usecases do not need to import the authz adapter.
+type AgentShare struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Role   string `json:"role"`
+}
+
 type Agent struct {
 	ID                     int64
 	BotUserID              int64

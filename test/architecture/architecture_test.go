@@ -64,6 +64,7 @@ func TestAgentAppDoesNotDependOnAdapters(t *testing.T) {
 		"nonoka-im/internal/data",
 		"nonoka-im/internal/msgworker",
 		"nonoka-im/internal/filestore",
+		"nonoka-im/internal/authz",
 	)
 }
 
@@ -137,6 +138,10 @@ func TestDataDoesNotDependOnTransportOrAPI(t *testing.T) {
 			"nonoka-im/internal/msgworker",
 		)
 	}
+}
+
+func TestAgentDataDoesNotImportOtherDataSubdomains(t *testing.T) {
+	assertNoDeps(t, "nonoka-im/internal/data/agent", "nonoka-im/internal/data/im")
 }
 
 func TestAgentBootstrapDoesNotDependOnData(t *testing.T) {

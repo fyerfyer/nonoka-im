@@ -6,12 +6,10 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"unicode/utf8"
 
 	"nonoka-im/internal/agent/port"
-	"nonoka-im/internal/authz"
 )
 
 type RunContext struct {
@@ -124,6 +122,12 @@ type Guard interface {
 	CanExecuteTool(ctx context.Context, actorID, agentID int64, tool, currentTopic, resourceType, resourceRef string) error
 }
 
+// DeniedClassifier is optional. It lets an authz adapter distinguish a policy
+// denial from an outage without the tools package importing the adapter.
+type DeniedClassifier interface {
+	IsDenied(error) bool
+}
+
 // Authorize fails closed when no guard is configured, so a miswired worker
 // cannot silently run tools without authorization. A real denial is reported as
 // a normal tool refusal; an OpenFGA outage is surfaced as transient infra so
@@ -133,7 +137,7 @@ func Authorize(ctx context.Context, guard Guard, r RunContext, tool, resourceTyp
 		return &port.Error{Class: port.ClassInvalidConfig, Err: fmt.Errorf("tool authorization unavailable")}
 	}
 	if err := guard.CanExecuteTool(ctx, r.ActorUserID, r.AgentID, tool, r.Topic, resourceType, resourceRef); err != nil {
-		if errors.Is(err, authz.ErrDenied) {
+		if classifier, ok := guard.(DeniedClassifier); ok && classifier.IsDenied(err) {
 			return fmt.Errorf("tool %s not authorized", tool)
 		}
 		return &port.Error{Class: port.ClassTransientInfra, Err: err}

@@ -9,12 +9,24 @@ import (
 	"time"
 
 	"nonoka-im/internal/agent/domain"
-	imdata "nonoka-im/internal/data/im"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// botUserRow is the minimal shared `users` row needed to create an Agent's bot
+// identity inside the same transaction as the agent row. It deliberately does
+// not live in data/im: the agent adapter should not import another data
+// subdomain's models.
+type botUserRow struct {
+	ID       int64  `gorm:"primaryKey;autoIncrement"`
+	Username string `gorm:"uniqueIndex;type:varchar(50);not null"`
+	Password string `gorm:"type:varchar(255);not null"`
+	IsBot    bool   `gorm:"not null;default:false"`
+}
+
+func (botUserRow) TableName() string { return "users" }
 
 // CreateAgent creates the bot user and the agent row in one transaction. The
 // grant callback writes the OpenFGA owner tuple inside the same transaction;
@@ -22,7 +34,7 @@ import (
 func (s *Store) CreateAgent(ctx context.Context, ownerID int64, spec domain.AgentSpec, grant func(context.Context, int64) error) (*domain.Agent, error) {
 	var result domain.Agent
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		bot := imdata.User{Username: "agent_" + uuid.NewString()[:12], Password: "!", IsBot: true}
+		bot := botUserRow{Username: "agent_" + uuid.NewString()[:12], Password: "!", IsBot: true}
 		if err := tx.Create(&bot).Error; err != nil {
 			return err
 		}
@@ -504,7 +516,7 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 			return err
 		}
 		if botID <= 0 {
-			bot := imdata.User{Username: "agent_" + uuid.NewString()[:12], Password: "!", IsBot: true}
+			bot := botUserRow{Username: "agent_" + uuid.NewString()[:12], Password: "!", IsBot: true}
 			if err := tx.Create(&bot).Error; err != nil {
 				return err
 			}
@@ -513,7 +525,7 @@ func (s *Store) BootstrapAgent(ctx context.Context, id, botID, ownerID int64, na
 			// Never convert an existing human account into a bot. A misconfigured
 			// AGENT_BOT_ID must fail loudly instead of overwriting a real user's
 			// password and is_bot flag.
-			var bot imdata.User
+			var bot botUserRow
 			if err := tx.First(&bot, botID).Error; err != nil {
 				return notFoundOrTransient(err, fmt.Errorf("bootstrap bot user %d does not exist", botID))
 			}
