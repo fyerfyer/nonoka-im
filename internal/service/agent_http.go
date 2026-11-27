@@ -1,13 +1,9 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
-	"os"
-	"strings"
 
 	agentv1 "nonoka-im/api/agent/v1"
 	"nonoka-im/internal/agent/app"
@@ -17,10 +13,6 @@ import (
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/llm"
-
-	"github.com/go-kratos/kratos/v2/middleware"
-	khttp "github.com/go-kratos/kratos/v2/transport/http"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // AgentHTTP is the thin transport adapter for agent management resources.
@@ -50,39 +42,6 @@ func writeAgentJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
-}
-
-// AuditRequestMetaMiddleware attaches request correlation metadata to every
-// HTTP request context. Both raw and generated handlers record audit events.
-func AuditRequestMetaMiddleware() middleware.Middleware {
-	return func(next middleware.Handler) middleware.Handler {
-		return func(ctx context.Context, req any) (any, error) {
-			if r, ok := khttp.RequestFromServerContext(ctx); ok && r != nil {
-				ctx = audit.WithRequestMeta(ctx, requestMeta(ctx, r))
-			}
-			return next(ctx, req)
-		}
-	}
-}
-
-func requestMeta(ctx context.Context, r *http.Request) audit.RequestMeta {
-	ip := r.RemoteAddr
-	if host, _, err := net.SplitHostPort(ip); err == nil {
-		ip = host
-	}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("TRUST_PROXY_HEADERS")), "true") {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		}
-	}
-	traceID := ""
-	if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
-		traceID = sc.TraceID().String()
-	}
-	return audit.RequestMeta{
-		RequestID: httpapi.RequestID(ctx), TraceID: traceID, IP: ip,
-		UserAgent: r.UserAgent(),
-	}
 }
 
 func agentHTTPError(err error) *httpapi.Error {

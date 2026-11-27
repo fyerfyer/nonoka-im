@@ -136,7 +136,8 @@ result, err := client.Messages.Send(ctx, sdk.SendRequest{
 ## Agent runs
 
 ```go
-run, err := client.Agents.Test(ctx, agentID, "Summarize this conversation")
+// Runs are created by sending a mention/DM to a published agent.
+run, err := client.Runs.GetByReply(ctx, replyMsgID, clientMsgID)
 if err != nil { ... }
 
 stream := client.Runs.Stream(ctx, run.ID)
@@ -187,3 +188,30 @@ subscriptions, preserving per-topic order.
 - `SendMessage` uses a stable client message ID and only retries retryable errors.
 - Old `ConversationManager` state was removed; `ConversationClient` is a
   stateless topic helper.
+
+## Transport and load-test mode
+
+All HTTP resources, including generated proto endpoints, share
+`pkg/sdk/internal/transport` for token injection, one-shot 401 refresh,
+bounded GET/DELETE/PUT retries and typed `APIError` decoding. The WebSocket
+state machine lives in `pkg/sdk/internal/realtime`.
+
+`test/loadtest` can exercise the public SDK instead of a bare WebSocket:
+
+```bash
+# SDK HTTP + WebSocket + receipts
+go run ./test/loadtest -mode sdk -users 300 -duration 60s -msg-rate 1
+
+# group fan-out
+go run ./test/loadtest -mode sdk -chat-mode group -users 100 -duration 60s
+
+# reconnect storm (SDK mode only)
+go run ./test/loadtest -mode sdk -users 300 -duration 60s \
+  -reconnect-every 5s -reconnect-users 10
+
+# raw protocol baseline
+go run ./test/loadtest -mode raw -users 300 -duration 60s -msg-rate 1
+```
+
+`-msg-size` covers large-message runs; `-mode sdk` and `-mode raw` use the same
+ring topology so throughput, ACK, push and receipt metrics can be compared.

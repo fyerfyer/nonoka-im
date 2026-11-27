@@ -34,7 +34,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 		httpapi.RequestIDMiddleware(),
-		service.AuditRequestMetaMiddleware(),
+		httpapi.AuditRequestMetaMiddleware(),
 	}
 	if rateLimiter != nil {
 		middlewares = append(middlewares, selector.Server(

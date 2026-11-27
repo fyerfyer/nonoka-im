@@ -15,15 +15,19 @@
 
 ```text
 Client
+  internal/transport (single HTTP path)
+      token injection + 401 refresh + retry + typed errors + protojson
   Auth/Users/Conversations/Messages/Groups/Files
   Agents/Models/Quotas/Audit/MCP/Skills/Runs
-  Realtime (typed event fan-out)
-      └── RunStream (replay + live + polling fallback)
+  internal/realtime (connection state machine)
+      Realtime (typed event fan-out)
+          └── RunStream (replay + live + polling fallback)
 ```
 
-`Client.New` creates a Kratos HTTP client for the existing IM proto endpoints
-and a small JSON transport for the hand-written Agent platform endpoints. The
-public API never exposes `api/im/v1` types.
+`Client.New` builds one internal HTTP transport for both generated proto
+endpoints and hand-written Agent platform resources. The public API never
+exposes `api/im/v1` types. The WebSocket implementation lives in
+`pkg/sdk/internal/realtime`; `pkg/sdk` only maps raw packets to public events.
 
 ## Send path
 
@@ -40,7 +44,10 @@ typed events to subscriber channels. Slow subscribers drop events; consumers
 that need durability use the run replay endpoint.
 
 `RealtimeConfig` uses `DisableAutoReconnect` / `DisableAutoAck` instead of
-zero-value booleans, so an explicit false is representable.
+zero-value booleans, so an explicit false is representable. The internal
+connection state machine owns dial/auth/heartbeat/reconnect; `Disconnect`
+closes only the socket so a caller or reconnect-storm test can reconnect
+without losing subscriptions.
 
 ## RunStream
 

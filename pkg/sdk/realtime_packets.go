@@ -8,13 +8,6 @@ func (c *RealtimeClient) handlePacket(packet *v1.Packet) {
 	if packet.GetCmd() == v1.Command_CMD_HEARTBEAT {
 		return
 	}
-	if ch, ok := c.pendingFor(packet.GetSeq()); ok {
-		select {
-		case ch <- packet:
-		default:
-		}
-		return
-	}
 	switch packet.GetCmd() {
 	case v1.Command_CMD_NOTIFY:
 		push := packet.GetNotify()

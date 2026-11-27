@@ -15,12 +15,19 @@ import (
 // 100 independent runs can be claimed concurrently, each exactly once, and the
 // queue gauges drain to zero.
 func TestAgentQueue_100ConcurrentClaims(t *testing.T) {
+	testAgentQueueClaims(t, 100, 100)
+}
+
+// TestAgentQueue_500ConcurrentClaims is the higher-concurrency queue check.
+func TestAgentQueue_500ConcurrentClaims(t *testing.T) {
+	testAgentQueueClaims(t, 500, 50)
+}
+
+func testAgentQueueClaims(t *testing.T, total, concurrency int) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 	ctx := context.Background()
 	store := agentdata.NewStore(ts.data.DB())
-
-	const total = 100
 	runs := make([]*domain.AgentRun, 0, total)
 	for i := 0; i < total; i++ {
 		run := &domain.AgentRun{
@@ -35,17 +42,20 @@ func TestAgentQueue_100ConcurrentClaims(t *testing.T) {
 		runs = append(runs, run)
 	}
 	queued, _, err := store.QueueStats(ctx)
-	if err != nil || queued < total {
+	if err != nil || queued < int64(total) {
 		t.Fatalf("queue stats before claims: queued=%d err=%v", queued, err)
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	attempts := map[string]int{}
+	sem := make(chan struct{}, concurrency)
 	for _, run := range runs {
 		wg.Add(1)
 		go func(id uint64) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			claimed, ok, err := store.ClaimRun(ctx, id, time.Minute)
 			if err != nil {
 				t.Errorf("claim %d: %v", id, err)

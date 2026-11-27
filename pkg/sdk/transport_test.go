@@ -49,37 +49,3 @@ func TestAPITransportRefreshesTokenForGET(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", requests.Load())
 	}
 }
-
-func TestAuthRoundTripperRefreshesTokenForGET(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if r.Header.Get("Authorization") != "Bearer new" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	source := &rotatingTokenSource{}
-	client := &http.Client{Transport: &authRoundTripper{base: http.DefaultTransport, tokens: source}}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	if source.calls.Load() != 1 {
-		t.Fatalf("refresh calls = %d, want 1", source.calls.Load())
-	}
-	if requests.Load() != 2 {
-		t.Fatalf("requests = %d, want 2", requests.Load())
-	}
-}

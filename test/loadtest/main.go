@@ -25,17 +25,21 @@ import (
 )
 
 var (
-	baseURL    = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
-	wsURL      = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
-	gateways   = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
-	users      = flag.Int("users", 100, "Number of concurrent users")
-	duration   = flag.Duration("duration", 30*time.Second, "Load test duration")
-	msgRate    = flag.Float64("msg-rate", 1.0, "Messages per second per user")
-	msgSize    = flag.Int("msg-size", 128, "Message content size in bytes")
-	timeout    = flag.Duration("timeout", 10*time.Second, "Request timeout")
-	warmup     = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
-	outFile    = flag.String("out", "", "Optional JSON report output file")
-	tokensFile = flag.String("tokens-file", "", "Optional CSV file with userID,token pairs; skips register/login")
+	mode           = flag.String("mode", "raw", "Client mode: raw (bare WebSocket) or sdk (pkg/sdk HTTP + WS + RunStream)")
+	chatMode       = flag.String("chat-mode", "p2p", "Conversation mode: p2p or group")
+	baseURL        = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
+	wsURL          = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
+	gateways       = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
+	users          = flag.Int("users", 100, "Number of concurrent users")
+	duration       = flag.Duration("duration", 30*time.Second, "Load test duration")
+	msgRate        = flag.Float64("msg-rate", 1.0, "Messages per second per user")
+	msgSize        = flag.Int("msg-size", 128, "Message content size in bytes")
+	timeout        = flag.Duration("timeout", 10*time.Second, "Request timeout")
+	warmup         = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
+	outFile        = flag.String("out", "", "Optional JSON report output file")
+	tokensFile     = flag.String("tokens-file", "", "Optional CSV file with userID,token pairs; skips register/login")
+	reconnectEvery = flag.Duration("reconnect-every", 0, "SDK mode: force a reconnect storm at this interval (0 disables)")
+	reconnectUsers = flag.Int("reconnect-users", 1, "SDK mode: users reconnected per storm interval")
 )
 
 type client struct {
@@ -70,6 +74,7 @@ type summary struct {
 	TotalAcked      int64     `json:"total_acked"`
 	TotalPushed     int64     `json:"total_pushed"`
 	TotalReceipts   int64     `json:"total_receipts"`
+	Reconnects      int64     `json:"reconnects"`
 	SendFailures    int64     `json:"send_failures"`
 	AuthFailures    int64     `json:"auth_failures"`
 	ConnectFailures int64     `json:"connect_failures"`
@@ -91,8 +96,8 @@ type latencies struct {
 func main() {
 	flag.Parse()
 	fmt.Printf("Nonoka IM Load Test\n")
-	fmt.Printf("BaseURL: %s, WS: %s, Users: %d, Duration: %s, MsgRate: %.2f/s, MsgSize: %d\n",
-		*baseURL, *wsURL, *users, *duration, *msgRate, *msgSize)
+	fmt.Printf("Mode: %s, ChatMode: %s, BaseURL: %s, WS: %s, Users: %d, Duration: %s, MsgRate: %.2f/s, MsgSize: %d\n",
+		*mode, *chatMode, *baseURL, *wsURL, *users, *duration, *msgRate, *msgSize)
 
 	if *users < 2 {
 		fmt.Println("need at least 2 users")
@@ -113,6 +118,19 @@ func main() {
 	if len(wsURLs) == 0 {
 		fmt.Println("no WebSocket gateway URLs provided")
 		os.Exit(1)
+	}
+	if *chatMode != "p2p" && *chatMode != "group" {
+		fmt.Printf("unknown -chat-mode %q (want p2p or group)\n", *chatMode)
+		os.Exit(2)
+	}
+	switch *mode {
+	case "sdk":
+		runSDKLoad(wsURLs)
+		return
+	case "raw":
+	default:
+		fmt.Printf("unknown -mode %q (want raw or sdk)\n", *mode)
+		os.Exit(2)
 	}
 
 	clients := make([]*client, *users)
@@ -188,6 +206,26 @@ func main() {
 		fmt.Println("not enough active clients")
 		os.Exit(1)
 	}
+	groupTopic := ""
+	if *chatMode == "group" {
+		memberIDs := make([]int64, 0, active)
+		token := ""
+		for _, c := range clients {
+			if c != nil {
+				memberIDs = append(memberIDs, c.userID)
+				if token == "" {
+					token = c.token
+				}
+			}
+		}
+		var err error
+		groupTopic, err = createGroupTopic(context.Background(), token, memberIDs)
+		if err != nil {
+			fmt.Printf("create loadtest group: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Group topic: %s (%d members)\n", groupTopic, len(memberIDs))
+	}
 
 	// Start readers and processors for all clients.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -213,7 +251,7 @@ func main() {
 		warmupWg.Add(1)
 		go func(idx int, cl *client) {
 			defer warmupWg.Done()
-			cl.sendLoop(warmupCtx, idx, clients, true, &totalSent, &sendFailures)
+			cl.sendLoop(warmupCtx, idx, clients, groupTopic, true, &totalSent, &sendFailures)
 		}(i, c)
 	}
 	warmupWg.Wait()
@@ -236,7 +274,7 @@ func main() {
 		testWg.Add(1)
 		go func(idx int, cl *client) {
 			defer testWg.Done()
-			cl.sendLoop(testCtx, idx, clients, false, &totalSent, &sendFailures)
+			cl.sendLoop(testCtx, idx, clients, groupTopic, false, &totalSent, &sendFailures)
 		}(i, c)
 	}
 	testWg.Wait()
@@ -387,7 +425,7 @@ func (c *client) connectAndAuth(wsURL string) error {
 	}
 }
 
-func (c *client) sendLoop(ctx context.Context, idx int, clients []*client, warmup bool, totalSent, sendFailures *int64) {
+func (c *client) sendLoop(ctx context.Context, idx int, clients []*client, groupTopic string, warmup bool, totalSent, sendFailures *int64) {
 	interval := time.Duration(float64(time.Second) / *msgRate)
 	if interval <= 0 {
 		interval = time.Millisecond
@@ -408,13 +446,16 @@ func (c *client) sendLoop(ctx context.Context, idx int, clients []*client, warmu
 		}
 
 		receiver := c.pickReceiver(idx, clients)
-		if receiver == nil {
+		if groupTopic == "" && receiver == nil {
 			continue
 		}
 
 		clientMsgID := fmt.Sprintf("load-%d-%d-%d", idx, time.Now().UnixNano(), c.nextSeq())
 		seq := c.nextSeq()
-		topic := fmt.Sprintf("p2p_%d_%d", min(c.userID, receiver.userID), max(c.userID, receiver.userID))
+		topic := groupTopic
+		if topic == "" {
+			topic = fmt.Sprintf("p2p_%d_%d", min(c.userID, receiver.userID), max(c.userID, receiver.userID))
+		}
 
 		pkt := &v1.Packet{
 			Cmd: v1.Command_CMD_PUBLISH,
@@ -615,6 +656,7 @@ func printReport(r summary) {
 	fmt.Printf("Messages ACKed:      %d (%.2f%%)\n", r.TotalAcked, percent(r.TotalAcked, r.TotalSent))
 	fmt.Printf("Messages pushed:     %d\n", r.TotalPushed)
 	fmt.Printf("Send receipts:       %d\n", r.TotalReceipts)
+	fmt.Printf("Forced reconnects:   %d\n", r.Reconnects)
 	fmt.Printf("Send failures:       %d\n", r.SendFailures)
 	fmt.Printf("Connect failures:    %d\n", r.ConnectFailures)
 	fmt.Printf("Auth failures:       %d\n", r.AuthFailures)

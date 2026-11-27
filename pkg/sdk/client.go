@@ -3,12 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-
-	v1 "nonoka-im/api/im/v1"
-
-	khttp "github.com/go-kratos/kratos/v2/transport/http"
 )
 
 // Client is the single entry point of the SDK. Resources are grouped by
@@ -16,8 +11,6 @@ import (
 type Client struct {
 	cfg  Config
 	http *apiTransport
-	kb   *khttp.Client
-	auth *authRoundTripper
 
 	Auth          *AuthResource
 	Users         *UsersResource
@@ -35,15 +28,6 @@ type Client struct {
 	Realtime      *RealtimeClient
 }
 
-type protoClients struct {
-	auth         v1.AuthServiceHTTPClient
-	user         v1.UserServiceHTTPClient
-	conversation v1.ConversationServiceHTTPClient
-	message      v1.MessageServiceHTTPClient
-	group        v1.GroupServiceHTTPClient
-	dispatch     v1.DispatchServiceHTTPClient
-}
-
 // New creates an SDK client. A BaseURL and a TokenSource (or WithToken) are
 // required for authenticated APIs.
 func New(cfg Config, opts ...Option) (*Client, error) {
@@ -54,27 +38,17 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, fmt.Errorf("%w: base URL is required", ErrInvalidConfiguration)
 	}
-	authTransport := &authRoundTripper{base: http.DefaultTransport, tokens: cfg.TokenSource, userAgent: cfg.UserAgent}
-	kb, err := newProtoHTTPClient(cfg.BaseURL, cfg.Timeout, authTransport)
-	if err != nil {
-		return nil, err
-	}
-	pc := protoClients{
-		auth: v1.NewAuthServiceHTTPClient(kb), user: v1.NewUserServiceHTTPClient(kb),
-		conversation: v1.NewConversationServiceHTTPClient(kb), message: v1.NewMessageServiceHTTPClient(kb),
-		group: v1.NewGroupServiceHTTPClient(kb), dispatch: v1.NewDispatchServiceHTTPClient(kb),
-	}
 	client := &Client{
-		cfg: cfg, kb: kb, auth: authTransport,
+		cfg:  cfg,
 		http: newAPITransport(cfg.BaseURL, cfg.HTTPClient, cfg.TokenSource, cfg.UserAgent),
 	}
-	client.Messages = &MessagesResource{proto: pc.message, client: client}
-	client.Auth = &AuthResource{proto: pc.auth}
-	client.Users = &UsersResource{proto: pc.user, http: client.http}
+	client.Messages = &MessagesResource{http: client.http, client: client}
+	client.Auth = &AuthResource{http: client.http}
+	client.Users = &UsersResource{http: client.http}
 	client.Conversations = &ConversationsResource{
-		proto: pc.conversation, http: client.http, messages: client.Messages, clients: map[string]*ConversationClient{},
+		http: client.http, messages: client.Messages, clients: map[string]*ConversationClient{},
 	}
-	client.Groups = &GroupsResource{proto: pc.group, http: client.http}
+	client.Groups = &GroupsResource{http: client.http}
 	client.Files = &FilesResource{baseURL: strings.TrimRight(cfg.BaseURL, "/"), client: cfg.HTTPClient, tokens: cfg.TokenSource, userAgent: cfg.UserAgent}
 	client.Agents = &AgentsResource{http: client.http}
 	client.Models = &ModelsResource{http: client.http}
@@ -83,7 +57,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 	client.MCP = &MCPResource{http: client.http}
 	client.Skills = &SkillsResource{http: client.http}
 	client.Runs = &RunsResource{http: client.http, client: client}
-	client.Realtime = newRealtimeClient(cfg, pc.dispatch)
+	client.Realtime = newRealtimeClient(cfg, client.http)
 	go client.dispatchLoop()
 	return client, nil
 }
@@ -102,11 +76,6 @@ func (c *Client) Close() error {
 	var firstErr error
 	if c.Realtime != nil {
 		if err := c.Realtime.Close(); err != nil {
-			firstErr = err
-		}
-	}
-	if c.kb != nil {
-		if err := c.kb.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -133,12 +102,9 @@ func (c *Client) UserID() int64 {
 func (c *Client) UpdateToken(token string) {
 	source := StaticToken(token)
 	c.cfg.TokenSource = source
-	c.http.tokens = source
-	if c.auth != nil {
-		c.auth.tokens = source
-	}
+	c.http.Tokens = source
 	if c.Realtime != nil {
-		c.Realtime.cfg.TokenSource = source
+		c.Realtime.setTokenSource(source)
 	}
 }
 

@@ -67,3 +67,29 @@ func TestRunBroadcasterFallsBackWhenStoreFails(t *testing.T) {
 		t.Fatalf("expected local fallback sequence, got %d", got)
 	}
 }
+
+func TestRunBroadcasterFanout100Recipients(t *testing.T) {
+	store := NewMemoryRunEventStore()
+	transport := &recordingTransport{}
+	broadcaster := NewRunBroadcaster(store, transport, nil, nil)
+	recipients := make([]int64, 0, 100)
+	for i := int64(1); i <= 100; i++ {
+		recipients = append(recipients, i)
+	}
+	ctx := context.Background()
+	const events = 100
+	for i := 0; i < events; i++ {
+		if err := broadcaster.Publish(ctx, RunEvent{RunID: 42, Type: RunDelta, Topic: "grp_fanout", Delta: "x"}, recipients); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, userID := range recipients {
+		if got := len(transport.delivered[userID]); got != events {
+			t.Fatalf("user %d received %d events, want %d", userID, got, events)
+		}
+		last := transport.delivered[userID][events-1]
+		if last.Seq != events {
+			t.Fatalf("user %d last seq = %d, want %d", userID, last.Seq, events)
+		}
+	}
+}

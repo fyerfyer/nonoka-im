@@ -4,22 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	v1 "nonoka-im/api/im/v1"
 )
 
 type UsersResource struct {
-	proto v1.UserServiceHTTPClient
-	http  *apiTransport
+	http *apiTransport
 }
 
 func (r *UsersResource) Search(ctx context.Context, username string, limit int32) ([]User, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	reply, err := r.proto.SearchUsers(ctx, &v1.SearchUsersRequest{Username: username, Limit: limit})
-	if err != nil {
-		return nil, apiErrorFromKratos(err)
+	query := url.Values{}
+	query.Set("username", username)
+	query.Set("limit", strconv.Itoa(int(limit)))
+	var reply v1.SearchUsersReply
+	if err := r.http.doProto(ctx, http.MethodGet, "/v1/users/search", query, nil, &reply); err != nil {
+		return nil, err
 	}
 	out := make([]User, 0, len(reply.GetUsers()))
 	for _, user := range reply.GetUsers() {

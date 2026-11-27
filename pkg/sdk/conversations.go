@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"sync"
 
 	v1 "nonoka-im/api/im/v1"
@@ -12,7 +14,6 @@ import (
 )
 
 type ConversationsResource struct {
-	proto    v1.ConversationServiceHTTPClient
 	http     *apiTransport
 	messages *MessagesResource
 
@@ -24,9 +25,12 @@ func (r *ConversationsResource) List(ctx context.Context, limit int32, offset in
 	if limit <= 0 {
 		limit = 50
 	}
-	reply, err := r.proto.ListConversations(ctx, &v1.ListConversationsRequest{Limit: limit, Offset: offset})
-	if err != nil {
-		return nil, false, apiErrorFromKratos(err)
+	query := url.Values{}
+	query.Set("limit", strconv.Itoa(int(limit)))
+	query.Set("offset", strconv.FormatInt(offset, 10))
+	var reply v1.ListConversationsReply
+	if err := r.http.doProto(ctx, http.MethodGet, "/v1/conversations", query, nil, &reply); err != nil {
+		return nil, false, err
 	}
 	out := make([]Conversation, 0, len(reply.GetConversations()))
 	for _, conv := range reply.GetConversations() {

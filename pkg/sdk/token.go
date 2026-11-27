@@ -12,19 +12,6 @@ import (
 	"time"
 )
 
-// TokenSource supplies access tokens. Implementations should be safe for
-// concurrent use and refresh proactively.
-type TokenSource interface {
-	Token(ctx context.Context) (string, error)
-}
-
-// RefreshableTokenSource can rotate an expired access token without user
-// interaction. HTTP transports retry once after a successful refresh.
-type RefreshableTokenSource interface {
-	TokenSource
-	Refresh(ctx context.Context) (string, error)
-}
-
 // TokenSourceFunc adapts a function to TokenSource.
 type TokenSourceFunc func(ctx context.Context) (string, error)
 

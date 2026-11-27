@@ -11,22 +11,21 @@ import (
 )
 
 type GroupsResource struct {
-	proto v1.GroupServiceHTTPClient
-	http  *apiTransport
+	http *apiTransport
 }
 
 func (r *GroupsResource) Create(ctx context.Context, name string, memberIDs []int64) (*Group, error) {
-	reply, err := r.proto.CreateGroup(ctx, &v1.CreateGroupRequest{Name: name, MemberIds: memberIDs})
-	if err != nil {
-		return nil, apiErrorFromKratos(err)
+	var reply v1.CreateGroupReply
+	if err := r.http.doProto(ctx, http.MethodPost, "/v1/groups", nil, &v1.CreateGroupRequest{Name: name, MemberIds: memberIDs}, &reply); err != nil {
+		return nil, err
 	}
 	return &Group{GroupID: reply.GetGroupId(), Topic: reply.GetTopic(), Name: name}, nil
 }
 
 func (r *GroupsResource) ListMine(ctx context.Context) ([]Group, error) {
-	reply, err := r.proto.ListMyGroups(ctx, &emptypb.Empty{})
-	if err != nil {
-		return nil, apiErrorFromKratos(err)
+	var reply v1.ListGroupsReply
+	if err := r.http.doProto(ctx, http.MethodGet, "/v1/groups", nil, nil, &reply); err != nil {
+		return nil, err
 	}
 	out := make([]Group, 0, len(reply.GetGroups()))
 	for _, group := range reply.GetGroups() {

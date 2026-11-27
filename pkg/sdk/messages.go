@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,7 +21,7 @@ type cachedSend struct {
 }
 
 type MessagesResource struct {
-	proto  v1.MessageServiceHTTPClient
+	http   *apiTransport
 	client *Client
 
 	mu    sync.Mutex
@@ -65,10 +68,11 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 			case <-time.After(delay):
 			}
 		}
-		reply, err := r.proto.SendMessage(ctx, &v1.SendMessageRequest{
+		var reply v1.SendMessageReply
+		err := r.http.doProto(ctx, http.MethodPost, "/v1/message/send", nil, &v1.SendMessageRequest{
 			Topic: req.Topic, MsgType: v1.MsgType(req.Type), Content: req.Content,
 			ClientMsgId: clientID, MentionedUserIds: req.MentionedUserIDs,
-		})
+		}, &reply)
 		if err == nil {
 			result := &SendResult{
 				ClientMessageID: reply.GetClientMsgId(), MessageID: reply.GetMsgId(),
@@ -77,7 +81,7 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 			r.remember(clientID, result)
 			return result, nil
 		}
-		lastErr = apiErrorFromKratos(err)
+		lastErr = err
 		var apiErr *APIError
 		if !errors.As(lastErr, &apiErr) || !apiErr.Retryable {
 			return nil, &SendError{ClientMessageID: clientID, Err: lastErr}
@@ -102,11 +106,14 @@ func (r *MessagesResource) Pull(ctx context.Context, req PullRequest) (*PullResu
 	if req.Limit <= 0 {
 		req.Limit = 20
 	}
-	reply, err := r.proto.PullMessages(ctx, &v1.PullRequest{
-		Topic: req.Topic, LastSeq: req.LastSeq, Limit: req.Limit, EndSeq: req.EndSeq,
-	})
-	if err != nil {
-		return nil, apiErrorFromKratos(err)
+	query := url.Values{}
+	query.Set("topic", req.Topic)
+	query.Set("lastSeq", strconv.FormatUint(req.LastSeq, 10))
+	query.Set("limit", strconv.Itoa(int(req.Limit)))
+	query.Set("endSeq", strconv.FormatUint(req.EndSeq, 10))
+	var reply v1.PullReply
+	if err := r.http.doProto(ctx, http.MethodGet, "/v1/message/pull", query, nil, &reply); err != nil {
+		return nil, err
 	}
 	out := make([]*Message, 0, len(reply.GetMessages()))
 	for _, item := range reply.GetMessages() {
@@ -127,17 +134,21 @@ func (r *MessagesResource) Search(ctx context.Context, req SearchRequest) (*Sear
 	if req.Limit <= 0 {
 		req.Limit = 20
 	}
-	reply, err := r.proto.SearchMessages(ctx, &v1.SearchMessagesRequest{
-		Topic: req.Topic, Query: req.Query, SenderId: req.SenderID,
-		Since: req.Since, Until: req.Until, HasFile: req.HasFile,
-		Limit: req.Limit, Offset: req.Offset,
-	})
-	if err != nil {
-		mapped := apiErrorFromKratos(err)
-		if IsCode(mapped, "SEARCH_UNAVAILABLE") {
-			return nil, fmt.Errorf("%w: %v", ErrSearchUnavailable, mapped)
+	query := url.Values{}
+	query.Set("topic", req.Topic)
+	query.Set("query", req.Query)
+	query.Set("senderId", strconv.FormatInt(req.SenderID, 10))
+	query.Set("since", strconv.FormatInt(req.Since, 10))
+	query.Set("until", strconv.FormatInt(req.Until, 10))
+	query.Set("hasFile", strconv.FormatBool(req.HasFile))
+	query.Set("limit", strconv.Itoa(int(req.Limit)))
+	query.Set("offset", strconv.Itoa(int(req.Offset)))
+	var reply v1.SearchMessagesReply
+	if err := r.http.doProto(ctx, http.MethodGet, "/v1/message/search", query, nil, &reply); err != nil {
+		if IsCode(err, "SEARCH_UNAVAILABLE") {
+			return nil, fmt.Errorf("%w: %v", ErrSearchUnavailable, err)
 		}
-		return nil, mapped
+		return nil, err
 	}
 	out := &SearchResult{HasMore: reply.GetHasMore(), Hits: make([]*SearchHit, 0, len(reply.GetMessages()))}
 	for _, hit := range reply.GetMessages() {
@@ -165,7 +176,7 @@ func (r *MessagesResource) sendWebSocket(ctx context.Context, req SendRequest, c
 	if _, err := r.client.Realtime.request(ctx, packet, 5*time.Second); err != nil {
 		return nil, err
 	}
-	timer := time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
@@ -232,7 +243,7 @@ func (r *MessagesResource) remember(clientID string, result *SendResult) {
 // lookupSent is a fallback for a lost send receipt. The message may already be
 // durably persisted even when the realtime receipt was dropped.
 func (r *MessagesResource) lookupSent(ctx context.Context, topic, clientID string) *SendResult {
-	for attempt := 0; attempt < 15; attempt++ {
+	for attempt := 0; attempt < 25; attempt++ {
 		page, err := r.Pull(ctx, PullRequest{Topic: topic, Limit: 50})
 		if err == nil {
 			for _, message := range page.Messages {
