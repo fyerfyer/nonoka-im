@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/im/domain"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -33,7 +32,7 @@ type PullResult struct {
 type QueryService struct {
 	Reader     MessageReader
 	Search     SearchIndex
-	Authorizer authz.Authorizer
+	Authorizer TopicAuthorizer
 	Log        *log.Helper
 }
 

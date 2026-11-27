@@ -95,6 +95,30 @@ type OutboxRepository interface {
 	ReplayOutboxMany(ctx context.Context, ids []string) (int, error)
 }
 
+// TopicAuthorizer is the consumer-owned authorization surface for topic
+// access. Adapters (OpenFGA or the legacy topic authorizer) implement it; the
+// application layer does not depend on the authz adapter package.
+type TopicAuthorizer interface {
+	CanAccessTopic(ctx context.Context, userID int64, topic string) error
+}
+
+// FileAuthorizer is the consumer-owned authorization surface for attachments.
+type FileAuthorizer interface {
+	CanReadFile(ctx context.Context, userID int64, fileID string) error
+	SetFileOwner(ctx context.Context, fileID string, userID int64) error
+	SetFileViewer(ctx context.Context, fileID string, userID int64, enabled bool) error
+	SetFileSharedTopic(ctx context.Context, fileID, topic string, enabled bool) error
+}
+
+// GroupAuthorizer is the consumer-owned authorization surface for groups.
+type GroupAuthorizer interface {
+	CanAccessTopic(ctx context.Context, userID int64, topic string) error
+	CanManageGroup(ctx context.Context, userID int64, groupID string) error
+	SetGroupOwner(ctx context.Context, groupID string, userID int64) error
+	SetGroupMember(ctx context.Context, groupID string, userID int64, enabled bool) error
+	SetTopicGroup(ctx context.Context, topic, groupID string) error
+}
+
 // ConversationRepository persists per-user conversation summaries.
 type ConversationRepository interface {
 	UpsertConversations(ctx context.Context, userIDs []int64, msg *domain.Message, topicSeq uint64) error

@@ -103,6 +103,7 @@ func TestIMAppDoesNotDependOnAdapters(t *testing.T) {
 		"nonoka-im/internal/im/push",
 		"nonoka-im/internal/data",
 		"nonoka-im/internal/msgworker",
+		"nonoka-im/internal/authz",
 	)
 }
 

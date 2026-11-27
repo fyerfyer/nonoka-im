@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/im/domain"
 	"nonoka-im/internal/messaging"
 	"nonoka-im/internal/metrics"
@@ -51,7 +49,7 @@ type MessageService struct {
 	Conversations ConversationRepository
 	GroupMembers  GroupMemberReader
 	Bots          BotDirectory
-	Authorizer    authz.Authorizer
+	Authorizer    TopicAuthorizer
 	Producer      MessageProducer
 	Attachments   AttachmentSharer
 	AgentEvents   bool
@@ -118,12 +116,9 @@ func (s *MessageService) Send(ctx context.Context, req SendRequest) (SendResult,
 }
 
 func mapAuthzError(err error) error {
-	if errors.Is(err, authz.ErrDenied) {
-		return ErrTopicDenied
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%w: %v", ErrTopicDenied, err)
-	}
+	// The application owns the denial contract; adapters may use any concrete
+	// error type. Context cancellation is also surfaced as a denial because the
+	// caller must not retry an unauthorized/aborted send.
 	return fmt.Errorf("%w: %v", ErrTopicDenied, err)
 }
 

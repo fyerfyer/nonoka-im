@@ -4,14 +4,13 @@ import (
 	"context"
 	"strings"
 
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/im/domain"
 )
 
 // GroupService provides group conversation usecases.
 type GroupService struct {
 	Repo       GroupRepository
-	Authorizer authz.GroupAuthorizer
+	Authorizer GroupAuthorizer
 }
 
 func (s *GroupService) Create(ctx context.Context, userID int64, name string, memberIDs []int64) (*domain.Group, error) {

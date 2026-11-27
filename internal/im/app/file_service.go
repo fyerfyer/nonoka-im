@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"nonoka-im/internal/authz"
 	"nonoka-im/internal/im/domain"
 
 	"github.com/google/uuid"
@@ -17,7 +16,7 @@ import (
 // FileService stores attachments and enforces file authorization.
 type FileService struct {
 	Store      FileStore
-	Authorizer authz.FileAuthorizer
+	Authorizer FileAuthorizer
 	MaxUpload  int64
 }
 
