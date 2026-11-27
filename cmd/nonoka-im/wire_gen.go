@@ -112,18 +112,50 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	v := provideMetricsSlice(metrics)
 	manager := gateway.NewManager(logger, v...)
 	pushService := gateway.NewPushService(manager, logger)
-	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, auth, logger)
+	botdataStore := provideBotStore(db)
+	platformdataStore := platformdata.NewStore(db)
+	auditService := provideAuditService(platformdataStore)
+	appService, err := provideBotService(botdataStore, openFGA, auditService, logger)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	appAuthService := provideBotAuth(botdataStore, logger)
+	reader := provideBotReader(queryService)
+	users := provideBotUsers(authRepo)
+	sender := provideBotSender(messageService)
+	deliveryService, err := provideBotDelivery(botdataStore, reader, users, sender, logger)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	redisStore := provideBotStreamStore(universalClient)
 	groupRepo := imdata.NewGroupRepo(db, logger)
+	groupMembers := provideBotGroupMembers(groupRepo)
+	recipients := provideBotRecipients(groupMembers)
+	mainNodeID := provideNodeID()
+	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
+	streamPublisher, cleanup3, err := provideBotStreamPublisher(dispatch, gatewayGrpcAddr, logger)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	streamService := provideBotStreamService(botdataStore, openFGA, redisStore, sender, recipients, streamPublisher, logger)
+	limiter := provideBotRateLimiter(universalClient)
+	botHTTP := provideBotHTTP(appService, appAuthService, deliveryService, streamService, reader, sender, limiter, logger)
+	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, botHTTP, auth, logger)
 	groupService := provideIMGroupService(groupRepo, openFGA)
 	serviceGroupService := service.NewGroupService(groupService)
 	serviceFileService := service.NewFileService(fileService, logger)
 	agentdataStore := agentdata.NewStore(db)
-	platformdataStore := platformdata.NewStore(db)
-	auditService := provideAuditService(platformdataStore)
 	llmService := provideModelService(platformdataStore, openFGA, auditService)
 	agentService := provideAgentAdminService(agentdataStore, platformdataStore, llmService, openFGA, groupRepo, authRepo, auditService, logger)
-	runBroadcaster, cleanup3, err := provideRunEventBroadcaster(universalClient, dispatch, logger)
+	runBroadcaster, cleanup4, err := provideRunEventBroadcaster(universalClient, dispatch, logger)
 	if err != nil {
+		cleanup3()
 		cleanup2()
 		cleanup()
 		return nil, nil, err
@@ -135,40 +167,6 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	quotaService := provideQuotaService(agentdataStore, openFGA, auditService)
 	idempotency := provideIdempotency(dataData)
 	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, llmService, quotaService, auditService, idempotency)
-	botdataStore := provideBotStore(db)
-	appService, err := provideBotService(botdataStore, openFGA, auditService, logger)
-	if err != nil {
-		cleanup3()
-		cleanup2()
-		cleanup()
-		return nil, nil, err
-	}
-	appAuthService := provideBotAuth(botdataStore, logger)
-	reader := provideBotReader(queryService)
-	users := provideBotUsers(authRepo)
-	sender := provideBotSender(messageService)
-	deliveryService, err := provideBotDelivery(botdataStore, reader, users, sender, logger)
-	if err != nil {
-		cleanup3()
-		cleanup2()
-		cleanup()
-		return nil, nil, err
-	}
-	redisStore := provideBotStreamStore(universalClient)
-	groupMembers := provideBotGroupMembers(groupRepo)
-	recipients := provideBotRecipients(groupMembers)
-	mainNodeID := provideNodeID()
-	gatewayGrpcAddr := provideGatewayGrpcAddr(dispatch, confServer, mainNodeID)
-	streamPublisher, cleanup4, err := provideBotStreamPublisher(dispatch, gatewayGrpcAddr, logger)
-	if err != nil {
-		cleanup3()
-		cleanup2()
-		cleanup()
-		return nil, nil, err
-	}
-	streamService := provideBotStreamService(botdataStore, openFGA, redisStore, sender, recipients, streamPublisher, logger)
-	limiter := provideBotRateLimiter(universalClient)
-	botHTTP := provideBotHTTP(appService, appAuthService, deliveryService, streamService, reader, sender, limiter, logger)
 	outboxService := provideIMOutboxService(store, logger)
 	outboxAdmin := provideOutboxAdmin(outboxService)
 	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA, auditService)

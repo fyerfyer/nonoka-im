@@ -1,0 +1,261 @@
+syntax = "proto3";
+
+package api.bot.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "nonoka-im/api/bot/v1;v1";
+
+// BotService is the owner-facing management API for external bots. The
+// runtime protocol under /v1/bot/* is intentionally separate: it uses bot
+// tokens and Standard Webhooks semantics rather than a user JWT.
+service BotService {
+  rpc ListBots (ListBotsRequest) returns (ListBotsReply) {
+    option (google.api.http) = { get: "/v1/bots" };
+  }
+
+  rpc CreateBot (CreateBotRequest) returns (Bot) {
+    option (google.api.http) = {
+      post: "/v1/bots"
+      body: "*"
+    };
+  }
+
+  // Keep the static directory route before /v1/bots/{id}.
+  rpc GetBotDirectory (ListBotsRequest) returns (ListBotsReply) {
+    option (google.api.http) = { get: "/v1/bots/directory" };
+  }
+
+  rpc GetBot (GetBotRequest) returns (Bot) {
+    option (google.api.http) = { get: "/v1/bots/{id}" };
+  }
+
+  rpc UpdateBot (UpdateBotRequest) returns (Bot) {
+    option (google.api.http) = {
+      patch: "/v1/bots/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteBot (GetBotRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/bots/{id}" };
+  }
+
+  rpc ListBotTokens (GetBotRequest) returns (ListBotTokensReply) {
+    option (google.api.http) = { get: "/v1/bots/{id}/tokens" };
+  }
+
+  rpc CreateBotToken (CreateBotTokenRequest) returns (CreateBotTokenReply) {
+    option (google.api.http) = {
+      post: "/v1/bots/{id}/tokens"
+      body: "*"
+    };
+  }
+
+  rpc RevokeBotToken (RevokeBotTokenRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/bots/{id}/tokens/{token_id}" };
+  }
+
+  rpc GetBotWebhook (GetBotRequest) returns (BotWebhook) {
+    option (google.api.http) = { get: "/v1/bots/{id}/webhook" };
+  }
+
+  rpc PutBotWebhook (PutBotWebhookRequest) returns (PutBotWebhookReply) {
+    option (google.api.http) = {
+      put: "/v1/bots/{id}/webhook"
+      body: "*"
+    };
+  }
+
+  rpc DeleteBotWebhook (GetBotRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { delete: "/v1/bots/{id}/webhook" };
+  }
+
+  rpc RotateBotWebhookSecret (GetBotRequest) returns (PutBotWebhookReply) {
+    option (google.api.http) = {
+      post: "/v1/bots/{id}/webhook/rotate"
+      body: "*"
+    };
+  }
+
+  rpc TestBotWebhook (GetBotRequest) returns (TestBotWebhookReply) {
+    option (google.api.http) = {
+      post: "/v1/bots/{id}/webhook/test"
+      body: "*"
+    };
+  }
+
+  rpc ListBotDeliveries (ListBotDeliveriesRequest) returns (ListBotDeliveriesReply) {
+    option (google.api.http) = { get: "/v1/bots/{id}/deliveries" };
+  }
+
+  rpc ReplayBotDelivery (ReplayBotDeliveryRequest) returns (ReplayBotDeliveryReply) {
+    option (google.api.http) = {
+      post: "/v1/bots/{id}/deliveries/{delivery_id}/replay"
+      body: "*"
+    };
+  }
+
+  rpc GetBotUsage (GetBotUsageRequest) returns (GetBotUsageReply) {
+    option (google.api.http) = { get: "/v1/bots/{id}/usage" };
+  }
+}
+
+message Bot {
+  string id = 1;
+  string bot_user_id = 2;
+  string owner_user_id = 3;
+  string username = 4;
+  string name = 5;
+  string description = 6;
+  string status = 7;
+  repeated string event_subscriptions = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+message ListBotsRequest {
+  int32 limit = 1;
+  string cursor = 2;
+  bool all = 3;
+}
+
+message ListBotsReply {
+  repeated Bot items = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+  bool has_more = 4;
+}
+
+message CreateBotRequest {
+  string name = 1;
+  string description = 2;
+  string username = 3;
+  repeated string event_subscriptions = 4;
+}
+
+message UpdateBotRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string status = 4;
+  repeated string event_subscriptions = 5;
+}
+
+message GetBotRequest {
+  string id = 1;
+}
+
+message BotToken {
+  string id = 1;
+  string name = 2;
+  string prefix = 3;
+  repeated string scopes = 4;
+  string expires_at = 5;
+  string revoked_at = 6;
+  string last_used_at = 7;
+  string created_at = 8;
+}
+
+message ListBotTokensReply {
+  repeated BotToken tokens = 1;
+}
+
+message CreateBotTokenRequest {
+  string id = 1;
+  string name = 2;
+  int32 expires_in_days = 3;
+}
+
+message CreateBotTokenReply {
+  BotToken token = 1;
+  string secret = 2;
+}
+
+message RevokeBotTokenRequest {
+  string id = 1;
+  string token_id = 2;
+}
+
+message BotWebhook {
+  string id = 1;
+  string url = 2;
+  string secret_prefix = 3;
+  repeated string events = 4;
+  bool enabled = 5;
+  string verified_at = 6;
+  string last_success_at = 7;
+  int32 consecutive_failures = 8;
+  string disabled_at = 9;
+  string created_at = 10;
+}
+
+message PutBotWebhookRequest {
+  string id = 1;
+  string url = 2;
+  repeated string events = 3;
+  optional bool enabled = 4;
+  bool rotate = 5;
+}
+
+message PutBotWebhookReply {
+  BotWebhook webhook = 1;
+  string secret = 2;
+}
+
+message TestBotWebhookReply {
+  bool ok = 1;
+  int32 status_code = 2;
+  string snippet = 3;
+  string error = 4;
+}
+
+message BotDelivery {
+  string id = 1;
+  string event_id = 2;
+  string event_type = 3;
+  string topic = 4;
+  string msg_id = 5;
+  string status = 6;
+  int32 attempts = 7;
+  string next_attempt_at = 8;
+  int32 last_status_code = 9;
+  string last_error = 10;
+  string response_snippet = 11;
+  string created_at = 12;
+  string delivered_at = 13;
+}
+
+message ListBotDeliveriesRequest {
+  string id = 1;
+  string status = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message ListBotDeliveriesReply {
+  repeated BotDelivery items = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+  bool has_more = 4;
+}
+
+message ReplayBotDeliveryRequest {
+  string id = 1;
+  string delivery_id = 2;
+}
+
+message ReplayBotDeliveryReply {
+  string status = 1;
+}
+
+message GetBotUsageRequest {
+  string id = 1;
+  int32 days = 2;
+}
+
+message GetBotUsageReply {
+  int32 days = 1;
+  map<string, int32> deliveries = 2;
+}

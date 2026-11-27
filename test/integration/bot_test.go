@@ -209,7 +209,8 @@ func TestBotDelivery_WebhookSignatureAndIdempotency(t *testing.T) {
 func createTestBot(t *testing.T, userToken, name string) botTestBot {
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/bots", userToken, map[string]any{"name": name})
-	assertStatusCode(t, resp, http.StatusCreated)
+	// Generated proto HTTP handlers return 200 for successful creates.
+	assertStatusCode(t, resp, http.StatusOK)
 	defer resp.Body.Close()
 	var bot botTestBot
 	if err := json.NewDecoder(resp.Body).Decode(&bot); err != nil {
@@ -224,7 +225,7 @@ func createTestBot(t *testing.T, userToken, name string) botTestBot {
 func createTestBotToken(t *testing.T, userToken, botID string) string {
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/bots/"+botID+"/tokens", userToken, map[string]any{"name": "test"})
-	assertStatusCode(t, resp, http.StatusCreated)
+	assertStatusCode(t, resp, http.StatusOK)
 	defer resp.Body.Close()
 	var token botTestToken
 	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {

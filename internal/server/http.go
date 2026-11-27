@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	botv1 "nonoka-im/api/bot/v1"
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/gateway"
@@ -226,25 +227,10 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 		r.PATCH("/v1/models/{id}", agents.UpdateModel)
 	}
 	if bots != nil {
+		// Owner-facing management API is generated from api/bot/v1.
+		botv1.RegisterBotServiceHTTPServer(srv, bots)
+
 		r := srv.Route("/")
-		// Management API (user JWT).
-		r.GET("/v1/bots", bots.List)
-		r.POST("/v1/bots", bots.Create)
-		r.GET("/v1/bots/directory", bots.Directory)
-		r.GET("/v1/bots/{id}", bots.Detail)
-		r.PATCH("/v1/bots/{id}", bots.Update)
-		r.DELETE("/v1/bots/{id}", bots.Delete)
-		r.POST("/v1/bots/{id}/tokens", bots.CreateToken)
-		r.GET("/v1/bots/{id}/tokens", bots.ListTokens)
-		r.DELETE("/v1/bots/{id}/tokens/{tokenId}", bots.RevokeToken)
-		r.GET("/v1/bots/{id}/webhook", bots.GetWebhook)
-		r.PUT("/v1/bots/{id}/webhook", bots.PutWebhook)
-		r.DELETE("/v1/bots/{id}/webhook", bots.DeleteWebhook)
-		r.POST("/v1/bots/{id}/webhook/rotate", bots.RotateWebhookSecret)
-		r.POST("/v1/bots/{id}/webhook/test", bots.TestWebhook)
-		r.GET("/v1/bots/{id}/deliveries", bots.ListDeliveries)
-		r.POST("/v1/bots/{id}/deliveries/{deliveryId}/replay", bots.ReplayDelivery)
-		r.GET("/v1/bots/{id}/usage", bots.Usage)
 		// Runtime API (bot token, authenticated in the handler).
 		r.GET("/v1/bot/me", bots.Me)
 		r.POST("/v1/bot/messages", bots.SendMessage)

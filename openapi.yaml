@@ -85,6 +85,378 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.RegisterReply'
+    /v1/bots:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_ListBots
+            parameters:
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: cursor
+                  in: query
+                  schema:
+                    type: string
+                - name: all
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.ListBotsReply'
+        post:
+            tags:
+                - BotService
+            operationId: BotService_CreateBot
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.CreateBotRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.Bot'
+    /v1/bots/directory:
+        get:
+            tags:
+                - BotService
+            description: Keep the static directory route before /v1/bots/{id}.
+            operationId: BotService_GetBotDirectory
+            parameters:
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: cursor
+                  in: query
+                  schema:
+                    type: string
+                - name: all
+                  in: query
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.ListBotsReply'
+    /v1/bots/{id}:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_GetBot
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.Bot'
+        delete:
+            tags:
+                - BotService
+            operationId: BotService_DeleteBot
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+        patch:
+            tags:
+                - BotService
+            operationId: BotService_UpdateBot
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.UpdateBotRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.Bot'
+    /v1/bots/{id}/deliveries:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_ListBotDeliveries
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: cursor
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.ListBotDeliveriesReply'
+    /v1/bots/{id}/deliveries/{deliveryId}/replay:
+        post:
+            tags:
+                - BotService
+            operationId: BotService_ReplayBotDelivery
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: deliveryId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.ReplayBotDeliveryRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.ReplayBotDeliveryReply'
+    /v1/bots/{id}/tokens:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_ListBotTokens
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.ListBotTokensReply'
+        post:
+            tags:
+                - BotService
+            operationId: BotService_CreateBotToken
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.CreateBotTokenRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.CreateBotTokenReply'
+    /v1/bots/{id}/tokens/{tokenId}:
+        delete:
+            tags:
+                - BotService
+            operationId: BotService_RevokeBotToken
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: tokenId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+    /v1/bots/{id}/usage:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_GetBotUsage
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: days
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.GetBotUsageReply'
+    /v1/bots/{id}/webhook:
+        get:
+            tags:
+                - BotService
+            operationId: BotService_GetBotWebhook
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.BotWebhook'
+        put:
+            tags:
+                - BotService
+            operationId: BotService_PutBotWebhook
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.PutBotWebhookRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.PutBotWebhookReply'
+        delete:
+            tags:
+                - BotService
+            operationId: BotService_DeleteBotWebhook
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+    /v1/bots/{id}/webhook/rotate:
+        post:
+            tags:
+                - BotService
+            operationId: BotService_RotateBotWebhookSecret
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.GetBotRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.PutBotWebhookReply'
+    /v1/bots/{id}/webhook/test:
+        post:
+            tags:
+                - BotService
+            operationId: BotService_TestBotWebhook
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.bot.v1.GetBotRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.bot.v1.TestBotWebhookReply'
     /v1/conversations:
         get:
             tags:
@@ -396,6 +768,251 @@ paths:
                                 $ref: '#/components/schemas/api.im.v1.GetUserPresenceReply'
 components:
     schemas:
+        api.bot.v1.Bot:
+            type: object
+            properties:
+                id:
+                    type: string
+                botUserId:
+                    type: string
+                ownerUserId:
+                    type: string
+                username:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                status:
+                    type: string
+                eventSubscriptions:
+                    type: array
+                    items:
+                        type: string
+                createdAt:
+                    type: string
+                updatedAt:
+                    type: string
+        api.bot.v1.BotDelivery:
+            type: object
+            properties:
+                id:
+                    type: string
+                eventId:
+                    type: string
+                eventType:
+                    type: string
+                topic:
+                    type: string
+                msgId:
+                    type: string
+                status:
+                    type: string
+                attempts:
+                    type: integer
+                    format: int32
+                nextAttemptAt:
+                    type: string
+                lastStatusCode:
+                    type: integer
+                    format: int32
+                lastError:
+                    type: string
+                responseSnippet:
+                    type: string
+                createdAt:
+                    type: string
+                deliveredAt:
+                    type: string
+        api.bot.v1.BotToken:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                prefix:
+                    type: string
+                scopes:
+                    type: array
+                    items:
+                        type: string
+                expiresAt:
+                    type: string
+                revokedAt:
+                    type: string
+                lastUsedAt:
+                    type: string
+                createdAt:
+                    type: string
+        api.bot.v1.BotWebhook:
+            type: object
+            properties:
+                id:
+                    type: string
+                url:
+                    type: string
+                secretPrefix:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        type: string
+                enabled:
+                    type: boolean
+                verifiedAt:
+                    type: string
+                lastSuccessAt:
+                    type: string
+                consecutiveFailures:
+                    type: integer
+                    format: int32
+                disabledAt:
+                    type: string
+                createdAt:
+                    type: string
+        api.bot.v1.CreateBotRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                description:
+                    type: string
+                username:
+                    type: string
+                eventSubscriptions:
+                    type: array
+                    items:
+                        type: string
+        api.bot.v1.CreateBotTokenReply:
+            type: object
+            properties:
+                token:
+                    $ref: '#/components/schemas/api.bot.v1.BotToken'
+                secret:
+                    type: string
+        api.bot.v1.CreateBotTokenRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                expiresInDays:
+                    type: integer
+                    format: int32
+        api.bot.v1.GetBotRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+        api.bot.v1.GetBotUsageReply:
+            type: object
+            properties:
+                days:
+                    type: integer
+                    format: int32
+                deliveries:
+                    type: object
+                    additionalProperties:
+                        type: integer
+                        format: int32
+        api.bot.v1.ListBotDeliveriesReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.bot.v1.BotDelivery'
+                total:
+                    type: integer
+                    format: int32
+                nextCursor:
+                    type: string
+                hasMore:
+                    type: boolean
+        api.bot.v1.ListBotTokensReply:
+            type: object
+            properties:
+                tokens:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.bot.v1.BotToken'
+        api.bot.v1.ListBotsReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.bot.v1.Bot'
+                total:
+                    type: integer
+                    format: int32
+                nextCursor:
+                    type: string
+                hasMore:
+                    type: boolean
+        api.bot.v1.PutBotWebhookReply:
+            type: object
+            properties:
+                webhook:
+                    $ref: '#/components/schemas/api.bot.v1.BotWebhook'
+                secret:
+                    type: string
+        api.bot.v1.PutBotWebhookRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                url:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        type: string
+                enabled:
+                    type: boolean
+                rotate:
+                    type: boolean
+        api.bot.v1.ReplayBotDeliveryReply:
+            type: object
+            properties:
+                status:
+                    type: string
+        api.bot.v1.ReplayBotDeliveryRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                deliveryId:
+                    type: string
+        api.bot.v1.TestBotWebhookReply:
+            type: object
+            properties:
+                ok:
+                    type: boolean
+                statusCode:
+                    type: integer
+                    format: int32
+                snippet:
+                    type: string
+                error:
+                    type: string
+        api.bot.v1.UpdateBotRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                status:
+                    type: string
+                eventSubscriptions:
+                    type: array
+                    items:
+                        type: string
         api.im.v1.AddGroupMemberRequest:
             type: object
             properties:
@@ -674,6 +1291,11 @@ components:
                     type: string
 tags:
     - name: AuthService
+    - name: BotService
+      description: |-
+        BotService is the owner-facing management API for external bots. The
+         runtime protocol under /v1/bot/* is intentionally separate: it uses bot
+         tokens and Standard Webhooks semantics rather than a user JWT.
     - name: ConversationService
     - name: DispatchService
     - name: GroupService
