@@ -34,6 +34,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 		httpapi.RequestIDMiddleware(),
+		service.AuditRequestMetaMiddleware(),
 	}
 	if rateLimiter != nil {
 		middlewares = append(middlewares, selector.Server(
@@ -171,43 +172,15 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 		r.GET("/v1/media/{file_id}", file.DownloadSignedHTTP)
 	}
 	if agents != nil {
-		r := srv.Route("/")
 		// Agent configuration HTTP is generated from api/agent/v1.
 		agentv1.RegisterAgentServiceHTTPServer(srv, agents)
-		r.GET("/v1/agents/{id}/usage", agents.AgentUsage)
-		r.GET("/v1/admin/quotas", agents.ListQuotas)
-		r.PUT("/v1/admin/quotas/{scope}/{key}", agents.UpdateQuota)
-		r.DELETE("/v1/admin/quotas/{scope}/{key}", agents.ResetQuota)
-		r.GET("/v1/admin/usage/top", agents.TopUsage)
-		r.GET("/v1/admin/audit-events", agents.ListAuditEvents)
-		r.GET("/v1/admin/audit-events/{id}", agents.GetAuditEvent)
+		// Agent quota and audit HTTP is generated from api/agent/v1.
+		agentv1.RegisterAgentQuotaServiceHTTPServer(srv, agents)
+		agentv1.RegisterAgentAuditServiceHTTPServer(srv, agents)
 		// Agent run/approval HTTP is generated from api/agent/v1.
 		agentv1.RegisterAgentRunServiceHTTPServer(srv, agents)
-		r.GET("/v1/mcp/servers", agents.ListMCPServers)
-		r.POST("/v1/mcp/servers", agents.RegisterMCPServer)
-		r.GET("/v1/mcp/servers/{id}", agents.GetMCPServer)
-		r.PATCH("/v1/mcp/servers/{id}", agents.UpdateMCPServer)
-		r.DELETE("/v1/mcp/servers/{id}", agents.DeleteMCPServer)
-		r.POST("/v1/mcp/servers/{id}/discover", agents.DiscoverMCPServer)
-		r.POST("/v1/mcp/servers/{id}/test", agents.TestMCPServer)
-		r.POST("/v1/mcp/servers/{id}/status", agents.SetMCPServerStatus)
-		r.POST("/v1/mcp/servers/{id}/review", agents.ReviewMCPServer)
-		r.GET("/v1/mcp/servers/{id}/tools", agents.ListMCPTools)
-		r.GET("/v1/mcp/connections", agents.ListMCPConnections)
-		r.PUT("/v1/mcp/connections/{id}", agents.ConnectMCPServer)
-		r.DELETE("/v1/mcp/connections/{id}", agents.DisconnectMCPServer)
-		r.GET("/v1/skills", agents.ListSkills)
-		r.POST("/v1/skills", agents.CreateSkill)
-		r.GET("/v1/skills/{id}", agents.GetSkill)
-		r.PATCH("/v1/skills/{id}", agents.UpdateSkill)
-		r.DELETE("/v1/skills/{id}", agents.DeleteSkill)
-		r.POST("/v1/skills/{id}/versions", agents.AddSkillVersion)
-		r.POST("/v1/skills/{id}/review", agents.ReviewSkill)
-		r.POST("/v1/skills/{id}/versions/{version}/review", agents.ReviewSkillVersion)
-		r.GET("/v1/agent-tools", agents.AgentTools)
-		r.GET("/v1/models", agents.ListModels)
-		r.POST("/v1/models/sync", agents.SyncModels)
-		r.PATCH("/v1/models/{id}", agents.UpdateModel)
+		// Agent registry HTTP is generated from api/agent/v1.
+		agentv1.RegisterAgentRegistryServiceHTTPServer(srv, agents)
 	}
 	if bots != nil {
 		// Owner-facing management API is generated from api/bot/v1.
@@ -225,10 +198,8 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 		r.DELETE("/v1/bot/streams/{streamId}", bots.AbortStream)
 	}
 	if outbox != nil {
-		r := srv.Route("/")
-		r.GET("/v1/admin/agent-outbox/failed", outbox.ListFailed)
-		r.POST("/v1/admin/agent-outbox/replay", outbox.ReplayMany)
-		r.POST("/v1/admin/agent-outbox/{id}/replay", outbox.Replay)
+		// Outbox DLQ HTTP is generated from api/agent/v1.
+		agentv1.RegisterAgentOutboxAdminServiceHTTPServer(srv, outbox)
 	}
 	if system != nil {
 		r := srv.Route("/")

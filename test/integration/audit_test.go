@@ -75,7 +75,7 @@ func TestAudit_APIRequiresAdminAndRecordsMetadata(t *testing.T) {
 		"name": "audited-agent", "instruction": "be audited", "modelId": testModelID,
 	})
 	create.Body.Close()
-	if create.StatusCode != 201 {
+	if create.StatusCode != http.StatusOK {
 		t.Fatalf("create agent = %d", create.StatusCode)
 	}
 	resp = httpGet(t, testBaseURL+"/v1/admin/audit-events?action=agent.create", adminToken)

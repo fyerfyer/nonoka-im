@@ -34,7 +34,6 @@ import (
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/httpapi"
 	imapp "nonoka-im/internal/im/app"
 	"nonoka-im/internal/im/search"
 	mongostore "nonoka-im/internal/im/storage/mongo"
@@ -309,10 +308,6 @@ func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *imapp
 
 func provideOutboxAdmin(outbox *imapp.OutboxService) messaging.OutboxAdmin {
 	return messagingim.NewOutboxAdmin(outbox)
-}
-
-func provideIdempotency(d *data.Data) *httpapi.Idempotency {
-	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
 }
 
 func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, auditor *audit.Service, logger log.Logger) *admin.AgentService {
@@ -657,7 +652,6 @@ func wireApp(*conf.Server, *conf.Data, *conf.Auth, *conf.Dispatch, *conf.Gateway
 		provideIMFileService,
 		provideIMOutboxService,
 		provideOutboxAdmin,
-		provideIdempotency,
 		provideAgentAdminService,
 		provideAuditService,
 		provideQuotaService,

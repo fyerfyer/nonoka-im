@@ -6,6 +6,235 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /v1/admin/agent-outbox/failed:
+        get:
+            tags:
+                - AgentOutboxAdminService
+            operationId: AgentOutboxAdminService_ListFailedOutbox
+            parameters:
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListFailedOutboxReply'
+    /v1/admin/agent-outbox/replay:
+        post:
+            tags:
+                - AgentOutboxAdminService
+            operationId: AgentOutboxAdminService_ReplayOutboxMany
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ReplayOutboxManyRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ReplayOutboxManyReply'
+    /v1/admin/agent-outbox/{id}/replay:
+        post:
+            tags:
+                - AgentOutboxAdminService
+            operationId: AgentOutboxAdminService_ReplayOutbox
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ReplayOutboxRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ReplayOutboxReply'
+    /v1/admin/audit-events:
+        get:
+            tags:
+                - AgentAuditService
+            operationId: AgentAuditService_ListAuditEvents
+            parameters:
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: offset
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: actor
+                  in: query
+                  schema:
+                    type: string
+                - name: action
+                  in: query
+                  schema:
+                    type: string
+                - name: resourceType
+                  in: query
+                  schema:
+                    type: string
+                - name: resourceId
+                  in: query
+                  schema:
+                    type: string
+                - name: from
+                  in: query
+                  schema:
+                    type: string
+                - name: to
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListAuditEventsReply'
+    /v1/admin/audit-events/{id}:
+        get:
+            tags:
+                - AgentAuditService
+            operationId: AgentAuditService_GetAuditEvent
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.AuditEvent'
+    /v1/admin/quotas:
+        get:
+            tags:
+                - AgentQuotaService
+            operationId: AgentQuotaService_ListQuotas
+            parameters:
+                - name: scope
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: offset
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListQuotasReply'
+    /v1/admin/quotas/{scope}/{key}:
+        put:
+            tags:
+                - AgentQuotaService
+            operationId: AgentQuotaService_UpdateQuota
+            parameters:
+                - name: scope
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: key
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.UpdateQuotaRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.Quota'
+        delete:
+            tags:
+                - AgentQuotaService
+            operationId: AgentQuotaService_ResetQuota
+            parameters:
+                - name: scope
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: key
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.StatusReply'
+    /v1/admin/usage/top:
+        get:
+            tags:
+                - AgentQuotaService
+            operationId: AgentQuotaService_TopUsage
+            parameters:
+                - name: scope
+                  in: query
+                  schema:
+                    type: string
+                - name: metric
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.TopUsageReply'
     /v1/agent-approvals:
         get:
             tags:
@@ -250,6 +479,18 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.agent.v1.RunActionReply'
+    /v1/agent-tools:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListAgentTools
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListAgentToolsReply'
     /v1/agents:
         get:
             tags:
@@ -488,6 +729,29 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.agent.v1.SetAgentStatusReply'
+    /v1/agents/{id}/usage:
+        get:
+            tags:
+                - AgentQuotaService
+            operationId: AgentQuotaService_GetAgentUsage
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: days
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.GetAgentUsageReply'
     /v1/agents/{id}/versions:
         get:
             tags:
@@ -1151,6 +1415,260 @@ paths:
                 "200":
                     description: OK
                     content: {}
+    /v1/mcp/connections:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListMCPConnections
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListMCPConnectionsReply'
+    /v1/mcp/connections/{id}:
+        put:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ConnectMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ConnectMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPConnection'
+        delete:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_DisconnectMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.StatusReply'
+    /v1/mcp/servers:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListMCPServers
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListMCPServersReply'
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_RegisterMCPServer
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.RegisterMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPServer'
+    /v1/mcp/servers/{id}:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_GetMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPServer'
+        delete:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_DeleteMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.StatusReply'
+        patch:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_UpdateMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.UpdateMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPServer'
+    /v1/mcp/servers/{id}/discover:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_DiscoverMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.GetMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPToolsReply'
+    /v1/mcp/servers/{id}/review:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ReviewMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ReviewMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ReviewMCPServerReply'
+    /v1/mcp/servers/{id}/status:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_SetMCPServerStatus
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.SetMCPServerStatusRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.SetMCPServerStatusReply'
+    /v1/mcp/servers/{id}/test:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_TestMCPServer
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.GetMCPServerRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.StatusReply'
+    /v1/mcp/servers/{id}/tools:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListMCPTools
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.MCPToolsReply'
     /v1/message/pull:
         get:
             tags:
@@ -1249,6 +1767,224 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/api.im.v1.SendMessageReply'
+    /v1/models:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListModels
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListModelsReply'
+    /v1/models/sync:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_SyncModels
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.SyncModelsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.SyncModelsReply'
+    /v1/models/{id}:
+        patch:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_UpdateModel
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.UpdateModelRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.Model'
+    /v1/skills:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ListSkills
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListSkillsReply'
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_CreateSkill
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.CreateSkillRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.Skill'
+    /v1/skills/{id}:
+        get:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_GetSkill
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.Skill'
+        delete:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_DeleteSkill
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.StatusReply'
+        patch:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_UpdateSkill
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.UpdateSkillRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.Skill'
+    /v1/skills/{id}/review:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ReviewSkill
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ReviewSkillRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.SkillReviewReply'
+    /v1/skills/{id}/versions:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_AddSkillVersion
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.AddSkillVersionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.SkillVersion'
+    /v1/skills/{id}/versions/{version}/review:
+        post:
+            tags:
+                - AgentRegistryService
+            operationId: AgentRegistryService_ReviewSkillVersion
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: version
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ReviewSkillVersionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.SkillReviewReply'
     /v1/users/search:
         get:
             tags:
@@ -1291,6 +2027,13 @@ paths:
                                 $ref: '#/components/schemas/api.im.v1.GetUserPresenceReply'
 components:
     schemas:
+        api.agent.v1.AddSkillVersionRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                content:
+                    type: string
         api.agent.v1.Agent:
             type: object
             properties:
@@ -1621,6 +2364,53 @@ components:
             properties:
                 id:
                     type: string
+        api.agent.v1.AuditEvent:
+            type: object
+            properties:
+                id:
+                    type: string
+                actorUserId:
+                    type: string
+                action:
+                    type: string
+                resourceType:
+                    type: string
+                resourceId:
+                    type: string
+                before:
+                    type: object
+                after:
+                    type: object
+                requestId:
+                    type: string
+                traceId:
+                    type: string
+                ip:
+                    type: string
+                userAgent:
+                    type: string
+                outcome:
+                    type: string
+                errorCode:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.CapabilityPreset:
+            type: object
+            properties:
+                key:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                defaultEnabled:
+                    type: boolean
+                tools:
+                    type: array
+                    items:
+                        type: string
         api.agent.v1.Citation:
             type: object
             properties:
@@ -1634,10 +2424,68 @@ components:
                     type: string
                 snippet:
                     type: string
+        api.agent.v1.ConnectMCPServerRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                authType:
+                    type: string
+                headerName:
+                    type: string
+                credential:
+                    type: string
+        api.agent.v1.CreateSkillRequest:
+            type: object
+            properties:
+                slug:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                visibility:
+                    type: string
+                content:
+                    type: string
         api.agent.v1.DeleteAgentReply:
             type: object
             properties:
                 status:
+                    type: string
+        api.agent.v1.FailedOutboxEvent:
+            type: object
+            properties:
+                id:
+                    type: string
+                eventId:
+                    type: string
+                topic:
+                    type: string
+                topicSeq:
+                    type: string
+                attempts:
+                    type: integer
+                    format: int32
+                lastError:
+                    type: string
+                createdAt:
+                    type: string
+        api.agent.v1.GetAgentUsageReply:
+            type: object
+            properties:
+                days:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Usage'
+                total:
+                    $ref: '#/components/schemas/api.agent.v1.Usage'
+                canSeeCost:
+                    type: boolean
+        api.agent.v1.GetMCPServerRequest:
+            type: object
+            properties:
+                id:
                     type: string
         api.agent.v1.GetRunEventsReply:
             type: object
@@ -1669,6 +2517,17 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/api.agent.v1.AgentShare'
+        api.agent.v1.ListAgentToolsReply:
+            type: object
+            properties:
+                presets:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.CapabilityPreset'
+                tools:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.ToolDefinition'
         api.agent.v1.ListAgentVersionsReply:
             type: object
             properties:
@@ -1704,6 +2563,63 @@ components:
                     type: string
                 hasMore:
                     type: boolean
+        api.agent.v1.ListAuditEventsReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.AuditEvent'
+                total:
+                    type: string
+        api.agent.v1.ListFailedOutboxReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.FailedOutboxEvent'
+        api.agent.v1.ListMCPConnectionsReply:
+            type: object
+            properties:
+                connections:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.MCPConnection'
+        api.agent.v1.ListMCPServersReply:
+            type: object
+            properties:
+                servers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.MCPServer'
+        api.agent.v1.ListModelsReply:
+            type: object
+            properties:
+                models:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Model'
+                canManage:
+                    type: boolean
+        api.agent.v1.ListQuotasReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Quota'
+                defaults:
+                    type: object
+                    additionalProperties:
+                        $ref: '#/components/schemas/api.agent.v1.QuotaLimits'
+        api.agent.v1.ListSkillsReply:
+            type: object
+            properties:
+                skills:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Skill'
         api.agent.v1.MCPBinding:
             type: object
             properties:
@@ -1719,6 +2635,152 @@ components:
                     type: string
                 policy:
                     type: string
+        api.agent.v1.MCPConnection:
+            type: object
+            properties:
+                id:
+                    type: string
+                serverId:
+                    type: string
+                authType:
+                    type: string
+                status:
+                    type: string
+                hasCredential:
+                    type: boolean
+                expiresAt:
+                    type: string
+                    format: date-time
+                lastUsedAt:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.MCPServer:
+            type: object
+            properties:
+                id:
+                    type: string
+                ownerUserId:
+                    type: string
+                name:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                url:
+                    type: string
+                transport:
+                    type: string
+                authType:
+                    type: string
+                hasCredential:
+                    type: boolean
+                visibility:
+                    type: string
+                reviewStatus:
+                    type: string
+                reviewReason:
+                    type: string
+                healthStatus:
+                    type: string
+                lastCheckedAt:
+                    type: string
+                    format: date-time
+                lastError:
+                    type: string
+                enabled:
+                    type: boolean
+                toolsRevision:
+                    type: string
+                tools:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.MCPTool'
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.MCPTool:
+            type: object
+            properties:
+                id:
+                    type: string
+                serverId:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                risk:
+                    type: string
+                schemaHash:
+                    type: string
+                inputSchema:
+                    type: string
+                annotations:
+                    type: string
+                enabled:
+                    type: boolean
+        api.agent.v1.MCPToolsReply:
+            type: object
+            properties:
+                tools:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.MCPTool'
+        api.agent.v1.Model:
+            type: object
+            properties:
+                id:
+                    type: string
+                modelKey:
+                    type: string
+                provider:
+                    type: string
+                gatewayModelKey:
+                    type: string
+                displayName:
+                    type: string
+                icon:
+                    type: string
+                contextWindow:
+                    type: integer
+                    format: int32
+                maxOutputTokens:
+                    type: integer
+                    format: int32
+                supportsTools:
+                    type: boolean
+                supportsVision:
+                    type: boolean
+                supportsReasoning:
+                    type: boolean
+                inputPricePerMtok:
+                    type: number
+                    format: double
+                outputPricePerMtok:
+                    type: number
+                    format: double
+                inputCacheReadPricePerMtok:
+                    type: number
+                    format: double
+                enabled:
+                    type: boolean
+                curated:
+                    type: boolean
+                recommended:
+                    type: boolean
+                sortOrder:
+                    type: integer
+                    format: int32
         api.agent.v1.PublishAgentRequest:
             type: object
             properties:
@@ -1752,6 +2814,99 @@ components:
                     type: string
                 enabled:
                     type: boolean
+        api.agent.v1.Quota:
+            type: object
+            properties:
+                scope:
+                    type: string
+                scopeKey:
+                    type: string
+                maxConcurrentRuns:
+                    type: integer
+                    format: int32
+                dailyRuns:
+                    type: integer
+                    format: int32
+                dailyTokens:
+                    type: string
+                dailyCostUsd:
+                    type: number
+                    format: double
+                maxToolTurns:
+                    type: integer
+                    format: int32
+                updatedBy:
+                    type: string
+                updatedAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.QuotaLimits:
+            type: object
+            properties:
+                maxConcurrentRuns:
+                    type: integer
+                    format: int32
+                dailyRuns:
+                    type: integer
+                    format: int32
+                dailyTokens:
+                    type: string
+                dailyCostUsd:
+                    type: number
+                    format: double
+                maxToolTurns:
+                    type: integer
+                    format: int32
+        api.agent.v1.RegisterMCPServerRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                url:
+                    type: string
+                transport:
+                    type: string
+                authType:
+                    type: string
+                headerName:
+                    type: string
+                credential:
+                    type: string
+                visibility:
+                    type: string
+                enabled:
+                    type: boolean
+        api.agent.v1.ReplayOutboxManyReply:
+            type: object
+            properties:
+                status:
+                    type: string
+                count:
+                    type: integer
+                    format: int32
+        api.agent.v1.ReplayOutboxManyRequest:
+            type: object
+            properties:
+                ids:
+                    type: array
+                    items:
+                        type: string
+        api.agent.v1.ReplayOutboxReply:
+            type: object
+            properties:
+                status:
+                    type: string
+                id:
+                    type: string
+        api.agent.v1.ReplayOutboxRequest:
+            type: object
+            properties:
+                id:
+                    type: string
         api.agent.v1.RestoreAgentRequest:
             type: object
             properties:
@@ -1760,6 +2915,40 @@ components:
                 version:
                     type: string
                 revision:
+                    type: string
+        api.agent.v1.ReviewMCPServerReply:
+            type: object
+            properties:
+                id:
+                    type: string
+                reviewStatus:
+                    type: string
+        api.agent.v1.ReviewMCPServerRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                status:
+                    type: string
+                reason:
+                    type: string
+        api.agent.v1.ReviewSkillRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                approved:
+                    type: boolean
+        api.agent.v1.ReviewSkillVersionRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                version:
+                    type: string
+                approved:
+                    type: boolean
+                reason:
                     type: string
         api.agent.v1.RunActionReply:
             type: object
@@ -1842,6 +3031,49 @@ components:
                     type: string
                 status:
                     type: string
+        api.agent.v1.SetMCPServerStatusReply:
+            type: object
+            properties:
+                id:
+                    type: string
+                enabled:
+                    type: boolean
+        api.agent.v1.SetMCPServerStatusRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                enabled:
+                    type: boolean
+        api.agent.v1.Skill:
+            type: object
+            properties:
+                id:
+                    type: string
+                ownerUserId:
+                    type: string
+                slug:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                visibility:
+                    type: string
+                reviewStatus:
+                    type: string
+                latestVersion:
+                    type: string
+                versions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.SkillVersion'
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
         api.agent.v1.SkillBinding:
             type: object
             properties:
@@ -1853,6 +3085,94 @@ components:
                     type: string
                 checksum:
                     type: string
+        api.agent.v1.SkillReviewReply:
+            type: object
+            properties:
+                id:
+                    type: string
+                version:
+                    type: string
+                approved:
+                    type: boolean
+        api.agent.v1.SkillVersion:
+            type: object
+            properties:
+                id:
+                    type: string
+                skillId:
+                    type: string
+                version:
+                    type: string
+                checksum:
+                    type: string
+                status:
+                    type: string
+                reviewStatus:
+                    type: string
+                reviewReason:
+                    type: string
+                createdBy:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                content:
+                    type: string
+                reviewAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.StatusReply:
+            type: object
+            properties:
+                status:
+                    type: string
+        api.agent.v1.SyncModelsReply:
+            type: object
+            properties:
+                synced:
+                    type: integer
+                    format: int32
+                models:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Model'
+        api.agent.v1.SyncModelsRequest:
+            type: object
+            properties: {}
+        api.agent.v1.ToolDefinition:
+            type: object
+            properties:
+                key:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                category:
+                    type: string
+                risk:
+                    type: string
+                defaultPolicy:
+                    type: string
+                defaultEnabled:
+                    type: boolean
+                system:
+                    type: boolean
+                hidden:
+                    type: boolean
+                advanced:
+                    type: boolean
+                sideEffect:
+                    type: boolean
+                presets:
+                    type: array
+                    items:
+                        type: string
+                inputSchema:
+                    type: object
         api.agent.v1.ToolInvocation:
             type: object
             properties:
@@ -1874,6 +3194,13 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+        api.agent.v1.TopUsageReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Usage'
         api.agent.v1.UpdateAgentDraftRequest:
             type: object
             properties:
@@ -1912,6 +3239,103 @@ components:
                         $ref: '#/components/schemas/api.agent.v1.SkillBinding'
                 revision:
                     type: string
+        api.agent.v1.UpdateMCPServerRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                url:
+                    type: string
+                transport:
+                    type: string
+                authType:
+                    type: string
+                headerName:
+                    type: string
+                credential:
+                    type: string
+                visibility:
+                    type: string
+                enabled:
+                    type: boolean
+        api.agent.v1.UpdateModelRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                displayName:
+                    type: string
+                icon:
+                    type: string
+                supportsTools:
+                    type: boolean
+                supportsVision:
+                    type: boolean
+                supportsReasoning:
+                    type: boolean
+                enabled:
+                    type: boolean
+                recommended:
+                    type: boolean
+                sortOrder:
+                    type: integer
+                    format: int32
+        api.agent.v1.UpdateQuotaRequest:
+            type: object
+            properties:
+                scope:
+                    type: string
+                key:
+                    type: string
+                maxConcurrentRuns:
+                    type: integer
+                    format: int32
+                dailyRuns:
+                    type: integer
+                    format: int32
+                dailyTokens:
+                    type: string
+                dailyCostUsd:
+                    type: number
+                    format: double
+                maxToolTurns:
+                    type: integer
+                    format: int32
+        api.agent.v1.UpdateSkillRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                visibility:
+                    type: string
+        api.agent.v1.Usage:
+            type: object
+            properties:
+                day:
+                    type: string
+                scope:
+                    type: string
+                scopeKey:
+                    type: string
+                runs:
+                    type: string
+                inputTokens:
+                    type: string
+                outputTokens:
+                    type: string
+                costUsd:
+                    type: number
+                    format: double
         api.bot.v1.Bot:
             type: object
             properties:
@@ -2434,6 +3858,16 @@ components:
                 username:
                     type: string
 tags:
+    - name: AgentAuditService
+      description: AgentAuditService is the platform-admin append-only audit log surface.
+    - name: AgentOutboxAdminService
+      description: AgentOutboxAdminService exposes failed agent-event outbox rows and replay.
+    - name: AgentQuotaService
+      description: AgentQuotaService is the platform-admin quota and usage surface.
+    - name: AgentRegistryService
+      description: |-
+        AgentRegistryService covers the user-facing registry resources that agents
+         can bind: MCP servers, skills, the tool catalog, and the model catalog.
     - name: AgentRunService
       description: |-
         AgentRunService is the runtime/observability surface for agent runs and

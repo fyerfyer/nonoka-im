@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/llm"
 
+	"github.com/go-kratos/kratos/v2/middleware"
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -28,6 +28,9 @@ import (
 type AgentHTTP struct {
 	agentv1.UnimplementedAgentRunServiceServer
 	agentv1.UnimplementedAgentServiceServer
+	agentv1.UnimplementedAgentRegistryServiceServer
+	agentv1.UnimplementedAgentQuotaServiceServer
+	agentv1.UnimplementedAgentAuditServiceServer
 
 	agents    *admin.AgentService
 	runs      *admin.RunService
@@ -37,79 +40,10 @@ type AgentHTTP struct {
 	models    *llm.Service
 	quota     *app.QuotaService
 	auditor   *audit.Service
-	idem      *httpapi.Idempotency
 }
 
-func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, models *llm.Service, quota *app.QuotaService, auditor *audit.Service, idem *httpapi.Idempotency) *AgentHTTP {
-	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, models: models, quota: quota, auditor: auditor, idem: idem}
-}
-
-type agentRequest struct {
-	Name              string            `json:"name"`
-	Description       string            `json:"description"`
-	Instruction       string            `json:"instruction"`
-	ModelID           int64             `json:"modelId"`
-	Tools             []string          `json:"tools"`
-	CapabilityPresets []string          `json:"capabilityPresets"`
-	ToolPolicies      map[string]string `json:"toolPolicies"`
-	MaxTokens         int               `json:"maxTokens"`
-	MCPBindings       []struct {
-		ServerID uint64 `json:"serverId"`
-		Tool     string `json:"tool"`
-		Policy   string `json:"policy"`
-	} `json:"mcpBindings"`
-	Skills []struct {
-		SkillID uint64 `json:"skillId"`
-		Version int64  `json:"version"`
-	} `json:"skills"`
-	Revision int64  `json:"revision"`
-	Status   string `json:"status"`
-	Kind     string `json:"kind"`
-	Target   string `json:"target"`
-	Role     string `json:"role"`
-	Enabled  bool   `json:"enabled"`
-	Note     string `json:"note"`
-	Version  int64  `json:"version"`
-}
-
-func (r *agentRequest) input() admin.Input {
-	input := admin.Input{
-		Name: r.Name, Description: r.Description, Instruction: r.Instruction,
-		ModelID: r.ModelID,
-		Tools:   r.Tools, CapabilityPresets: r.CapabilityPresets, ToolPolicies: r.ToolPolicies,
-		MaxTokens: r.MaxTokens, Revision: r.Revision, Status: r.Status, Kind: r.Kind,
-		Target: r.Target, Role: r.Role, Enabled: r.Enabled, Note: r.Note,
-		Version: r.Version,
-	}
-	for _, binding := range r.MCPBindings {
-		input.MCPBindings = append(input.MCPBindings, admin.MCPBindingInput{ServerID: binding.ServerID, Tool: binding.Tool, Policy: binding.Policy})
-	}
-	for _, skill := range r.Skills {
-		input.Skills = append(input.Skills, admin.SkillBindingInput{SkillID: skill.SkillID, Version: skill.Version})
-	}
-	return input
-}
-
-type agentInputError struct{ error }
-
-func invalidAgentInput(format string, args ...any) error {
-	return agentInputError{fmt.Errorf(format, args...)}
-}
-
-func parseAgentID(c khttp.Context) (int64, error) {
-	id, err := parsePositiveInt64(c.Vars().Get("id"))
-	if err != nil {
-		return 0, invalidAgentInput("invalid agent id")
-	}
-	return id, nil
-}
-
-func parsePositiveInt64(raw string) (int64, error) {
-	var id int64
-	if _, err := fmt.Sscanf(raw, "%d", &id); err != nil || id <= 0 {
-		return 0, fmt.Errorf("invalid id")
-	}
-	return id, nil
+func NewAgentHTTP(agents *admin.AgentService, runs *admin.RunService, approvals *admin.ApprovalService, mcp *admin.MCPService, skills *admin.SkillService, models *llm.Service, quota *app.QuotaService, auditor *audit.Service) *AgentHTTP {
+	return &AgentHTTP{agents: agents, runs: runs, approvals: approvals, mcp: mcp, skills: skills, models: models, quota: quota, auditor: auditor}
 }
 
 func writeAgentJSON(w http.ResponseWriter, status int, value any) {
@@ -118,30 +52,17 @@ func writeAgentJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func (s *AgentHTTP) handle(c khttp.Context, fn func(context.Context, http.ResponseWriter, *http.Request) error) error {
-	h := c.Middleware(func(ctx context.Context, _ interface{}) (interface{}, error) {
-		uid := extractUserIDFromContext(ctx)
-		if uid <= 0 {
-			httpapi.Write(c.Response(), ctx, &httpapi.Error{Status: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "authentication required"})
-			return nil, nil
-		}
-		ctx = audit.WithRequestMeta(ctx, requestMeta(ctx, c.Request()))
-		if s.idem == nil {
-			if err := fn(ctx, c.Response(), c.Request()); err != nil {
-				httpapi.Write(c.Response(), ctx, agentHTTPError(err))
+// AuditRequestMetaMiddleware attaches request correlation metadata to every
+// HTTP request context. Both raw and generated handlers record audit events.
+func AuditRequestMetaMiddleware() middleware.Middleware {
+	return func(next middleware.Handler) middleware.Handler {
+		return func(ctx context.Context, req any) (any, error) {
+			if r, ok := khttp.RequestFromServerContext(ctx); ok && r != nil {
+				ctx = audit.WithRequestMeta(ctx, requestMeta(ctx, r))
 			}
-			return nil, nil
+			return next(ctx, req)
 		}
-		s.idem.Execute(ctx, c.Response(), c.Request(), uid, func(w http.ResponseWriter) error {
-			if err := fn(ctx, w, c.Request()); err != nil {
-				return agentHTTPError(err)
-			}
-			return nil
-		})
-		return nil, nil
-	})
-	_, err := h(c, nil)
-	return err
+	}
 }
 
 func requestMeta(ctx context.Context, r *http.Request) audit.RequestMeta {
@@ -164,20 +85,8 @@ func requestMeta(ctx context.Context, r *http.Request) audit.RequestMeta {
 	}
 }
 
-func decodeAgent(r *http.Request, dst *agentRequest) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		return agentInputError{fmt.Errorf("invalid request: %w", err)}
-	}
-	return nil
-}
-
 func agentHTTPError(err error) *httpapi.Error {
-	var inputErr agentInputError
 	switch {
-	case errors.As(err, &inputErr):
-		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
 	case errors.Is(err, admin.ErrInvalidInput), errors.Is(err, domain.ErrInvalidSkill):
 		return httpapi.BadRequest("INVALID_ARGUMENT", err.Error())
 	case errors.Is(err, domain.ErrInvalidMCPTarget):
@@ -229,22 +138,4 @@ func agentHTTPError(err error) *httpapi.Error {
 	default:
 		return httpapi.Internal(err)
 	}
-}
-
-// rawJSON renders an empty snapshot column as an empty JSON array instead of
-// an invalid empty RawMessage.
-func rawJSON(s string) json.RawMessage {
-	if s == "" {
-		return json.RawMessage("[]")
-	}
-	return json.RawMessage(s)
-}
-
-func decodeJSONBody(r *http.Request, dst any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 64<<10))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		return agentInputError{fmt.Errorf("invalid request: %w", err)}
-	}
-	return nil
 }

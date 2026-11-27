@@ -276,7 +276,6 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		modelSvc,
 		quotaSvc,
 		auditSvc,
-		nil,
 	)
 
 	var worker *imconsumer.Worker

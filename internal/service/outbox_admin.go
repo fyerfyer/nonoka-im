@@ -2,21 +2,20 @@ package service
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"strconv"
 
+	agentv1 "nonoka-im/api/agent/v1"
 	"nonoka-im/internal/audit"
 	"nonoka-im/internal/authz"
-	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/messaging"
 
-	khttp "github.com/go-kratos/kratos/v2/transport/http"
+	kerrors "github.com/go-kratos/kratos/v2/errors"
 )
 
 // OutboxAdminHTTP exposes failed agent-outbox rows for the platform admin DLQ
 // view and replay action.
 type OutboxAdminHTTP struct {
+	agentv1.UnimplementedAgentOutboxAdminServiceServer
+
 	admin   messaging.OutboxAdmin
 	authz   authz.PlatformAuthorizer
 	auditor *audit.Service
@@ -26,81 +25,67 @@ func NewOutboxAdminHTTP(admin messaging.OutboxAdmin, az authz.PlatformAuthorizer
 	return &OutboxAdminHTTP{admin: admin, authz: az, auditor: auditor}
 }
 
-func (s *OutboxAdminHTTP) handle(c khttp.Context, fn func(context.Context) (any, error)) error {
-	h := c.Middleware(func(ctx context.Context, _ interface{}) (interface{}, error) {
-		uid := extractUserIDFromContext(ctx)
-		if uid <= 0 {
-			writeAgentJSON(c.Response(), http.StatusUnauthorized, map[string]string{"code": "UNAUTHORIZED", "message": "authentication required"})
-			return nil, nil
-		}
-		if s.authz == nil || s.authz.CanManagePlatform(ctx, uid) != nil {
-			writeAgentJSON(c.Response(), http.StatusForbidden, map[string]string{"code": "FORBIDDEN", "message": "platform admin required"})
-			return nil, nil
-		}
-		body, err := fn(ctx)
-		if err != nil {
-			status := http.StatusInternalServerError
-			code := "INTERNAL"
-			if errors.Is(err, errInvalidOutboxID) {
-				status, code = http.StatusBadRequest, "INVALID_ARGUMENT"
-			}
-			writeAgentJSON(c.Response(), status, map[string]string{"code": code, "message": err.Error()})
-			return nil, nil
-		}
-		if body != nil {
-			writeAgentJSON(c.Response(), http.StatusOK, body)
-		}
-		return nil, nil
-	})
-	_, err := h(c, nil)
-	return err
+func (s *OutboxAdminHTTP) requireAdmin(ctx context.Context) (int64, error) {
+	uid := extractUserIDFromContext(ctx)
+	if uid <= 0 {
+		return 0, kerrors.Unauthorized("UNAUTHORIZED", "authentication required")
+	}
+	if s.authz == nil || s.authz.CanManagePlatform(ctx, uid) != nil {
+		return 0, kerrors.Forbidden("FORBIDDEN", "platform admin required")
+	}
+	return uid, nil
 }
 
-var errInvalidOutboxID = errors.New("invalid outbox id")
-
-func (s *OutboxAdminHTTP) ListFailed(c khttp.Context) error {
-	return s.handle(c, func(ctx context.Context) (any, error) {
-		limit, _ := strconv.Atoi(c.Request().URL.Query().Get("limit"))
-		rows, err := s.admin.ListFailed(ctx, limit)
-		if err != nil {
-			return nil, err
-		}
-		return httpapi.Page[messaging.FailedEvent]{Items: rows, HasMore: false}, nil
-	})
+func (s *OutboxAdminHTTP) ListFailedOutbox(ctx context.Context, req *agentv1.ListFailedOutboxRequest) (*agentv1.ListFailedOutboxReply, error) {
+	if _, err := s.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.admin.ListFailed(ctx, int(req.GetLimit()))
+	if err != nil {
+		return nil, kerrors.InternalServer("INTERNAL", err.Error())
+	}
+	out := make([]*agentv1.FailedOutboxEvent, 0, len(rows))
+	for i := range rows {
+		row := &rows[i]
+		out = append(out, &agentv1.FailedOutboxEvent{
+			Id: row.ID, EventId: row.EventID, Topic: row.Topic, TopicSeq: row.TopicSeq,
+			Attempts: int32(row.Attempts), LastError: row.LastError, CreatedAt: row.CreatedAt,
+		})
+	}
+	return &agentv1.ListFailedOutboxReply{Items: out}, nil
 }
 
-func (s *OutboxAdminHTTP) Replay(c khttp.Context) error {
-	return s.handle(c, func(ctx context.Context) (any, error) {
-		id := c.Vars().Get("id")
-		if err := s.admin.Replay(ctx, id); err != nil {
-			return nil, errInvalidOutboxID
-		}
-		s.auditReplay(ctx, []string{id}, 1)
-		return map[string]any{"status": "replayed", "id": id}, nil
-	})
+func (s *OutboxAdminHTTP) ReplayOutbox(ctx context.Context, req *agentv1.ReplayOutboxRequest) (*agentv1.ReplayOutboxReply, error) {
+	uid, err := s.requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id := req.GetId()
+	if err := s.admin.Replay(ctx, id); err != nil {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "invalid outbox id")
+	}
+	s.auditReplay(ctx, uid, []string{id}, 1)
+	return &agentv1.ReplayOutboxReply{Status: "replayed", Id: id}, nil
 }
 
-func (s *OutboxAdminHTTP) ReplayMany(c khttp.Context) error {
-	return s.handle(c, func(ctx context.Context) (any, error) {
-		var input struct {
-			IDs []string `json:"ids"`
-		}
-		if err := decodeJSONBody(c.Request(), &input); err != nil {
-			return nil, errInvalidOutboxID
-		}
-		if len(input.IDs) == 0 || len(input.IDs) > 200 {
-			return nil, errInvalidOutboxID
-		}
-		n, err := s.admin.ReplayMany(ctx, input.IDs)
-		if err != nil {
-			return nil, errInvalidOutboxID
-		}
-		s.auditReplay(ctx, input.IDs, n)
-		return map[string]any{"status": "replayed", "count": n}, nil
-	})
+func (s *OutboxAdminHTTP) ReplayOutboxMany(ctx context.Context, req *agentv1.ReplayOutboxManyRequest) (*agentv1.ReplayOutboxManyReply, error) {
+	uid, err := s.requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := req.GetIds()
+	if len(ids) == 0 || len(ids) > 200 {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "invalid outbox id list")
+	}
+	n, err := s.admin.ReplayMany(ctx, ids)
+	if err != nil {
+		return nil, kerrors.BadRequest("INVALID_ARGUMENT", "invalid outbox id")
+	}
+	s.auditReplay(ctx, uid, ids, n)
+	return &agentv1.ReplayOutboxManyReply{Status: "replayed", Count: int32(n)}, nil
 }
 
-func (s *OutboxAdminHTTP) auditReplay(ctx context.Context, ids []string, replayed int) {
+func (s *OutboxAdminHTTP) auditReplay(ctx context.Context, userID int64, ids []string, replayed int) {
 	if s.auditor == nil {
 		return
 	}
@@ -108,7 +93,7 @@ func (s *OutboxAdminHTTP) auditReplay(ctx context.Context, ids []string, replaye
 		ids = ids[:50]
 	}
 	_ = s.auditor.Record(ctx, audit.Event{
-		ActorUserID: extractUserIDFromContext(ctx), Action: "outbox.replay",
+		ActorUserID: userID, Action: "outbox.replay",
 		ResourceType: "agent_outbox", ResourceID: "batch",
 		After: map[string]any{"ids": ids, "replayed": replayed},
 	})

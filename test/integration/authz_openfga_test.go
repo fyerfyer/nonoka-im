@@ -315,7 +315,7 @@ func TestAuthz_AgentShareLifecycle(t *testing.T) {
 		"modelId":     testModelID,
 	})
 	defer createResp.Body.Close()
-	if createResp.StatusCode != http.StatusCreated {
+	if createResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(createResp.Body)
 		t.Fatalf("create agent failed: status %d: %s", createResp.StatusCode, body)
 	}

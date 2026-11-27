@@ -36,7 +36,6 @@ import (
 	"nonoka-im/internal/data/im"
 	"nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/im/app"
 	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/storage/mongo"
@@ -161,15 +160,14 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	mcpService := provideAgentMCPService(platformdataStore, openFGA, auditService, logger)
 	skillService := provideAgentSkillService(platformdataStore, openFGA, auditService)
 	quotaService := provideQuotaService(agentdataStore, openFGA, auditService)
-	idempotency := provideIdempotency(dataData)
-	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, llmService, quotaService, auditService, idempotency)
-	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, botHTTP, agentHTTP, auth, logger)
-	groupService := provideIMGroupService(groupRepo, openFGA)
-	serviceGroupService := service.NewGroupService(groupService)
-	serviceFileService := service.NewFileService(fileService, logger)
+	agentHTTP := service.NewAgentHTTP(agentService, runService, approvalService, mcpService, skillService, llmService, quotaService, auditService)
 	outboxService := provideIMOutboxService(store, logger)
 	outboxAdmin := provideOutboxAdmin(outboxService)
 	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA, auditService)
+	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, botHTTP, agentHTTP, outboxAdminHTTP, auth, logger)
+	groupService := provideIMGroupService(groupRepo, openFGA)
+	serviceGroupService := service.NewGroupService(groupService)
+	serviceFileService := service.NewFileService(fileService, logger)
 	systemHTTP := gateway.NewSystemHTTP(universalClient, dispatch, openFGA)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
@@ -443,10 +441,6 @@ func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *app.O
 
 func provideOutboxAdmin(outbox *app.OutboxService) messaging.OutboxAdmin {
 	return im.NewOutboxAdmin(outbox)
-}
-
-func provideIdempotency(d *data.Data) *httpapi.Idempotency {
-	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
 }
 
 func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, auditor *audit.Service, logger log.Logger) *admin.AgentService {

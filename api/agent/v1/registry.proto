@@ -1,0 +1,440 @@
+syntax = "proto3";
+
+package api.agent.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "nonoka-im/api/agent/v1;v1";
+
+// AgentRegistryService covers the user-facing registry resources that agents
+// can bind: MCP servers, skills, the tool catalog, and the model catalog.
+service AgentRegistryService {
+  rpc ListMCPServers (ListMCPServersRequest) returns (ListMCPServersReply) {
+    option (google.api.http) = { get: "/v1/mcp/servers" };
+  }
+
+  rpc RegisterMCPServer (RegisterMCPServerRequest) returns (MCPServer) {
+    option (google.api.http) = {
+      post: "/v1/mcp/servers"
+      body: "*"
+    };
+  }
+
+  rpc GetMCPServer (GetMCPServerRequest) returns (MCPServer) {
+    option (google.api.http) = { get: "/v1/mcp/servers/{id}" };
+  }
+
+  rpc UpdateMCPServer (UpdateMCPServerRequest) returns (MCPServer) {
+    option (google.api.http) = {
+      patch: "/v1/mcp/servers/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteMCPServer (GetMCPServerRequest) returns (StatusReply) {
+    option (google.api.http) = { delete: "/v1/mcp/servers/{id}" };
+  }
+
+  rpc DiscoverMCPServer (GetMCPServerRequest) returns (MCPToolsReply) {
+    option (google.api.http) = {
+      post: "/v1/mcp/servers/{id}/discover"
+      body: "*"
+    };
+  }
+
+  rpc TestMCPServer (GetMCPServerRequest) returns (StatusReply) {
+    option (google.api.http) = {
+      post: "/v1/mcp/servers/{id}/test"
+      body: "*"
+    };
+  }
+
+  rpc SetMCPServerStatus (SetMCPServerStatusRequest) returns (SetMCPServerStatusReply) {
+    option (google.api.http) = {
+      post: "/v1/mcp/servers/{id}/status"
+      body: "*"
+    };
+  }
+
+  rpc ReviewMCPServer (ReviewMCPServerRequest) returns (ReviewMCPServerReply) {
+    option (google.api.http) = {
+      post: "/v1/mcp/servers/{id}/review"
+      body: "*"
+    };
+  }
+
+  rpc ListMCPTools (GetMCPServerRequest) returns (MCPToolsReply) {
+    option (google.api.http) = { get: "/v1/mcp/servers/{id}/tools" };
+  }
+
+  rpc ListMCPConnections (ListMCPConnectionsRequest) returns (ListMCPConnectionsReply) {
+    option (google.api.http) = { get: "/v1/mcp/connections" };
+  }
+
+  rpc ConnectMCPServer (ConnectMCPServerRequest) returns (MCPConnection) {
+    option (google.api.http) = {
+      put: "/v1/mcp/connections/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DisconnectMCPServer (DisconnectMCPServerRequest) returns (StatusReply) {
+    option (google.api.http) = { delete: "/v1/mcp/connections/{id}" };
+  }
+
+  rpc ListSkills (ListSkillsRequest) returns (ListSkillsReply) {
+    option (google.api.http) = { get: "/v1/skills" };
+  }
+
+  rpc CreateSkill (CreateSkillRequest) returns (Skill) {
+    option (google.api.http) = {
+      post: "/v1/skills"
+      body: "*"
+    };
+  }
+
+  rpc GetSkill (GetSkillRequest) returns (Skill) {
+    option (google.api.http) = { get: "/v1/skills/{id}" };
+  }
+
+  rpc UpdateSkill (UpdateSkillRequest) returns (Skill) {
+    option (google.api.http) = {
+      patch: "/v1/skills/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteSkill (GetSkillRequest) returns (StatusReply) {
+    option (google.api.http) = { delete: "/v1/skills/{id}" };
+  }
+
+  rpc AddSkillVersion (AddSkillVersionRequest) returns (SkillVersion) {
+    option (google.api.http) = {
+      post: "/v1/skills/{id}/versions"
+      body: "*"
+    };
+  }
+
+  rpc ReviewSkill (ReviewSkillRequest) returns (SkillReviewReply) {
+    option (google.api.http) = {
+      post: "/v1/skills/{id}/review"
+      body: "*"
+    };
+  }
+
+  rpc ReviewSkillVersion (ReviewSkillVersionRequest) returns (SkillReviewReply) {
+    option (google.api.http) = {
+      post: "/v1/skills/{id}/versions/{version}/review"
+      body: "*"
+    };
+  }
+
+  rpc ListAgentTools (ListAgentToolsRequest) returns (ListAgentToolsReply) {
+    option (google.api.http) = { get: "/v1/agent-tools" };
+  }
+
+  rpc ListModels (ListModelsRequest) returns (ListModelsReply) {
+    option (google.api.http) = { get: "/v1/models" };
+  }
+
+  rpc SyncModels (SyncModelsRequest) returns (SyncModelsReply) {
+    option (google.api.http) = {
+      post: "/v1/models/sync"
+      body: "*"
+    };
+  }
+
+  rpc UpdateModel (UpdateModelRequest) returns (Model) {
+    option (google.api.http) = {
+      patch: "/v1/models/{id}"
+      body: "*"
+    };
+  }
+}
+
+message MCPServer {
+  uint64 id = 1;
+  int64 owner_user_id = 2;
+  string name = 3;
+  string display_name = 4;
+  string description = 5;
+  string url = 6;
+  string transport = 7;
+  string auth_type = 8;
+  bool has_credential = 9;
+  string visibility = 10;
+  string review_status = 11;
+  string review_reason = 12;
+  string health_status = 13;
+  google.protobuf.Timestamp last_checked_at = 14;
+  string last_error = 15;
+  bool enabled = 16;
+  int64 tools_revision = 17;
+  repeated MCPTool tools = 18;
+  google.protobuf.Timestamp created_at = 19;
+  google.protobuf.Timestamp updated_at = 20;
+}
+
+message MCPTool {
+  uint64 id = 1;
+  uint64 server_id = 2;
+  string name = 3;
+  string description = 4;
+  string risk = 5;
+  string schema_hash = 6;
+  string input_schema = 7;
+  string annotations = 8;
+  bool enabled = 9;
+}
+
+message MCPConnection {
+  uint64 id = 1;
+  uint64 server_id = 2;
+  string auth_type = 3;
+  string status = 4;
+  bool has_credential = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Timestamp last_used_at = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ListMCPServersRequest {}
+
+message ListMCPServersReply {
+  repeated MCPServer servers = 1;
+}
+
+message GetMCPServerRequest {
+  uint64 id = 1;
+}
+
+message RegisterMCPServerRequest {
+  string name = 1;
+  string display_name = 2;
+  string description = 3;
+  string url = 4;
+  string transport = 5;
+  string auth_type = 6;
+  string header_name = 7;
+  string credential = 8;
+  string visibility = 9;
+  optional bool enabled = 10;
+}
+
+message UpdateMCPServerRequest {
+  uint64 id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  string url = 5;
+  string transport = 6;
+  string auth_type = 7;
+  string header_name = 8;
+  string credential = 9;
+  string visibility = 10;
+  optional bool enabled = 11;
+}
+
+message MCPToolsReply {
+  repeated MCPTool tools = 1;
+}
+
+message SetMCPServerStatusRequest {
+  uint64 id = 1;
+  optional bool enabled = 2;
+}
+
+message SetMCPServerStatusReply {
+  uint64 id = 1;
+  bool enabled = 2;
+}
+
+message ReviewMCPServerRequest {
+  uint64 id = 1;
+  string status = 2;
+  string reason = 3;
+}
+
+message ReviewMCPServerReply {
+  uint64 id = 1;
+  string review_status = 2;
+}
+
+message ListMCPConnectionsRequest {}
+
+message ListMCPConnectionsReply {
+  repeated MCPConnection connections = 1;
+}
+
+message ConnectMCPServerRequest {
+  uint64 id = 1;
+  string auth_type = 2;
+  string header_name = 3;
+  string credential = 4;
+}
+
+message DisconnectMCPServerRequest {
+  uint64 id = 1;
+}
+
+message Skill {
+  uint64 id = 1;
+  int64 owner_user_id = 2;
+  string slug = 3;
+  string display_name = 4;
+  string description = 5;
+  string visibility = 6;
+  string review_status = 7;
+  int64 latest_version = 8;
+  repeated SkillVersion versions = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message SkillVersion {
+  uint64 id = 1;
+  uint64 skill_id = 2;
+  int64 version = 3;
+  string checksum = 4;
+  string status = 5;
+  string review_status = 6;
+  string review_reason = 7;
+  int64 created_by = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  string content = 11;
+  google.protobuf.Timestamp review_at = 12;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsReply {
+  repeated Skill skills = 1;
+}
+
+message CreateSkillRequest {
+  string slug = 1;
+  string display_name = 2;
+  string description = 3;
+  string visibility = 4;
+  string content = 5;
+}
+
+message GetSkillRequest {
+  uint64 id = 1;
+}
+
+message UpdateSkillRequest {
+  uint64 id = 1;
+  string display_name = 2;
+  string description = 3;
+  string visibility = 4;
+}
+
+message AddSkillVersionRequest {
+  uint64 id = 1;
+  string content = 2;
+}
+
+message ReviewSkillRequest {
+  uint64 id = 1;
+  bool approved = 2;
+}
+
+message ReviewSkillVersionRequest {
+  uint64 id = 1;
+  int64 version = 2;
+  bool approved = 3;
+  string reason = 4;
+}
+
+message SkillReviewReply {
+  uint64 id = 1;
+  int64 version = 2;
+  bool approved = 3;
+}
+
+message CapabilityPreset {
+  string key = 1;
+  string name = 2;
+  string description = 3;
+  bool default_enabled = 4;
+  repeated string tools = 5;
+}
+
+message ToolDefinition {
+  string key = 1;
+  string name = 2;
+  string description = 3;
+  string category = 4;
+  string risk = 5;
+  string default_policy = 6;
+  bool default_enabled = 7;
+  bool system = 8;
+  bool hidden = 9;
+  bool advanced = 10;
+  bool side_effect = 11;
+  repeated string presets = 12;
+  google.protobuf.Struct input_schema = 13;
+}
+
+message ListAgentToolsRequest {}
+
+message ListAgentToolsReply {
+  repeated CapabilityPreset presets = 1;
+  repeated ToolDefinition tools = 2;
+}
+
+message Model {
+  uint64 id = 1;
+  string model_key = 2;
+  string provider = 3;
+  string gateway_model_key = 4;
+  string display_name = 5;
+  string icon = 6;
+  int32 context_window = 7;
+  int32 max_output_tokens = 8;
+  bool supports_tools = 9;
+  bool supports_vision = 10;
+  bool supports_reasoning = 11;
+  double input_price_per_mtok = 12;
+  double output_price_per_mtok = 13;
+  double input_cache_read_price_per_mtok = 14;
+  bool enabled = 15;
+  bool curated = 16;
+  bool recommended = 17;
+  int32 sort_order = 18;
+}
+
+message ListModelsRequest {}
+
+message ListModelsReply {
+  repeated Model models = 1;
+  bool can_manage = 2;
+}
+
+message SyncModelsRequest {}
+
+message SyncModelsReply {
+  int32 synced = 1;
+  repeated Model models = 2;
+}
+
+message UpdateModelRequest {
+  uint64 id = 1;
+  string display_name = 2;
+  string icon = 3;
+  optional bool supports_tools = 4;
+  optional bool supports_vision = 5;
+  optional bool supports_reasoning = 6;
+  optional bool enabled = 7;
+  optional bool recommended = 8;
+  optional int32 sort_order = 9;
+}
+
+message StatusReply {
+  string status = 1;
+}

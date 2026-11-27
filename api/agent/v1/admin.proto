@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package api.agent.v1;
+
+import "agent/v1/registry.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "nonoka-im/api/agent/v1;v1";
+
+// AgentQuotaService is the platform-admin quota and usage surface.
+service AgentQuotaService {
+  rpc ListQuotas (ListQuotasRequest) returns (ListQuotasReply) {
+    option (google.api.http) = { get: "/v1/admin/quotas" };
+  }
+
+  rpc UpdateQuota (UpdateQuotaRequest) returns (Quota) {
+    option (google.api.http) = {
+      put: "/v1/admin/quotas/{scope}/{key}"
+      body: "*"
+    };
+  }
+
+  rpc ResetQuota (ResetQuotaRequest) returns (StatusReply) {
+    option (google.api.http) = { delete: "/v1/admin/quotas/{scope}/{key}" };
+  }
+
+  rpc TopUsage (TopUsageRequest) returns (TopUsageReply) {
+    option (google.api.http) = { get: "/v1/admin/usage/top" };
+  }
+
+  rpc GetAgentUsage (GetAgentUsageRequest) returns (GetAgentUsageReply) {
+    option (google.api.http) = { get: "/v1/agents/{id}/usage" };
+  }
+}
+
+// AgentAuditService is the platform-admin append-only audit log surface.
+service AgentAuditService {
+  rpc ListAuditEvents (ListAuditEventsRequest) returns (ListAuditEventsReply) {
+    option (google.api.http) = { get: "/v1/admin/audit-events" };
+  }
+
+  rpc GetAuditEvent (GetAuditEventRequest) returns (AuditEvent) {
+    option (google.api.http) = { get: "/v1/admin/audit-events/{id}" };
+  }
+}
+
+// AgentOutboxAdminService exposes failed agent-event outbox rows and replay.
+service AgentOutboxAdminService {
+  rpc ListFailedOutbox (ListFailedOutboxRequest) returns (ListFailedOutboxReply) {
+    option (google.api.http) = { get: "/v1/admin/agent-outbox/failed" };
+  }
+
+  rpc ReplayOutbox (ReplayOutboxRequest) returns (ReplayOutboxReply) {
+    option (google.api.http) = {
+      post: "/v1/admin/agent-outbox/{id}/replay"
+      body: "*"
+    };
+  }
+
+  rpc ReplayOutboxMany (ReplayOutboxManyRequest) returns (ReplayOutboxManyReply) {
+    option (google.api.http) = {
+      post: "/v1/admin/agent-outbox/replay"
+      body: "*"
+    };
+  }
+}
+
+message QuotaLimits {
+  int32 max_concurrent_runs = 1;
+  int32 daily_runs = 2;
+  int64 daily_tokens = 3;
+  double daily_cost_usd = 4;
+  int32 max_tool_turns = 5;
+}
+
+message Quota {
+  string scope = 1;
+  string scope_key = 2;
+  optional int32 max_concurrent_runs = 3;
+  optional int32 daily_runs = 4;
+  optional int64 daily_tokens = 5;
+  optional double daily_cost_usd = 6;
+  optional int32 max_tool_turns = 7;
+  int64 updated_by = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ListQuotasRequest {
+  string scope = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListQuotasReply {
+  repeated Quota items = 1;
+  map<string, QuotaLimits> defaults = 2;
+}
+
+message UpdateQuotaRequest {
+  string scope = 1;
+  string key = 2;
+  int32 max_concurrent_runs = 3;
+  int32 daily_runs = 4;
+  int64 daily_tokens = 5;
+  double daily_cost_usd = 6;
+  int32 max_tool_turns = 7;
+}
+
+message ResetQuotaRequest {
+  string scope = 1;
+  string key = 2;
+}
+
+message Usage {
+  string day = 1;
+  string scope = 2;
+  string scope_key = 3;
+  int64 runs = 4;
+  int64 input_tokens = 5;
+  int64 output_tokens = 6;
+  optional double cost_usd = 7;
+}
+
+message TopUsageRequest {
+  string scope = 1;
+  string metric = 2;
+  int32 limit = 3;
+}
+
+message TopUsageReply {
+  repeated Usage items = 1;
+}
+
+message GetAgentUsageRequest {
+  int64 id = 1;
+  int32 days = 2;
+}
+
+message GetAgentUsageReply {
+  repeated Usage days = 1;
+  Usage total = 2;
+  bool can_see_cost = 3;
+}
+
+message AuditEvent {
+  uint64 id = 1;
+  int64 actor_user_id = 2;
+  string action = 3;
+  string resource_type = 4;
+  string resource_id = 5;
+  google.protobuf.Struct before = 6;
+  google.protobuf.Struct after = 7;
+  string request_id = 8;
+  string trace_id = 9;
+  string ip = 10;
+  string user_agent = 11;
+  string outcome = 12;
+  string error_code = 13;
+  google.protobuf.Timestamp created_at = 14;
+}
+
+message ListAuditEventsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  int64 actor = 3;
+  string action = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string from = 7;
+  string to = 8;
+}
+
+message ListAuditEventsReply {
+  repeated AuditEvent items = 1;
+  int64 total = 2;
+}
+
+message GetAuditEventRequest {
+  uint64 id = 1;
+}
+
+message FailedOutboxEvent {
+  string id = 1;
+  string event_id = 2;
+  string topic = 3;
+  uint64 topic_seq = 4;
+  int32 attempts = 5;
+  string last_error = 6;
+  int64 created_at = 7;
+}
+
+message ListFailedOutboxRequest {
+  int32 limit = 1;
+}
+
+message ListFailedOutboxReply {
+  repeated FailedOutboxEvent items = 1;
+}
+
+message ReplayOutboxRequest {
+  string id = 1;
+}
+
+message ReplayOutboxReply {
+  string status = 1;
+  string id = 2;
+}
+
+message ReplayOutboxManyRequest {
+  repeated string ids = 1;
+}
+
+message ReplayOutboxManyReply {
+  string status = 1;
+  int32 count = 2;
+}

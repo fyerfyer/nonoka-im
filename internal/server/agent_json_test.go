@@ -16,6 +16,8 @@ func TestConvertNumericStringsKeepsAgentIDsAsNumbers(t *testing.T) {
 		"clientMsgId":   "456",
 		"steps":         []any{map[string]any{"id": "55", "seq": "3"}},
 		"nestedUnknown": map[string]any{"id": "88", "name": "x"},
+		"draft":         nil,
+		"before":        map[string]any{"id": "007"},
 	}
 	converted := convertNumericStrings(raw).(map[string]any)
 
@@ -28,6 +30,13 @@ func TestConvertNumericStringsKeepsAgentIDsAsNumbers(t *testing.T) {
 	step := converted["steps"].([]any)[0].(map[string]any)
 	if _, ok := step["id"].(json.Number); !ok {
 		t.Fatalf("nested id was not converted: %#v", step)
+	}
+	if _, ok := converted["draft"]; ok {
+		t.Fatalf("null message field was not removed: %#v", converted)
+	}
+	before := converted["before"].(map[string]any)
+	if before["id"] != "007" {
+		t.Fatalf("opaque audit snapshot was rewritten: %#v", before)
 	}
 
 	// The encoder must accept a real proto message and emit a numeric id.

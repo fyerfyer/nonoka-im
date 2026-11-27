@@ -76,7 +76,7 @@ func rejectNonUserScope(next middleware.Handler) middleware.Handler {
 }
 
 // NewGRPCServer new a gRPC server.
-func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, agents *service.AgentHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
+func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, agents *service.AgentHTTP, outbox *service.OutboxAdminHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
 			recovery.Recovery(),
@@ -136,6 +136,12 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	if agents != nil {
 		agentv1.RegisterAgentRunServiceServer(srv, agents)
 		agentv1.RegisterAgentServiceServer(srv, agents)
+		agentv1.RegisterAgentRegistryServiceServer(srv, agents)
+		agentv1.RegisterAgentQuotaServiceServer(srv, agents)
+		agentv1.RegisterAgentAuditServiceServer(srv, agents)
+	}
+	if outbox != nil {
+		agentv1.RegisterAgentOutboxAdminServiceServer(srv, outbox)
 	}
 	return srv
 }

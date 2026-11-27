@@ -49,7 +49,7 @@ func TestAgentMCPAndSkillSelfService(t *testing.T) {
 	})
 	regBody, _ := io.ReadAll(register.Body)
 	register.Body.Close()
-	if register.StatusCode != http.StatusCreated {
+	if register.StatusCode != http.StatusOK {
 		t.Fatalf("register mcp: %d: %s", register.StatusCode, regBody)
 	}
 	var server struct {
@@ -75,7 +75,7 @@ func TestAgentMCPAndSkillSelfService(t *testing.T) {
 	})
 	skillBody, _ := io.ReadAll(skillResp.Body)
 	skillResp.Body.Close()
-	if skillResp.StatusCode != http.StatusCreated {
+	if skillResp.StatusCode != http.StatusOK {
 		t.Fatalf("create skill: %d: %s", skillResp.StatusCode, skillBody)
 	}
 	var skill struct {
@@ -178,7 +178,7 @@ func TestAgentMCPAndSkillSelfService(t *testing.T) {
 	})
 	sharedBody, _ := io.ReadAll(sharedResp.Body)
 	sharedResp.Body.Close()
-	if sharedResp.StatusCode != http.StatusCreated {
+	if sharedResp.StatusCode != http.StatusOK {
 		t.Fatalf("register shared mcp: %d: %s", sharedResp.StatusCode, sharedBody)
 	}
 	var shared struct {

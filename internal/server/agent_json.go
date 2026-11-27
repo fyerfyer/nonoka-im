@@ -29,25 +29,48 @@ var numericStringFields = map[string]struct{}{
 	"approvalId": {}, "nextSeq": {}, "inputTokens": {}, "outputTokens": {},
 	"totalTokens": {}, "timestampMs": {}, "version": {}, "sourceRevision": {},
 	"publishedBy": {}, "modelId": {}, "revision": {}, "serverId": {}, "skillId": {},
-	"currentVersion": {}, "ownerUserId": {},
+	"currentVersion": {}, "ownerUserId": {}, "latestVersion": {}, "createdBy": {},
+	"toolsRevision": {}, "updatedBy": {}, "dailyTokens": {}, "runs": {},
+	"total": {}, "createdAt": {},
 }
 
-// agentNumericResponseEncoder keeps the pre-proto JSON shape for the agent
-// runtime endpoints. It is intentionally scoped to /v1/agent-* so generated
-// IM/Bot APIs retain standard protojson semantics.
+// opaqueJSONFields contain arbitrary user/audit data. Their nested keys may
+// legitimately be numeric strings ("id": "007"), so the numeric compatibility
+// rewrite must not descend into them.
+var opaqueJSONFields = map[string]struct{}{
+	"before": {}, "after": {}, "inputSchema": {},
+}
+
+// agentNumericAPIPaths lists the generated Agent HTTP surfaces that keep the
+// pre-proto JSON contract. Bot management is excluded because its proto
+// contract already uses string IDs.
+func agentNumericAPIPath(path string) bool {
+	for _, prefix := range []string{
+		"/v1/agent-runs", "/v1/agent-approvals", "/v1/agent-tools", "/v1/agents",
+		"/v1/mcp", "/v1/skills", "/v1/models",
+		"/v1/admin/quotas", "/v1/admin/usage", "/v1/admin/audit-events", "/v1/admin/agent-outbox",
+	} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func agentAPIPath(path string) bool {
-	return strings.HasPrefix(path, "/v1/agent-") || strings.HasPrefix(path, "/v1/agents") || strings.HasPrefix(path, "/v1/bots")
+	return agentNumericAPIPath(path) || path == "/v1/bots" || strings.HasPrefix(path, "/v1/bots/") ||
+		strings.HasPrefix(path, "/v1/admin/")
 }
 
 func agentNumericResponseEncoder(w http.ResponseWriter, r *http.Request, v any) error {
-	if !strings.HasPrefix(r.URL.Path, "/v1/agent-") && !strings.HasPrefix(r.URL.Path, "/v1/agents") {
+	if !agentNumericAPIPath(r.URL.Path) {
 		return khttp.DefaultResponseEncoder(w, r, v)
 	}
 	msg, ok := v.(proto.Message)
 	if !ok {
 		return khttp.DefaultResponseEncoder(w, r, v)
 	}
-	data, err := protojson.Marshal(msg)
+	data, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(msg)
 	if err != nil {
 		return err
 	}
@@ -113,6 +136,15 @@ func convertNumericStrings(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, item := range typed {
+			if item == nil {
+				// protojson EmitUnpopulated renders absent messages as null;
+				// the pre-proto DTOs omitted them instead.
+				delete(typed, key)
+				continue
+			}
+			if _, opaque := opaqueJSONFields[key]; opaque {
+				continue
+			}
 			if text, ok := item.(string); ok && numericJSON.MatchString(text) {
 				if _, wanted := numericStringFields[key]; wanted {
 					typed[key] = json.Number(text)
