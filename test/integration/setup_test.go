@@ -650,7 +650,7 @@ func wsReadPacket(t *testing.T, wsConn *websocket.Conn, timeout time.Duration) *
 }
 
 // wsReadPacketOrNil reads a packet with timeout, returns nil on timeout.
-func wsReadPacketOrNil(t *testing.T, wsConn *websocket.Conn, timeout time.Duration) *v1.Packet {
+func wsReadPacketOrNil(_ *testing.T, wsConn *websocket.Conn, timeout time.Duration) *v1.Packet {
 	if timeout > 0 {
 		wsConn.SetReadDeadline(time.Now().Add(timeout))
 		defer wsConn.SetReadDeadline(time.Time{})
@@ -1079,8 +1079,6 @@ func newTestIMWorker(seqGen *seq.Generator, storage *mongostore.Store, pusher re
 	worker.Store = storage
 	return worker
 }
-
-func boolPtr(v bool) *bool { return &v }
 
 type testGateway struct{}
 

@@ -12,9 +12,9 @@ func TestAgentVersionsRestoreAndPublishNote(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	token, _ := registerAndLogin(t, "phase3-version-owner", "123456")
-	created := createPhase3Agent(t, token, "version-agent", "first instructions")
-	publishPhase3Agent(t, token, created.ID, created.Revision, "initial release")
+	token, _ := registerAndLogin(t, "agent-version-owner", "123456")
+	created := createManagedAgent(t, token, "version-agent", "first instructions")
+	publishManagedAgent(t, token, created.ID, created.Revision, "initial release")
 
 	versions := httpGet(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/versions", token)
 	versionsBody, _ := io.ReadAll(versions.Body)
@@ -74,9 +74,9 @@ func TestAgentShareRolesAndOwnerOnlyDestructiveActions(t *testing.T) {
 	ts := setupTestServer(t, false)
 	defer ts.stop()
 
-	ownerToken, _ := registerAndLogin(t, "phase3-role-owner", "123456")
-	editorToken, editorID := registerAndLogin(t, "phase3-role-editor", "123456")
-	created := createPhase3Agent(t, ownerToken, "role-agent", "instructions")
+	ownerToken, _ := registerAndLogin(t, "agent-role-owner", "123456")
+	editorToken, editorID := registerAndLogin(t, "agent-role-editor", "123456")
+	created := createManagedAgent(t, ownerToken, "role-agent", "instructions")
 
 	share := httpPutAuth(t, testBaseURL+"/v1/agents/"+int64Str(created.ID)+"/shares", ownerToken, map[string]any{
 		"kind": "user", "target": int64Str(editorID), "role": "editor", "enabled": true,
@@ -128,12 +128,12 @@ func TestAgentShareRolesAndOwnerOnlyDestructiveActions(t *testing.T) {
 	}
 }
 
-type phase3Agent struct {
+type managedAgent struct {
 	ID       int64
 	Revision int64
 }
 
-func createPhase3Agent(t *testing.T, token, name, instruction string) phase3Agent {
+func createManagedAgent(t *testing.T, token, name, instruction string) managedAgent {
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/agents", token, map[string]any{
 		"name": name, "instruction": instruction,
@@ -154,10 +154,10 @@ func createPhase3Agent(t *testing.T, token, name, instruction string) phase3Agen
 	if err := json.Unmarshal(body, &created); err != nil || created.ID == 0 {
 		t.Fatalf("decode agent: %v (%s)", err, body)
 	}
-	return phase3Agent{ID: created.ID, Revision: created.Draft.Revision}
+	return managedAgent{ID: created.ID, Revision: created.Draft.Revision}
 }
 
-func publishPhase3Agent(t *testing.T, token string, agentID, revision int64, note string) int64 {
+func publishManagedAgent(t *testing.T, token string, agentID, revision int64, note string) int64 {
 	t.Helper()
 	resp := httpPostAuth(t, testBaseURL+"/v1/agents/"+int64Str(agentID)+"/publish", token, map[string]any{
 		"revision": revision, "note": note,
@@ -181,18 +181,4 @@ func containsAll(body string, needles ...string) bool {
 		}
 	}
 	return true
-}
-
-func uint64Str(value uint64) string {
-	if value == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for value > 0 {
-		i--
-		buf[i] = byte('0' + value%10)
-		value /= 10
-	}
-	return string(buf[i:])
 }
