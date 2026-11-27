@@ -102,6 +102,12 @@ test-arch:
 test-bots:
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestBotAPI_|TestBotDelivery_' -count=1 -timeout 120s
 
+.PHONY: test-sdk
+# run SDK unit + end-to-end tests
+test-sdk:
+	@go test ./pkg/sdk/... -count=1
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestSDK' -count=1 -timeout 240s
+
 .PHONY: test-race
 # run concurrency-sensitive packages with the race detector
 test-race:

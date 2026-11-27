@@ -44,17 +44,23 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 	if cached := r.cached(clientID); cached != nil {
 		return cached, nil
 	}
+	var lastErr error
 	if r.client != nil && r.client.Realtime != nil && r.client.Realtime.IsConnected() {
 		result, err := r.sendWebSocket(ctx, req, clientID)
 		if err == nil && result != nil && result.MessageID != 0 {
 			r.remember(clientID, result)
+			return result, nil
 		}
 		if err != nil {
-			return nil, &SendError{ClientMessageID: clientID, Err: err}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, &SendError{ClientMessageID: clientID, Err: err}
+			}
+			// The WebSocket may have dropped after the client observed it as
+			// connected. The same client message ID makes the HTTP fallback
+			// idempotent, so retry through the durable API instead of failing.
+			lastErr = err
 		}
-		return result, nil
 	}
-	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(1<<attempt) * 250 * time.Millisecond

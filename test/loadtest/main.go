@@ -39,8 +39,11 @@ var (
 	outFile        = flag.String("out", "", "Optional JSON report output file")
 	tokensFile     = flag.String("tokens-file", "", "Optional CSV file with userID,token pairs; skips register/login")
 	reconnectEvery = flag.Duration("reconnect-every", 0, "SDK mode: force a reconnect storm at this interval (0 disables)")
+	sdkPipeline    = flag.Bool("sdk-pipeline", false, "SDK mode: allow multiple in-flight sends per user")
 	reconnectUsers = flag.Int("reconnect-users", 1, "SDK mode: users reconnected per storm interval")
 )
+
+var loadStarts = &sync.Map{}
 
 type client struct {
 	userID  int64
@@ -48,10 +51,6 @@ type client struct {
 	conn    *websocket.Conn
 	seq     uint64
 	writeMu sync.Mutex
-
-	// publishStarted tracks when each message was sent.
-	// Using sync.Map removes lock contention between sendLoop and processLoop.
-	publishStarted *sync.Map
 
 	// packetCh decouples raw WebSocket reads from protobuf parsing/statistics.
 	packetCh chan []byte
@@ -151,7 +150,6 @@ func main() {
 			}
 			uid, _ := strconv.ParseInt(parts[0], 10, 64)
 			c := &client{userID: uid, token: parts[1]}
-			c.publishStarted = new(sync.Map)
 			c.packetCh = make(chan []byte, 4096)
 			c.doneCh = make(chan struct{})
 			if err := c.connectAndAuth(wsURLs[i%len(wsURLs)]); err != nil {
@@ -163,8 +161,8 @@ func main() {
 		}
 	} else {
 		fmt.Println("Registering and logging in users...")
-		// Limit concurrent register/login to avoid overwhelming the auth DB pool.
-		setupSem := make(chan struct{}, 50)
+		// Keep bcrypt/Postgres setup gentle enough for the 1s HTTP timeout.
+		setupSem := make(chan struct{}, 5)
 		var setupWg sync.WaitGroup
 		for i := 0; i < *users; i++ {
 			setupWg.Add(1)
@@ -181,7 +179,6 @@ func main() {
 					atomic.AddInt64(&authFailures, 1)
 					return
 				}
-				c.publishStarted = new(sync.Map)
 				c.packetCh = make(chan []byte, 4096)
 				c.doneCh = make(chan struct{})
 				if err := c.connectAndAuth(wsURLs[idx%len(wsURLs)]); err != nil {
@@ -257,7 +254,16 @@ func main() {
 	warmupWg.Wait()
 	warmupCancel()
 
-	// Reset latencies after warmup.
+	// Reset counters, latencies and warmup timestamps after warmup.
+	atomic.StoreInt64(&totalSent, 0)
+	atomic.StoreInt64(&totalAcked, 0)
+	atomic.StoreInt64(&totalPushed, 0)
+	atomic.StoreInt64(&totalReceipts, 0)
+	atomic.StoreInt64(&sendFailures, 0)
+	loadStarts.Range(func(key, _ any) bool {
+		loadStarts.Delete(key)
+		return true
+	})
 	for _, c := range clients {
 		if c != nil {
 			c.resetLatencies()
@@ -350,31 +356,50 @@ func parseGatewayURLs(defaultURL, gatewaysFlag string) []string {
 }
 
 func (c *client) registerAndLogin(hc *http.Client, username, password string) error {
-	// Register (ignore conflict if already exists).
+	// Register (ignore conflict if already exists). Retry transient auth
+	// failures; setup is bounded so a 1s server timeout can still trip.
 	regBody, _ := json.Marshal(map[string]string{"username": username, "password": password})
-	_, _ = hc.Post(*baseURL+"/v1/auth/register", "application/json", bytes.NewReader(regBody))
+	for attempt := 0; attempt < 4; attempt++ {
+		resp, err := hc.Post(*baseURL+"/v1/auth/register", "application/json", bytes.NewReader(regBody))
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
 
 	// Login.
 	loginBody, _ := json.Marshal(map[string]string{"username": username, "password": password, "deviceId": "loadtest"})
-	resp, err := hc.Post(*baseURL+"/v1/auth/login", "application/json", bytes.NewReader(loginBody))
-	if err != nil {
-		return err
+	var lastStatus int
+	for attempt := 0; attempt < 4; attempt++ {
+		resp, err := hc.Post(*baseURL+"/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+		if err != nil {
+			return err
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return readErr
+		}
+		lastStatus = resp.StatusCode
+		if resp.StatusCode == http.StatusOK {
+			var reply v1.LoginReply
+			if err := protojson.Unmarshal(body, &reply); err != nil {
+				return err
+			}
+			c.userID = reply.UserId
+			c.token = reply.Token
+			return nil
+		}
+		if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("login status %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	var reply v1.LoginReply
-	if err := protojson.Unmarshal(body, &reply); err != nil {
-		return err
-	}
-	c.userID = reply.UserId
-	c.token = reply.Token
-	return nil
+	return fmt.Errorf("login status %d", lastStatus)
 }
 
 func (c *client) connectAndAuth(wsURL string) error {
@@ -471,11 +496,11 @@ func (c *client) sendLoop(ctx context.Context, idx int, clients []*client, group
 		}
 
 		if !warmup {
-			c.publishStarted.Store(clientMsgID, time.Now())
+			loadStarts.Store(clientMsgID, time.Now())
 		}
 		if err := c.writePacket(pkt); err != nil {
 			atomic.AddInt64(sendFailures, 1)
-			c.publishStarted.Delete(clientMsgID)
+			loadStarts.Delete(clientMsgID)
 			continue
 		}
 		atomic.AddInt64(totalSent, 1)
@@ -540,20 +565,23 @@ func (c *client) handlePacket(data []byte, totalAcked, totalPushed, totalReceipt
 	case v1.Command_CMD_PUBLISH:
 		reply := pkt.GetSendReply()
 		if reply != nil {
-			if start, ok := c.publishStarted.Load(reply.ClientMsgId); ok {
+			if start, ok := loadStarts.Load(reply.ClientMsgId); ok {
 				c.recordAck(time.Since(start.(time.Time)).Seconds())
 				atomic.AddInt64(totalAcked, 1)
 			}
 		}
 	case v1.Command_CMD_NOTIFY:
-		if pkt.GetNotify() != nil {
+		if push := pkt.GetNotify(); push != nil {
+			if start, ok := loadStarts.Load(push.GetClientMsgId()); ok {
+				c.recordPush(time.Since(start.(time.Time)).Seconds())
+			}
 			atomic.AddInt64(totalPushed, 1)
 		}
 	case v1.Command_CMD_SEND_RECEIPT:
 		receipt := pkt.GetSendReceipt()
 		if receipt != nil {
-			if start, ok := c.publishStarted.Load(receipt.ClientMsgId); ok {
-				c.publishStarted.Delete(receipt.ClientMsgId)
+			if start, ok := loadStarts.Load(receipt.ClientMsgId); ok {
+
 				c.recordReceipt(time.Since(start.(time.Time)).Seconds())
 				atomic.AddInt64(totalReceipts, 1)
 			}
@@ -590,6 +618,10 @@ func (c *client) pickReceiver(idx int, clients []*client) *client {
 
 func (c *client) recordAck(sec float64) {
 	c.ackLatencies = append(c.ackLatencies, sec*1000)
+}
+
+func (c *client) recordPush(sec float64) {
+	c.pushLatencies = append(c.pushLatencies, sec*1000)
 }
 
 func (c *client) recordReceipt(sec float64) {

@@ -49,7 +49,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		http: client.http, messages: client.Messages, clients: map[string]*ConversationClient{},
 	}
 	client.Groups = &GroupsResource{http: client.http}
-	client.Files = &FilesResource{baseURL: strings.TrimRight(cfg.BaseURL, "/"), client: cfg.HTTPClient, tokens: cfg.TokenSource, userAgent: cfg.UserAgent}
+	client.Files = &FilesResource{http: client.http}
 	client.Agents = &AgentsResource{http: client.http}
 	client.Models = &ModelsResource{http: client.http}
 	client.Quotas = &QuotasResource{http: client.http}

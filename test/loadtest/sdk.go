@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -12,11 +13,14 @@ import (
 	"nonoka-im/pkg/sdk"
 )
 
+var firstSDKError atomic.Bool
+
 type sdkUser struct {
-	id     int64
-	client *sdk.Client
-	events <-chan sdk.RealtimeEvent
-	cancel func()
+	id      int64
+	client  *sdk.Client
+	events  <-chan sdk.RealtimeEvent
+	cancel  func()
+	sendSem chan struct{}
 }
 
 type latencyCollector struct {
@@ -76,7 +80,7 @@ func runSDKLoad(wsURLs []string) {
 	ring := make([]*sdkUser, *users)
 	var authFailures, connectFailures int64
 	var setupWg sync.WaitGroup
-	setupSem := make(chan struct{}, 50)
+	setupSem := make(chan struct{}, 5)
 	for i := 0; i < *users; i++ {
 		setupWg.Add(1)
 		go func(idx int) {
@@ -86,12 +90,12 @@ func runSDKLoad(wsURLs []string) {
 
 			username := fmt.Sprintf("loaduser-%d-%d", idx, time.Now().UnixNano())
 			password := "loadtest-password"
-			if _, err := auth.Auth.Register(ctx, username, password); err != nil && !sdk.IsConflict(err) {
+			if err := sdkRegisterWithRetry(ctx, auth, username, password); err != nil {
 				fmt.Printf("sdk user %d register failed: %v\n", idx, err)
 				atomic.AddInt64(&authFailures, 1)
 				return
 			}
-			pair, err := auth.Auth.Login(ctx, username, password, "loadtest")
+			pair, err := sdkLoginWithRetry(ctx, auth, username, password)
 			if err != nil {
 				fmt.Printf("sdk user %d login failed: %v\n", idx, err)
 				atomic.AddInt64(&authFailures, 1)
@@ -101,8 +105,9 @@ func runSDKLoad(wsURLs []string) {
 				BaseURL:     *baseURL,
 				TokenSource: sdk.StaticToken(pair.Token),
 				Realtime: sdk.RealtimeConfig{
-					GatewayURLs: wsURLs,
-					DeviceID:    "loadtest-sdk",
+					GatewayURLs:    wsURLs,
+					DeviceID:       "loadtest-sdk",
+					DisableAutoAck: true,
 				},
 			})
 			if err != nil {
@@ -117,7 +122,10 @@ func runSDKLoad(wsURLs []string) {
 				return
 			}
 			events, cancel := client.Realtime.Subscribe()
-			ring[idx] = &sdkUser{id: pair.UserID, client: client, events: events, cancel: cancel}
+			ring[idx] = &sdkUser{
+				id: pair.UserID, client: client, events: events, cancel: cancel,
+				sendSem: make(chan struct{}, 2),
+			}
 		}(i)
 	}
 	setupWg.Wait()
@@ -169,6 +177,7 @@ func runSDKLoad(wsURLs []string) {
 	fmt.Println("Warming up...")
 	warmupCtx, warmupCancel := context.WithTimeout(eventCtx, *warmup)
 	var warmupWg sync.WaitGroup
+	var sendWG sync.WaitGroup
 	for i, user := range ring {
 		if user == nil {
 			continue
@@ -176,11 +185,16 @@ func runSDKLoad(wsURLs []string) {
 		warmupWg.Add(1)
 		go func(idx int, item *sdkUser) {
 			defer warmupWg.Done()
-			item.sendLoop(warmupCtx, idx, ring, groupTopic, true, collector, starts, &totalSent, &totalAcked, &sendFailures)
+			item.sendLoop(warmupCtx, idx, ring, groupTopic, true, collector, starts, &totalSent, &totalAcked, &sendFailures, &sendWG)
 		}(i, user)
 	}
 	warmupWg.Wait()
 	warmupCancel()
+	atomic.StoreInt64(&totalSent, 0)
+	atomic.StoreInt64(&totalAcked, 0)
+	atomic.StoreInt64(&totalPushed, 0)
+	atomic.StoreInt64(&totalReceipts, 0)
+	atomic.StoreInt64(&sendFailures, 0)
 	collector.reset()
 	starts.Range(func(key, _ any) bool { starts.Delete(key); return true })
 
@@ -194,10 +208,11 @@ func runSDKLoad(wsURLs []string) {
 		testWg.Add(1)
 		go func(idx int, item *sdkUser) {
 			defer testWg.Done()
-			item.sendLoop(testCtx, idx, ring, groupTopic, false, collector, starts, &totalSent, &totalAcked, &sendFailures)
+			item.sendLoop(testCtx, idx, ring, groupTopic, false, collector, starts, &totalSent, &totalAcked, &sendFailures, &sendWG)
 		}(i, user)
 	}
 	testWg.Wait()
+	sendWG.Wait()
 	testCancel()
 	time.Sleep(5 * time.Second)
 
@@ -260,7 +275,7 @@ func (u *sdkUser) eventLoop(ctx context.Context, collector *latencyCollector, st
 	}
 }
 
-func (u *sdkUser) sendLoop(ctx context.Context, idx int, ring []*sdkUser, groupTopic string, warmup bool, collector *latencyCollector, starts *sync.Map, totalSent, totalAcked, sendFailures *int64) {
+func (u *sdkUser) sendLoop(ctx context.Context, idx int, ring []*sdkUser, groupTopic string, warmup bool, collector *latencyCollector, starts *sync.Map, totalSent, totalAcked, sendFailures *int64, sendWG *sync.WaitGroup) {
 	interval := time.Duration(float64(time.Second) / *msgRate)
 	if interval <= 0 {
 		interval = time.Millisecond
@@ -290,10 +305,50 @@ func (u *sdkUser) sendLoop(ctx context.Context, idx int, ring []*sdkUser, groupT
 		if !warmup {
 			starts.Store(clientID, start)
 		}
+		if !warmup && *sdkPipeline {
+			select {
+			case u.sendSem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			atomic.AddInt64(totalSent, 1)
+			sendWG.Add(1)
+			go func() {
+				defer sendWG.Done()
+				defer func() { <-u.sendSem }()
+				sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				_, err := u.client.Messages.Send(sendCtx, sdk.SendRequest{
+					Topic: topic, Type: sdk.MessageTypeText, Content: content, ClientMessageID: clientID,
+				})
+				if err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						starts.Delete(clientID)
+						return
+					}
+					if firstSDKError.CompareAndSwap(false, true) {
+						fmt.Printf("sdk send error: %v\n", err)
+					}
+					atomic.AddInt64(sendFailures, 1)
+					starts.Delete(clientID)
+					return
+				}
+				atomic.AddInt64(totalAcked, 1)
+				collector.addAck(time.Since(start).Seconds())
+			}()
+			continue
+		}
 		_, err := u.client.Messages.Send(ctx, sdk.SendRequest{
 			Topic: topic, Type: sdk.MessageTypeText, Content: content, ClientMessageID: clientID,
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				starts.Delete(clientID)
+				return
+			}
+			if firstSDKError.CompareAndSwap(false, true) {
+				fmt.Printf("sdk send error: %v\n", err)
+			}
 			atomic.AddInt64(sendFailures, 1)
 			starts.Delete(clientID)
 			continue
@@ -380,4 +435,36 @@ func reconnectStorm(ctx context.Context, ring []*sdkUser, reconnects, failures *
 		}
 		cursor = (cursor + *reconnectUsers) % len(ring)
 	}
+}
+
+func sdkRegisterWithRetry(ctx context.Context, client *sdk.Client, username, password string) error {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		_, err := client.Auth.Register(ctx, username, password)
+		if err == nil || sdk.IsConflict(err) {
+			return nil
+		}
+		lastErr = err
+		if !sdk.Retryable(err) && !sdk.IsRateLimited(err) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return lastErr
+}
+
+func sdkLoginWithRetry(ctx context.Context, client *sdk.Client, username, password string) (*sdk.TokenPair, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		pair, err := client.Auth.Login(ctx, username, password, "loadtest")
+		if err == nil {
+			return pair, nil
+		}
+		lastErr = err
+		if !sdk.Retryable(err) && !sdk.IsRateLimited(err) {
+			return nil, err
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return nil, lastErr
 }

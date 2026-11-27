@@ -89,6 +89,49 @@ func New(baseURL string, client *http.Client, tokens TokenSource, userAgent stri
 	}
 }
 
+// Do sends an arbitrary HTTP request (multipart uploads, downloads, signed
+// URLs) through the same token injection and 401-refresh pipeline as JSON and
+// proto calls. The caller owns the response body.
+func (t *Client) Do(req *http.Request) (*http.Response, error) {
+	do := func(token string) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		if clone.Header == nil {
+			clone.Header = http.Header{}
+		}
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			clone.Body = body
+		}
+		if token != "" {
+			clone.Header.Set("Authorization", "Bearer "+token)
+		}
+		if t.UserAgent != "" {
+			clone.Header.Set("User-Agent", t.UserAgent)
+		}
+		return t.HTTPClient.Do(clone)
+	}
+	token, err := t.token(req.Context())
+	if err != nil {
+		return nil, err
+	}
+	resp, err := do(token)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.Tokens == nil {
+		return resp, err
+	}
+	if req.Body != nil && req.GetBody == nil {
+		return resp, nil
+	}
+	refreshed, refreshErr := t.refresh(req.Context())
+	if refreshErr != nil {
+		return resp, nil
+	}
+	resp.Body.Close()
+	return do(refreshed)
+}
+
 func (t *Client) DoJSON(ctx context.Context, method, path string, query url.Values, body any, out any, retry bool) error {
 	if t == nil || t.BaseURL == "" {
 		return fmt.Errorf("sdk: invalid configuration: base URL is required")

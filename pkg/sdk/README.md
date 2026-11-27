@@ -199,14 +199,14 @@ state machine lives in `pkg/sdk/internal/realtime`.
 `test/loadtest` can exercise the public SDK instead of a bare WebSocket:
 
 ```bash
-# SDK HTTP + WebSocket + receipts
-go run ./test/loadtest -mode sdk -users 300 -duration 60s -msg-rate 1
+# SDK HTTP + WebSocket + receipts (pipeline keeps 1 msg/s/user under load)
+go run ./test/loadtest -mode sdk -sdk-pipeline -users 300 -duration 60s -msg-rate 1
 
 # group fan-out
-go run ./test/loadtest -mode sdk -chat-mode group -users 100 -duration 60s
+go run ./test/loadtest -mode sdk -sdk-pipeline -chat-mode group -users 100 -duration 60s
 
 # reconnect storm (SDK mode only)
-go run ./test/loadtest -mode sdk -users 300 -duration 60s \
+go run ./test/loadtest -mode sdk -sdk-pipeline -users 300 -duration 60s \
   -reconnect-every 5s -reconnect-users 10
 
 # raw protocol baseline
@@ -215,3 +215,5 @@ go run ./test/loadtest -mode raw -users 300 -duration 60s -msg-rate 1
 
 `-msg-size` covers large-message runs; `-mode sdk` and `-mode raw` use the same
 ring topology so throughput, ACK, push and receipt metrics can be compared.
+The loadtest disables SDK auto-ack so the raw and SDK modes send the same number
+of protocol ACKs; production clients should leave auto-ack enabled.

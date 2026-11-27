@@ -43,6 +43,10 @@ func (t *apiTransport) doProto(ctx context.Context, method, path string, query u
 	return t.Client.DoProto(ctx, method, path, query, body, out)
 }
 
+func (t *apiTransport) doRequest(req *http.Request) (*http.Response, error) {
+	return t.Client.Do(req)
+}
+
 func decodeAPIError(resp *http.Response) error {
 	return transport.DecodeAPIError(resp)
 }
