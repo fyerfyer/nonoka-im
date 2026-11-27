@@ -285,6 +285,9 @@ func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Me
 			}
 			userIDs = append(userIDs, members...)
 		}
+		// The sender may have left the group after publishing; keep their own
+		// conversation summary consistent as well.
+		userIDs = append(userIDs, msg.SenderID)
 	} else {
 		userIDs = append(userIDs, msg.SenderID)
 		userIDs = append(userIDs, recipientIDs...)
