@@ -87,15 +87,41 @@ func (b *RunBroadcaster) assignSeq(ctx context.Context, event RunEvent) RunEvent
 	if b.Store != nil {
 		stored, err := b.Store.Append(ctx, event)
 		if err == nil {
+			b.mu.Lock()
+			b.local[event.RunID] = stored.Seq
+			b.pruneLocalLocked(event.RunID)
+			b.mu.Unlock()
 			return stored
 		}
 		b.log().Warnf("append run event: run_id=%d type=%s err=%v", event.RunID, event.Type, err)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// Continue from the last sequence observed from the store. Starting at 1
+	// after a Redis outage would make clients drop the events as duplicates.
 	b.local[event.RunID]++
 	event.Seq = b.local[event.RunID]
+	b.pruneLocalLocked(event.RunID)
 	return event
+}
+
+// pruneLocalLocked keeps the per-run fallback map bounded. Only used when the
+// event store is unavailable; dropping old finished runs is safe.
+func (b *RunBroadcaster) pruneLocalLocked(keep uint64) {
+	if len(b.local) <= 4096 {
+		return
+	}
+	removed := 0
+	for runID := range b.local {
+		if runID == keep {
+			continue
+		}
+		delete(b.local, runID)
+		removed++
+		if removed >= 1024 {
+			break
+		}
+	}
 }
 
 func (b *RunBroadcaster) log() *log.Helper {

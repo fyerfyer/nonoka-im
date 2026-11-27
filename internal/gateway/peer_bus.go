@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/proto"
 	v1 "nonoka-im/api/im/v1"
@@ -19,6 +20,7 @@ const peerFanoutChannel = "im:gateway:fanout"
 // The packet is serialized once by the publisher and broadcast locally by
 // each receiving gateway.
 type peerFanout struct {
+	Origin  string  `json:"origin"`
 	UserIDs []int64 `json:"user_ids"`
 	Data    []byte  `json:"data"`
 }
@@ -30,10 +32,12 @@ type peerFanout struct {
 type PeerBus struct {
 	redis   redis.UniversalClient
 	manager *Manager
+	origin  string
 	log     *log.Helper
 
 	mu       sync.Mutex
 	pubsub   *redis.PubSub
+	fanoutCh chan peerFanout
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
@@ -41,8 +45,9 @@ type PeerBus struct {
 
 func NewPeerBus(redisClient redis.UniversalClient, manager *Manager, logger log.Logger) *PeerBus {
 	return &PeerBus{
-		redis: redisClient, manager: manager,
+		redis: redisClient, manager: manager, origin: uuid.NewString(),
 		log: log.NewHelper(logger), stopCh: make(chan struct{}),
+		fanoutCh: make(chan peerFanout, 2048),
 	}
 }
 
@@ -59,8 +64,9 @@ func (b *PeerBus) Start(ctx context.Context) error {
 	}
 	b.pubsub = b.redis.Subscribe(ctx, peerFanoutChannel)
 	b.mu.Unlock()
-	b.wg.Add(1)
+	b.wg.Add(2)
 	go b.run(ctx)
+	go b.work(ctx)
 	return nil
 }
 
@@ -82,6 +88,31 @@ func (b *PeerBus) run(ctx context.Context) {
 				b.log.Warnf("decode gateway peer fanout: %v", err)
 				continue
 			}
+			if event.Origin == b.origin {
+				// The publisher already delivered to its local sessions.
+				continue
+			}
+			// Hand off to a bounded worker queue so a burst of slow client
+			// writes cannot stall the Redis pubsub reader and overflow its
+			// internal buffer.
+			select {
+			case b.fanoutCh <- event:
+			default:
+				b.log.Warnf("gateway peer fanout queue is full; dropping event for %d users", len(event.UserIDs))
+			}
+		}
+	}
+}
+
+func (b *PeerBus) work(ctx context.Context) {
+	defer b.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopCh:
+			return
+		case event := <-b.fanoutCh:
 			seen := make(map[int64]struct{}, len(event.UserIDs))
 			for _, userID := range event.UserIDs {
 				if userID <= 0 {
@@ -110,7 +141,7 @@ func (b *PeerBus) Publish(ctx context.Context, userIDs []int64, packet *v1.Packe
 	if err != nil {
 		return fmt.Errorf("marshal peer fanout packet: %w", err)
 	}
-	payload, err := json.Marshal(peerFanout{UserIDs: userIDs, Data: data})
+	payload, err := json.Marshal(peerFanout{Origin: b.origin, UserIDs: userIDs, Data: data})
 	if err != nil {
 		return fmt.Errorf("marshal peer fanout envelope: %w", err)
 	}

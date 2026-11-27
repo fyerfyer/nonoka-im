@@ -254,9 +254,31 @@ func (s *Store) SaveSystem(ctx context.Context, msg *domain.Message) ([]int64, b
 
 	if _, err := s.collection(CollectionInboxes).InsertOne(ctx, inbox, options.InsertOne()); err != nil {
 		if IsDuplicateError(err) {
-			s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
-				msg.GetClientMsgId(), msg.GetSenderId())
-			return []int64{targetUID}, true, nil
+			// A duplicate on (user_id, topic, topic_seq) can also be a seq
+			// collision rather than a retry. Only treat it as idempotent when
+			// the stored row is the same message.
+			var existing inboxMessageRow
+			check := s.collection(CollectionInboxes).FindOne(ctx, bson.M{
+				"user_id": targetUID, "topic": msg.GetTopic(), "topic_seq": topicSeq,
+			}).Decode(&existing)
+			clientID := msg.GetClientMsgId()
+			if check == nil && (existing.MsgID == msgID || (clientID != "" && existing.ClientMsgID == clientID)) {
+				s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
+					clientID, msg.GetSenderId())
+				return []int64{targetUID}, true, nil
+			}
+			if clientID != "" {
+				var byClient inboxMessageRow
+				if err := s.collection(CollectionInboxes).FindOne(ctx, bson.M{
+					"user_id": targetUID, "client_msg_id": clientID,
+				}).Decode(&byClient); err == nil && byClient.ClientMsgID == clientID {
+					s.log.Debugf("duplicate system message ignored: client_msg_id=%s, sender=%d",
+						clientID, msg.GetSenderId())
+					return []int64{targetUID}, true, nil
+				}
+			}
+			return nil, false, fmt.Errorf("insert system inbox message: conflicting duplicate topic=%s seq=%d msg_id=%d: %w",
+				msg.GetTopic(), topicSeq, msgID, err)
 		}
 		return nil, false, fmt.Errorf("insert system inbox message: %w", err)
 	}

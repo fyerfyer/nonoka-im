@@ -304,21 +304,22 @@ import (
     "fmt"
     "time"
 
-    v1 "nonoka-im/api/im/v1"
     "nonoka-im/pkg/sdk"
 )
 
-client := sdk.NewClient(sdk.Options{
-    GatewayURL:        "ws://localhost:8000/ws",
-    Token:             "<jwt-token>",
-    DeviceID:          "device-1",
-    HeartbeatInterval: 30 * time.Second,
-    AutoReconnect:     true,
-    AutoAck:           true,
-    OnMessage: func(msg *sdk.Message) {
-        fmt.Printf("收到消息: %s\n", string(msg.Content))
-    },
+rt := sdk.DefaultRealtimeConfig()
+rt.GatewayURLs = []string{"ws://localhost:8000/ws"}
+rt.DeviceID = "device-1"
+
+client, err := sdk.New(sdk.Config{
+    BaseURL:     "http://localhost:8000",
+    TokenSource: sdk.StaticToken("<jwt-token>"),
+    Realtime:    rt,
 })
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
 
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
@@ -326,11 +327,17 @@ if err := client.Connect(ctx); err != nil {
     log.Fatal(err)
 }
 
-result, err := client.SendMessage(ctx, "p2p_1_2", v1.MsgType_MSG_TYPE_TEXT, []byte("你好!"))
+conv := client.Conversations.Get(sdk.P2PTopic(1, 2))
+conv.SetOnMessage(func(msg *sdk.Message) {
+    fmt.Printf("收到消息: %s\n", string(msg.Content))
+})
+
+result, err := conv.SendText(ctx, "你好!")
 if err != nil {
     log.Fatal(err)
 }
-fmt.Printf("发送成功: msg_id=%d topic_seq=%d\n", result.MsgID, result.TopicSeq)
+fmt.Printf("发送成功: msg_id=%d topic_seq=%d confirmed=%v\n",
+    result.MessageID, result.TopicSeq, result.Confirmed)
 ```
 
 更多选项与 API 参考见 [pkg/sdk/README.md](pkg/sdk/README.md)。

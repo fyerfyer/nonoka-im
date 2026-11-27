@@ -148,8 +148,9 @@ func (s *DeliveryService) deliver(ctx context.Context, delivery *domain.Delivery
 		_ = s.Store.MarkWebhookSuccess(ctx, delivery.BotID)
 		return nil
 	case resp.StatusCode == http.StatusGone:
-		_ = s.Store.MarkWebhookFailure(ctx, delivery.BotID, true)
-		return s.fail(ctx, delivery, resp.StatusCode, "endpoint returned 410 gone", resp.Snippet)
+		// Only disable the webhook after the attempt-fenced write succeeds.
+		// A stale worker must not mutate a webhook owned by a newer attempt.
+		return s.failWith(ctx, delivery, resp.StatusCode, "endpoint returned 410 gone", resp.Snippet, true)
 	default:
 		return s.retry(ctx, delivery, resp.StatusCode, fmt.Sprintf("webhook status %d", resp.StatusCode), resp.Snippet, resp.RetryAfter)
 	}
@@ -188,10 +189,14 @@ func (s *DeliveryService) retry(ctx context.Context, delivery *domain.Delivery, 
 }
 
 func (s *DeliveryService) fail(ctx context.Context, delivery *domain.Delivery, statusCode int, message, snippet string) error {
+	return s.failWith(ctx, delivery, statusCode, message, snippet, false)
+}
+
+func (s *DeliveryService) failWith(ctx context.Context, delivery *domain.Delivery, statusCode int, message, snippet string, disableWebhook bool) error {
 	if err := s.Store.MarkDeliveryFailed(ctx, delivery.ID, delivery.Attempts, statusCode, truncate(message, maxResponseSnippet), snippet); err != nil {
 		return err
 	}
-	_ = s.Store.MarkWebhookFailure(ctx, delivery.BotID, false)
+	_ = s.Store.MarkWebhookFailure(ctx, delivery.BotID, disableWebhook)
 	s.log().Warnf("bot webhook delivery failed permanently: bot_id=%d delivery_id=%d status=%d err=%s",
 		delivery.BotID, delivery.ID, statusCode, message)
 	return nil

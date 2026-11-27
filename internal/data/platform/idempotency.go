@@ -109,6 +109,13 @@ func (s *IdempotencyStore) Begin(ctx context.Context, userID int64, key, fingerp
 	return out, acquired, err
 }
 
+// Refresh extends the in-progress lock for a long-running handler.
+func (s *IdempotencyStore) Refresh(ctx context.Context, userID int64, key, fingerprint string, lockUntil time.Time) error {
+	return s.db.WithContext(ctx).Model(&IdempotencyKey{}).
+		Where("scope_user_id = ? AND key = ? AND fingerprint = ? AND status = ?", userID, key, fingerprint, "in_progress").
+		Update("locked_until", lockUntil).Error
+}
+
 // Complete stores the response of the winning request. A completion for a
 // key that was taken over by another attempt is a no-op.
 func (s *IdempotencyStore) Complete(ctx context.Context, userID int64, key, fingerprint string, code int, body []byte) error {

@@ -179,6 +179,8 @@ type RetryQueue interface {
 type FileStore interface {
 	Put(ctx context.Context, file FileObject) error
 	Get(ctx context.Context, fileID string) (FileObject, error)
+	// GetMeta loads metadata only (no attachment body).
+	GetMeta(ctx context.Context, fileID string) (FileObject, error)
 }
 
 // FileObject is one attachment document.

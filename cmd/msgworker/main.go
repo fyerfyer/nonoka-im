@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -117,7 +118,7 @@ func main() {
 	gatewayAddrs := make([]string, 0, 2)
 	for _, addr := range strings.Split(gatewayAddr, ",") {
 		if addr = strings.TrimSpace(addr); addr != "" {
-			gatewayAddrs = append(gatewayAddrs, addr)
+			gatewayAddrs = append(gatewayAddrs, normalizePushAddr(addr))
 		}
 	}
 	if len(gatewayAddrs) == 0 {
@@ -147,9 +148,11 @@ func main() {
 	seqGen.SetFloor(func(ctx context.Context, topic string) (uint64, error) {
 		return storage.GetTopicMaxSeq(ctx, topic)
 	})
+	seqGen.SetAllocator(storage)
 	storage.SetRedis(redisClient)
 
 	nodeID := int64(1)
+	var lease *seq.NodeLease
 	if raw := strings.TrimSpace(os.Getenv("MSG_ID_NODE_ID")); raw != "" {
 		if parsed, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && parsed >= 0 && parsed < 1024 {
 			nodeID = parsed
@@ -158,7 +161,8 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		lease, leaseErr := seq.AcquireNodeID(ctx, redisClient, fmt.Sprintf("%s:%d", mustHostname(), os.Getpid()), logger)
+		var leaseErr error
+		lease, leaseErr = seq.AcquireNodeID(ctx, redisClient, fmt.Sprintf("%s:%d", mustHostname(), os.Getpid()), logger)
 		if leaseErr != nil {
 			logger.Log(log.LevelFatal, "msg", fmt.Sprintf("allocate snowflake node id: %v", leaseErr))
 			os.Exit(1)
@@ -235,6 +239,13 @@ func main() {
 		probeAddr = "0.0.0.0:18001"
 	}
 	probe := server.NewProbeServer("msgworker", probeAddr, m.Handler(), func(ctx context.Context) error {
+		if lease != nil {
+			select {
+			case <-lease.Lost():
+				return fmt.Errorf("snowflake node lease lost")
+			default:
+			}
+		}
 		if !worker.Ready() {
 			return fmt.Errorf("kafka consumer not ready")
 		}
@@ -254,6 +265,18 @@ func main() {
 		kratos.Logger(logger),
 		kratos.Server(worker, probe),
 	)
+	if lease != nil {
+		// A lost lease means another process may reuse this node ID. Stop
+		// generating IDs immediately instead of risking silent collisions.
+		go func() {
+			select {
+			case <-lease.Lost():
+				logger.Log(log.LevelError, "msg", "snowflake node lease lost; stopping msgworker")
+				_ = application.Stop()
+			case <-ctx.Done():
+			}
+		}()
+	}
 	if err := application.Run(); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("msgworker error: %v", err))
 		os.Exit(1)
@@ -338,4 +361,18 @@ func mustHostname() string {
 		return "msgworker-0"
 	}
 	return h
+}
+
+// normalizePushAddr turns a server listen address into a dialable one. The
+// configured grpc.addr is 0.0.0.0:9002 for the gateway, which cannot be used
+// as a dial target by a co-located worker.
+func normalizePushAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }

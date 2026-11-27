@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"runtime"
 	"strconv"
 	"sync"
@@ -244,8 +245,19 @@ func (c *Consumer) Start(ctx context.Context) error {
 // Started reports whether Start has been called.
 func (c *Consumer) Started() bool { return c.started.Load() }
 
-// Ready reports whether at least one message has been read successfully.
-func (c *Consumer) Ready() bool { return c.ready.Load() }
+// Ready reports whether the consumer has connected to Kafka. It must not wait
+// for the first message: an idle topic would otherwise keep the worker
+// permanently unready. Fetches becomes non-zero after the reader reaches the
+// broker, even when the topic is empty.
+func (c *Consumer) Ready() bool {
+	if !c.started.Load() {
+		return false
+	}
+	if c.ready.Load() {
+		return true
+	}
+	return c.reader != nil && c.reader.Stats().Fetches > 0
+}
 
 func (c *Consumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 	defer func() {
@@ -299,12 +311,16 @@ func (c *Consumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 			}
 			// Only append to pending commits if the message was fully processed
 			// (successfully or moved to DLQ). If processing was interrupted by
-			// shutdown/context cancellation, do not commit so it will be redelivered.
-			if c.handleMessage(ctx, msg) {
-				pending = append(pending, msg)
-				if len(pending) >= c.commitBatchSize {
-					commit(ctx)
-				}
+			// shutdown/context cancellation, do not commit so it will be
+			// redelivered. Stop the loop: continuing could process a later
+			// offset and commit past the skipped message.
+			if !c.handleMessage(ctx, msg) {
+				commitOnShutdown()
+				return
+			}
+			pending = append(pending, msg)
+			if len(pending) >= c.commitBatchSize {
+				commit(ctx)
 			}
 		}
 	}
@@ -318,6 +334,18 @@ func (c *Consumer) isStopped() bool { return c.stopped.Load() }
 func isShutdownError(err error) bool {
 	return err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF)
+}
+
+// isTransientHandlerError classifies infrastructure timeouts separately from
+// poison messages. Handlers wrap database/network calls with the per-attempt
+// context, so a failover longer than HandlerTimeout appears here as a
+// DeadlineExceeded error.
+func isTransientHandlerError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
 }
 
 // handleMessage invokes the handler with local retries and routes persistent
@@ -340,10 +368,31 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 		if lastErr == nil {
 			return true
 		}
-		if errors.Is(lastErr, context.Canceled) || c.isStopped() {
+		if c.isStopped() || (errors.Is(lastErr, context.Canceled) && ctx.Err() != nil) {
 			// The handler refused the message because shutdown started. Leave
 			// the offset uncommitted so Kafka redelivers it after restart.
 			return false
+		}
+		if isTransientHandlerError(lastErr) {
+			// Mongo/Redis failovers often surface as deadline/network errors.
+			// Treating those as poison after three sub-second retries moves
+			// valid traffic to the DLQ, which no worker consumes.
+			c.log.Warnf("transient handler error; retrying without consuming poison budget: key=%s err=%v", string(msg.Key), lastErr)
+			backoff := c.retryBackoff
+			if backoff < time.Second {
+				backoff = time.Second
+			}
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+			select {
+			case <-time.After(backoff):
+				continue
+			case <-ctx.Done():
+				return false
+			case <-c.stopCh:
+				return false
+			}
 		}
 
 		c.log.Warnf("handle message failed: attempt=%d/%d key=%s err=%v",
@@ -412,12 +461,21 @@ func (c *Consumer) sendToDLQ(ctx context.Context, msg kafka.Message, retryCount 
 		Headers: dlqHeaders,
 	}
 
-	if err := c.dlqWriter.WriteMessages(ctx, dlqMsg); err != nil {
-		c.log.Errorf("send to DLQ failed: key=%s err=%v", string(msg.Key), err)
-		return err
+	for {
+		err := c.dlqWriter.WriteMessages(ctx, dlqMsg)
+		if err == nil {
+			c.log.Warnf("message sent to DLQ: key=%s retry_count=%d", string(msg.Key), retryCount)
+			return nil
+		}
+		c.log.Errorf("send to DLQ failed; will retry: key=%s err=%v", string(msg.Key), err)
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.stopCh:
+			return fmt.Errorf("consumer stopped while sending to DLQ")
+		}
 	}
-	c.log.Warnf("message sent to DLQ: key=%s retry_count=%d", string(msg.Key), retryCount)
-	return nil
 }
 
 // getRetryCount extracts the retry count from message headers.

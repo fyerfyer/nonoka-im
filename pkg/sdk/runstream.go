@@ -53,6 +53,10 @@ func (r *RunsResource) Stream(ctx context.Context, runID uint64) *RunStream {
 			s.closed = true
 			s.mu.Unlock()
 			close(s.events)
+			// Release the derived context once the stream is terminal.
+			if s.cancel != nil {
+				s.cancel()
+			}
 		})
 	}
 	go func() {

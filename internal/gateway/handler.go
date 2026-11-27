@@ -48,6 +48,9 @@ type Handler struct {
 	msgRate  float64
 	msgBurst int
 	limiters sync.Map
+
+	// receiptSem bounds async ACK/read receipt processing.
+	receiptSem chan struct{}
 }
 
 // HeartbeatConfig holds heartbeat-related configuration.
@@ -72,6 +75,7 @@ func NewHandler(manager *Manager, sessionManager *SessionManager, messages *imap
 		recallWindow:      2 * time.Minute,
 		msgRate:           defaultMsgRatePerSec,
 		msgBurst:          defaultMsgBurst,
+		receiptSem:        make(chan struct{}, 512),
 		log:               log.NewHelper(logger),
 	}
 	if len(m) > 0 {
@@ -144,15 +148,15 @@ func (h *Handler) fanoutToUsers(ctx context.Context, userIDs []int64, packet *v1
 		seen[id] = struct{}{}
 		unique = append(unique, id)
 	}
-	if h.peerBus != nil {
-		if err := h.peerBus.Publish(ctx, unique, packet); err == nil {
-			return
-		} else {
-			h.log.Warnf("gateway peer fanout failed, falling back locally: %v", err)
-		}
-	}
+	// Deliver locally first. A publish that succeeds before the local Redis
+	// subscription is ready must not lose this gateway's own sessions.
 	for _, id := range unique {
 		h.manager.BroadcastToUser(id, packet)
+	}
+	if h.peerBus != nil {
+		if err := h.peerBus.Publish(ctx, unique, packet); err != nil {
+			h.log.Warnf("gateway peer fanout failed for remote sessions: %v", err)
+		}
 	}
 }
 

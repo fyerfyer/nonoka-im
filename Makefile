@@ -147,7 +147,7 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running Kafka Tests              ==="
 	@echo "========================================"
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka' -count=1 -timeout 300s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestGateway_Kafka|TestKafkaConsumer_' -count=1 -timeout 300s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Agent Tests              ==="
 	@echo "========================================"
@@ -167,7 +167,7 @@ test: test-deps-up
 	@echo "\n========================================"
 	@echo "=== Running IM Core + SDK Tests      ==="
 	@echo "========================================"
-	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestMsgWorker|TestStorage|TestMessageSearch|TestSDK' -count=1 -timeout 600s || { $(MAKE) test-deps-down; exit 1; }
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestMsgWorker|TestStorage|TestMessageSearch|TestSDK|TestSeq_' -count=1 -timeout 600s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"

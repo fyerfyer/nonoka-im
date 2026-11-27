@@ -28,9 +28,10 @@ var ErrDenied = errors.New("access denied")
 type OpenFGA struct {
 	client *fgaclient.OpenFgaClient
 
-	cacheMu  sync.RWMutex
-	cache    map[string]cachedCheck
-	cacheTTL time.Duration
+	cacheMu   sync.RWMutex
+	cache     map[string]cachedCheck
+	cacheTTL  time.Duration
+	lastPrune time.Time
 }
 
 type cachedCheck struct {
@@ -209,15 +210,16 @@ func (a *OpenFGA) check(ctx context.Context, subject, relation, object string) e
 		ttl = 30 * time.Second
 	}
 	a.cacheMu.Lock()
-	if len(a.cache) > 100000 {
-		now := time.Now()
+	now := time.Now()
+	if a.lastPrune.IsZero() || now.Sub(a.lastPrune) > ttl {
 		for k, entry := range a.cache {
 			if now.After(entry.expires) {
 				delete(a.cache, k)
 			}
 		}
+		a.lastPrune = now
 	}
-	a.cache[key] = cachedCheck{allowed: allowed, expires: time.Now().Add(ttl)}
+	a.cache[key] = cachedCheck{allowed: allowed, expires: now.Add(ttl)}
 	a.cacheMu.Unlock()
 	if !allowed {
 		return ErrDenied

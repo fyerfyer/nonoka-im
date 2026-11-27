@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // CollectionFiles stores message attachments as single documents.
@@ -49,6 +50,24 @@ func (s *FileStore) Get(ctx context.Context, fileID string) (app.FileObject, err
 	return app.FileObject{
 		ID: row.ID, Name: row.Name, Mime: row.Mime, Size: row.Size,
 		OwnerID: row.OwnerID, Data: row.Data, CreatedAt: row.CreatedAt,
+	}, nil
+}
+
+// GetMeta loads attachment metadata without the file body. Sharing and
+// authorization checks must not pull a large attachment into memory.
+func (s *FileStore) GetMeta(ctx context.Context, fileID string) (app.FileObject, error) {
+	var row fileRow
+	err := s.db.Collection(CollectionFiles).FindOne(ctx, bson.M{"_id": fileID},
+		options.FindOne().SetProjection(bson.M{"data": 0})).Decode(&row)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return app.FileObject{}, app.ErrFileNotFound
+		}
+		return app.FileObject{}, err
+	}
+	return app.FileObject{
+		ID: row.ID, Name: row.Name, Mime: row.Mime, Size: row.Size,
+		OwnerID: row.OwnerID, CreatedAt: row.CreatedAt,
 	}, nil
 }
 

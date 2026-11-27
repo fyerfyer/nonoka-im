@@ -48,6 +48,8 @@ type GatewayRegistry struct {
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	lastReconcile time.Time
 }
 
 // NewGatewayRegistry creates a new registry for this gateway node.
@@ -127,7 +129,52 @@ func (r *GatewayRegistry) reportOnce() error {
 	pipe.Expire(ctx, gatewayNodesKey, r.ttl*2)
 
 	_, err := pipe.Exec(ctx)
+	if err == nil && (r.lastReconcile.IsZero() || time.Since(r.lastReconcile) > r.ttl) {
+		r.lastReconcile = time.Now()
+		r.pruneStaleNodes(ctx)
+	}
 	return err
+}
+
+// pruneStaleNodes removes node IDs whose heartbeat expired. The set is only
+// pruned when nodes unregister cleanly; a crashed node would otherwise keep
+// its ID forever and make every push scan it.
+func (r *GatewayRegistry) pruneStaleNodes(ctx context.Context) {
+	if r.ttl <= 0 {
+		return
+	}
+	ids, err := r.redis.SMembers(ctx, gatewayNodesKey).Result()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	stale := make([]string, 0)
+	for _, id := range ids {
+		if id == r.nodeID {
+			continue
+		}
+		values, err := r.redis.HGetAll(ctx, fmt.Sprintf(gatewayNodeKey, id)).Result()
+		if err != nil {
+			continue
+		}
+		heartbeat, _ := strconv.ParseInt(values["heartbeat"], 10, 64)
+		if heartbeat == 0 || now.Sub(time.Unix(heartbeat, 0)) > r.ttl {
+			stale = append(stale, id)
+		}
+	}
+	if len(stale) == 0 {
+		return
+	}
+	pipe := r.redis.Pipeline()
+	args := make([]interface{}, len(stale))
+	for i, id := range stale {
+		args[i] = id
+		pipe.Del(ctx, fmt.Sprintf(gatewayNodeKey, id))
+	}
+	pipe.SRem(ctx, gatewayNodesKey, args...)
+	if _, err := pipe.Exec(ctx); err != nil {
+		r.log.Warnf("prune stale gateway nodes: %v", err)
+	}
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.

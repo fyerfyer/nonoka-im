@@ -79,6 +79,63 @@ func TestWebhookVerifiesAndDeduplicates(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestWebhookRejectsInFlightDuplicateWithoutAck(t *testing.T) {
+	secretBytes := []byte(strings.Repeat("s", 32))
+	secret := "whsec_" + base64.StdEncoding.EncodeToString(secretBytes)
+	webhook, err := NewWebhook(WebhookConfig{Secret: secret, Deduper: NewMemoryDeduper(time.Hour, 100)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	webhook.OnMention(func(context.Context, *Event) error {
+		close(started)
+		<-release
+		return nil
+	})
+	body, _ := json.Marshal(Event{
+		SpecVersion: "1", ID: "evt_inflight", Type: EventMessageMention,
+		Data: EventData{Message: &EventMessage{ID: "10", Topic: "grp_1", Content: "hello"}},
+	})
+	handler := httptest.NewServer(webhook)
+	defer handler.Close()
+
+	send := func() *http.Response {
+		timestamp := time.Now().Unix()
+		req, _ := http.NewRequest(http.MethodPost, handler.URL, strings.NewReader(string(body)))
+		req.Header.Set("webhook-id", "evt_inflight")
+		req.Header.Set("webhook-timestamp", strconv.FormatInt(timestamp, 10))
+		req.Header.Set("webhook-signature", "v1,"+signTest(secretBytes, "evt_inflight", timestamp, body))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+			return nil
+		}
+		return resp
+	}
+
+	firstDone := make(chan *http.Response, 1)
+	go func() { firstDone <- send() }()
+	<-started
+	second := send()
+	if second == nil {
+		t.Fatal("duplicate request failed")
+	}
+	if second.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("in-flight duplicate status = %d, want 503", second.StatusCode)
+	}
+	second.Body.Close()
+	close(release)
+	first := <-firstDone
+	if first == nil {
+		t.Fatal("first request failed")
+	}
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first delivery status = %d, want 200", first.StatusCode)
+	}
+	first.Body.Close()
+}
+
 func TestClientSendRetriesWithStableIDAndReceipt(t *testing.T) {
 	var calls atomic.Int32
 	var firstID string

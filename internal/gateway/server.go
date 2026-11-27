@@ -73,8 +73,9 @@ func (s *WebSocketServer) buildCheckOrigin(allowedOrigins []string) func(r *http
 	return func(r *http.Request) bool {
 		origin := strings.ToLower(r.Header.Get("Origin"))
 		if origin == "" {
-			// No Origin header provided; reject unless explicitly allowed.
-			return false
+			// Browsers always send Origin. Native/SDK clients authenticate
+			// with a JWT after connecting, so an absent Origin is allowed.
+			return true
 		}
 		for _, a := range allowed {
 			// Exact match only. HasSuffix("...evil.com", "example.com")

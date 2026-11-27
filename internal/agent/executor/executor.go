@@ -94,6 +94,7 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 		defer close(hbDone)
 		ticker := time.NewTicker(e.heartbeatInterval())
 		defer ticker.Stop()
+		var firstFailure time.Time
 		for {
 			select {
 			case <-ctx.Done():
@@ -101,9 +102,21 @@ func (e *Executor) ExecuteRun(parent context.Context, runID uint64) {
 			case <-ticker.C:
 				ok, err := e.Store.Heartbeat(ctx, run.ID, run.AttemptID, e.Lease)
 				if err != nil {
+					if firstFailure.IsZero() {
+						firstFailure = time.Now()
+					}
 					e.log().Warnf("heartbeat run %d: %v", run.ID, err)
+					// If the database stays unreachable for a full lease the
+					// sweeper may requeue this run. Stop before another worker
+					// can execute the same tools.
+					if e.Lease > 0 && time.Since(firstFailure) >= e.Lease {
+						e.log().Errorf("run %d could not heartbeat for %s; cancelling execution", run.ID, e.Lease)
+						cancel()
+						return
+					}
 					continue
 				}
+				firstFailure = time.Time{}
 				if !ok {
 					e.log().Warnf("run %d lost its lease; cancelling execution", run.ID)
 					cancel()

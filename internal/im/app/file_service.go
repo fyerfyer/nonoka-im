@@ -129,5 +129,14 @@ func (s *FileService) ShareToTopic(ctx context.Context, userID int64, msgType do
 	if strings.ContainsAny(fileID, "/?#") {
 		return
 	}
+	// The sender-supplied file_id is not a proof of ownership. Without this
+	// check a user who can merely read a file could re-share it into any
+	// topic they can write to.
+	if s.Store != nil {
+		file, err := s.Store.GetMeta(ctx, fileID)
+		if err != nil || file.OwnerID != userID {
+			return
+		}
+	}
 	_ = s.Authorizer.SetFileSharedTopic(ctx, fileID, topic, true)
 }

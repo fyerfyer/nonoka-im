@@ -172,7 +172,9 @@ func (w *Webhook) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w.mu.Lock()
 	if _, running := w.inFlight[eventID]; running {
 		w.mu.Unlock()
-		rw.WriteHeader(http.StatusOK)
+		// Acknowledging a duplicate before the first handler finishes would
+		// lose the event if that handler fails. Ask the sender to retry.
+		http.Error(rw, "event is already being processed", http.StatusServiceUnavailable)
 		return
 	}
 	w.inFlight[eventID] = struct{}{}

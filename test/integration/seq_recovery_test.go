@@ -29,6 +29,49 @@ func TestSeq_NodeLeaseIsExclusive(t *testing.T) {
 	}
 }
 
+func TestSeq_NodeLeaseLossIsReported(t *testing.T) {
+	redisClient := setupTestRedis(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lease, err := seq.AcquireNodeID(ctx, redisClient, "test-holder-lost", testLogger)
+	if err != nil {
+		t.Fatalf("lease: %v", err)
+	}
+	defer lease.Release(context.Background())
+	key := fmt.Sprintf("im:msgid:node:%d", lease.ID)
+	if err := redisClient.Set(ctx, key, "another-process", time.Minute).Err(); err != nil {
+		t.Fatalf("steal lease: %v", err)
+	}
+	go lease.KeepAlive(ctx, 10*time.Millisecond)
+	select {
+	case <-lease.Lost():
+	case <-time.After(2 * time.Second):
+		t.Fatal("lease loss was not reported; worker would keep generating colliding ids")
+	}
+}
+
+func TestSeq_MongoAllocatorRangesAreUnique(t *testing.T) {
+	worker, _, cleanup := setupMsgWorker(t)
+	defer cleanup()
+	ctx := context.Background()
+	storage := worker.Storage()
+	topic := "p2p_1_2-seqallocator"
+	first, last, err := storage.AllocateRange(ctx, topic, 2, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != 6 || last != 7 {
+		t.Fatalf("first range = [%d,%d], want [6,7]", first, last)
+	}
+	first, last, err = storage.AllocateRange(ctx, topic, 2, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != 8 || last != 9 {
+		t.Fatalf("second range = [%d,%d], want [8,9]", first, last)
+	}
+}
+
 // TestSeq_RecoversFromDurableFloorAfterRedisLoss simulates an evicted Redis
 // sequence key. The first allocation after the loss must start above MongoDB's
 // durable high-water mark instead of restarting at 1.

@@ -72,9 +72,10 @@ type GatewayRouter struct {
 
 	// sessionCache holds a local L1 cache from userID -> node IDs.
 	// It is invalidated via Redis Pub/Sub session change events and TTL.
-	sessionCache    map[int64]*sessionCacheEntry
-	sessionCacheMu  sync.RWMutex
-	sessionCacheTTL time.Duration
+	sessionCache     map[int64]*sessionCacheEntry
+	sessionCacheMu   sync.RWMutex
+	sessionCacheTTL  time.Duration
+	lastSessionPrune time.Time
 
 	// pubsub lifecycle
 	pubsub   *redis.PubSub
@@ -191,12 +192,15 @@ func (r *GatewayRouter) getCachedSession(userID int64) ([]string, bool) {
 func (r *GatewayRouter) setCachedSession(userID int64, nodeIDs []string) {
 	now := time.Now()
 	r.sessionCacheMu.Lock()
-	if len(r.sessionCache) > 100000 {
+	// Expired entries otherwise survive forever until the map exceeds the
+	// hard cap. Prune periodically instead of only on overflow.
+	if r.lastSessionPrune.IsZero() || now.Sub(r.lastSessionPrune) > r.sessionCacheTTL {
 		for key, entry := range r.sessionCache {
 			if entry == nil || now.After(entry.expires) {
 				delete(r.sessionCache, key)
 			}
 		}
+		r.lastSessionPrune = now
 	}
 	r.sessionCache[userID] = &sessionCacheEntry{
 		nodeIDs: nodeIDs,

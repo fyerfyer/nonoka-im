@@ -27,6 +27,8 @@ type IdempotencyStore interface {
 	Begin(ctx context.Context, userID int64, key, fingerprint string, lockUntil time.Time) (record IdempotencyRecord, acquired bool, err error)
 	// Complete stores the response of the winning request.
 	Complete(ctx context.Context, userID int64, key, fingerprint string, code int, body []byte) error
+	// Refresh extends the in-progress lock while a long handler is running.
+	Refresh(ctx context.Context, userID int64, key, fingerprint string, lockUntil time.Time) error
 }
 
 var ErrIdempotencyMismatch = errors.New("idempotency key reused with a different request")
@@ -91,6 +93,26 @@ func (m *Idempotency) Execute(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 
 	rec := newRecorder(w)
+	refreshDone := make(chan struct{})
+	go func() {
+		interval := lock / 3
+		if interval < time.Second {
+			interval = time.Second
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-refreshDone:
+				return
+			case <-ticker.C:
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_ = m.Store.Refresh(refreshCtx, userID, key, fingerprint, time.Now().Add(lock))
+				cancel()
+			}
+		}
+	}()
+	defer close(refreshDone)
 	handlerErr := fn(rec)
 	if handlerErr != nil {
 		Write(rec, ctx, handlerErr)

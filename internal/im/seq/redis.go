@@ -26,6 +26,13 @@ type seqRange struct {
 // Redis key can never restart the sequence below persisted messages.
 type RangeFloor func(ctx context.Context, topic string) (uint64, error)
 
+// RangeAllocator is a durable, process-safe range allocator (Mongo in
+// production). It must never return the same range twice, even if Redis or a
+// local process cache is lost.
+type RangeAllocator interface {
+	AllocateRange(ctx context.Context, topic string, size int, floor uint64) (first, last uint64, err error)
+}
+
 const allocateRangeScript = `
 local created = 0
 if redis.call('exists', KEYS[1]) == 0 then created = 1 end
@@ -48,6 +55,7 @@ type Generator struct {
 	batchSize int
 	ranges    sync.Map
 	floor     RangeFloor
+	allocator RangeAllocator
 }
 
 func New(redis redis.UniversalClient, logger log.Logger) *Generator {
@@ -60,12 +68,39 @@ func (g *Generator) SetFloor(floor RangeFloor) {
 	g.floor = floor
 }
 
+// SetAllocator switches range allocation from Redis to a durable allocator.
+// Production uses MongoDB so a lost Redis key cannot race a live local cache.
+func (g *Generator) SetAllocator(allocator RangeAllocator) {
+	g.allocator = allocator
+}
+
 func (g *Generator) NextSeq(ctx context.Context, topic string) (uint64, error) {
 	raw, _ := g.ranges.LoadOrStore(topic, &seqRange{})
 	sr := raw.(*seqRange)
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 	if sr.next > 0 && sr.next <= sr.max {
+		value := sr.next
+		sr.next++
+		return value, nil
+	}
+	if g.allocator != nil {
+		var floor uint64
+		if g.floor != nil {
+			value, ferr := g.floor(ctx, topic)
+			if ferr != nil {
+				return 0, fmt.Errorf("load durable seq floor for topic %s: %w", topic, ferr)
+			}
+			floor = value
+		}
+		first, last, aerr := g.allocator.AllocateRange(ctx, topic, g.batchSize, floor)
+		if aerr != nil {
+			return 0, fmt.Errorf("allocate durable seq range for topic %s: %w", topic, aerr)
+		}
+		if last < first || first == 0 {
+			return 0, fmt.Errorf("durable seq allocator returned invalid range [%d,%d] for topic %s", first, last, topic)
+		}
+		sr.max, sr.next = last, first
 		value := sr.next
 		sr.next++
 		return value, nil

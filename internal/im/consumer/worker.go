@@ -170,14 +170,20 @@ func (w *Worker) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Ready reports whether the Kafka consumer has received its first message.
+// Ready reports whether the worker has started and its Kafka consumer has
+// connected (or already delivered a message).
 func (w *Worker) Ready() bool {
-	return w.started.Load() && w.Consumer != nil && w.Consumer.Started()
+	return w.started.Load() && w.Consumer != nil && w.Consumer.Ready()
 }
 
 func (w *Worker) pushLoop(ctx context.Context, shard chan deliveryTask) {
 	defer w.pushWg.Done()
 	deliver := func(task deliveryTask) {
+		defer func() {
+			if r := recover(); r != nil {
+				w.Log.Errorf("push panic recovered: %v", r)
+			}
+		}()
 		pushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if w.Push != nil {
 			w.Push.Deliver(pushCtx, task.result)

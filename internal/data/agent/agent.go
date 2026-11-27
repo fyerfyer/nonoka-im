@@ -330,6 +330,7 @@ func (s *Store) SweepStaleRuns(ctx context.Context, maxAttempts int) (requeued, 
 		Where("status = ? AND attempts >= ? AND (lease_until IS NULL OR lease_until < now()) AND side_effect_at IS NULL", domain.RunRunning, maxAttempts).
 		Updates(map[string]interface{}{
 			"status": domain.RunFailed, "error_code": "lease_expired", "error_class": "transient_infra",
+			"last_error":  "agent run exhausted retry attempts after worker lease expiry",
 			"finished_at": time.Now(), "attempt_id": "", "lease_until": nil,
 		})
 	if res.Error != nil {

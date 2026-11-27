@@ -93,6 +93,7 @@ func (s *PushService) deliverP2POrSystem(ctx context.Context, msg *domain.Messag
 		if len(recipients) > 0 {
 			if _, failed, err := s.Pusher.BatchPushToUsers(ctx, recipients, push); err != nil {
 				s.log().Warnf("push to online users failed: %v", err)
+				s.handleFailedPushes(ctx, recipients, push)
 			} else {
 				s.handleFailedPushes(ctx, failed, push)
 			}
@@ -107,6 +108,7 @@ func (s *PushService) deliverGroup(ctx context.Context, msg *domain.Message) {
 	if len(mentions) > 0 && s.Pusher != nil {
 		if _, failed, err := s.Pusher.BatchPushToUsers(ctx, mentions, push); err != nil {
 			s.log().Warnf("push mentions to online users failed: %v", err)
+			s.handleFailedPushes(ctx, mentions, push)
 		} else {
 			s.handleFailedPushes(ctx, failed, push)
 		}

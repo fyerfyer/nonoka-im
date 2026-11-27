@@ -68,6 +68,24 @@ func TestRunBroadcasterFallsBackWhenStoreFails(t *testing.T) {
 	}
 }
 
+func TestRunBroadcasterFallbackContinuesStoreSequence(t *testing.T) {
+	store := NewMemoryRunEventStore()
+	transport := &recordingTransport{}
+	broadcaster := NewRunBroadcaster(store, transport, nil, nil)
+	ctx := context.Background()
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 4, Type: RunStarted}, []int64{7}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate Redis going away after the run already used seq 1.
+	broadcaster.Store = nil
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 4, Type: RunHeartbeat}, []int64{7}); err != nil {
+		t.Fatal(err)
+	}
+	if got := transport.delivered[7][1].Seq; got != 2 {
+		t.Fatalf("fallback seq = %d, want 2 (must not reuse seq 1)", got)
+	}
+}
+
 func TestRunBroadcasterFanout100Recipients(t *testing.T) {
 	store := NewMemoryRunEventStore()
 	transport := &recordingTransport{}

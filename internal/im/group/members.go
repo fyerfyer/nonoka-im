@@ -33,9 +33,10 @@ type Service struct {
 	redis redis.UniversalClient
 	log   *log.Helper
 
-	cacheMu  sync.RWMutex
-	cache    map[string]memberCacheEntry
-	cacheTTL time.Duration
+	cacheMu   sync.RWMutex
+	cache     map[string]memberCacheEntry
+	cacheTTL  time.Duration
+	lastPrune time.Time
 }
 
 func NewService(repo MemberRepository, redis redis.UniversalClient, logger log.Logger) *Service {
@@ -83,7 +84,16 @@ func (s *Service) remember(groupID string, ids []int64) {
 		ttl = 5 * time.Second
 	}
 	s.cacheMu.Lock()
-	s.cache[groupID] = memberCacheEntry{ids: copied, expires: time.Now().Add(ttl)}
+	now := time.Now()
+	if s.lastPrune.IsZero() || now.Sub(s.lastPrune) > ttl {
+		for key, entry := range s.cache {
+			if now.After(entry.expires) {
+				delete(s.cache, key)
+			}
+		}
+		s.lastPrune = now
+	}
+	s.cache[groupID] = memberCacheEntry{ids: copied, expires: now.Add(ttl)}
 	s.cacheMu.Unlock()
 }
 

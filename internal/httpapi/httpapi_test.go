@@ -35,6 +35,18 @@ func (m *memoryIdem) Complete(_ context.Context, userID int64, key, fingerprint 
 	return nil
 }
 
+func (m *memoryIdem) Refresh(_ context.Context, userID int64, key, fingerprint string, lockUntil time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.records[key]
+	if !ok || rec.Status != "in_progress" || rec.Fingerprint != fingerprint {
+		return nil
+	}
+	rec.LockedUntil = lockUntil
+	m.records[key] = rec
+	return nil
+}
+
 func TestIdempotencyReplaysCompletedResponse(t *testing.T) {
 	store := &memoryIdem{records: map[string]IdempotencyRecord{}}
 	idem := &Idempotency{Store: store, LockTTL: time.Minute}

@@ -140,13 +140,17 @@ func (c *RealtimeClient) Subscribe() (<-chan RealtimeEvent, func()) {
 
 // waitSendReceipt registers a one-shot waiter for a send receipt. It must be
 // registered before publishing so a fast server cannot race the waiter.
-func (c *RealtimeClient) waitSendReceipt(clientMsgID string) (<-chan *SendReceipt, func()) {
+func (c *RealtimeClient) waitSendReceipt(clientMsgID string) (<-chan *SendReceipt, func(), error) {
 	c.mu.Lock()
 	if c.closed {
 		ch := make(chan *SendReceipt)
 		close(ch)
 		c.mu.Unlock()
-		return ch, func() {}
+		return ch, func() {}, ErrConnectionClosed
+	}
+	if _, exists := c.receipts[clientMsgID]; exists {
+		c.mu.Unlock()
+		return nil, func() {}, fmt.Errorf("send with client message id %q is already in flight", clientMsgID)
 	}
 	ch := make(chan *SendReceipt, 1)
 	c.receipts[clientMsgID] = ch
@@ -159,7 +163,7 @@ func (c *RealtimeClient) waitSendReceipt(clientMsgID string) (<-chan *SendReceip
 		}
 		c.mu.Unlock()
 	}
-	return ch, cancel
+	return ch, cancel, nil
 }
 
 func (c *RealtimeClient) resolveSendReceipt(receipt *SendReceipt) {

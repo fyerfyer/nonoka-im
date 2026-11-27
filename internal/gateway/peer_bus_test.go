@@ -48,7 +48,17 @@ func TestPeerBusFansOutToOtherGatewayManagers(t *testing.T) {
 	if err := bus2.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		counts, err := client.PubSubNumSub(ctx, peerFanoutChannel).Result()
+		if err == nil && counts[peerFanoutChannel] >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("gateway peer bus subscriptions did not become ready")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	packet := testPeerPacket()
 	if err := bus1.Publish(ctx, []int64{42}, packet); err != nil {

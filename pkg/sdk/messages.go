@@ -188,7 +188,10 @@ func (r *MessagesResource) Search(ctx context.Context, req SearchRequest) (*Sear
 // sendWebSocket publishes through the live connection and waits for the
 // server's send receipt, which carries the durable msg_id and topic_seq.
 func (r *MessagesResource) sendWebSocket(ctx context.Context, req SendRequest, clientID string) (*SendResult, error) {
-	receipts, cancel := r.client.Realtime.waitSendReceipt(clientID)
+	receipts, cancel, err := r.client.Realtime.waitSendReceipt(clientID)
+	if err != nil {
+		return nil, err
+	}
 	defer cancel()
 	packet := &v1.Packet{
 		Cmd: v1.Command_CMD_PUBLISH, Seq: r.client.Realtime.nextSeq(),
@@ -268,6 +271,9 @@ func (r *MessagesResource) remember(clientID string, result *SendResult) {
 // lookupSent is a fallback for a lost send receipt. The message may already be
 // durably persisted even when the realtime receipt was dropped.
 func (r *MessagesResource) lookupSent(ctx context.Context, topic, clientID string) *SendResult {
+	// A lost receipt must not turn into dozens of sequential HTTP pulls.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 	for attempt := 0; attempt < 25; attempt++ {
 		page, err := r.Pull(ctx, PullRequest{Topic: topic, Limit: 50})
 		if err == nil {

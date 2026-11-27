@@ -3,6 +3,7 @@ package seq
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -25,6 +26,8 @@ type NodeLease struct {
 	holder string
 	redis  redis.UniversalClient
 	log    *log.Helper
+	lost   chan struct{}
+	once   sync.Once
 }
 
 const refreshNodeLeaseScript = `
@@ -41,7 +44,7 @@ func AcquireNodeID(ctx context.Context, redisClient redis.UniversalClient, holde
 	if redisClient == nil {
 		return nil, fmt.Errorf("redis is required to lease a snowflake node id")
 	}
-	lease := &NodeLease{holder: holder, redis: redisClient, log: log.NewHelper(logger)}
+	lease := &NodeLease{holder: holder, redis: redisClient, log: log.NewHelper(logger), lost: make(chan struct{})}
 	for i := int64(0); i < snowflakeNodeCount; i++ {
 		key := fmt.Sprintf("%s%d", nodeLeasePrefix, i)
 		ok, err := redisClient.SetNX(ctx, key, holder, nodeLeaseTTL).Result()
@@ -69,6 +72,7 @@ func (l *NodeLease) KeepAlive(ctx context.Context, interval time.Duration) {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var firstFailure time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -76,14 +80,34 @@ func (l *NodeLease) KeepAlive(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			ok, err := l.redis.Eval(ctx, refreshNodeLeaseScript, []string{l.key}, l.holder, nodeLeaseTTL.Milliseconds()).Int()
 			if err != nil {
+				if firstFailure.IsZero() {
+					firstFailure = time.Now()
+				}
 				l.log.Warnf("refresh snowflake node lease %d: %v", l.ID, err)
+				if time.Since(firstFailure) >= nodeLeaseTTL {
+					l.log.Errorf("snowflake node lease %d could not be refreshed for %s; stopping id generation", l.ID, nodeLeaseTTL)
+					l.once.Do(func() { close(l.lost) })
+					return
+				}
 				continue
 			}
+			firstFailure = time.Time{}
 			if ok == 0 {
-				l.log.Errorf("snowflake node lease %d was lost; restart the worker before generating more ids", l.ID)
+				l.log.Errorf("snowflake node lease %d was lost; stopping id generation", l.ID)
+				l.once.Do(func() { close(l.lost) })
+				return
 			}
 		}
 	}
+}
+
+// Lost is closed when KeepAlive observes that another process took the lease.
+// Callers must stop the worker: continuing to generate IDs risks collisions.
+func (l *NodeLease) Lost() <-chan struct{} {
+	if l == nil {
+		return nil
+	}
+	return l.lost
 }
 
 // Release deletes the lease when this process still owns it.
