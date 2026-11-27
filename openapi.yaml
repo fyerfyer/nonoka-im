@@ -6,6 +6,250 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /v1/agent-approvals:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_ListApprovals
+            parameters:
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: cursor
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ListApprovalsReply'
+    /v1/agent-approvals/{id}:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_GetApproval
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.AgentApproval'
+    /v1/agent-approvals/{id}/approve:
+        post:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_ApproveApproval
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ApprovalActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ApprovalActionReply'
+    /v1/agent-approvals/{id}/reject:
+        post:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_RejectApproval
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.ApprovalActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.ApprovalActionReply'
+    /v1/agent-runs/by-client/{clientMsgId}:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_GetRunByClient
+            parameters:
+                - name: clientMsgId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.AgentRun'
+    /v1/agent-runs/by-reply/{msgId}:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_GetRunByReply
+            parameters:
+                - name: msgId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: clientMsgId
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.AgentRun'
+    /v1/agent-runs/{id}:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_GetRun
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.AgentRun'
+    /v1/agent-runs/{id}/cancel:
+        post:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_CancelRun
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.RunActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.RunActionReply'
+    /v1/agent-runs/{id}/events:
+        get:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_GetRunEvents
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: afterSeq
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.GetRunEventsReply'
+    /v1/agent-runs/{id}/retry:
+        post:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_RetryRun
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.RunActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.RunActionReply'
+    /v1/agent-runs/{id}/skip:
+        post:
+            tags:
+                - AgentRunService
+            operationId: AgentRunService_SkipRun
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.agent.v1.RunActionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.agent.v1.RunActionReply'
     /v1/auth/login:
         post:
             tags:
@@ -768,6 +1012,285 @@ paths:
                                 $ref: '#/components/schemas/api.im.v1.GetUserPresenceReply'
 components:
     schemas:
+        api.agent.v1.AgentApproval:
+            type: object
+            properties:
+                id:
+                    type: string
+                runId:
+                    type: string
+                toolCallId:
+                    type: string
+                tool:
+                    type: string
+                argsSummary:
+                    type: string
+                argsHash:
+                    type: string
+                approverId:
+                    type: string
+                status:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+                decidedAt:
+                    type: string
+                    format: date-time
+                decidedBy:
+                    type: string
+                consumedAt:
+                    type: string
+                    format: date-time
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.AgentRun:
+            type: object
+            properties:
+                id:
+                    type: string
+                eventId:
+                    type: string
+                agentId:
+                    type: string
+                agentVersion:
+                    type: string
+                sessionId:
+                    type: string
+                actorUserId:
+                    type: string
+                topic:
+                    type: string
+                msgId:
+                    type: string
+                topicSeq:
+                    type: string
+                status:
+                    type: string
+                errorCode:
+                    type: string
+                errorClass:
+                    type: string
+                attempts:
+                    type: integer
+                    format: int32
+                leaseUntil:
+                    type: string
+                    format: date-time
+                nextAttemptAt:
+                    type: string
+                    format: date-time
+                replyMsgId:
+                    type: string
+                replyClientMsgId:
+                    type: string
+                checkpointId:
+                    type: string
+                steps:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.AgentRunStep'
+                toolInvocations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.ToolInvocation'
+                citations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Citation'
+                sideEffectAt:
+                    type: string
+                    format: date-time
+                inputTokens:
+                    type: integer
+                    format: int32
+                outputTokens:
+                    type: integer
+                    format: int32
+                totalTokens:
+                    type: integer
+                    format: int32
+                modelKey:
+                    type: string
+                estimatedCostUsd:
+                    type: number
+                    format: double
+                traceId:
+                    type: string
+                retryAfterAt:
+                    type: string
+                    format: date-time
+                lastError:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                startedAt:
+                    type: string
+                    format: date-time
+                finishedAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.AgentRunStep:
+            type: object
+            properties:
+                id:
+                    type: string
+                seq:
+                    type: string
+                type:
+                    type: string
+                tool:
+                    type: string
+                toolCallId:
+                    type: string
+                summary:
+                    type: string
+                status:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+        api.agent.v1.ApprovalActionReply:
+            type: object
+            properties:
+                status:
+                    type: string
+        api.agent.v1.ApprovalActionRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+        api.agent.v1.Citation:
+            type: object
+            properties:
+                msgId:
+                    type: string
+                topic:
+                    type: string
+                topicSeq:
+                    type: string
+                senderId:
+                    type: string
+                snippet:
+                    type: string
+        api.agent.v1.GetRunEventsReply:
+            type: object
+            properties:
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.RunEvent'
+                nextSeq:
+                    type: string
+        api.agent.v1.ListApprovalsReply:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.AgentApproval'
+                total:
+                    type: integer
+                    format: int32
+                nextCursor:
+                    type: string
+                hasMore:
+                    type: boolean
+        api.agent.v1.RunActionReply:
+            type: object
+            properties:
+                action:
+                    type: string
+        api.agent.v1.RunActionRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                acknowledgeSideEffect:
+                    type: boolean
+        api.agent.v1.RunEvent:
+            type: object
+            properties:
+                runId:
+                    type: string
+                seq:
+                    type: string
+                type:
+                    type: string
+                topic:
+                    type: string
+                agentId:
+                    type: string
+                botUserId:
+                    type: string
+                actorUserId:
+                    type: string
+                triggerMsgId:
+                    type: string
+                delta:
+                    type: string
+                tool:
+                    type: string
+                toolCallId:
+                    type: string
+                summary:
+                    type: string
+                status:
+                    type: string
+                approvalId:
+                    type: string
+                replyMsgId:
+                    type: string
+                clientMessageId:
+                    type: string
+                errorCode:
+                    type: string
+                errorClass:
+                    type: string
+                errorMessage:
+                    type: string
+                retryAfterAt:
+                    type: string
+                retryable:
+                    type: boolean
+                inputTokens:
+                    type: integer
+                    format: int32
+                outputTokens:
+                    type: integer
+                    format: int32
+                citations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.agent.v1.Citation'
+                timestampMs:
+                    type: string
+        api.agent.v1.ToolInvocation:
+            type: object
+            properties:
+                id:
+                    type: string
+                toolCallId:
+                    type: string
+                tool:
+                    type: string
+                status:
+                    type: string
+                resultSummary:
+                    type: string
+                errorCode:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
         api.bot.v1.Bot:
             type: object
             properties:
@@ -1290,6 +1813,11 @@ components:
                 username:
                     type: string
 tags:
+    - name: AgentRunService
+      description: |-
+        AgentRunService is the runtime/observability surface for agent runs and
+         approvals. Configuration remains on the management API until its own proto
+         migration lands.
     - name: AuthService
     - name: BotService
       description: |-

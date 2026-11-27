@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	agentv1 "nonoka-im/api/agent/v1"
 	"nonoka-im/internal/agent/app"
 	"nonoka-im/internal/agent/app/admin"
 	"nonoka-im/internal/agent/domain"
@@ -25,6 +26,8 @@ import (
 // AgentHTTP is the thin transport adapter for agent management resources.
 // Business rules and persistence live in internal/agent/app/admin.
 type AgentHTTP struct {
+	agentv1.UnimplementedAgentRunServiceServer
+
 	agents    *admin.AgentService
 	runs      *admin.RunService
 	approvals *admin.ApprovalService

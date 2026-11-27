@@ -74,86 +74,36 @@ type AgentVersionSummaryView struct {
 // RunView mirrors the previous domain JSON contract without exposing the
 // internal attempt token or raw error text.
 type RunView struct {
-	ID               uint64               `json:"id"`
-	EventID          string               `json:"eventId"`
-	AgentID          int64                `json:"agentId"`
-	AgentVersion     int64                `json:"agentVersion"`
-	SessionID        uint64               `json:"sessionId,omitempty"`
-	ActorUserID      int64                `json:"actorUserId"`
-	Topic            string               `json:"topic"`
-	MsgID            int64                `json:"msgId"`
-	TopicSeq         uint64               `json:"topicSeq"`
-	Status           string               `json:"status"`
-	ErrorCode        string               `json:"errorCode,omitempty"`
-	ErrorClass       string               `json:"errorClass,omitempty"`
-	Attempts         int                  `json:"attempts"`
-	LeaseUntil       *time.Time           `json:"leaseUntil,omitempty"`
-	NextAttemptAt    *time.Time           `json:"nextAttemptAt,omitempty"`
-	ReplyMsgID       int64                `json:"replyMsgId,omitempty"`
-	ReplyClientMsgID string               `json:"replyClientMsgId,omitempty"`
-	CheckpointID     string               `json:"checkpointId,omitempty"`
-	Steps            []AgentRunStepView   `json:"steps,omitempty"`
-	ToolInvocations  []ToolInvocationView `json:"toolInvocations,omitempty"`
-	Citations        []CitationView       `json:"citations,omitempty"`
-	SideEffectAt     *time.Time           `json:"sideEffectAt,omitempty"`
-	InputTokens      int                  `json:"inputTokens"`
-	OutputTokens     int                  `json:"outputTokens"`
-	TotalTokens      int                  `json:"totalTokens"`
-	ModelKey         string               `json:"modelKey,omitempty"`
-	EstimatedCostUSD float64              `json:"estimatedCostUsd"`
-	TraceID          string               `json:"traceId,omitempty"`
-	RetryAfterAt     *time.Time           `json:"retryAfterAt,omitempty"`
-	LastError        string               `json:"lastError,omitempty"`
-	CreatedAt        time.Time            `json:"createdAt"`
-	StartedAt        *time.Time           `json:"startedAt,omitempty"`
-	FinishedAt       *time.Time           `json:"finishedAt,omitempty"`
-}
-
-type AgentRunStepView struct {
-	ID         uint64    `json:"id"`
-	Seq        uint64    `json:"seq"`
-	Type       string    `json:"type"`
-	Tool       string    `json:"tool,omitempty"`
-	ToolCallID string    `json:"toolCallId,omitempty"`
-	Summary    string    `json:"summary,omitempty"`
-	Status     string    `json:"status,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-}
-
-type CitationView struct {
-	MsgID    int64  `json:"msgId"`
-	Topic    string `json:"topic"`
-	TopicSeq uint64 `json:"topicSeq"`
-	SenderID int64  `json:"senderId"`
-	Snippet  string `json:"snippet,omitempty"`
-}
-
-type ToolInvocationView struct {
-	ID            uint64    `json:"id"`
-	ToolCallID    string    `json:"toolCallId"`
-	Tool          string    `json:"tool"`
-	Status        string    `json:"status"`
-	ResultSummary string    `json:"resultSummary,omitempty"`
-	ErrorCode     string    `json:"errorCode,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-}
-
-type ApprovalView struct {
-	ID          uint64     `json:"id"`
-	RunID       uint64     `json:"runId"`
-	ToolCallID  string     `json:"toolCallId"`
-	Tool        string     `json:"tool"`
-	ArgsSummary string     `json:"argsSummary"`
-	ArgsHash    string     `json:"argsHash"`
-	ApproverID  int64      `json:"approverId"`
-	Status      string     `json:"status"`
-	ExpiresAt   time.Time  `json:"expiresAt"`
-	DecidedAt   *time.Time `json:"decidedAt,omitempty"`
-	DecidedBy   int64      `json:"decidedBy,omitempty"`
-	ConsumedAt  *time.Time `json:"consumedAt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	ID               uint64     `json:"id"`
+	EventID          string     `json:"eventId"`
+	AgentID          int64      `json:"agentId"`
+	AgentVersion     int64      `json:"agentVersion"`
+	SessionID        uint64     `json:"sessionId,omitempty"`
+	ActorUserID      int64      `json:"actorUserId"`
+	Topic            string     `json:"topic"`
+	MsgID            int64      `json:"msgId"`
+	TopicSeq         uint64     `json:"topicSeq"`
+	Status           string     `json:"status"`
+	ErrorCode        string     `json:"errorCode,omitempty"`
+	ErrorClass       string     `json:"errorClass,omitempty"`
+	Attempts         int        `json:"attempts"`
+	LeaseUntil       *time.Time `json:"leaseUntil,omitempty"`
+	NextAttemptAt    *time.Time `json:"nextAttemptAt,omitempty"`
+	ReplyMsgID       int64      `json:"replyMsgId,omitempty"`
+	ReplyClientMsgID string     `json:"replyClientMsgId,omitempty"`
+	CheckpointID     string     `json:"checkpointId,omitempty"`
+	SideEffectAt     *time.Time `json:"sideEffectAt,omitempty"`
+	InputTokens      int        `json:"inputTokens"`
+	OutputTokens     int        `json:"outputTokens"`
+	TotalTokens      int        `json:"totalTokens"`
+	ModelKey         string     `json:"modelKey,omitempty"`
+	EstimatedCostUSD float64    `json:"estimatedCostUsd"`
+	TraceID          string     `json:"traceId,omitempty"`
+	RetryAfterAt     *time.Time `json:"retryAfterAt,omitempty"`
+	LastError        string     `json:"lastError,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	StartedAt        *time.Time `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
 }
 
 func agentView(row *domain.Agent, manager, owner bool) AgentView {
@@ -219,69 +169,10 @@ func runView(run *domain.AgentRun) RunView {
 	}
 }
 
-func citationViews(rows []domain.AgentRunCitation) []CitationView {
-	out := make([]CitationView, 0, len(rows))
-	for i := range rows {
-		out = append(out, CitationView{
-			MsgID: rows[i].MsgID, Topic: rows[i].Topic, TopicSeq: rows[i].TopicSeq,
-			SenderID: rows[i].SenderID, Snippet: rows[i].Snippet,
-		})
-	}
-	return out
-}
-
-func runStepView(s *domain.AgentRunStep) AgentRunStepView {
-	return AgentRunStepView{
-		ID: s.ID, Seq: s.Seq, Type: s.Type, Tool: s.Tool, ToolCallID: s.ToolCallID,
-		Summary: s.Summary, Status: s.Status, CreatedAt: s.CreatedAt,
-	}
-}
-
-func runStepViews(rows []domain.AgentRunStep) []AgentRunStepView {
-	out := make([]AgentRunStepView, 0, len(rows))
-	for i := range rows {
-		out = append(out, runStepView(&rows[i]))
-	}
-	return out
-}
-
-func toolInvocationView(t *domain.ToolInvocation) ToolInvocationView {
-	return ToolInvocationView{
-		ID: t.ID, ToolCallID: t.ToolCallID, Tool: t.Tool, Status: t.Status,
-		ResultSummary: t.ResultSummary, ErrorCode: t.ErrorCode,
-		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-	}
-}
-
-func toolInvocationViews(rows []domain.ToolInvocation) []ToolInvocationView {
-	out := make([]ToolInvocationView, 0, len(rows))
-	for i := range rows {
-		out = append(out, toolInvocationView(&rows[i]))
-	}
-	return out
-}
-
-func approvalView(a *domain.AgentApproval) ApprovalView {
-	return ApprovalView{
-		ID: a.ID, RunID: a.RunID, ToolCallID: a.ToolCallID, Tool: a.Tool,
-		ArgsSummary: a.ArgsSummary, ArgsHash: a.ArgsHash, ApproverID: a.ApproverID,
-		Status: a.Status, ExpiresAt: a.ExpiresAt, DecidedAt: a.DecidedAt, DecidedBy: a.DecidedBy,
-		ConsumedAt: a.ConsumedAt, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
-	}
-}
-
 func runViews(runs []domain.AgentRun) []RunView {
 	out := make([]RunView, 0, len(runs))
 	for i := range runs {
 		out = append(out, runView(&runs[i]))
-	}
-	return out
-}
-
-func approvalViews(rows []domain.AgentApproval) []ApprovalView {
-	out := make([]ApprovalView, 0, len(rows))
-	for i := range rows {
-		out = append(out, approvalView(&rows[i]))
 	}
 	return out
 }

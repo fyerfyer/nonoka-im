@@ -1,0 +1,240 @@
+syntax = "proto3";
+
+package api.agent.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "nonoka-im/api/agent/v1;v1";
+
+// AgentRunService is the runtime/observability surface for agent runs and
+// approvals. Configuration remains on the management API until its own proto
+// migration lands.
+service AgentRunService {
+  rpc GetRunByReply (GetRunByReplyRequest) returns (AgentRun) {
+    option (google.api.http) = { get: "/v1/agent-runs/by-reply/{msg_id}" };
+  }
+
+  rpc GetRunByClient (GetRunByClientRequest) returns (AgentRun) {
+    option (google.api.http) = { get: "/v1/agent-runs/by-client/{client_msg_id}" };
+  }
+
+  rpc GetRun (GetRunRequest) returns (AgentRun) {
+    option (google.api.http) = { get: "/v1/agent-runs/{id}" };
+  }
+
+  rpc GetRunEvents (GetRunEventsRequest) returns (GetRunEventsReply) {
+    option (google.api.http) = { get: "/v1/agent-runs/{id}/events" };
+  }
+
+  rpc CancelRun (RunActionRequest) returns (RunActionReply) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{id}/cancel"
+      body: "*"
+    };
+  }
+
+  rpc RetryRun (RunActionRequest) returns (RunActionReply) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{id}/retry"
+      body: "*"
+    };
+  }
+
+  rpc SkipRun (RunActionRequest) returns (RunActionReply) {
+    option (google.api.http) = {
+      post: "/v1/agent-runs/{id}/skip"
+      body: "*"
+    };
+  }
+
+  rpc ListApprovals (ListApprovalsRequest) returns (ListApprovalsReply) {
+    option (google.api.http) = { get: "/v1/agent-approvals" };
+  }
+
+  rpc GetApproval (GetApprovalRequest) returns (AgentApproval) {
+    option (google.api.http) = { get: "/v1/agent-approvals/{id}" };
+  }
+
+  rpc ApproveApproval (ApprovalActionRequest) returns (ApprovalActionReply) {
+    option (google.api.http) = {
+      post: "/v1/agent-approvals/{id}/approve"
+      body: "*"
+    };
+  }
+
+  rpc RejectApproval (ApprovalActionRequest) returns (ApprovalActionReply) {
+    option (google.api.http) = {
+      post: "/v1/agent-approvals/{id}/reject"
+      body: "*"
+    };
+  }
+}
+
+message AgentRun {
+  uint64 id = 1;
+  string event_id = 2;
+  int64 agent_id = 3;
+  int64 agent_version = 4;
+  uint64 session_id = 5;
+  int64 actor_user_id = 6;
+  string topic = 7;
+  int64 msg_id = 8;
+  uint64 topic_seq = 9;
+  string status = 10;
+  string error_code = 11;
+  string error_class = 12;
+  int32 attempts = 13;
+  google.protobuf.Timestamp lease_until = 14;
+  google.protobuf.Timestamp next_attempt_at = 15;
+  int64 reply_msg_id = 16;
+  string reply_client_msg_id = 17;
+  string checkpoint_id = 18;
+  repeated AgentRunStep steps = 19;
+  repeated ToolInvocation tool_invocations = 20;
+  repeated Citation citations = 21;
+  google.protobuf.Timestamp side_effect_at = 22;
+  int32 input_tokens = 23;
+  int32 output_tokens = 24;
+  int32 total_tokens = 25;
+  string model_key = 26;
+  double estimated_cost_usd = 27;
+  string trace_id = 28;
+  google.protobuf.Timestamp retry_after_at = 29;
+  string last_error = 30;
+  google.protobuf.Timestamp created_at = 31;
+  google.protobuf.Timestamp started_at = 32;
+  google.protobuf.Timestamp finished_at = 33;
+}
+
+message AgentRunStep {
+  uint64 id = 1;
+  uint64 seq = 2;
+  string type = 3;
+  string tool = 4;
+  string tool_call_id = 5;
+  string summary = 6;
+  string status = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ToolInvocation {
+  uint64 id = 1;
+  string tool_call_id = 2;
+  string tool = 3;
+  string status = 4;
+  string result_summary = 5;
+  string error_code = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message Citation {
+  int64 msg_id = 1;
+  string topic = 2;
+  uint64 topic_seq = 3;
+  int64 sender_id = 4;
+  string snippet = 5;
+}
+
+message AgentApproval {
+  uint64 id = 1;
+  uint64 run_id = 2;
+  string tool_call_id = 3;
+  string tool = 4;
+  string args_summary = 5;
+  string args_hash = 6;
+  int64 approver_id = 7;
+  string status = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  google.protobuf.Timestamp decided_at = 10;
+  int64 decided_by = 11;
+  google.protobuf.Timestamp consumed_at = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+message GetRunRequest {
+  uint64 id = 1;
+}
+
+message GetRunByReplyRequest {
+  int64 msg_id = 1;
+  string client_msg_id = 2;
+}
+
+message GetRunByClientRequest {
+  string client_msg_id = 1;
+}
+
+message GetRunEventsRequest {
+  uint64 id = 1;
+  uint64 after_seq = 2;
+}
+
+message GetRunEventsReply {
+  repeated RunEvent events = 1;
+  uint64 next_seq = 2;
+}
+
+message RunEvent {
+  uint64 run_id = 1;
+  uint64 seq = 2;
+  string type = 3;
+  string topic = 4;
+  int64 agent_id = 5;
+  int64 bot_user_id = 6;
+  int64 actor_user_id = 7;
+  int64 trigger_msg_id = 8;
+  string delta = 9;
+  string tool = 10;
+  string tool_call_id = 11;
+  string summary = 12;
+  string status = 13;
+  uint64 approval_id = 14;
+  int64 reply_msg_id = 15;
+  string client_message_id = 16;
+  string error_code = 17;
+  string error_class = 18;
+  string error_message = 19;
+  string retry_after_at = 20;
+  bool retryable = 21;
+  int32 input_tokens = 22;
+  int32 output_tokens = 23;
+  repeated Citation citations = 24;
+  int64 timestamp_ms = 25;
+}
+
+message RunActionRequest {
+  uint64 id = 1;
+  bool acknowledge_side_effect = 2;
+}
+
+message RunActionReply {
+  string action = 1;
+}
+
+message ListApprovalsRequest {
+  string status = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message ListApprovalsReply {
+  repeated AgentApproval items = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+  bool has_more = 4;
+}
+
+message GetApprovalRequest {
+  uint64 id = 1;
+}
+
+message ApprovalActionRequest {
+  uint64 id = 1;
+}
+
+message ApprovalActionReply {
+  string status = 1;
+}

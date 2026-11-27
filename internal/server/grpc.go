@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"os"
 
+	agentv1 "nonoka-im/api/agent/v1"
 	botv1 "nonoka-im/api/bot/v1"
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
@@ -75,7 +76,7 @@ func rejectNonUserScope(next middleware.Handler) middleware.Handler {
 }
 
 // NewGRPCServer new a gRPC server.
-func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
+func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, agents *service.AgentHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
 			recovery.Recovery(),
@@ -131,6 +132,9 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	v1.RegisterPushServiceServer(srv, push)
 	if bots != nil {
 		botv1.RegisterBotServiceServer(srv, bots)
+	}
+	if agents != nil {
+		agentv1.RegisterAgentRunServiceServer(srv, agents)
 	}
 	return srv
 }

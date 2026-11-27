@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	agentv1 "nonoka-im/api/agent/v1"
 	botv1 "nonoka-im/api/bot/v1"
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
@@ -108,6 +109,8 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 
 	var opts = []khttp.ServerOption{
 		khttp.Middleware(middlewares...),
+		khttp.ResponseEncoder(agentNumericResponseEncoder),
+		khttp.ErrorEncoder(agentErrorEncoder),
 	}
 	if c.Http.Network != "" {
 		opts = append(opts, khttp.Network(c.Http.Network))
@@ -189,17 +192,8 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 		r.GET("/v1/admin/usage/top", agents.TopUsage)
 		r.GET("/v1/admin/audit-events", agents.ListAuditEvents)
 		r.GET("/v1/admin/audit-events/{id}", agents.GetAuditEvent)
-		r.GET("/v1/agent-runs/{id}", agents.RunDetail)
-		r.GET("/v1/agent-runs/by-reply/{msgId}", agents.RunByReply)
-		r.GET("/v1/agent-runs/by-client/{clientMsgId}", agents.RunByClient)
-		r.GET("/v1/agent-runs/{id}/events", agents.RunEvents)
-		r.POST("/v1/agent-runs/{id}/retry", func(ctx khttp.Context) error { return agents.RunAction(ctx, "retry") })
-		r.POST("/v1/agent-runs/{id}/skip", func(ctx khttp.Context) error { return agents.RunAction(ctx, "skip") })
-		r.POST("/v1/agent-runs/{id}/cancel", func(ctx khttp.Context) error { return agents.RunAction(ctx, "cancel") })
-		r.POST("/v1/agent-approvals/{id}/approve", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "approve") })
-		r.POST("/v1/agent-approvals/{id}/reject", func(ctx khttp.Context) error { return agents.ApprovalAction(ctx, "reject") })
-		r.GET("/v1/agent-approvals", agents.ListApprovals)
-		r.GET("/v1/agent-approvals/{id}", agents.ApprovalDetail)
+		// Agent run/approval HTTP is generated from api/agent/v1.
+		agentv1.RegisterAgentRunServiceHTTPServer(srv, agents)
 		r.GET("/v1/mcp/servers", agents.ListMCPServers)
 		r.POST("/v1/mcp/servers", agents.RegisterMCPServer)
 		r.GET("/v1/mcp/servers/{id}", agents.GetMCPServer)
