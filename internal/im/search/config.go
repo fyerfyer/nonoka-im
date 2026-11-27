@@ -74,5 +74,5 @@ func RelayBatchSize(c *conf.Search) int {
 			return n
 		}
 	}
-	return 32
+	return 1000
 }
