@@ -26,6 +26,10 @@ func agentRPCError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var direct *httpapi.Error
+	if errors.As(err, &direct) {
+		return kerrors.New(direct.Status, direct.Code, direct.Message)
+	}
 	adapted := agentHTTPError(err)
 	var e *httpapi.Error
 	if errors.As(adapted, &e) {
