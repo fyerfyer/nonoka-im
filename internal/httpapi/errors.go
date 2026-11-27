@@ -17,6 +17,13 @@ import (
 
 type requestIDKey struct{}
 
+// ResponseCommittedError is implemented by handlers that already wrote the
+// HTTP response. Middleware must pass it through without re-encoding it.
+type ResponseCommittedError interface {
+	error
+	ResponseCommitted() bool
+}
+
 // RequestID returns the request-scoped correlation ID.
 func RequestID(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey{}).(string)
@@ -44,6 +51,10 @@ func RequestIDMiddleware() middleware.Middleware {
 			}
 			resp, err := next(ctx, req)
 			if err != nil {
+				var committed ResponseCommittedError
+				if errors.As(err, &committed) && committed.ResponseCommitted() {
+					return nil, err
+				}
 				// Kratos error responses cannot carry our custom body here, but
 				// attaching the request ID to the error metadata keeps traces
 				// correlated for generated proto handlers too.

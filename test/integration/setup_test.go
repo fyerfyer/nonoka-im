@@ -32,6 +32,7 @@ import (
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/httpapi"
 	imapp "nonoka-im/internal/im/app"
 	imconsumer "nonoka-im/internal/im/consumer"
 	imgroup "nonoka-im/internal/im/group"
@@ -320,7 +321,8 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 		Strategy: "consistent_hash",
 		NodeTtl:  durationpb.New(30 * time.Second),
 	}, fgaAuthorizer)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, botHTTP, outboxAdmin, systemHTTP, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	idem := &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, botHTTP, outboxAdmin, systemHTTP, idem, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	go func() {
 		if err := hs.Start(ctx); err != nil {
 			select {

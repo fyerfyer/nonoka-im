@@ -30,7 +30,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, bots *service.BotHTTP, outbox *service.OutboxAdminHTTP, system *gateway.SystemHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, bots *service.BotHTTP, outbox *service.OutboxAdminHTTP, system *gateway.SystemHTTP, idem *httpapi.Idempotency, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 		httpapi.RequestIDMiddleware(),
@@ -107,6 +107,7 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 			return next(ctx, req)
 		}
 	})
+	middlewares = append(middlewares, agentIdempotencyMiddleware(idem))
 
 	var opts = []khttp.ServerOption{
 		khttp.Middleware(middlewares...),

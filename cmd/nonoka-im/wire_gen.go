@@ -36,6 +36,7 @@ import (
 	"nonoka-im/internal/data/im"
 	"nonoka-im/internal/data/platform"
 	"nonoka-im/internal/gateway"
+	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/im/app"
 	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/storage/mongo"
@@ -169,12 +170,13 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	serviceGroupService := service.NewGroupService(groupService)
 	serviceFileService := service.NewFileService(fileService, logger)
 	systemHTTP := gateway.NewSystemHTTP(universalClient, dispatch, openFGA)
+	idempotency := provideIdempotency(dataData)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, auth, logger)
-	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, systemHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
+	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, systemHTTP, idempotency, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
 	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig, llmService)
@@ -441,6 +443,10 @@ func provideIMOutboxService(storage *mongostore.Store, logger log.Logger) *app.O
 
 func provideOutboxAdmin(outbox *app.OutboxService) messaging.OutboxAdmin {
 	return im.NewOutboxAdmin(outbox)
+}
+
+func provideIdempotency(d *data.Data) *httpapi.Idempotency {
+	return &httpapi.Idempotency{Store: platformdata.NewIdempotencyStore(d.DB()), LockTTL: 30 * time.Second}
 }
 
 func provideAgentAdminService(store *agentdata.Store, platform *platformdata.Store, models *llm.Service, az *authz.OpenFGA, groups imdata.GroupRepo, users biz.AuthRepo, auditor *audit.Service, logger log.Logger) *admin.AgentService {

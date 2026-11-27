@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -94,6 +95,9 @@ func agentNumericResponseEncoder(w http.ResponseWriter, r *http.Request, v any) 
 // envelope for generated Agent/Bot HTTP handlers. Native Kratos errors use
 // numeric code + reason, which would otherwise be a breaking SDK/Web change.
 func agentErrorEncoder(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errAgentResponseCommitted) {
+		return
+	}
 	if !agentAPIPath(r.URL.Path) {
 		khttp.DefaultErrorEncoder(w, r, err)
 		return
