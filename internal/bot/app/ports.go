@@ -45,9 +45,9 @@ type Store interface {
 
 	EnqueueDelivery(ctx context.Context, delivery *domain.Delivery) (bool, error)
 	ClaimDelivery(ctx context.Context, lock time.Duration) (*domain.Delivery, error)
-	MarkDeliverySucceeded(ctx context.Context, id int64, statusCode int, snippet string) error
-	MarkDeliveryRetry(ctx context.Context, id int64, next time.Time, statusCode int, errMsg, snippet string) error
-	MarkDeliveryFailed(ctx context.Context, id int64, statusCode int, errMsg, snippet string) error
+	MarkDeliverySucceeded(ctx context.Context, id int64, attempt, statusCode int, snippet string) error
+	MarkDeliveryRetry(ctx context.Context, id int64, attempt int, next time.Time, statusCode int, errMsg, snippet string) error
+	MarkDeliveryFailed(ctx context.Context, id int64, attempt, statusCode int, errMsg, snippet string) error
 	ListDeliveries(ctx context.Context, botID int64, status string, limit, offset int) ([]domain.Delivery, int64, error)
 	ReplayDelivery(ctx context.Context, botID, id int64) error
 	ResetStaleDeliveries(ctx context.Context, older time.Duration) (int64, error)

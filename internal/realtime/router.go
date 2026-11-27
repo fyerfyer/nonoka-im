@@ -189,10 +189,18 @@ func (r *GatewayRouter) getCachedSession(userID int64) ([]string, bool) {
 
 // setCachedSession stores the node IDs for a user in the local cache.
 func (r *GatewayRouter) setCachedSession(userID int64, nodeIDs []string) {
+	now := time.Now()
 	r.sessionCacheMu.Lock()
+	if len(r.sessionCache) > 100000 {
+		for key, entry := range r.sessionCache {
+			if entry == nil || now.After(entry.expires) {
+				delete(r.sessionCache, key)
+			}
+		}
+	}
 	r.sessionCache[userID] = &sessionCacheEntry{
 		nodeIDs: nodeIDs,
-		expires: time.Now().Add(r.sessionCacheTTL),
+		expires: now.Add(r.sessionCacheTTL),
 	}
 	r.sessionCacheMu.Unlock()
 }
@@ -245,6 +253,12 @@ func (r *GatewayRouter) ResolveUserNodesWithNodes(ctx context.Context, userIDs [
 	missing := make([]int64, 0, len(userIDs))
 	for _, uid := range userIDs {
 		if nodeIDs, ok := r.getCachedSession(uid); ok {
+			if len(nodeIDs) == 0 {
+				// Negative cache hit: the user was confirmed offline. Without
+				// this branch every push would still query Redis for offline
+				// users, defeating the cache entirely.
+				continue
+			}
 			added := false
 			for _, nodeID := range nodeIDs {
 				if _, ok := aliveSet[nodeID]; ok {

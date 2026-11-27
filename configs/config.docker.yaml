@@ -19,7 +19,7 @@ data:
   mongodb:
     uri: mongodb://mongodb:27017/?replicaSet=rs0
     database: nonoka_im
-    write_concern: w1
+    write_concern: majority_jfalse
   kafka:
     brokers:
     - kafka:19092
@@ -30,7 +30,7 @@ data:
     batch_size: 1000
     batch_timeout: 0.01s
     compression: lz4
-    required_acks: one
+    required_acks: all
     async: false
     max_attempts: 3
     write_timeout: 10s

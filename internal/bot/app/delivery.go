@@ -142,7 +142,7 @@ func (s *DeliveryService) deliver(ctx context.Context, delivery *domain.Delivery
 	}
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		if err := s.Store.MarkDeliverySucceeded(ctx, delivery.ID, resp.StatusCode, resp.Snippet); err != nil {
+		if err := s.Store.MarkDeliverySucceeded(ctx, delivery.ID, delivery.Attempts, resp.StatusCode, resp.Snippet); err != nil {
 			return err
 		}
 		_ = s.Store.MarkWebhookSuccess(ctx, delivery.BotID)
@@ -179,7 +179,7 @@ func (s *DeliveryService) retry(ctx context.Context, delivery *domain.Delivery, 
 		factor := 0.8 + randFloat()*0.4
 		delay = time.Duration(float64(delay) * factor)
 	}
-	if err := s.Store.MarkDeliveryRetry(ctx, delivery.ID, s.now().Add(delay), statusCode, truncate(message, maxResponseSnippet), snippet); err != nil {
+	if err := s.Store.MarkDeliveryRetry(ctx, delivery.ID, delivery.Attempts, s.now().Add(delay), statusCode, truncate(message, maxResponseSnippet), snippet); err != nil {
 		return err
 	}
 	s.log().Warnf("bot webhook delivery failed; retrying: bot_id=%d delivery_id=%d attempt=%d status=%d err=%s",
@@ -188,7 +188,7 @@ func (s *DeliveryService) retry(ctx context.Context, delivery *domain.Delivery, 
 }
 
 func (s *DeliveryService) fail(ctx context.Context, delivery *domain.Delivery, statusCode int, message, snippet string) error {
-	if err := s.Store.MarkDeliveryFailed(ctx, delivery.ID, statusCode, truncate(message, maxResponseSnippet), snippet); err != nil {
+	if err := s.Store.MarkDeliveryFailed(ctx, delivery.ID, delivery.Attempts, statusCode, truncate(message, maxResponseSnippet), snippet); err != nil {
 		return err
 	}
 	_ = s.Store.MarkWebhookFailure(ctx, delivery.BotID, false)

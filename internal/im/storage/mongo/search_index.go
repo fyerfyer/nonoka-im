@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -97,23 +99,53 @@ func (s *Store) ClaimSearchIndexTask(ctx context.Context) (*domain.SearchIndexTa
 	return &task, nil
 }
 
-// ClaimSearchIndexTasks leases up to limit due tasks. The per-task claim is
-// still an atomic FindOneAndUpdate; batching here is primarily to let the
-// relay send one Meilisearch request per batch instead of one per document.
+// ClaimSearchIndexTasks leases up to limit due tasks. Each claim remains an
+// atomic FindOneAndUpdate, but claims run with bounded parallelism: a single
+// relay batch of 1000 otherwise costs 1000 sequential MongoDB round-trips.
 func (s *Store) ClaimSearchIndexTasks(ctx context.Context, limit int) ([]*domain.SearchIndexTask, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	tasks := make([]*domain.SearchIndexTask, 0, limit)
-	for i := 0; i < limit; i++ {
-		task, err := s.ClaimSearchIndexTask(ctx)
-		if errors.Is(err, domain.ErrNotFound) {
-			break
-		}
-		if err != nil {
-			return tasks, err
-		}
-		tasks = append(tasks, task)
+	const claimWorkers = 8
+	workers := min(limit, claimWorkers)
+	var (
+		mu        sync.Mutex
+		tasks     = make([]*domain.SearchIndexTask, 0, limit)
+		remaining = int64(limit)
+		firstErr  error
+	)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				if atomic.AddInt64(&remaining, -1) < 0 {
+					return
+				}
+				task, err := s.ClaimSearchIndexTask(ctx)
+				if errors.Is(err, domain.ErrNotFound) {
+					return
+				}
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					return
+				}
+				mu.Lock()
+				tasks = append(tasks, task)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if firstErr != nil {
+		return tasks, firstErr
 	}
 	return tasks, nil
 }

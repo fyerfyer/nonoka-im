@@ -52,9 +52,14 @@ func (m *Idempotency) Execute(ctx context.Context, w http.ResponseWriter, r *htt
 		}
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	const maxIdempotentRequest = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxIdempotentRequest+1))
 	if err != nil {
 		Write(w, ctx, BadRequest("INVALID_ARGUMENT", "invalid request body"))
+		return
+	}
+	if len(body) > maxIdempotentRequest {
+		Write(w, ctx, RequestEntityTooLarge("REQUEST_TOO_LARGE", "request body exceeds the idempotent request limit"))
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

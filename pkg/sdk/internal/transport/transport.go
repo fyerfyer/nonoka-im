@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -77,6 +78,22 @@ type Client struct {
 	HTTPClient *http.Client
 	Tokens     TokenSource
 	UserAgent  string
+
+	tokenMu sync.RWMutex
+}
+
+// SetTokenSource atomically swaps the source used by in-flight requests.
+func (t *Client) SetTokenSource(source TokenSource) {
+	t.tokenMu.Lock()
+	t.Tokens = source
+	t.tokenMu.Unlock()
+}
+
+func (t *Client) tokenSource() TokenSource {
+	t.tokenMu.RLock()
+	source := t.Tokens
+	t.tokenMu.RUnlock()
+	return source
 }
 
 func New(baseURL string, client *http.Client, tokens TokenSource, userAgent string) *Client {
@@ -118,7 +135,7 @@ func (t *Client) Do(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	resp, err := do(token)
-	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.Tokens == nil {
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.tokenSource() == nil {
 		return resp, err
 	}
 	if req.Body != nil && req.GetBody == nil {
@@ -231,14 +248,15 @@ func (t *Client) once(ctx context.Context, method, endpoint string, payload []by
 }
 
 func (t *Client) token(ctx context.Context) (string, error) {
-	if t.Tokens == nil {
+	source := t.tokenSource()
+	if source == nil {
 		return "", nil
 	}
-	return t.Tokens.Token(ctx)
+	return source.Token(ctx)
 }
 
 func (t *Client) refresh(ctx context.Context) (string, error) {
-	refreshable, ok := t.Tokens.(RefreshableTokenSource)
+	refreshable, ok := t.tokenSource().(RefreshableTokenSource)
 	if !ok {
 		return "", fmt.Errorf("token source is not refreshable")
 	}

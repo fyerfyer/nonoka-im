@@ -86,12 +86,9 @@ func (s *PushService) Deliver(ctx context.Context, result HandleResult) {
 func (s *PushService) deliverP2POrSystem(ctx context.Context, msg *domain.Message, recipientIDs []int64) {
 	push := buildPushMessage(msg)
 	if len(recipientIDs) > 0 && s.Pusher != nil {
-		recipients := make([]int64, 0, len(recipientIDs))
-		for _, id := range recipientIDs {
-			if id != msg.SenderID {
-				recipients = append(recipients, id)
-			}
-		}
+		// Include the sender: the sender may have another device connected.
+		// The originating client deduplicates its local echo by client_msg_id.
+		recipients := uniqueUserIDs(recipientIDs)
 		recipients = s.humanRecipients(ctx, recipients)
 		if len(recipients) > 0 {
 			if _, failed, err := s.Pusher.BatchPushToUsers(ctx, recipients, push); err != nil {
@@ -131,14 +128,14 @@ func (s *PushService) deliverGroup(ctx context.Context, msg *domain.Message) {
 		}
 		recipients := make([]int64, 0, len(memberIDs))
 		for _, id := range memberIDs {
-			if id == msg.SenderID {
-				continue
-			}
 			if _, ok := mentioned[id]; ok {
 				continue
 			}
 			recipients = append(recipients, id)
 		}
+		// Keep the sender in the fan-out so their other devices see the
+		// message; clients dedupe their own local echo by client_msg_id.
+		recipients = uniqueUserIDs(recipients)
 		recipients = s.humanRecipients(ctx, recipients)
 		if len(recipients) > 0 {
 			if _, failed, err := s.Pusher.BatchPushToUsers(ctx, recipients, push); err != nil {
@@ -176,6 +173,22 @@ func buildPushMessage(msg *domain.Message) *domain.PushMessage {
 		Content: msg.Content, Timestamp: msg.Timestamp, TopicSeq: msg.TopicSeq,
 		ClientMsgID: msg.ClientMsgID, MentionedUserIDs: msg.MentionedUserIDs, Recalled: msg.Recalled,
 	}
+}
+
+func uniqueUserIDs(ids []int64) []int64 {
+	out := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (s *PushService) humanRecipients(ctx context.Context, ids []int64) []int64 {

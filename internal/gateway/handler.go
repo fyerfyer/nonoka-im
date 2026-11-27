@@ -41,6 +41,7 @@ type Handler struct {
 	sendTimeout  time.Duration
 	recallWindow time.Duration
 	groupMembers func(context.Context, string) ([]int64, error)
+	peerBus      *PeerBus
 
 	// Per-connection publish rate limit (token bucket). limiters maps
 	// connID to the connection's bucket; entries are removed on close.
@@ -117,6 +118,42 @@ func (h *Handler) SetRecallWindow(window time.Duration) {
 // SetGroupMemberResolver enables real-time recall fan-out for group topics.
 func (h *Handler) SetGroupMemberResolver(resolve func(context.Context, string) ([]int64, error)) {
 	h.groupMembers = resolve
+}
+
+// SetPeerBus enables gateway-to-gateway fan-out for receipts and recalls.
+func (h *Handler) SetPeerBus(bus *PeerBus) {
+	h.peerBus = bus
+}
+
+// fanoutToUsers delivers a packet to all devices of the listed users. With a
+// peer bus it publishes once and lets every gateway deliver to its local
+// sessions; without Redis it falls back to the local connection manager.
+func (h *Handler) fanoutToUsers(ctx context.Context, userIDs []int64, packet *v1.Packet) {
+	if len(userIDs) == 0 || packet == nil {
+		return
+	}
+	unique := make([]int64, 0, len(userIDs))
+	seen := make(map[int64]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if h.peerBus != nil {
+		if err := h.peerBus.Publish(ctx, unique, packet); err == nil {
+			return
+		} else {
+			h.log.Warnf("gateway peer fanout failed, falling back locally: %v", err)
+		}
+	}
+	for _, id := range unique {
+		h.manager.BroadcastToUser(id, packet)
+	}
 }
 
 // HandlePacket processes an incoming packet from a connection.

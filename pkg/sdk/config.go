@@ -9,7 +9,11 @@ import (
 // explicit booleans; use the constructor defaults and override only when
 // needed.
 type RealtimeConfig struct {
-	GatewayURLs          []string
+	GatewayURLs []string
+	// Origin is sent on the WebSocket handshake. Browser clients set it
+	// automatically; server-side SDK clients must set it when the gateway has
+	// a non-empty allowed_origins list.
+	Origin               string
 	DeviceID             string
 	HeartbeatInterval    time.Duration
 	HeartbeatTimeout     time.Duration
@@ -61,8 +65,11 @@ func (c Config) withDefaults() Config {
 	if c.UserAgent == "" {
 		c.UserAgent = "nonoka-sdk-go/1"
 	}
+	// Fill each field independently. Replacing the whole Realtime struct when
+	// DeviceID is empty silently erased GatewayURLs/DisableAutoReconnect and
+	// other caller-provided options.
 	if c.Realtime.DeviceID == "" {
-		c.Realtime = DefaultRealtimeConfig()
+		c.Realtime.DeviceID = "sdk-default"
 	}
 	if c.Realtime.HeartbeatInterval <= 0 {
 		c.Realtime.HeartbeatInterval = 30 * time.Second

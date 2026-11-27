@@ -113,13 +113,20 @@ func (s *FileService) ShareToTopic(ctx context.Context, userID int64, msgType do
 		return
 	}
 	var meta struct {
-		URL string `json:"url"`
+		FileID string `json:"file_id"`
+		URL    string `json:"url"`
 	}
-	if err := json.Unmarshal(content, &meta); err != nil || meta.URL == "" {
+	if err := json.Unmarshal(content, &meta); err != nil {
 		return
 	}
-	fileID := strings.TrimPrefix(meta.URL, "/v1/files/")
-	if fileID == meta.URL || strings.ContainsAny(fileID, "/?#") {
+	fileID := strings.TrimSpace(meta.FileID)
+	if fileID == "" {
+		fileID = strings.TrimPrefix(meta.URL, "/v1/files/")
+		if fileID == meta.URL {
+			return
+		}
+	}
+	if strings.ContainsAny(fileID, "/?#") {
 		return
 	}
 	_ = s.Authorizer.SetFileSharedTopic(ctx, fileID, topic, true)

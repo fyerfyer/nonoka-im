@@ -117,6 +117,18 @@ func (r *fakeAuthRepo) DeleteRefreshToken(_ context.Context, userID int64, devic
 	return nil
 }
 
+func (r *fakeAuthRepo) RotateRefreshToken(_ context.Context, userID int64, deviceID, oldHash, newHash string, ttl time.Duration) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := fmt.Sprintf("%d:%s", userID, deviceID)
+	if r.refresh[key] != oldHash {
+		return false, nil
+	}
+	r.refresh[key] = newHash
+	r.savedTTL[key] = ttl
+	return true, nil
+}
+
 func hashToken(t string) string {
 	sum := sha256.Sum256([]byte(t))
 	return hex.EncodeToString(sum[:])
@@ -160,6 +172,43 @@ func TestAuthSearchUsers(t *testing.T) {
 	users, err = uc.SearchUsers(context.Background(), "a", 1)
 	if err != nil || len(users) != 1 {
 		t.Fatalf("limit not applied: users=%v err=%v", users, err)
+	}
+}
+
+func TestAuthRefresh_ConcurrentRotationHasOneWinner(t *testing.T) {
+	repo := newFakeAuthRepo()
+	uc := newTestAuthUsecase(repo)
+	mustRegister(t, uc, "alice", "123456")
+	userID, _, refreshToken, err := uc.Login(context.Background(), "alice", "123456", "dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, _, err := uc.Refresh(context.Background(), userID, "dev-1", refreshToken)
+			results <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	success, failed := 0, 0
+	for err := range results {
+		if err == nil {
+			success++
+		} else {
+			failed++
+		}
+	}
+	if success != 1 || failed != 1 {
+		t.Fatalf("expected exactly one refresh winner, success=%d failed=%d", success, failed)
 	}
 }
 

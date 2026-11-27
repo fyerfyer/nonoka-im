@@ -51,6 +51,15 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("create inbox topic/time index: %w", err)
 	}
 
+	// Recovery reads the highest persisted seq for a topic without a user
+	// prefix. The inbox unique index starts with user_id, so it cannot serve
+	// this topic-only lookup.
+	if err := s.createIndex(ctx, CollectionInboxes, "inbox_topic_seq", mongo.IndexModel{
+		Keys: bson.D{{Key: "topic", Value: 1}, {Key: "topic_seq", Value: -1}},
+	}); err != nil {
+		return fmt.Errorf("create inbox topic/seq index: %w", err)
+	}
+
 	// Unique index on client_msg_id + user_id for inbox deduplication.
 	// Uses user_id (not sender_id) because both sender and receiver have
 	// separate inbox entries for the same message, and they must not

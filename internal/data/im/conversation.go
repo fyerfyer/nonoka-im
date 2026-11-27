@@ -201,11 +201,15 @@ func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, 
 }
 
 func (r *conversationRepo) MarkRead(ctx context.Context, userID int64, topic string, upToSeq uint64) error {
-	update := map[string]interface{}{"unread_count": 0}
+	update := map[string]interface{}{}
 	if upToSeq > 0 {
-		update["last_read_seq"] = upToSeq
+		// Read receipts can arrive out of order after reconnects. Never move
+		// the read watermark backwards.
+		update["last_read_seq"] = gorm.Expr("GREATEST(last_read_seq, ?)", upToSeq)
+		update["unread_count"] = gorm.Expr("GREATEST(0, last_seq - GREATEST(last_read_seq, ?))", upToSeq)
 	} else {
 		update["last_read_seq"] = gorm.Expr("last_seq")
+		update["unread_count"] = 0
 	}
 	if err := r.db.WithContext(ctx).Model(&ConversationRow{}).Where("user_id = ? AND topic = ?", userID, topic).Updates(update).Error; err != nil {
 		return fmt.Errorf("mark conversation read: %w", err)

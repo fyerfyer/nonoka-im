@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"strings"
 	"time"
@@ -36,6 +35,10 @@ type AuthRepo interface {
 	// errors.IsNotFound) reports a missing/expired token.
 	GetRefreshTokenHash(ctx context.Context, userID int64, deviceID string) (string, error)
 	DeleteRefreshToken(ctx context.Context, userID int64, deviceID string) error
+	// RotateRefreshToken atomically replaces oldHash with newHash only when
+	// the stored value still matches oldHash. Exactly one concurrent refresh
+	// can win; losers must treat the presented token as already rotated.
+	RotateRefreshToken(ctx context.Context, userID int64, deviceID, oldHash, newHash string, ttl time.Duration) (bool, error)
 }
 
 type AuthUsecase struct {
@@ -180,29 +183,29 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, userID int64, deviceID, refr
 		return 0, "", "", errors.Unauthorized("INVALID_REFRESH_TOKEN", "refresh token required")
 	}
 
-	storedHash, err := uc.repo.GetRefreshTokenHash(ctx, userID, deviceID)
-	if err != nil {
-		// Missing or expired token: same vague error to avoid probing.
-		return 0, "", "", errors.Unauthorized("INVALID_REFRESH_TOKEN", "invalid or expired refresh token")
-	}
-	sum := sha256.Sum256([]byte(refreshToken))
-	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(sum[:]))) != 1 {
-		return 0, "", "", errors.Unauthorized("INVALID_REFRESH_TOKEN", "invalid or expired refresh token")
-	}
-
 	user, err := uc.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return 0, "", "", err
+		return 0, "", "", errors.Unauthorized("INVALID_REFRESH_TOKEN", "invalid or expired refresh token")
 	}
 
-	// Rotate: delete the old token before issuing the new pair so a
-	// replayed refresh token can never be valid twice.
-	if err := uc.repo.DeleteRefreshToken(ctx, userID, deviceID); err != nil {
-		return 0, "", "", err
-	}
-	accessToken, newRefreshToken, err := uc.issueTokenPair(ctx, user, deviceID)
+	// Build the replacement pair first. The Redis compare-and-swap below is
+	// the single point that decides whether this request owns the rotation.
+	accessToken, err := uc.signAccessToken(user, deviceID)
 	if err != nil {
 		return 0, "", "", err
+	}
+	newRefreshToken, newHash, err := generateRefreshToken()
+	if err != nil {
+		return 0, "", "", err
+	}
+	sum := sha256.Sum256([]byte(refreshToken))
+	oldHash := hex.EncodeToString(sum[:])
+	rotated, err := uc.repo.RotateRefreshToken(ctx, userID, deviceID, oldHash, newHash, uc.refreshTTL)
+	if err != nil {
+		return 0, "", "", err
+	}
+	if !rotated {
+		return 0, "", "", errors.Unauthorized("INVALID_REFRESH_TOKEN", "invalid or expired refresh token")
 	}
 	return user.ID, accessToken, newRefreshToken, nil
 }

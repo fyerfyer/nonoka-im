@@ -28,10 +28,12 @@ func (c *RealtimeClient) handlePacket(packet *v1.Packet) {
 	case v1.Command_CMD_SEND_RECEIPT:
 		receipt := packet.GetSendReceipt()
 		if receipt != nil {
-			c.emit(RealtimeEvent{Type: RealtimeSendReceipt, SendReceipt: &SendReceipt{
+			event := &SendReceipt{
 				ClientMessageID: receipt.GetClientMsgId(), MessageID: receipt.GetMsgId(),
 				Topic: receipt.GetTopic(), TopicSeq: receipt.GetTopicSeq(), Timestamp: receipt.GetTimestamp(),
-			}})
+			}
+			c.resolveSendReceipt(event)
+			c.emit(RealtimeEvent{Type: RealtimeSendReceipt, SendReceipt: event})
 		}
 	case v1.Command_CMD_DELIVERY_RECEIPT:
 		receipt := packet.GetDeliveryReceipt()

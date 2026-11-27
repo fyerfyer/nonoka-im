@@ -173,13 +173,14 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	idempotency := provideIdempotency(dataData)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
-	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
+	peerBus := gateway.NewPeerBus(universalClient, manager, logger)
+	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, peerBus, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, auth, logger)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, systemHTTP, idempotency, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
-	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, webSocketServer, heartbeatConfig, llmService)
+	app := newApp(logger, grpcServer, httpServer, gatewayRegistry, peerBus, webSocketServer, heartbeatConfig, llmService)
 	return app, func() {
 		cleanup4()
 		cleanup3()
@@ -700,7 +701,7 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *app.MessageService, query *app.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *app.MessageService, query *app.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, peerBus *gateway.PeerBus, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
 	h := gateway.NewHandler(manager, sessions, messages, query, jwtSecret, hb, logger, m)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
@@ -708,6 +709,7 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	if gatewayConf != nil && gatewayConf.MsgRateLimit != nil {
 		h.SetMessageRateLimit(gatewayConf.MsgRateLimit.MsgPerSec, int(gatewayConf.MsgRateLimit.Burst))
 	}
+	h.SetPeerBus(peerBus)
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
 		members, err := groups.ListMembers(ctx, groupID)
 		if err != nil {

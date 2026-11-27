@@ -102,6 +102,9 @@ type Webhook struct {
 	tolerance time.Duration
 	maxBody   int64
 
+	mu       sync.Mutex
+	inFlight map[string]struct{}
+
 	onMention HandlerFunc
 	onDirect  HandlerFunc
 	onTest    HandlerFunc
@@ -124,6 +127,7 @@ func NewWebhook(cfg WebhookConfig) (*Webhook, error) {
 	}
 	return &Webhook{
 		secret: key, deduper: cfg.Deduper, tolerance: tolerance, maxBody: maxBody,
+		inFlight: make(map[string]struct{}),
 	}, nil
 }
 
@@ -162,6 +166,22 @@ func (w *Webhook) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "invalid signature", http.StatusUnauthorized)
 		return
 	}
+	// Claim the event locally before touching the deduper. A concurrent retry
+	// for the same event must not run the handler twice while the first call
+	// is still in progress.
+	w.mu.Lock()
+	if _, running := w.inFlight[eventID]; running {
+		w.mu.Unlock()
+		rw.WriteHeader(http.StatusOK)
+		return
+	}
+	w.inFlight[eventID] = struct{}{}
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		delete(w.inFlight, eventID)
+		w.mu.Unlock()
+	}()
 	if w.deduper != nil {
 		seen, err := w.deduper.Seen(r.Context(), eventID)
 		if err != nil {

@@ -21,15 +21,43 @@ type seqRange struct {
 
 // Generator allocates topic-scoped sequence numbers from Redis with a local
 // range cache to reduce round-trips.
+// RangeFloor supplies the durable lower bound for a topic. It is read once
+// per range refill (one Mongo read per 100 messages) so a lost or evicted
+// Redis key can never restart the sequence below persisted messages.
+type RangeFloor func(ctx context.Context, topic string) (uint64, error)
+
+const allocateRangeScript = `
+local created = 0
+if redis.call('exists', KEYS[1]) == 0 then created = 1 end
+local endv = redis.call('incrby', KEYS[1], ARGV[1])
+return {created, endv}
+`
+
+const resetRangeScript = `
+local current = tonumber(redis.call('get', KEYS[1]) or '0')
+local floor = tonumber(ARGV[1])
+if current < floor then
+  redis.call('set', KEYS[1], floor)
+end
+return redis.call('incrby', KEYS[1], ARGV[2])
+`
+
 type Generator struct {
 	redis     redis.UniversalClient
 	log       *log.Helper
 	batchSize int
 	ranges    sync.Map
+	floor     RangeFloor
 }
 
 func New(redis redis.UniversalClient, logger log.Logger) *Generator {
 	return &Generator{redis: redis, log: log.NewHelper(logger), batchSize: defaultBatchSize}
+}
+
+// SetFloor installs the durable fallback used when a Redis sequence key is
+// missing. Production wires this to MongoDB; tests may leave it nil.
+func (g *Generator) SetFloor(floor RangeFloor) {
+	g.floor = floor
 }
 
 func (g *Generator) NextSeq(ctx context.Context, topic string) (uint64, error) {
@@ -43,9 +71,26 @@ func (g *Generator) NextSeq(ctx context.Context, topic string) (uint64, error) {
 		return value, nil
 	}
 	key := fmt.Sprintf("im:seq:%s", topic)
-	end, err := g.redis.IncrBy(ctx, key, int64(g.batchSize)).Result()
-	if err != nil {
-		return 0, fmt.Errorf("redis incrby failed for topic %s: %w", topic, err)
+	var end int64
+	if g.floor != nil {
+		// Read the durable floor on every range refill. This is one indexed
+		// Mongo read per batch (100 messages) and removes the race where two
+		// workers create a lost Redis key with different floors.
+		floor, ferr := g.floor(ctx, topic)
+		if ferr != nil {
+			return 0, fmt.Errorf("load durable seq floor for topic %s: %w", topic, ferr)
+		}
+		value, rerr := g.redis.Eval(ctx, resetRangeScript, []string{key}, floor, g.batchSize).Int64()
+		if rerr != nil {
+			return 0, fmt.Errorf("allocating seq range for topic %s: %w", topic, rerr)
+		}
+		end = value
+	} else {
+		result, rerr := g.redis.Eval(ctx, allocateRangeScript, []string{key}, g.batchSize).Slice()
+		if rerr != nil {
+			return 0, fmt.Errorf("redis allocate seq range for topic %s: %w", topic, rerr)
+		}
+		end, _ = result[1].(int64)
 	}
 	sr.max = uint64(end)
 	sr.next = sr.max - uint64(g.batchSize) + 1
@@ -58,15 +103,13 @@ func (g *Generator) NextSeqBatch(ctx context.Context, topic string, count int) (
 	if count <= 0 {
 		return nil, nil
 	}
-	key := fmt.Sprintf("im:seq:%s", topic)
-	end, err := g.redis.IncrBy(ctx, key, int64(count)).Result()
-	if err != nil {
-		return nil, fmt.Errorf("redis incrby failed for topic %s: %w", topic, err)
-	}
-	start := end - int64(count) + 1
-	out := make([]uint64, count)
+	out := make([]uint64, 0, count)
 	for i := 0; i < count; i++ {
-		out[i] = uint64(start + int64(i))
+		value, err := g.NextSeq(ctx, topic)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, value)
 	}
 	return out, nil
 }

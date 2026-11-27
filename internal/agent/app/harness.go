@@ -64,6 +64,10 @@ type ResolvedAgent struct {
 	// ApprovalTools are tool names whose calls interrupt for human
 	// confirmation (write-class MCP tools and future side-effect tools).
 	ApprovalTools []string
+	// SideEffectTools are tools that must use the durable invocation ledger
+	// even when their policy is auto. MCP write tools belong here regardless
+	// of whether the owner opted out of approval.
+	SideEffectTools []string
 }
 
 // approvalTTL bounds how long a pending approval waits for the user.
@@ -136,6 +140,7 @@ func (h *Harness) HandleResolved(ctx context.Context, ev messaging.MessageEvent,
 	in.MCPTools, in.Skills = agent.MCPTools, agent.Skills
 	in.CheckPointID = checkpointIDForRun(run.ID)
 	in.ApprovalTools = agent.ApprovalTools
+	in.SideEffectTools = agent.SideEffectTools
 	in.OnEvent = h.eventSink(ctx, run, agent)
 	h.attachCurrentMessage(ctx, &in, ev, agent)
 	if h.Quota != nil {
@@ -250,22 +255,23 @@ func (h *Harness) HandleResume(ctx context.Context, ev messaging.MessageEvent, a
 	stopHeartbeat := h.startHeartbeat(ctx, run, agent, 10*time.Second)
 	defer stopHeartbeat()
 	resumeIn := port.Input{
-		Instruction:   agent.Instruction,
-		Model:         agent.Model,
-		AllowedTools:  agent.Tools,
-		RestrictTools: agent.RestrictTools,
-		MCPTools:      agent.MCPTools,
-		Skills:        agent.Skills,
-		ApprovalTools: agent.ApprovalTools,
-		EventID:       run.EventID,
-		RunID:         run.ID,
-		AttemptID:     run.AttemptID,
-		AgentID:       agent.ID,
-		ActorUserID:   run.ActorUserID,
-		BotID:         agent.BotID,
-		Topic:         run.Topic,
-		CheckPointID:  run.CheckpointID,
-		OnEvent:       h.eventSink(ctx, run, agent),
+		Instruction:     agent.Instruction,
+		Model:           agent.Model,
+		AllowedTools:    agent.Tools,
+		RestrictTools:   agent.RestrictTools,
+		MCPTools:        agent.MCPTools,
+		Skills:          agent.Skills,
+		ApprovalTools:   agent.ApprovalTools,
+		SideEffectTools: agent.SideEffectTools,
+		EventID:         run.EventID,
+		RunID:           run.ID,
+		AttemptID:       run.AttemptID,
+		AgentID:         agent.ID,
+		ActorUserID:     run.ActorUserID,
+		BotID:           agent.BotID,
+		Topic:           run.Topic,
+		CheckPointID:    run.CheckpointID,
+		OnEvent:         h.eventSink(ctx, run, agent),
 	}
 	if h.Quota != nil {
 		guard, maxTurns, gerr := h.Quota.BeginRun(ctx, run, agent.Model)

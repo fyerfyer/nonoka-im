@@ -13,7 +13,10 @@ jobs:
         run: docker compose -f docker-compose.test.yml up -d --wait --wait-timeout 300
       - run: go vet ./...
       - run: go test ./test/architecture/... -count=1
-      - run: go test ./... -count=1 -timeout 15m
+      # The integration, agent and data packages share one PostgreSQL test
+      # database. Running packages in parallel truncates tables under each
+      # other and produces spurious deadlocks.
+      - run: go test -p 1 ./... -count=1 -timeout 20m
       - name: Stop test dependencies
         if: always()
         run: docker compose -f docker-compose.test.yml down -v

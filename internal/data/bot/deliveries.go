@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"nonoka-im/internal/bot/domain"
+
+	"gorm.io/gorm"
 )
 
 func (s *Store) EnqueueDelivery(ctx context.Context, delivery *domain.Delivery) (bool, error) {
@@ -68,26 +70,41 @@ func (s *Store) ClaimDelivery(ctx context.Context, lock time.Duration) (*domain.
 	return &delivery, nil
 }
 
-func (s *Store) MarkDeliverySucceeded(ctx context.Context, id int64, statusCode int, snippet string) error {
+func markDelivery(ctx context.Context, db *gorm.DB, id int64, attempt int, values map[string]any) error {
+	res := db.WithContext(ctx).Table(tableDeliveries).
+		Where("id = ? AND status = ? AND attempts = ?", id, domain.DeliveryDelivering, attempt).
+		Updates(values)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		// The lease expired and another worker claimed a newer attempt. A
+		// stale worker must not overwrite that worker's result.
+		return domain.ErrDeliveryLease
+	}
+	return nil
+}
+
+func (s *Store) MarkDeliverySucceeded(ctx context.Context, id int64, attempt, statusCode int, snippet string) error {
 	now := time.Now()
-	return s.db.WithContext(ctx).Table(tableDeliveries).Where("id = ?", id).Updates(map[string]any{
+	return markDelivery(ctx, s.db, id, attempt, map[string]any{
 		"status": domain.DeliverySucceeded, "delivered_at": now, "locked_until": nil,
 		"last_status_code": statusCode, "response_snippet": snippet, "last_error": "",
-	}).Error
+	})
 }
 
-func (s *Store) MarkDeliveryRetry(ctx context.Context, id int64, next time.Time, statusCode int, errMsg, snippet string) error {
-	return s.db.WithContext(ctx).Table(tableDeliveries).Where("id = ?", id).Updates(map[string]any{
+func (s *Store) MarkDeliveryRetry(ctx context.Context, id int64, attempt int, next time.Time, statusCode int, errMsg, snippet string) error {
+	return markDelivery(ctx, s.db, id, attempt, map[string]any{
 		"status": domain.DeliveryPending, "next_attempt_at": next, "locked_until": nil,
 		"last_status_code": statusCode, "last_error": errMsg, "response_snippet": snippet,
-	}).Error
+	})
 }
 
-func (s *Store) MarkDeliveryFailed(ctx context.Context, id int64, statusCode int, errMsg, snippet string) error {
-	return s.db.WithContext(ctx).Table(tableDeliveries).Where("id = ?", id).Updates(map[string]any{
+func (s *Store) MarkDeliveryFailed(ctx context.Context, id int64, attempt, statusCode int, errMsg, snippet string) error {
+	return markDelivery(ctx, s.db, id, attempt, map[string]any{
 		"status": domain.DeliveryFailed, "locked_until": nil,
 		"last_status_code": statusCode, "last_error": errMsg, "response_snippet": snippet,
-	}).Error
+	})
 }
 
 func (s *Store) ListDeliveries(ctx context.Context, botID int64, status string, limit, offset int) ([]domain.Delivery, int64, error) {

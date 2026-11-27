@@ -65,16 +65,6 @@ func (m *Manager) getShard(userID int64) *connShard {
 	return m.shards[h%shardCount]
 }
 
-func (m *Manager) getShardByConnID(connID string) *connShard {
-	// Use FNV-like hash for connID distribution
-	h := uint32(2166136261)
-	for i := 0; i < len(connID); i++ {
-		h ^= uint32(connID[i])
-		h *= 16777619
-	}
-	return m.shards[h%shardCount]
-}
-
 // Add registers a connection to the manager and returns older connections for
 // the same user and device. The caller should close the returned connections
 // after publishing the new distributed session, so an old connection cannot
@@ -144,18 +134,6 @@ func (m *Manager) Get(userID int64) *Connection {
 				return c
 			}
 		}
-	}
-	return nil
-}
-
-// GetByConnID returns a connection by its unique connID.
-func (m *Manager) GetByConnID(connID string) *Connection {
-	shard := m.getShardByConnID(connID)
-	shard.mu.RLock()
-	defer shard.mu.RUnlock()
-
-	if c, ok := shard.conns[connID]; ok {
-		return c
 	}
 	return nil
 }

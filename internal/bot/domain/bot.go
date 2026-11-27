@@ -15,6 +15,7 @@ var (
 	ErrForbidden     = errors.New("bot access denied")
 	ErrInvalid       = errors.New("invalid bot input")
 	ErrConflict      = errors.New("bot already exists")
+	ErrDeliveryLease = errors.New("bot delivery lease lost")
 	ErrDisabled      = errors.New("bot is disabled")
 	ErrStreamExpired = errors.New("bot stream expired")
 )

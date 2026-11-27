@@ -111,7 +111,7 @@ test-sdk:
 .PHONY: test-race
 # run concurrency-sensitive packages with the race detector
 test-race:
-	@go test -race ./internal/httpapi/... ./internal/server/... ./internal/realtime/... ./pkg/sdk/... -count=1 -timeout 300s
+	@go test -p 1 -race ./internal/httpapi/... ./internal/server/... ./internal/realtime/... ./internal/gateway/... ./internal/kafka/... ./internal/im/app/... ./internal/agent/... ./pkg/sdk/... -count=1 -timeout 300s
 
 .PHONY: test-unit
 # run unit tests (still uses real test infrastructure where a test requires it)
@@ -164,6 +164,10 @@ test: test-deps-up
 	@echo "=== Running External Bot Tests       ==="
 	@echo "========================================"
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestBotAPI_|TestBotDelivery_' -count=1 -timeout 120s || { $(MAKE) test-deps-down; exit 1; }
+	@echo "\n========================================"
+	@echo "=== Running IM Core + SDK Tests      ==="
+	@echo "========================================"
+	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestMsgWorker|TestStorage|TestMessageSearch|TestSDK' -count=1 -timeout 600s || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"

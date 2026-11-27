@@ -256,6 +256,9 @@ func (r *Engine) resolveTools(toolCtx context.Context, in port.Input) ([]tool.Ba
 	for _, name := range in.ApprovalTools {
 		sideEffects[name] = true
 	}
+	for _, name := range in.SideEffectTools {
+		sideEffects[name] = true
+	}
 	agentTools = r.withLedger(toolCtx, agentTools, sideEffects)
 	if len(in.ApprovalTools) == 0 {
 		return agentTools, nil

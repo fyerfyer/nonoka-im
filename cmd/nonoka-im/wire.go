@@ -566,7 +566,7 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *imapp.MessageService, query *imapp.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *imapp.MessageService, query *imapp.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, peerBus *gateway.PeerBus, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
 	h := gateway.NewHandler(manager, sessions, messages, query, jwtSecret, hb, logger, m)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
@@ -574,6 +574,7 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	if gatewayConf != nil && gatewayConf.MsgRateLimit != nil {
 		h.SetMessageRateLimit(gatewayConf.MsgRateLimit.MsgPerSec, int(gatewayConf.MsgRateLimit.Burst))
 	}
+	h.SetPeerBus(peerBus)
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
 		members, err := groups.ListMembers(ctx, groupID)
 		if err != nil {

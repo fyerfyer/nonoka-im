@@ -42,6 +42,17 @@ type Message struct {
 	Status           MessageStatus `json:"-"`
 }
 
+// MediaContent is the JSON payload stored in IMAGE/FILE messages. The SDK
+// must send this shape, not a bare URL: the server derives file authorization
+// and agent multimodal input from file_id.
+type MediaContent struct {
+	FileID string `json:"file_id,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Mime   string `json:"mime,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+}
+
 // SendRequest creates one message. ClientMessageID is optional; the SDK
 // generates and reuses one across retries.
 type SendRequest struct {
@@ -52,12 +63,15 @@ type SendRequest struct {
 	MentionedUserIDs []int64
 }
 
-// SendResult is the server acknowledgement of a persisted message.
+// SendResult is the server acknowledgement of a message. Confirmed is true
+// only when the durable msg_id/topic_seq receipt was observed (or recovered
+// through pull). HTTP-only acceptance can be successful with Confirmed=false.
 type SendResult struct {
 	ClientMessageID string
 	MessageID       int64
 	Timestamp       int64
 	TopicSeq        uint64
+	Confirmed       bool
 }
 
 // PullResult is one page of history or offline catch-up messages.

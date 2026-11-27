@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // Client is the single entry point of the SDK. Resources are grouped by
 // domain; Realtime is optional and only needed for live events.
 type Client struct {
+	mu   sync.RWMutex
 	cfg  Config
 	http *apiTransport
 
@@ -82,27 +84,42 @@ func (c *Client) Close() error {
 	return firstErr
 }
 
-// Config returns the effective client configuration (excluding secrets).
-func (c *Client) Config() Config { return c.cfg }
+// Config returns the effective client configuration. TokenSource is an
+// interface and may hold a secret; callers should not log it.
+func (c *Client) Config() Config {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cfg
+}
 
 // UserID returns the user encoded in the current access token, or zero.
 func (c *Client) UserID() int64 {
-	if c == nil || c.cfg.TokenSource == nil {
+	if c == nil {
 		return 0
 	}
-	token, err := c.cfg.TokenSource.Token(context.Background())
+	c.mu.RLock()
+	source := c.cfg.TokenSource
+	c.mu.RUnlock()
+	if source == nil {
+		return 0
+	}
+	token, err := source.Token(context.Background())
 	if err != nil {
 		return 0
 	}
 	return userIDFromToken(token)
 }
 
-// UpdateToken replaces the token source with a fixed token. It is intended for
-// login flows that already hold an access token.
+// UpdateToken replaces the token source with a fixed token. It is safe to
+// call concurrently with in-flight HTTP and realtime operations.
 func (c *Client) UpdateToken(token string) {
 	source := StaticToken(token)
+	c.mu.Lock()
 	c.cfg.TokenSource = source
-	c.http.Tokens = source
+	c.mu.Unlock()
+	if c.http != nil {
+		c.http.SetTokenSource(source)
+	}
 	if c.Realtime != nil {
 		c.Realtime.setTokenSource(source)
 	}

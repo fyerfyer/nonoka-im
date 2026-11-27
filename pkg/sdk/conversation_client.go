@@ -2,17 +2,47 @@ package sdk
 
 import (
 	"context"
+	"sync"
 )
 
 // ConversationClient is a lightweight, stateless convenience wrapper around a
 // topic. It does not keep a message cache; callers own their store.
 type ConversationClient struct {
-	Topic         string
-	OnMessage     func(*Message)
-	OnReadReceipt func(upToSeq uint64)
+	Topic string
+
+	mu            sync.RWMutex
+	onMessage     func(*Message)
+	onReadReceipt func(upToSeq uint64)
 
 	messages *MessagesResource
 	api      *ConversationsResource
+}
+
+// SetOnMessage installs the message callback. It is safe to call while the
+// realtime dispatcher is running.
+func (c *ConversationClient) SetOnMessage(fn func(*Message)) {
+	c.mu.Lock()
+	c.onMessage = fn
+	c.mu.Unlock()
+}
+
+// SetOnReadReceipt installs the read-receipt callback.
+func (c *ConversationClient) SetOnReadReceipt(fn func(uint64)) {
+	c.mu.Lock()
+	c.onReadReceipt = fn
+	c.mu.Unlock()
+}
+
+func (c *ConversationClient) messageHandler() func(*Message) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.onMessage
+}
+
+func (c *ConversationClient) readReceiptHandler() func(uint64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.onReadReceipt
 }
 
 func (c *ConversationClient) SendText(ctx context.Context, text string) (*SendResult, error) {
@@ -48,23 +78,6 @@ func (r *ConversationsResource) Get(topic string) *ConversationClient {
 	return client
 }
 
-func (r *ConversationsResource) dispatch(event RealtimeEvent) {
-	r.mu.Lock()
-	clients := make([]*ConversationClient, 0, len(r.clients))
-	for _, client := range r.clients {
-		clients = append(clients, client)
-	}
-	r.mu.Unlock()
-	for _, client := range clients {
-		if event.Type == RealtimeMessage && event.Message != nil && event.Message.Topic == client.Topic && client.OnMessage != nil {
-			client.OnMessage(event.Message)
-		}
-		if event.Type == RealtimeReadReceipt && event.ReadReceipt != nil && event.ReadReceipt.Topic == client.Topic && client.OnReadReceipt != nil {
-			client.OnReadReceipt(event.ReadReceipt.UpToSeq)
-		}
-	}
-}
-
 // dispatchLoop consumes the realtime event stream for conversation callbacks.
 func (c *Client) dispatchLoop() {
 	events := c.Realtime.Events()
@@ -72,5 +85,33 @@ func (c *Client) dispatchLoop() {
 		if c.Conversations != nil {
 			c.Conversations.dispatch(event)
 		}
+	}
+}
+
+func (r *ConversationsResource) dispatch(event RealtimeEvent) {
+	if event.Type != RealtimeMessage && event.Type != RealtimeReadReceipt {
+		return
+	}
+	topic := ""
+	if event.Type == RealtimeMessage && event.Message != nil {
+		topic = event.Message.Topic
+	}
+	if event.Type == RealtimeReadReceipt && event.ReadReceipt != nil {
+		topic = event.ReadReceipt.Topic
+	}
+	r.mu.Lock()
+	client := r.clients[topic]
+	r.mu.Unlock()
+	if client == nil {
+		return
+	}
+	if event.Type == RealtimeMessage {
+		if fn := client.messageHandler(); fn != nil {
+			fn(event.Message)
+		}
+		return
+	}
+	if fn := client.readReceiptHandler(); fn != nil {
+		fn(event.ReadReceipt.UpToSeq)
 	}
 }

@@ -173,12 +173,16 @@ func (p *KafkaProducer) Produce(ctx context.Context, msg *v1.UpstreamMessage) er
 		if err == nil {
 			break
 		}
-		if attempt >= 5 || ctx.Err() != nil || !isTransientProduceError(err) {
+		if attempt >= 10 || ctx.Err() != nil || !isTransientProduceError(err) {
 			p.log.Errorf("write to kafka failed: topic=%s sender=%d client_msg_id=%s err=%v",
 				msg.GetTopic(), msg.GetSenderId(), msg.GetClientMsgId(), err)
 			return fmt.Errorf("write to kafka: %w", err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("write to kafka: %w", ctx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
 
 	p.log.Debugf("produced message to kafka: topic=%s sender=%d client_msg_id=%s async=%v",

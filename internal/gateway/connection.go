@@ -10,6 +10,17 @@ import (
 	v1 "nonoka-im/api/im/v1"
 )
 
+const (
+	// defaultSendBufferSize bounds per-connection memory. A slow client must
+	// not accumulate thousands of payloads; when the buffer is full Send
+	// returns ErrSendChannelFull and durable messages remain pullable.
+	defaultSendBufferSize = 1024
+	// maxWebSocketFrameBytes caps a single inbound frame before protobuf
+	// parsing. Application content is limited to 64 KiB, so 1 MiB leaves room
+	// for envelopes without allowing a memory DoS.
+	maxWebSocketFrameBytes = 1 << 20
+)
+
 // ConnState represents the current state of a connection.
 type ConnState int32
 
@@ -48,7 +59,7 @@ func NewConnection(wsConn *websocket.Conn, connID string, readTimeout time.Durat
 	c := &Connection{
 		wsConn:       wsConn,
 		connID:       connID,
-		sendCh:       make(chan []byte, 16384),
+		sendCh:       make(chan []byte, defaultSendBufferSize),
 		closeCh:      make(chan struct{}),
 		onClose:      onClose,
 		readTimeout:  readTimeout,

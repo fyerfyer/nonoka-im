@@ -21,7 +21,10 @@ type RealtimeClient struct {
 	mu      sync.Mutex
 	subs    map[uint64]chan RealtimeEvent
 	nextSub uint64
-	closed  bool
+	// receipts resolves one send in O(1) without creating a full event
+	// subscription per message.
+	receipts map[string]chan *SendReceipt
+	closed   bool
 }
 
 // newRealtimeClient constructs the public event layer over the internal
@@ -29,6 +32,7 @@ type RealtimeClient struct {
 func newRealtimeClient(cfg Config, httpTransport *apiTransport) *RealtimeClient {
 	conn := rt.New(rt.Config{
 		GatewayURLs:          cfg.Realtime.GatewayURLs,
+		Origin:               cfg.Realtime.Origin,
 		DeviceID:             cfg.Realtime.DeviceID,
 		HeartbeatInterval:    cfg.Realtime.HeartbeatInterval,
 		HeartbeatTimeout:     cfg.Realtime.HeartbeatTimeout,
@@ -37,7 +41,10 @@ func newRealtimeClient(cfg Config, httpTransport *apiTransport) *RealtimeClient 
 		MaxReconnectAttempts: cfg.Realtime.MaxReconnectAttempts,
 		DisableAutoReconnect: cfg.Realtime.DisableAutoReconnect,
 	}, cfg.TokenSource, &dispatchAdapter{http: httpTransport})
-	client := &RealtimeClient{cfg: cfg, conn: conn, subs: map[uint64]chan RealtimeEvent{}}
+	client := &RealtimeClient{
+		cfg: cfg, conn: conn,
+		subs: map[uint64]chan RealtimeEvent{}, receipts: map[string]chan *SendReceipt{},
+	}
 	events, stop := conn.Subscribe()
 	client.stop = stop
 	go client.pump(events)
@@ -59,10 +66,24 @@ func (d *dispatchAdapter) GatewayURLs(ctx context.Context, token string) ([]stri
 	if err := d.http.doProto(ctx, http.MethodGet, "/v1/dispatch/gateway", query, nil, &reply); err != nil {
 		return nil, err
 	}
-	if reply.GetGatewayUrl() != "" {
-		return []string{reply.GetGatewayUrl()}, nil
+	selected := reply.GetGatewayUrl()
+	urls := reply.GetGatewayUrls()
+	if selected == "" && len(urls) == 0 {
+		return nil, fmt.Errorf("gateway URLs are required")
 	}
-	return reply.GetGatewayUrls(), nil
+	// Keep the selected gateway first but retain the advertised fallback
+	// list; a single-node reply must not disable failover.
+	out := make([]string, 0, len(urls)+1)
+	if selected != "" {
+		out = append(out, selected)
+	}
+	for _, url := range urls {
+		if url == "" || url == selected {
+			continue
+		}
+		out = append(out, url)
+	}
+	return out, nil
 }
 
 func (c *RealtimeClient) pump(events <-chan rt.Event) {
@@ -73,6 +94,7 @@ func (c *RealtimeClient) pump(events <-chan rt.Event) {
 		case rt.EventAuthed:
 			c.emit(RealtimeEvent{Type: RealtimeAuthed})
 		case rt.EventDisconnected:
+			c.failSendReceipts()
 			c.emit(RealtimeEvent{Type: RealtimeDisconnected, Err: event.Err})
 		case rt.EventReconnecting:
 			c.emit(RealtimeEvent{Type: RealtimeReconnecting})
@@ -114,6 +136,53 @@ func (c *RealtimeClient) Subscribe() (<-chan RealtimeEvent, func()) {
 		c.mu.Unlock()
 	}
 	return ch, cancel
+}
+
+// waitSendReceipt registers a one-shot waiter for a send receipt. It must be
+// registered before publishing so a fast server cannot race the waiter.
+func (c *RealtimeClient) waitSendReceipt(clientMsgID string) (<-chan *SendReceipt, func()) {
+	c.mu.Lock()
+	if c.closed {
+		ch := make(chan *SendReceipt)
+		close(ch)
+		c.mu.Unlock()
+		return ch, func() {}
+	}
+	ch := make(chan *SendReceipt, 1)
+	c.receipts[clientMsgID] = ch
+	c.mu.Unlock()
+	cancel := func() {
+		c.mu.Lock()
+		if existing, ok := c.receipts[clientMsgID]; ok && existing == ch {
+			delete(c.receipts, clientMsgID)
+			close(existing)
+		}
+		c.mu.Unlock()
+	}
+	return ch, cancel
+}
+
+func (c *RealtimeClient) resolveSendReceipt(receipt *SendReceipt) {
+	if receipt == nil {
+		return
+	}
+	c.mu.Lock()
+	ch, ok := c.receipts[receipt.ClientMessageID]
+	if ok {
+		delete(c.receipts, receipt.ClientMessageID)
+		ch <- receipt
+		close(ch)
+	}
+	c.mu.Unlock()
+}
+
+func (c *RealtimeClient) failSendReceipts() {
+	c.mu.Lock()
+	for id, ch := range c.receipts {
+		delete(c.receipts, id)
+		close(ch)
+	}
+	c.mu.Unlock()
 }
 
 // IsConnected reports whether the WebSocket is currently open and authed.
@@ -189,12 +258,17 @@ func (c *RealtimeClient) closeEvents() {
 		delete(c.subs, id)
 		close(ch)
 	}
+	for id, ch := range c.receipts {
+		delete(c.receipts, id)
+		close(ch)
+	}
 	c.mu.Unlock()
 }
 
 // Disconnect closes the current WebSocket but keeps subscriptions and the
 // client reusable via Connect.
 func (c *RealtimeClient) Disconnect() error {
+	c.failSendReceipts()
 	return c.conn.Disconnect()
 }
 

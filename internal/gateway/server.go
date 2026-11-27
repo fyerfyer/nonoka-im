@@ -77,7 +77,9 @@ func (s *WebSocketServer) buildCheckOrigin(allowedOrigins []string) func(r *http
 			return false
 		}
 		for _, a := range allowed {
-			if a == origin || strings.HasSuffix(origin, a) {
+			// Exact match only. HasSuffix("...evil.com", "example.com")
+			// would accept attacker-controlled origins.
+			if a == "*" || a == origin {
 				return true
 			}
 		}
@@ -94,11 +96,19 @@ func (s *WebSocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	wsConn.SetReadLimit(maxWebSocketFrameBytes)
 	connID := uuid.New().String()
 	conn := NewConnection(wsConn, connID, s.readTimeout, s.writeTimeout, s.onConnectionClose)
 
-	// Start handling packets
+	// Start handling packets. A handler panic must not crash the whole
+	// gateway process; close only the offending connection.
 	conn.Start(func(packet *v1.Packet) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Errorf("websocket handler panic: conn_id=%s err=%v", connID, r)
+				conn.Close()
+			}
+		}()
 		s.handler.HandlePacket(conn, packet)
 	})
 

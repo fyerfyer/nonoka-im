@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	v1 "nonoka-im/api/im/v1"
@@ -28,6 +30,7 @@ var (
 // Config controls the connection state machine.
 type Config struct {
 	GatewayURLs          []string
+	Origin               string
 	DeviceID             string
 	HeartbeatInterval    time.Duration
 	HeartbeatTimeout     time.Duration
@@ -85,6 +88,7 @@ type Client struct {
 
 	heartbeatTimer *time.Timer
 	heartbeatStop  chan struct{}
+	lastAlive      atomic.Int64
 	closeOnce      sync.Once
 }
 
@@ -168,6 +172,14 @@ func (c *Client) Connect(ctx context.Context) error {
 	return c.connect(ctx)
 }
 
+func (c *Client) dial(ctx context.Context, gatewayURL string) (*websocket.Conn, *http.Response, error) {
+	header := http.Header{}
+	if c.cfg.Origin != "" {
+		header.Set("Origin", c.cfg.Origin)
+	}
+	return websocket.DefaultDialer.DialContext(ctx, gatewayURL, header)
+}
+
 func (c *Client) connect(ctx context.Context) error {
 	c.mu.Lock()
 	closed := c.closed
@@ -188,7 +200,7 @@ func (c *Client) connect(ctx context.Context) error {
 		if gatewayURL == "" {
 			continue
 		}
-		conn, _, dialErr := websocket.DefaultDialer.DialContext(ctx, gatewayURL, nil)
+		conn, _, dialErr := c.dial(ctx, gatewayURL)
 		if dialErr != nil {
 			lastErr = dialErr
 			continue
@@ -233,7 +245,7 @@ func (c *Client) connect(ctx context.Context) error {
 }
 
 func (c *Client) connectOnce(ctx context.Context, gatewayURL, token string) error {
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, gatewayURL, nil)
+	conn, _, err := c.dial(ctx, gatewayURL)
 	if err != nil {
 		return err
 	}
@@ -264,6 +276,7 @@ func (c *Client) connectOnce(ctx context.Context, gatewayURL, token string) erro
 }
 
 func (c *Client) markConnected() {
+	c.lastAlive.Store(time.Now().UnixNano())
 	c.mu.Lock()
 	c.reconnectAttempt = 0
 	if c.timer != nil {
@@ -334,6 +347,7 @@ func (c *Client) readLoop(conn *websocket.Conn) {
 			c.handleDisconnect(conn, err)
 			return
 		}
+		c.lastAlive.Store(time.Now().UnixNano())
 		var packet v1.Packet
 		if err := proto.Unmarshal(data, &packet); err != nil {
 			c.emit(Event{Type: EventError, Err: err})
@@ -432,6 +446,18 @@ func (c *Client) heartbeatLoop(stop chan struct{}, interval time.Duration) {
 	case <-c.done:
 		return
 	default:
+	}
+	if timeout := c.cfg.HeartbeatTimeout; timeout > 0 {
+		if last := c.lastAlive.Load(); last > 0 && time.Since(time.Unix(0, last)) > timeout {
+			c.mu.Lock()
+			conn := c.ws
+			c.mu.Unlock()
+			if conn != nil {
+				c.emit(Event{Type: EventError, Err: fmt.Errorf("sdk: heartbeat timeout")})
+				_ = conn.Close()
+			}
+			return
+		}
 	}
 	_ = c.Send(&v1.Packet{Cmd: v1.Command_CMD_HEARTBEAT, Seq: c.NextSeq()})
 	c.mu.Lock()

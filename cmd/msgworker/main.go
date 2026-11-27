@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,7 +144,30 @@ func main() {
 	pusher := impush.NewPusher(rawPusher)
 
 	seqGen := seq.New(redisClient, logger)
-	ids := seq.NewIDs(1)
+	seqGen.SetFloor(func(ctx context.Context, topic string) (uint64, error) {
+		return storage.GetTopicMaxSeq(ctx, topic)
+	})
+	storage.SetRedis(redisClient)
+
+	nodeID := int64(1)
+	if raw := strings.TrimSpace(os.Getenv("MSG_ID_NODE_ID")); raw != "" {
+		if parsed, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && parsed >= 0 && parsed < 1024 {
+			nodeID = parsed
+		} else {
+			logger.Log(log.LevelFatal, "msg", fmt.Sprintf("invalid MSG_ID_NODE_ID %q", raw))
+			os.Exit(1)
+		}
+	} else {
+		lease, leaseErr := seq.AcquireNodeID(ctx, redisClient, fmt.Sprintf("%s:%d", mustHostname(), os.Getpid()), logger)
+		if leaseErr != nil {
+			logger.Log(log.LevelFatal, "msg", fmt.Sprintf("allocate snowflake node id: %v", leaseErr))
+			os.Exit(1)
+		}
+		nodeID = lease.ID
+		go lease.KeepAlive(ctx, 5*time.Minute)
+		defer lease.Release(context.Background())
+	}
+	ids := seq.NewIDs(nodeID)
 	conversations := imdata.NewConversationRepo(dataLayer.DB(), logger)
 	groupMembers := imgroup.NewService(imdata.NewGroupMemberRepo(dataLayer.DB(), logger), redisClient, logger)
 	botIndex := imgroup.NewBotIndexWithQuery(dataLayer.ListBotUserIDs, dataLayer.IsBotUser, logger)

@@ -81,6 +81,16 @@ func (s *Store) saveP2P(ctx context.Context, msg *domain.Message) ([]int64, bool
 				}
 			}
 			if allDuplicate {
+				exists, countErr := s.collection(CollectionInboxes).CountDocuments(ctx, bson.M{
+					"user_id": receiverID, "topic": msg.GetTopic(), "client_msg_id": msg.GetClientMsgId(),
+				})
+				if countErr != nil {
+					return nil, false, fmt.Errorf("verify duplicate p2p message: %w", countErr)
+				}
+				if exists == 0 {
+					return nil, false, fmt.Errorf("duplicate topic seq without matching client_msg_id: topic=%s seq=%d client_msg_id=%s",
+						msg.GetTopic(), topicSeq, msg.GetClientMsgId())
+				}
 				s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
 					msg.GetClientMsgId(), msg.GetSenderId())
 				s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
@@ -118,6 +128,20 @@ func (s *Store) saveGroup(ctx context.Context, msg *domain.Message) (bool, error
 	_, err := s.collection(CollectionMessages).InsertOne(ctx, stored, options.InsertOne())
 	if err != nil {
 		if IsDuplicateError(err) {
+			// A duplicate can be either the idempotent client_msg_id retry or
+			// a colliding topic_seq from a lost Redis sequence. Only the
+			// former is safe to swallow; otherwise the message was dropped and
+			// must be surfaced/retried.
+			exists, countErr := s.collection(CollectionMessages).CountDocuments(ctx, bson.M{
+				"topic": msg.GetTopic(), "sender_id": msg.GetSenderId(), "client_msg_id": msg.GetClientMsgId(),
+			})
+			if countErr != nil {
+				return false, fmt.Errorf("verify duplicate group message: %w", countErr)
+			}
+			if exists == 0 {
+				return false, fmt.Errorf("duplicate topic seq without matching client_msg_id: topic=%s seq=%d client_msg_id=%s",
+					msg.GetTopic(), msg.TopicSeq, msg.GetClientMsgId())
+			}
 			s.log.Debugf("duplicate group message ignored: client_msg_id=%s, sender=%d",
 				msg.GetClientMsgId(), msg.GetSenderId())
 			return true, nil
@@ -306,6 +330,16 @@ func (s *Store) SaveMentionInbox(ctx context.Context, msg *domain.Message, menti
 				}
 			}
 			if allDuplicate {
+				exists, countErr := s.collection(CollectionMentionInboxes).CountDocuments(ctx, bson.M{
+					"user_id": mentionedUserIDs[0], "topic": msg.GetTopic(), "client_msg_id": msg.GetClientMsgId(),
+				})
+				if countErr != nil {
+					return fmt.Errorf("verify duplicate mention inbox: %w", countErr)
+				}
+				if exists == 0 {
+					return fmt.Errorf("duplicate topic seq without matching client_msg_id: topic=%s seq=%d",
+						msg.GetTopic(), topicSeq)
+				}
 				s.log.Debugf("duplicate mention inbox ignored: client_msg_id=%s",
 					msg.GetClientMsgId())
 				return nil

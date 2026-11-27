@@ -32,7 +32,20 @@ if err := client.Connect(ctx); err != nil {
 }
 
 conv := client.Conversations.Get(sdk.P2PTopic(1, 2))
+conv.SetOnMessage(func(msg *sdk.Message) { fmt.Println(string(msg.Content)) })
 result, err := conv.SendText(ctx, "hello!")
+```
+
+Server-side SDK clients must set `RealtimeConfig.Origin` when the gateway
+configures `allowed_origins`; browser clients provide it automatically.
+
+Messages with attachments use `MediaContent` (not a bare URL):
+
+```go
+result, err := client.Messages.SendMedia(ctx, topic, sdk.MessageTypeImage, sdk.MediaContent{
+    FileID: uploaded.FileID, URL: uploaded.URL, Name: uploaded.Name,
+    Mime: uploaded.Mime, Size: uploaded.Size,
+})
 ```
 
 `Messages.Send` uses the live WebSocket when connected, so the returned
@@ -187,7 +200,12 @@ subscriptions, preserving per-topic order.
 - `AutoReconnect`/`AutoAck` are explicit `Disable*` fields in `RealtimeConfig`.
 - `SendMessage` uses a stable client message ID and only retries retryable errors.
 - Old `ConversationManager` state was removed; `ConversationClient` is a
-  stateless topic helper.
+  stateless topic helper. Callbacks are installed with `SetOnMessage` /
+  `SetOnReadReceipt` so they can be changed safely after the client starts.
+- Image/file messages use the JSON `MediaContent` contract. Use
+  `Messages.SendMedia` or pass the metadata returned by `Files.Upload`.
+- Server-side WebSocket clients behind an `allowed_origins` gateway must set
+  `RealtimeConfig.Origin`.
 
 ## Transport and load-test mode
 

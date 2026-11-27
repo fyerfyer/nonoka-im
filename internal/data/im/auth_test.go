@@ -63,6 +63,26 @@ func TestAuthRepo_RefreshTokenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAuthRepo_RotateRefreshTokenIsCompareAndSwap(t *testing.T) {
+	repo, _ := setupTestRedis(t)
+	ctx := context.Background()
+	oldHash := sha256Hex("old")
+	newHash := sha256Hex("new")
+	if err := repo.SaveRefreshTokenHash(ctx, 9, "dev-1", oldHash, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.RotateRefreshToken(ctx, 9, "dev-1", "wrong", newHash, time.Hour); err != nil || ok {
+		t.Fatalf("wrong old hash must not rotate: ok=%v err=%v", ok, err)
+	}
+	if ok, err := repo.RotateRefreshToken(ctx, 9, "dev-1", oldHash, newHash, time.Hour); err != nil || !ok {
+		t.Fatalf("matching old hash must rotate: ok=%v err=%v", ok, err)
+	}
+	got, err := repo.GetRefreshTokenHash(ctx, 9, "dev-1")
+	if err != nil || got != newHash {
+		t.Fatalf("stored hash after rotate = %q err=%v", got, err)
+	}
+}
+
 func TestAuthRepo_RefreshTokenDevicesAreIndependent(t *testing.T) {
 	repo, _ := setupTestRedis(t)
 	ctx := context.Background()

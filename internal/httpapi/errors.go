@@ -119,6 +119,9 @@ func NotFound(message string) *Error {
 func Conflict(code, message string) *Error {
 	return &Error{Status: http.StatusConflict, Code: code, Message: message}
 }
+func RequestEntityTooLarge(code, message string) *Error {
+	return &Error{Status: http.StatusRequestEntityTooLarge, Code: code, Message: message}
+}
 func Internal(err error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Code: "INTERNAL", Message: "internal error", Internal: err}
 }

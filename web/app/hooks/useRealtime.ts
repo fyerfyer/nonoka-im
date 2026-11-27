@@ -146,12 +146,16 @@ function handleIncomingMessage(
   }
 
   if (!isActive) {
-    const conv = chatStore.conversations.get(detail.topic);
-    if (conv) {
-      chatStore.upsertConversation({
-        topic: detail.topic,
-        unreadCount: conv.unreadCount + 1,
-      });
+    // Other devices of the sender now receive their own message through the
+    // fan-out too; that must not increase their unread badge.
+    if (detail.senderId !== myId) {
+      const conv = chatStore.conversations.get(detail.topic);
+      if (conv) {
+        chatStore.upsertConversation({
+          topic: detail.topic,
+          unreadCount: conv.unreadCount + 1,
+        });
+      }
     }
   } else {
     // Active conversation: mark as read immediately.

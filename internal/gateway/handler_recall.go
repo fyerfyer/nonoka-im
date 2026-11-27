@@ -44,19 +44,18 @@ func (h *Handler) handleRecall(c *Connection, packet *v1.Packet) {
 		return
 	}
 	notice := &v1.Packet{Cmd: v1.Command_CMD_RECALL, Payload: &v1.Packet_RecallNotice{RecallNotice: &v1.RecallNotice{Topic: topic, TopicSeq: req.TopicSeq, MsgId: req.MsgId, SenderId: c.UserID(), RecalledAt: time.Now().Unix()}}}
-	h.manager.BroadcastToUser(c.UserID(), notice)
+	recipients := []int64{c.UserID()}
 	if uid1, uid2, err := domain.ExtractUserIDsFromP2PTopic(topic); err == nil {
 		other := uid1
 		if other == c.UserID() {
 			other = uid2
 		}
-		h.manager.BroadcastToUser(other, notice)
+		recipients = append(recipients, other)
 	} else if h.groupMembers != nil && strings.HasPrefix(topic, "grp_") {
 		if members, err := h.groupMembers(ctx, strings.TrimPrefix(topic, "grp_")); err == nil {
-			for _, memberID := range members {
-				h.manager.BroadcastToUser(memberID, notice)
-			}
+			recipients = append(recipients, members...)
 		}
 	}
+	h.fanoutToUsers(ctx, recipients, notice)
 	_ = c.SendWithTimeout(&v1.Packet{Cmd: v1.Command_CMD_RECALL, Seq: packet.Seq}, h.sendTimeout)
 }

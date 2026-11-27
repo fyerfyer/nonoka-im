@@ -18,10 +18,12 @@ type Publisher struct {
 // NewPublisher creates a synchronous publisher for one topic.
 func NewPublisher(brokers []string, topic string) *Publisher {
 	return &Publisher{writer: &kafka.Writer{
-		Addr:         kafka.TCP(brokers...),
-		Topic:        topic,
-		Balancer:     &kafka.Murmur2Balancer{},
-		RequiredAcks: kafka.RequireOne,
+		Addr:     kafka.TCP(brokers...),
+		Topic:    topic,
+		Balancer: &kafka.Murmur2Balancer{},
+		// Outbox rows are marked published after this call returns; acks=one
+		// can lose an event if the leader fails before replication.
+		RequiredAcks: kafka.RequireAll,
 		Async:        false,
 		BatchTimeout: 10 * time.Millisecond,
 	}}

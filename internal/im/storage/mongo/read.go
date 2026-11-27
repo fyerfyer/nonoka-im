@@ -324,17 +324,44 @@ func (s *Store) getMentionMessages(ctx context.Context, userID int64, topic stri
 	return results, nil
 }
 
-// GetTopicMaxSeq returns the current max seq for a topic from MongoDB backup.
+// GetTopicMaxSeq returns the durable high-water mark for a topic. It reads the
+// actual message rows first because BackupTopicSeq is intentionally written at
+// a coarse watermark; the backup row is only a fallback. This method is used
+// when Redis loses im:seq:<topic>, so returning a lagging value would reuse
+// sequence numbers and silently drop newly persisted messages.
 func (s *Store) GetTopicMaxSeq(ctx context.Context, topic string) (uint64, error) {
-	var result topicSeqBackupRow
-	err := s.collection(CollectionTopicSeqs).FindOne(ctx, bson.M{"topic": topic}).Decode(&result)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("get topic max seq: %w", err)
+	collection := CollectionInboxes
+	switch domain.ParseTopicType(topic) {
+	case domain.TopicTypeGroup:
+		collection = CollectionMessages
+	case domain.TopicTypeP2P, domain.TopicTypeSystem:
+		collection = CollectionInboxes
 	}
-	return result.MaxSeq, nil
+	var row struct {
+		TopicSeq uint64 `bson:"topic_seq"`
+	}
+	err := s.collection(collection).FindOne(ctx, bson.M{"topic": topic},
+		options.FindOne().SetSort(bson.D{{Key: "topic_seq", Value: -1}}).SetProjection(bson.M{"topic_seq": 1}),
+	).Decode(&row)
+	var actual uint64
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+		return 0, fmt.Errorf("get topic max seq from %s: %w", collection, err)
+	}
+	if err == nil {
+		actual = row.TopicSeq
+	}
+	if actual > 0 {
+		return actual, nil
+	}
+	var backup topicSeqBackupRow
+	berr := s.collection(CollectionTopicSeqs).FindOne(ctx, bson.M{"topic": topic}).Decode(&backup)
+	if berr != nil && !errors.Is(berr, mongo.ErrNoDocuments) {
+		return 0, fmt.Errorf("get topic seq backup: %w", berr)
+	}
+	if berr == nil && backup.MaxSeq > actual {
+		actual = backup.MaxSeq
+	}
+	return actual, nil
 }
 
 func (s *Store) GetOfflineMessages(ctx context.Context, userID int64, topic string, lastSeq uint64, limit int) ([]domain.InboxMessage, error) {

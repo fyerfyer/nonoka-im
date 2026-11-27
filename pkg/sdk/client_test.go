@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -50,6 +51,63 @@ func TestMessagesSendReusesClientMessageID(t *testing.T) {
 	}
 	if len(ids) != 2 || ids[0] != ids[1] {
 		t.Fatalf("client message ID was not reused: %v", ids)
+	}
+}
+
+func TestRealtimeDefaultsPreserveExplicitFields(t *testing.T) {
+	client, err := New(Config{
+		BaseURL: "http://example.invalid",
+		Realtime: RealtimeConfig{
+			GatewayURLs:          []string{"ws://gateway.example/ws"},
+			DisableAutoReconnect: true,
+			DisableAutoAck:       true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	got := client.Config().Realtime
+	if len(got.GatewayURLs) != 1 || got.GatewayURLs[0] != "ws://gateway.example/ws" {
+		t.Fatalf("gateway URLs were lost: %+v", got)
+	}
+	if !got.DisableAutoReconnect || !got.DisableAutoAck {
+		t.Fatalf("explicit booleans were lost: %+v", got)
+	}
+	if got.DeviceID == "" || got.HeartbeatInterval <= 0 || got.HeartbeatTimeout <= 0 {
+		t.Fatalf("defaults were not applied: %+v", got)
+	}
+}
+
+func TestSendMediaUsesJSONContent(t *testing.T) {
+	var content []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Content string `json:"content"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		content, _ = base64.StdEncoding.DecodeString(body.Content)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"clientMsgId":"c1","msgId":"42","timestamp":"1700000000","topicSeq":"7"}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL, TokenSource: StaticToken("token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if _, err := client.Messages.SendMedia(context.Background(), "p2p_1_2", MessageTypeImage, MediaContent{
+		FileID: "file_1", URL: "/v1/files/file_1", Name: "a.png", Mime: "image/png", Size: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var media MediaContent
+	if err := json.Unmarshal(content, &media); err != nil {
+		t.Fatalf("content is not JSON: %q err=%v", content, err)
+	}
+	if media.FileID != "file_1" || media.Name != "a.png" || media.Mime != "image/png" || media.Size != 3 {
+		t.Fatalf("unexpected media payload: %+v", media)
 	}
 }
 

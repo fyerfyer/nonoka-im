@@ -311,10 +311,15 @@ func (s *Store) SweepStaleRuns(ctx context.Context, maxAttempts int) (requeued, 
 	if maxAttempts <= 0 {
 		maxAttempts = 5
 	}
+	// A run that already committed a write-tool side effect must never be
+	// requeued automatically: the next attempt could ask the model/tool to
+	// perform the side effect again with a different call ID.
 	res := s.db.WithContext(ctx).Model(&AgentRunRow{}).
-		Where("status = ? AND attempts >= ? AND (lease_until IS NULL OR lease_until < now())", domain.RunRunning, maxAttempts).
+		Where("status = ? AND (lease_until IS NULL OR lease_until < now()) AND side_effect_at IS NOT NULL", domain.RunRunning).
 		Updates(map[string]interface{}{
-			"status": domain.RunFailed, "error_code": "lease_expired", "error_class": "transient_infra",
+			"status": domain.RunFailed, "error_code": domain.FailureCodeManualRetry,
+			"error_class": domain.FailureClassSideEffect,
+			"last_error":  "worker lease expired after a side effect was committed; manual retry required",
 			"finished_at": time.Now(), "attempt_id": "", "lease_until": nil,
 		})
 	if res.Error != nil {
@@ -322,7 +327,17 @@ func (s *Store) SweepStaleRuns(ctx context.Context, maxAttempts int) (requeued, 
 	}
 	failed = res.RowsAffected
 	res = s.db.WithContext(ctx).Model(&AgentRunRow{}).
-		Where("status = ? AND attempts < ? AND (lease_until IS NULL OR lease_until < now())", domain.RunRunning, maxAttempts).
+		Where("status = ? AND attempts >= ? AND (lease_until IS NULL OR lease_until < now()) AND side_effect_at IS NULL", domain.RunRunning, maxAttempts).
+		Updates(map[string]interface{}{
+			"status": domain.RunFailed, "error_code": "lease_expired", "error_class": "transient_infra",
+			"finished_at": time.Now(), "attempt_id": "", "lease_until": nil,
+		})
+	if res.Error != nil {
+		return 0, 0, transientOrDomain(res.Error)
+	}
+	failed += res.RowsAffected
+	res = s.db.WithContext(ctx).Model(&AgentRunRow{}).
+		Where("status = ? AND attempts < ? AND (lease_until IS NULL OR lease_until < now()) AND side_effect_at IS NULL", domain.RunRunning, maxAttempts).
 		Updates(map[string]interface{}{
 			"status": domain.RunQueued, "started_at": nil, "attempt_id": "", "lease_until": nil,
 			"next_attempt_at": time.Now(),

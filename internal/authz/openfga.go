@@ -209,6 +209,14 @@ func (a *OpenFGA) check(ctx context.Context, subject, relation, object string) e
 		ttl = 30 * time.Second
 	}
 	a.cacheMu.Lock()
+	if len(a.cache) > 100000 {
+		now := time.Now()
+		for k, entry := range a.cache {
+			if now.After(entry.expires) {
+				delete(a.cache, k)
+			}
+		}
+	}
 	a.cache[key] = cachedCheck{allowed: allowed, expires: time.Now().Add(ttl)}
 	a.cacheMu.Unlock()
 	if !allowed {

@@ -366,6 +366,47 @@ func TestAgentRun_SideEffectBlocksAutomaticRetry(t *testing.T) {
 	}
 }
 
+// TestAgentSweeper_DoesNotRequeueCommittedSideEffect verifies the sweeper
+// cannot turn a crashed write-tool run into an automatic second execution.
+func TestAgentSweeper_DoesNotRequeueCommittedSideEffect(t *testing.T) {
+	ts := setupTestServer(t, false)
+	defer ts.stop()
+	store := agentdata.NewStore(ts.data.DB())
+	ctx := context.Background()
+	run := &domain.AgentRun{
+		EventID: fmt.Sprintf("evt-sweep-side-effect-%d", time.Now().UnixNano()),
+		AgentID: 14, ActorUserID: 8, Topic: "p2p_8_14", MsgID: 1, TopicSeq: 1, Status: domain.RunQueued,
+	}
+	if created, err := store.EnqueueRun(ctx, run); err != nil || !created {
+		t.Fatalf("enqueue: created=%v err=%v", created, err)
+	}
+	claimed, ok, err := store.ClaimRun(ctx, run.ID, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if ok, err := store.MarkRunSideEffect(ctx, claimed.ID, claimed.AttemptID); err != nil || !ok {
+		t.Fatalf("mark side effect: ok=%v err=%v", ok, err)
+	}
+	if err := ts.data.DB().Model(&domain.AgentRun{}).Where("id = ?", run.ID).
+		Update("lease_until", time.Now().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	requeued, failed, err := store.SweepStaleRuns(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requeued != 0 || failed != 1 {
+		t.Fatalf("sweep side-effect run: requeued=%d failed=%d", requeued, failed)
+	}
+	got, err := store.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != domain.RunFailed || got.ErrorCode != domain.FailureCodeManualRetry {
+		t.Fatalf("side-effect run was requeued: status=%q code=%q", got.Status, got.ErrorCode)
+	}
+}
+
 // TestAgentDetail_ViewerDoesNotSeePublishedConfig verifies that sharing an
 // agent as a viewer does not expose the owner's system prompt or model URL.
 func TestAgentDetail_ViewerDoesNotSeePublishedConfig(t *testing.T) {

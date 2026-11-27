@@ -133,7 +133,10 @@ func (s *Service) AddGroupMember(ctx context.Context, groupID string, userID int
 	s.forget(groupID)
 	if s.redis != nil {
 		if err := s.redis.SAdd(ctx, s.key(groupID), userID).Err(); err != nil {
-			s.log.Warnf("add group member to cache failed: group=%s user=%d err=%v", groupID, userID, err)
+			// A partial cache is more dangerous than a miss: drop the whole
+			// set so the next reader repopulates from PostgreSQL.
+			s.log.Warnf("add group member to cache failed, invalidating cache: group=%s user=%d err=%v", groupID, userID, err)
+			_ = s.redis.Del(ctx, s.key(groupID)).Err()
 		}
 	}
 	return nil
@@ -143,7 +146,10 @@ func (s *Service) RemoveGroupMember(ctx context.Context, groupID string, userID 
 	s.forget(groupID)
 	if s.redis != nil {
 		if err := s.redis.SRem(ctx, s.key(groupID), userID).Err(); err != nil {
-			s.log.Warnf("remove group member from cache failed: group=%s user=%d err=%v", groupID, userID, err)
+			// Never leave a removed member in the shared cache. The DB call
+			// below remains the source of truth; a cache miss will refetch it.
+			s.log.Warnf("remove group member from cache failed, invalidating cache: group=%s user=%d err=%v", groupID, userID, err)
+			_ = s.redis.Del(ctx, s.key(groupID)).Err()
 		}
 	}
 	if err := s.repo.RemoveMember(ctx, groupID, userID); err != nil {

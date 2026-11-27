@@ -19,20 +19,23 @@ func (h *Handler) handleAck(c *Connection, packet *v1.Packet) {
 		return
 	}
 
+	// ACK processing touches MongoDB. Keep it off the read loop so a slow
+	// database cannot head-of-line block heartbeats and subsequent packets
+	// from the same connection.
+	go h.processAck(c.UserID(), req)
+}
+
+func (h *Handler) processAck(userID int64, req *v1.AckRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	// Update delivery status in storage.
-	if err := h.query.AckDelivery(ctx, c.UserID(), req.Topic, req.TopicSeq); err != nil {
+	if err := h.query.AckDelivery(ctx, userID, req.GetTopic(), req.GetTopicSeq()); err != nil {
 		h.log.Warnf("update delivery status failed: user_id=%d, topic=%s, seq=%d, err=%v",
-			c.UserID(), req.Topic, req.TopicSeq, err)
+			userID, req.GetTopic(), req.GetTopicSeq(), err)
 	} else {
 		h.log.Debugf("ack received: user_id=%d, topic=%s, msg_id=%d, seq=%d",
-			c.UserID(), req.Topic, req.MsgId, req.TopicSeq)
+			userID, req.GetTopic(), req.GetMsgId(), req.GetTopicSeq())
 	}
-
-	// Push DeliveryReceipt to the sender asynchronously with a fresh context.
-	go h.pushDeliveryReceipt(req.Topic, req.TopicSeq, req.MsgId)
+	h.pushDeliveryReceipt(req.GetTopic(), req.GetTopicSeq(), req.GetMsgId())
 }
 
 // pushDeliveryReceipt pushes a delivery receipt to the message sender.
@@ -59,9 +62,9 @@ func (h *Handler) pushDeliveryReceipt(topic string, topicSeq uint64, msgID int64
 		},
 	}
 
-	sent := h.manager.BroadcastToUser(senderID, receipt)
-	h.log.Debugf("delivery receipt pushed: sender_id=%d, topic=%s, seq=%d, devices=%d",
-		senderID, topic, topicSeq, sent)
+	h.fanoutToUsers(ctx, []int64{senderID}, receipt)
+	h.log.Debugf("delivery receipt pushed: sender_id=%d, topic=%s, seq=%d",
+		senderID, topic, topicSeq)
 }
 
 // handleReadReceipt processes client read receipts.
@@ -76,21 +79,22 @@ func (h *Handler) handleReadReceipt(c *Connection, packet *v1.Packet) {
 		return
 	}
 
+	// Read status persistence is best-effort and must not block the socket.
+	go h.processReadReceipt(c.UserID(), req)
+}
+
+func (h *Handler) processReadReceipt(readerID int64, req *v1.ReadReceipt) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	// Update read status in storage.
-	if err := h.query.MarkRead(ctx, c.UserID(), req.Topic, req.UpToSeq); err != nil {
+	topic, upToSeq := req.GetTopic(), req.GetUpToSeq()
+	if err := h.query.MarkRead(ctx, readerID, topic, upToSeq); err != nil {
 		h.log.Warnf("update read status failed: user_id=%d, topic=%s, up_to_seq=%d, err=%v",
-			c.UserID(), req.Topic, req.UpToSeq, err)
+			readerID, topic, upToSeq, err)
 		return
 	}
-
 	h.log.Debugf("read receipt received: user_id=%d, topic=%s, up_to_seq=%d",
-		c.UserID(), req.Topic, req.UpToSeq)
-
-	// Push ReadReceipt to the other party in the conversation asynchronously with a fresh context.
-	go h.pushReadReceipt(c.UserID(), req.Topic, req.UpToSeq)
+		readerID, topic, upToSeq)
+	h.pushReadReceipt(readerID, topic, upToSeq)
 }
 
 // pushReadReceipt pushes a read receipt to the other party in a conversation.
@@ -135,9 +139,8 @@ func (h *Handler) pushReadReceipt(readerID int64, topic string, upToSeq uint64) 
 		},
 	}
 
-	for _, recipientID := range recipientIDs {
-		sent := h.manager.BroadcastToUser(recipientID, receipt)
-		h.log.Debugf("read receipt pushed: recipient_id=%d, topic=%s, up_to_seq=%d, devices=%d",
-			recipientID, topic, upToSeq, sent)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	h.fanoutToUsers(ctx, recipientIDs, receipt)
+	h.log.Debugf("read receipt pushed: recipients=%v, topic=%s, up_to_seq=%d", recipientIDs, topic, upToSeq)
 }

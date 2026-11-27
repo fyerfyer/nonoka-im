@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,12 +19,15 @@ import (
 )
 
 type authorizerStub struct {
+	mu     sync.Mutex
 	denied int64
 	calls  []int64
 }
 
 func (a *authorizerStub) CanAccessTopic(_ context.Context, uid int64, _ string) error {
+	a.mu.Lock()
 	a.calls = append(a.calls, uid)
+	a.mu.Unlock()
 	if uid == a.denied {
 		return errors.New("denied")
 	}

@@ -124,6 +124,30 @@ func (r *authRepo) DeleteRefreshToken(ctx context.Context, userID int64, deviceI
 	return r.redis.Del(ctx, refreshTokenKey(userID, deviceID)).Err()
 }
 
+var rotateRefreshTokenScript = redis.NewScript(`
+if redis.call('get', KEYS[1]) ~= ARGV[1] then
+  return 0
+end
+redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+
+func (r *authRepo) RotateRefreshToken(ctx context.Context, userID int64, deviceID, oldHash, newHash string, ttl time.Duration) (bool, error) {
+	if r.redis == nil {
+		return false, errors.InternalServer("REDIS_UNAVAILABLE", "redis is not configured")
+	}
+	if ttl <= 0 {
+		return false, errors.InternalServer("INVALID_REFRESH_TTL", "refresh token ttl must be positive")
+	}
+	result, err := rotateRefreshTokenScript.Run(ctx, r.redis,
+		[]string{refreshTokenKey(userID, deviceID)}, oldHash, newHash, ttl.Milliseconds()).Int()
+	if err != nil {
+		r.log.Errorf("RotateRefreshToken failed: %v", err)
+		return false, errors.InternalServer("REDIS_ERROR", "redis error")
+	}
+	return result == 1, nil
+}
+
 func (r *authRepo) SearchUsersByPrefix(ctx context.Context, prefix string, limit int32) ([]*biz.User, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20

@@ -435,6 +435,7 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 		}
 	}
 	var mcpTools []port.MCPTool
+	var sideEffectTools []string
 	for _, binding := range mcpBindings {
 		server, err := e.Registry.GetServerByID(ctx, binding.ServerID)
 		if err != nil {
@@ -474,6 +475,10 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 			ServerID: binding.ServerID, Server: server.Name, Tool: binding.Tool,
 			Exposed: exposed, SchemaHash: binding.SchemaHash, Policy: policy,
 		})
+		if tool.Risk == domain.MCPRiskWrite {
+			// Ledger all MCP writes even when the owner chose auto policy.
+			sideEffectTools = append(sideEffectTools, exposed)
+		}
 		if policy == catalog.PolicyAsk {
 			approvalTools = append(approvalTools, exposed)
 		}
@@ -484,6 +489,7 @@ func (e *Executor) resolve(ctx context.Context, agent *domain.Agent, version *do
 		ID: agent.ID, BotID: agent.BotUserID, Version: version.Version,
 		Instruction: version.Instruction, Model: endpoint, Tools: allowed, MCPTools: mcpTools,
 		Skills: skills, RestrictTools: true, ApprovalTools: approvalTools,
+		SideEffectTools: sideEffectTools,
 	}, nil
 }
 

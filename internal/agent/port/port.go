@@ -50,6 +50,9 @@ type Input struct {
 	// ApprovalTools lists tool names whose calls interrupt for human
 	// confirmation instead of executing directly.
 	ApprovalTools []string
+	// SideEffectTools lists tools that must be wrapped by the durable
+	// at-most-once ledger even when they do not require approval.
+	SideEffectTools []string
 	// OnEvent receives transient runtime progress. Implementations must not
 	// block model generation on slow consumers.
 	OnEvent EventSink

@@ -79,14 +79,14 @@ func main() {
 	}
 
 	// Set up conversation-level message handler to observe real-time messages
-	conv.OnMessage = func(msg *sdk.Message) {
+	conv.SetOnMessage(func(msg *sdk.Message) {
 		msgHandler.HandleMessage(msg)
-	}
+	})
 
 	// Set up read receipt handler to observe status transitions
-	conv.OnReadReceipt = func(upToSeq uint64) {
+	conv.SetOnReadReceipt(func(upToSeq uint64) {
 		fmt.Printf("[📖] Read receipt received: messages up to seq %d are read\n", upToSeq)
-	}
+	})
 
 	// Send a few messages with status tracking
 	fmt.Println("\n📤 Sending messages...")

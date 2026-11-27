@@ -38,10 +38,14 @@ type Worker struct {
 	// the worker context and stop when it is canceled.
 	Background []func(context.Context)
 
-	pushPool     chan deliveryTask
+	// Each shard owns a subset of topics. Routing by topic keeps messages from
+	// one conversation in order while preserving cross-topic concurrency.
+	pushShards   []chan deliveryTask
 	pushStopCh   chan struct{}
 	pushStopOnce sync.Once
 	pushWg       sync.WaitGroup
+	handlerMu    sync.Mutex
+	inflight     sync.WaitGroup
 	started      atomic.Bool
 	stopping     atomic.Bool
 }
@@ -50,11 +54,35 @@ type deliveryTask struct {
 	result app.HandleResult
 }
 
+// resetPushShards creates one ordered queue per push worker. It is called
+// before any consumer handler can run.
+func (w *Worker) resetPushShards() {
+	shards := make([]chan deliveryTask, w.PushWorkers)
+	for i := range shards {
+		shards[i] = make(chan deliveryTask, 1024)
+	}
+	w.pushShards = shards
+}
+
+// pushShard routes a topic to a stable queue. A topic always lands on the same
+// worker, so delivery order matches the persisted topic_seq order.
+func (w *Worker) pushShard(topic string) chan deliveryTask {
+	if len(w.pushShards) == 0 {
+		return nil
+	}
+	const offset32 = 2166136261
+	h := uint32(offset32)
+	for i := 0; i < len(topic); i++ {
+		h ^= uint32(topic[i])
+		h *= 16777619
+	}
+	return w.pushShards[h%uint32(len(w.pushShards))]
+}
+
 func NewWorker(consumer *kafka.Consumer, messages *app.MessageService, push *app.PushService, outbox *app.OutboxService, logger log.Logger, m ...*metrics.Metrics) *Worker {
 	w := &Worker{
 		Consumer: consumer, Messages: messages, Push: push, Outbox: outbox,
-		pushPool: make(chan deliveryTask, 1024), pushStopCh: make(chan struct{}),
-		Log: log.NewHelper(logger),
+		pushStopCh: make(chan struct{}), Log: log.NewHelper(logger),
 	}
 	w.PushWorkers = runtime.NumCPU() * 2
 	if w.PushWorkers < 4 {
@@ -63,6 +91,7 @@ func NewWorker(consumer *kafka.Consumer, messages *app.MessageService, push *app
 	if w.PushWorkers > 64 {
 		w.PushWorkers = 64
 	}
+	w.resetPushShards()
 	if len(m) > 0 {
 		w.Metrics = m[0]
 	}
@@ -81,6 +110,9 @@ func (w *Worker) Start(ctx context.Context) error {
 	w.started.Store(true)
 	w.Log.Info("msgworker started")
 
+	if len(w.pushShards) != w.PushWorkers {
+		w.resetPushShards()
+	}
 	if w.Push != nil {
 		w.Push.Start(ctx)
 	}
@@ -90,9 +122,9 @@ func (w *Worker) Start(ctx context.Context) error {
 	for _, run := range w.Background {
 		go run(ctx)
 	}
-	for i := 0; i < w.PushWorkers; i++ {
+	for i := range w.pushShards {
 		w.pushWg.Add(1)
-		go w.pushLoop(ctx)
+		go w.pushLoop(ctx, w.pushShards[i])
 	}
 	if w.Consumer == nil {
 		return nil
@@ -102,19 +134,35 @@ func (w *Worker) Start(ctx context.Context) error {
 
 // Stop implements transport.Server. It drains in-flight work.
 func (w *Worker) Stop(ctx context.Context) error {
-	if !w.stopping.CompareAndSwap(false, true) {
+	w.handlerMu.Lock()
+	if w.stopping.Load() {
+		w.handlerMu.Unlock()
 		return nil
 	}
+	// Set stopping while holding the same gate used by HandleMessage, so no
+	// handler can Add to inflight after Stop starts waiting.
+	w.stopping.Store(true)
+	w.handlerMu.Unlock()
 	w.Log.Info("msgworker stopping")
 	if w.Consumer != nil {
 		if err := w.Consumer.Stop(); err != nil {
 			w.Log.Warnf("stop consumer: %v", err)
 		}
 	}
-	w.pushStopOnce.Do(func() {
-		close(w.pushStopCh)
-		close(w.pushPool)
-	})
+	// The Kafka reader may have handed a message to HandleMessage just before
+	// Stop. Wait for those handlers before waking push workers; otherwise a
+	// handler can enqueue after the queue owners have exited.
+	done := make(chan struct{})
+	go func() {
+		w.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		w.Log.Warn("msgworker stop grace elapsed while handlers are still running")
+	}
+	w.pushStopOnce.Do(func() { close(w.pushStopCh) })
 	w.pushWg.Wait()
 	if w.Push != nil {
 		w.Push.Stop()
@@ -127,23 +175,37 @@ func (w *Worker) Ready() bool {
 	return w.started.Load() && w.Consumer != nil && w.Consumer.Started()
 }
 
-func (w *Worker) pushLoop(ctx context.Context) {
+func (w *Worker) pushLoop(ctx context.Context, shard chan deliveryTask) {
 	defer w.pushWg.Done()
+	deliver := func(task deliveryTask) {
+		pushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if w.Push != nil {
+			w.Push.Deliver(pushCtx, task.result)
+		}
+		cancel()
+	}
 	for {
 		select {
 		case <-w.pushStopCh:
-			return
+			// Drain this shard for a bounded grace period. Persisted messages
+			// remain recoverable through pull if delivery cannot finish.
+			deadline := time.NewTimer(5 * time.Second)
+			defer deadline.Stop()
+			for {
+				select {
+				case task := <-shard:
+					deliver(task)
+				case <-deadline.C:
+					w.Log.Warn("push shard drain grace elapsed; remaining deliveries will be pulled")
+					return
+				default:
+					return
+				}
+			}
 		case <-ctx.Done():
 			return
-		case task, ok := <-w.pushPool:
-			if !ok {
-				return
-			}
-			pushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if w.Push != nil {
-				w.Push.Deliver(pushCtx, task.result)
-			}
-			cancel()
+		case task := <-shard:
+			deliver(task)
 		}
 	}
 }
@@ -151,6 +213,16 @@ func (w *Worker) pushLoop(ctx context.Context) {
 // HandleMessage is the Kafka message callback.
 func (w *Worker) HandleMessage(ctx context.Context, key, value []byte, headers map[string]string) (err error) {
 	start := time.Now()
+	w.handlerMu.Lock()
+	if w.stopping.Load() {
+		w.handlerMu.Unlock()
+		// Do not acknowledge a message that was read during shutdown. The
+		// consumer has not committed it yet, so it will be redelivered.
+		return context.Canceled
+	}
+	w.inflight.Add(1)
+	w.handlerMu.Unlock()
+	defer w.inflight.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			w.Log.Errorf("HandleMessage panic recovered: %v", r)
@@ -173,10 +245,17 @@ func (w *Worker) HandleMessage(ctx context.Context, key, value []byte, headers m
 	if result.Duplicate {
 		return nil
 	}
+	shard := w.pushShard(result.Message.Topic)
+	if shard == nil {
+		w.Log.Warnf("push shard unavailable, delivery dropped: msg_id=%d", result.Message.ID)
+		return nil
+	}
 	select {
-	case w.pushPool <- deliveryTask{result: result}:
+	case shard <- deliveryTask{result: result}:
 	case <-w.pushStopCh:
-		w.Log.Warnf("push pool closed, delivery dropped: msg_id=%d", result.Message.ID)
+		// The message is already durable. Pull/offline sync is the recovery
+		// path when a shutdown races the push handoff.
+		w.Log.Debugf("push queue stopped; delivery remains available via pull: msg_id=%d", result.Message.ID)
 	}
 	w.Log.Debugf("message persisted: msg_id=%d topic=%s seq=%d elapsed=%s",
 		result.Message.ID, result.Message.Topic, result.Message.TopicSeq, time.Since(start))

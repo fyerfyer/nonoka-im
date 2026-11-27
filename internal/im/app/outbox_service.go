@@ -40,6 +40,7 @@ type OutboxService struct {
 	AlertMinInterval time.Duration
 	AlertMaxAge      time.Duration
 	lastAlert        time.Time
+	lastPrune        time.Time
 }
 
 func (s *OutboxService) log() *log.Helper {
@@ -99,6 +100,12 @@ func (s *OutboxService) Run(ctx context.Context, interval time.Duration) {
 				}
 				s.maybeAlert(ctx, pending, failed, age)
 			}
+			if s.lastPrune.IsZero() || time.Since(s.lastPrune) > 10*time.Minute {
+				s.lastPrune = time.Now()
+				if err := s.Repo.PrunePublishedOutbox(ctx); err != nil {
+					s.log().Warnf("prune published agent events: %v", err)
+				}
+			}
 		}
 	}
 }
@@ -148,10 +155,14 @@ func (s *OutboxService) Relay(ctx context.Context, limit int) (int, error) {
 		if err := s.Repo.MarkOutboxPublished(ctx, row.ID); err != nil {
 			return processed, err
 		}
+		processed++
+	}
+	// Prune once per relay pass rather than issuing a delete query for every
+	// published row.
+	if processed > 0 {
 		if err := s.Repo.PrunePublishedOutbox(ctx); err != nil {
 			s.log().Warnf("prune published agent events: %v", err)
 		}
-		processed++
 	}
 	return processed, nil
 }

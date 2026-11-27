@@ -56,7 +56,7 @@ func init() {
 	flag.StringVar(&nodeID, "node-id", "", "gateway node id, defaults to hostname")
 }
 
-func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig, models *llm.Service) *kratos.App {
+func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gateway.GatewayRegistry, peerBus *gateway.PeerBus, ws *gateway.WebSocketServer, hb gateway.HeartbeatConfig, models *llm.Service) *kratos.App {
 	return kratos.New(
 		kratos.ID(id),
 		kratos.Name(Name),
@@ -76,6 +76,11 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gatew
 			if registry != nil {
 				registry.StartHeartbeat()
 			}
+			if peerBus != nil {
+				if err := peerBus.Start(ctx); err != nil {
+					return err
+				}
+			}
 			if ws != nil {
 				idleTimeout := hb.Timeout
 				if idleTimeout <= 0 {
@@ -92,6 +97,9 @@ func newApp(logger log.Logger, gs *grpc.Server, hs *http.Server, registry *gatew
 		kratos.BeforeStop(func(ctx context.Context) error {
 			if registry != nil {
 				registry.Stop(ctx)
+			}
+			if peerBus != nil {
+				peerBus.Stop()
 			}
 			return nil
 		}),

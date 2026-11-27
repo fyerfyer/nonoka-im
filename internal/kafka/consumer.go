@@ -210,7 +210,11 @@ func (c *Consumer) Start(ctx context.Context) error {
 		default:
 		}
 
-		msg, err := c.reader.ReadMessage(ctx)
+		// FetchMessage never commits. The worker owns the commit after the
+		// handler succeeds (or the message is safely parked in the DLQ).
+		// ReadMessage would commit here, before the handler runs, which turns
+		// every handler failure or process crash into silent message loss.
+		msg, err := c.reader.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil || c.isStopped() || isShutdownError(err) {
 				return nil
@@ -251,25 +255,28 @@ func (c *Consumer) workerLoop(ctx context.Context, ch chan kafka.Message) {
 	}()
 
 	pending := make([]kafka.Message, 0, c.commitBatchSize)
-	commit := func(commitCtx context.Context) {
+	commit := func(commitCtx context.Context) error {
 		if len(pending) == 0 {
-			return
+			return nil
 		}
 		if err := c.reader.CommitMessages(commitCtx, pending...); err != nil {
 			if c.isStopped() || isShutdownError(err) {
 				c.log.Debugf("commit offsets skipped during shutdown: count=%d err=%v", len(pending), err)
 			} else {
-				c.log.Errorf("commit offsets failed: count=%d err=%v", len(pending), err)
+				c.log.Errorf("commit offsets failed; keeping offsets pending: count=%d err=%v", len(pending), err)
 			}
-		} else {
-			c.log.Debugf("committed offsets: count=%d", len(pending))
+			// Never advance past an uncommitted message. Committing a later
+			// batch would implicitly skip this range and silently lose it.
+			return err
 		}
+		c.log.Debugf("committed offsets: count=%d", len(pending))
 		pending = pending[:0]
+		return nil
 	}
 	commitOnShutdown := func() {
-		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		commit(commitCtx)
+		_ = commit(commitCtx)
 	}
 
 	ticker := time.NewTicker(c.commitFlushInterval)
@@ -328,10 +335,15 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 	attempts := c.maxRetries + 1
 	for attempt := 0; attempt < attempts; attempt++ {
 		handlerCtx, cancel := context.WithTimeout(ctx, c.handlerTimeout)
-		lastErr = c.handler(handlerCtx, msg.Key, msg.Value, headers)
+		lastErr = c.invokeHandler(handlerCtx, msg.Key, msg.Value, headers)
 		cancel()
 		if lastErr == nil {
 			return true
+		}
+		if errors.Is(lastErr, context.Canceled) || c.isStopped() {
+			// The handler refused the message because shutdown started. Leave
+			// the offset uncommitted so Kafka redelivers it after restart.
+			return false
 		}
 
 		c.log.Warnf("handle message failed: attempt=%d/%d key=%s err=%v",
@@ -360,6 +372,18 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 		return false
 	}
 	return true
+}
+
+// invokeHandler contains a panic from one message so the worker remains
+// alive. Letting it escape the goroutine would silently kill that partition's
+// consumer and stall the reader when its queue fills.
+func (c *Consumer) invokeHandler(ctx context.Context, key, value []byte, headers map[string]string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("handler panic: %v", r)
+		}
+	}()
+	return c.handler(ctx, key, value, headers)
 }
 
 // handleProcessingError routes failed messages to DLQ.
