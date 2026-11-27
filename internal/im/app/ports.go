@@ -58,6 +58,7 @@ type SearchIndex interface {
 // SearchIndexRepository stores the durable index outbox and relay state.
 type SearchIndexRepository interface {
 	ClaimSearchIndexTask(ctx context.Context) (*domain.SearchIndexTask, error)
+	ClaimSearchIndexTasks(ctx context.Context, limit int) ([]*domain.SearchIndexTask, error)
 	CompleteSearchIndexTask(ctx context.Context, id string) error
 	FailSearchIndexTask(ctx context.Context, id string, taskErr error, backoff time.Duration) error
 	AbandonSearchIndexTask(ctx context.Context, id string) error
@@ -96,7 +97,7 @@ type OutboxRepository interface {
 
 // ConversationRepository persists per-user conversation summaries.
 type ConversationRepository interface {
-	UpsertConversation(ctx context.Context, userID int64, msg *domain.Message, topicSeq uint64) error
+	UpsertConversations(ctx context.Context, userIDs []int64, msg *domain.Message, topicSeq uint64) error
 	ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*domain.Conversation, error)
 	MarkRead(ctx context.Context, userID int64, topic string, upToSeq uint64) error
 }

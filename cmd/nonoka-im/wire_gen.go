@@ -177,7 +177,7 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
-	authRateLimiter := provideAuthRateLimiter(universalClient, logger)
+	authRateLimiter := provideAuthRateLimiter(universalClient, auth, logger)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, systemHTTP, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
 	gatewayURL := provideGatewayURL(dispatch, mainNodeID)
 	gatewayRegistry := provideGatewayRegistry(universalClient, mainNodeID, gatewayURL, gatewayGrpcAddr, gatewayRegistryConfig, manager, logger)
@@ -727,8 +727,14 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 // provideAuthRateLimiter builds the auth-endpoint rate limiter on the
 // shared Redis client. A missing Redis client yields a disabled limiter
 // (Allow always true) so auth never hard-fails on infra misconfiguration.
-func provideAuthRateLimiter(r redis.UniversalClient, logger log.Logger) *server.AuthRateLimiter {
-	return server.NewAuthRateLimiter(r, logger)
+func provideAuthRateLimiter(r redis.UniversalClient, auth *conf.Auth, logger log.Logger) *server.AuthRateLimiter {
+	limits := server.AuthRateLimits{}
+	if auth != nil && auth.GetRateLimit() != nil {
+		limits.LoginIP = int64(auth.GetRateLimit().GetLoginIpPerMinute())
+		limits.LoginUser = int64(auth.GetRateLimit().GetLoginUserPerMinute())
+		limits.RegisterIP = int64(auth.GetRateLimit().GetRegisterIpPerMinute())
+	}
+	return server.NewAuthRateLimiterWithLimits(r, limits, logger)
 }
 
 type sessionPresenceChecker struct {

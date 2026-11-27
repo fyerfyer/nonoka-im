@@ -591,8 +591,14 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 // provideAuthRateLimiter builds the auth-endpoint rate limiter on the
 // shared Redis client. A missing Redis client yields a disabled limiter
 // (Allow always true) so auth never hard-fails on infra misconfiguration.
-func provideAuthRateLimiter(r redis.UniversalClient, logger log.Logger) *server.AuthRateLimiter {
-	return server.NewAuthRateLimiter(r, logger)
+func provideAuthRateLimiter(r redis.UniversalClient, auth *conf.Auth, logger log.Logger) *server.AuthRateLimiter {
+	limits := server.AuthRateLimits{}
+	if auth != nil && auth.GetRateLimit() != nil {
+		limits.LoginIP = int64(auth.GetRateLimit().GetLoginIpPerMinute())
+		limits.LoginUser = int64(auth.GetRateLimit().GetLoginUserPerMinute())
+		limits.RegisterIP = int64(auth.GetRateLimit().GetRegisterIpPerMinute())
+	}
+	return server.NewAuthRateLimiterWithLimits(r, limits, logger)
 }
 
 type sessionPresenceChecker struct {

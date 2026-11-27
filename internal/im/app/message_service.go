@@ -82,18 +82,17 @@ func (s *MessageService) Send(ctx context.Context, req SendRequest) (SendResult,
 	if len(req.Content) > maxContentSize {
 		return SendResult{}, ErrMessageTooLarge
 	}
-	if s.Authorizer == nil {
-		return SendResult{}, fmt.Errorf("%w: authorization unavailable", ErrTopicDenied)
-	}
-	if initializer, ok := s.Authorizer.(interface {
-		EnsureTopicForSend(context.Context, int64, string) error
-	}); ok {
-		if err := initializer.EnsureTopicForSend(ctx, req.ActorID, normalized); err != nil {
+	if allowed, handled := domain.AuthorizeTopicDirect(req.ActorID, normalized); handled {
+		if !allowed {
+			return SendResult{}, ErrTopicDenied
+		}
+	} else {
+		if s.Authorizer == nil {
+			return SendResult{}, fmt.Errorf("%w: authorization unavailable", ErrTopicDenied)
+		}
+		if err := s.Authorizer.CanAccessTopic(ctx, req.ActorID, normalized); err != nil {
 			return SendResult{}, mapAuthzError(err)
 		}
-	}
-	if err := s.Authorizer.CanAccessTopic(ctx, req.ActorID, normalized); err != nil {
-		return SendResult{}, mapAuthzError(err)
 	}
 
 	now := req.Timestamp
@@ -195,8 +194,13 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 		return result, nil
 	}
 
-	if err := s.Writer.BackupTopicSeq(ctx, in.Topic, topicSeq); err != nil {
-		s.log().Warnf("backup topic seq failed: %v", err)
+	// Redis owns the live sequence. The Mongo backup exists only for
+	// recovery, so write it at a coarse watermark instead of on every message;
+	// this removes one MongoDB write from the hot path.
+	if topicSeq <= 1 || topicSeq%100 == 0 {
+		if err := s.Writer.BackupTopicSeq(ctx, in.Topic, topicSeq); err != nil {
+			s.log().Warnf("backup topic seq failed: %v", err)
+		}
 	}
 	s.upsertConversations(ctx, &in, recipients, topicType == domain.TopicTypeGroup)
 	if s.Metrics != nil {
@@ -288,15 +292,9 @@ func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Me
 		}
 	} else {
 		userIDs = append(userIDs, msg.SenderID)
-		for _, id := range recipientIDs {
-			if id != msg.SenderID {
-				userIDs = append(userIDs, id)
-			}
-		}
+		userIDs = append(userIDs, recipientIDs...)
 	}
-	for _, uid := range userIDs {
-		if err := s.Conversations.UpsertConversation(ctx, uid, msg, msg.TopicSeq); err != nil {
-			s.log().Warnf("upsert conversation failed: user_id=%d topic=%s err=%v", uid, msg.Topic, err)
-		}
+	if err := s.Conversations.UpsertConversations(ctx, userIDs, msg, msg.TopicSeq); err != nil {
+		s.log().Warnf("upsert conversations failed: topic=%s users=%d err=%v", msg.Topic, len(userIDs), err)
 	}
 }

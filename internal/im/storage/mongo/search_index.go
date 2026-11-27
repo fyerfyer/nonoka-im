@@ -97,6 +97,27 @@ func (s *Store) ClaimSearchIndexTask(ctx context.Context) (*domain.SearchIndexTa
 	return &task, nil
 }
 
+// ClaimSearchIndexTasks leases up to limit due tasks. The per-task claim is
+// still an atomic FindOneAndUpdate; batching here is primarily to let the
+// relay send one Meilisearch request per batch instead of one per document.
+func (s *Store) ClaimSearchIndexTasks(ctx context.Context, limit int) ([]*domain.SearchIndexTask, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	tasks := make([]*domain.SearchIndexTask, 0, limit)
+	for i := 0; i < limit; i++ {
+		task, err := s.ClaimSearchIndexTask(ctx)
+		if errors.Is(err, domain.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			return tasks, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, nil
+}
+
 func (s *Store) CompleteSearchIndexTask(ctx context.Context, id string) error {
 	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {

@@ -100,6 +100,15 @@ message Auth {
   // bcrypt cost for password hashing; 0 means bcrypt.DefaultCost (10).
   // Test environments can lower this (e.g., 4) to cut CPU load.
   int32 bcrypt_cost = 4;
+  // Fixed-window limits for public auth endpoints. Zero means the secure
+  // default (10 login/IP, 5 login/account, 5 register/IP per minute).
+  AuthRateLimit rate_limit = 5;
+}
+
+message AuthRateLimit {
+  int32 login_ip_per_minute = 1;
+  int32 login_user_per_minute = 2;
+  int32 register_ip_per_minute = 3;
 }
 
 message GatewayNode {

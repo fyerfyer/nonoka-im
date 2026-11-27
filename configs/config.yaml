@@ -77,6 +77,12 @@ auth:
   # (im:refresh:{user_id}:{device_id}), rotated on every refresh and revoked
   # on logout.
   refresh_token_ttl: 2592000s
+  # Fixed-window limits for public auth endpoints (requests per minute).
+  # Keep these tight in production; raise them only for controlled load tests.
+  rate_limit:
+    login_ip_per_minute: 10
+    login_user_per_minute: 5
+    register_ip_per_minute: 5
 msgworker:
   session_cache_ttl: 5s
   receipt_batch_size: 32
@@ -93,4 +99,4 @@ search:
   timeout: 5s
   max_content_bytes: 16384
   relay_interval: 1s
-  relay_batch_size: 32
+  relay_batch_size: 1000

@@ -74,16 +74,18 @@ type RealtimeClient struct {
 	cfg      Config
 	dispatch v1.DispatchServiceHTTPClient
 
-	mu               sync.Mutex
-	ws               *websocket.Conn
-	writeMu          sync.Mutex
-	seq              uint64
-	pending          map[uint64]chan *v1.Packet
-	subs             map[uint64]chan RealtimeEvent
-	nextSub          uint64
-	done             chan struct{}
-	closed           bool
-	authed           bool
+	connectMu sync.Mutex
+	mu        sync.Mutex
+	ws        *websocket.Conn
+	writeMu   sync.Mutex
+	seq       uint64
+	pending   map[uint64]chan *v1.Packet
+	subs      map[uint64]chan RealtimeEvent
+	nextSub   uint64
+	done      chan struct{}
+	closed    bool
+	authed    bool
+
 	reconnectAttempt int
 	timer            *time.Timer
 
@@ -155,8 +157,11 @@ func (c *RealtimeClient) State() string {
 }
 
 // Connect opens and authenticates the WebSocket. It is safe to call again
-// after a disconnect.
+// after a disconnect, including when automatic reconnects are disabled.
 func (c *RealtimeClient) Connect(ctx context.Context) error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -201,6 +206,7 @@ func (c *RealtimeClient) connect(ctx context.Context) error {
 			c.mu.Lock()
 			if c.ws == conn {
 				c.ws = nil
+				c.authed = false
 			}
 			c.mu.Unlock()
 			if refreshed, refreshErr := c.refresh(ctx); refreshErr == nil && refreshed != token {
@@ -212,6 +218,7 @@ func (c *RealtimeClient) connect(ctx context.Context) error {
 			lastErr = authErr
 			continue
 		}
+		c.markConnected()
 		c.startHeartbeat()
 		return nil
 	}
@@ -234,10 +241,27 @@ func (c *RealtimeClient) connectOnce(ctx context.Context, gatewayURL, token stri
 	go c.readLoop(conn)
 	if err := c.authenticate(ctx, token); err != nil {
 		_ = conn.Close()
+		c.mu.Lock()
+		if c.ws == conn {
+			c.ws = nil
+			c.authed = false
+		}
+		c.mu.Unlock()
 		return err
 	}
+	c.markConnected()
 	c.startHeartbeat()
 	return nil
+}
+
+func (c *RealtimeClient) markConnected() {
+	c.mu.Lock()
+	c.reconnectAttempt = 0
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	c.mu.Unlock()
 }
 
 func (c *RealtimeClient) gatewayURLs(ctx context.Context) ([]string, error) {
@@ -416,7 +440,8 @@ func (c *RealtimeClient) handleDisconnect(conn *websocket.Conn, reason error) {
 	c.stopHeartbeat()
 	c.emit(RealtimeEvent{Type: RealtimeDisconnected, Err: reason})
 	if closed || c.cfg.Realtime.DisableAutoReconnect {
-		c.closeEvents()
+		// Keep subscriptions open: callers may call Connect again explicitly.
+		// Only Close tears down the event streams.
 		return
 	}
 	c.scheduleReconnect()
@@ -434,7 +459,7 @@ func (c *RealtimeClient) scheduleReconnect() {
 	c.mu.Unlock()
 	if maxAttempts > 0 && attempt >= maxAttempts {
 		c.emit(RealtimeEvent{Type: RealtimeError, Err: fmt.Errorf("sdk: max reconnect attempts reached")})
-		c.closeEvents()
+		// Leave subscriptions open; the caller can call Connect again.
 		return
 	}
 	delay := c.cfg.Realtime.ReconnectInterval * time.Duration(1<<minInt(attempt, 5))
@@ -447,7 +472,10 @@ func (c *RealtimeClient) scheduleReconnect() {
 		c.timer.Stop()
 	}
 	c.timer = time.AfterFunc(delay, func() {
-		if err := c.connect(context.Background()); err != nil {
+		c.connectMu.Lock()
+		err := c.connect(context.Background())
+		c.connectMu.Unlock()
+		if err != nil {
 			c.emit(RealtimeEvent{Type: RealtimeError, Err: err})
 			c.scheduleReconnect()
 		}
@@ -584,16 +612,11 @@ func (c *RealtimeClient) nextSeq() uint64 {
 
 func (c *RealtimeClient) emit(event RealtimeEvent) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.closed {
-		c.mu.Unlock()
 		return
 	}
-	subs := make([]chan RealtimeEvent, 0, len(c.subs))
 	for _, ch := range c.subs {
-		subs = append(subs, ch)
-	}
-	c.mu.Unlock()
-	for _, ch := range subs {
 		select {
 		case ch <- event:
 		default:
@@ -606,16 +629,12 @@ func (c *RealtimeClient) closeEvents() {
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
 		c.closed = true
-		subs := make([]chan RealtimeEvent, 0, len(c.subs))
 		for id, ch := range c.subs {
-			subs = append(subs, ch)
 			delete(c.subs, id)
-		}
-		c.mu.Unlock()
-		close(c.done)
-		for _, ch := range subs {
 			close(ch)
 		}
+		close(c.done)
+		c.mu.Unlock()
 	})
 }
 

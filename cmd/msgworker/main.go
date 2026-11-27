@@ -181,6 +181,7 @@ func main() {
 	if searchClient != nil && searchClient.Enabled() {
 		searchRelay = &search.Relay{
 			Repo: storage, Index: searchClient, Log: log.NewHelper(logger),
+			BatchSize: search.RelayBatchSize(bc.Search),
 			Stats: func(pending, failed int64, age time.Duration) {
 				m.SetSearchIndexStats(pending, failed, age.Seconds())
 			},

@@ -20,25 +20,51 @@ import (
 const (
 	rateLimitWindow = time.Minute
 
-	loginIPLimit   = 10 // im:rl:login:ip:{ip}
-	loginUserLimit = 5  // im:rl:login:user:{username}
-
-	registerIPLimit = 5 // im:rl:register:ip:{ip}
+	defaultLoginIPLimit    = 10 // im:rl:login:ip:{ip}
+	defaultLoginUserLimit  = 5  // im:rl:login:user:{username}
+	defaultRegisterIPLimit = 5  // im:rl:register:ip:{ip}
 )
+
+// AuthRateLimits configures the fixed windows. Zero fields use secure
+// defaults; values are requests per minute.
+type AuthRateLimits struct {
+	LoginIP    int64
+	LoginUser  int64
+	RegisterIP int64
+}
+
+func (l AuthRateLimits) withDefaults() AuthRateLimits {
+	if l.LoginIP <= 0 {
+		l.LoginIP = defaultLoginIPLimit
+	}
+	if l.LoginUser <= 0 {
+		l.LoginUser = defaultLoginUserLimit
+	}
+	if l.RegisterIP <= 0 {
+		l.RegisterIP = defaultRegisterIPLimit
+	}
+	return l
+}
 
 // AuthRateLimiter brute-force protection for /v1/auth/login and
 // /v1/auth/register. It uses Redis fixed windows (INCR + EXPIRE) so limits
 // are shared across all server instances. Redis failures fail open: an
 // unavailable limiter must not take down login for everyone.
 type AuthRateLimiter struct {
-	redis redis.UniversalClient
-	log   *log.Helper
+	redis  redis.UniversalClient
+	log    *log.Helper
+	limits AuthRateLimits
 }
 
-// NewAuthRateLimiter creates the limiter. A nil redis client disables
-// limiting (every request is allowed).
+// NewAuthRateLimiter creates the limiter with secure defaults. A nil redis
+// client disables limiting (every request is allowed).
 func NewAuthRateLimiter(r redis.UniversalClient, logger log.Logger) *AuthRateLimiter {
-	return &AuthRateLimiter{redis: r, log: log.NewHelper(logger)}
+	return NewAuthRateLimiterWithLimits(r, AuthRateLimits{}, logger)
+}
+
+// NewAuthRateLimiterWithLimits creates the limiter with explicit limits.
+func NewAuthRateLimiterWithLimits(r redis.UniversalClient, limits AuthRateLimits, logger log.Logger) *AuthRateLimiter {
+	return &AuthRateLimiter{redis: r, log: log.NewHelper(logger), limits: limits.withDefaults()}
 }
 
 // Middleware returns a kratos middleware that applies the auth endpoint
@@ -76,16 +102,16 @@ func (l *AuthRateLimiter) Allow(ctx context.Context, operation, ip, username str
 
 	switch operation {
 	case "/api.im.v1.AuthService/Login":
-		ok, err := l.allowN(ctx, "im:rl:login:ip:"+ip, loginIPLimit)
+		ok, err := l.allowN(ctx, "im:rl:login:ip:"+ip, l.limits.LoginIP)
 		if err != nil || !ok {
 			return ok, err
 		}
 		if username != "" {
-			return l.allowN(ctx, "im:rl:login:user:"+username, loginUserLimit)
+			return l.allowN(ctx, "im:rl:login:user:"+username, l.limits.LoginUser)
 		}
 		return true, nil
 	case "/api.im.v1.AuthService/Register":
-		return l.allowN(ctx, "im:rl:register:ip:"+ip, registerIPLimit)
+		return l.allowN(ctx, "im:rl:register:ip:"+ip, l.limits.RegisterIP)
 	default:
 		return true, nil
 	}

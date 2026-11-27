@@ -56,8 +56,23 @@ func TestMessageServiceSendValidation(t *testing.T) {
 
 func TestMessageServiceSendDenied(t *testing.T) {
 	svc := &MessageService{Producer: &testProducer{}, Authorizer: testAuthorizer{deny: true}}
-	_, err := svc.Send(context.Background(), SendRequest{ActorID: 1, Topic: "p2p_1_2", ClientMsgID: "c"})
+	_, err := svc.Send(context.Background(), SendRequest{ActorID: 1, Topic: "grp_123", ClientMsgID: "c"})
 	if !errors.Is(err, ErrTopicDenied) {
 		t.Fatalf("expected topic denied, got %v", err)
+	}
+}
+
+func TestMessageServiceP2PUsesDeterministicACL(t *testing.T) {
+	producer := &testProducer{}
+	svc := &MessageService{Producer: producer, Authorizer: testAuthorizer{deny: true}}
+	if _, err := svc.Send(context.Background(), SendRequest{ActorID: 1, Topic: "p2p_1_2", ClientMsgID: "c"}); err != nil {
+		t.Fatalf("P2P send should not consult the group authorizer: %v", err)
+	}
+	if producer.sent == nil {
+		t.Fatal("message was not produced")
+	}
+	// A user outside the deterministic topic must still be rejected.
+	if _, err := svc.Send(context.Background(), SendRequest{ActorID: 3, Topic: "p2p_1_2", ClientMsgID: "c2"}); !errors.Is(err, ErrTopicDenied) {
+		t.Fatalf("expected outsider denial, got %v", err)
 	}
 }

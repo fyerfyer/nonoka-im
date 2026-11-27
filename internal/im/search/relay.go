@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 const (
 	relayMaxAttempts = 50
 	relayBackoffBase = time.Second
+	defaultBatchSize = 1000
 )
 
 // Relay drains the durable search-index outbox into Meilisearch. It is a
@@ -26,8 +26,16 @@ type Relay struct {
 	Log       *log.Helper
 	Stats     func(pending, failed int64, oldestAge time.Duration)
 	OnError   func()
+	BatchSize int
 	ready     bool
 	lastPrune time.Time
+}
+
+func (r *Relay) batchSize() int {
+	if r.BatchSize > 0 {
+		return r.BatchSize
+	}
+	return defaultBatchSize
 }
 
 func (r *Relay) Run(ctx context.Context, interval time.Duration) {
@@ -41,8 +49,17 @@ func (r *Relay) Run(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := r.Relay(ctx, 32); err != nil && r.Log != nil {
-				r.Log.Warnf("search index relay: %v", err)
+			batch := r.batchSize()
+			// Drain several batches per tick so a burst does not take
+			// minutes to clear at one fixed batch per second.
+			for i := 0; i < 4; i++ {
+				n, err := r.Relay(ctx, batch)
+				if err != nil && r.Log != nil {
+					r.Log.Warnf("search index relay: %v", err)
+				}
+				if err != nil || n < batch {
+					break
+				}
 			}
 			if r.Stats != nil {
 				if pending, failed, age, err := r.Repo.SearchIndexStats(ctx); err == nil {
@@ -59,6 +76,9 @@ func (r *Relay) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// Relay claims up to limit tasks, applies all upserts in one Meilisearch
+// request, then marks the tasks complete. Deletes stay one request each because
+// the Meilisearch delete API is per-document.
 func (r *Relay) Relay(ctx context.Context, limit int) (int, error) {
 	if r.Repo == nil || r.Index == nil || !r.Index.Enabled() {
 		return 0, nil
@@ -70,56 +90,88 @@ func (r *Relay) Relay(ctx context.Context, limit int) (int, error) {
 		r.ready = true
 	}
 	if limit <= 0 {
-		limit = 32
+		limit = r.batchSize()
 	}
-	processed := 0
-	for i := 0; i < limit; i++ {
-		task, err := r.Repo.ClaimSearchIndexTask(ctx)
-		if errors.Is(err, domain.ErrNotFound) {
-			return processed, nil
-		}
-		if err != nil {
-			return processed, err
-		}
+	tasks, err := r.Repo.ClaimSearchIndexTasks(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	if len(tasks) == 0 {
+		return 0, nil
+	}
+
+	var docs []Document
+	var upserts []*domain.SearchIndexTask
+	var deletes []*domain.SearchIndexTask
+	var completed []string
+	for _, task := range tasks {
 		if task.Attempts > relayMaxAttempts {
 			if err := r.Repo.AbandonSearchIndexTask(ctx, task.ID); err != nil {
-				return processed, fmt.Errorf("abandon search task %s: %w", task.ID, err)
+				return len(completed), fmt.Errorf("abandon search task %s: %w", task.ID, err)
 			}
 			if r.OnError != nil {
 				r.OnError()
 			}
 			continue
 		}
-		if err := r.apply(ctx, task); err != nil {
+		switch task.Op {
+		case domain.SearchIndexDelete:
+			deletes = append(deletes, task)
+		case domain.SearchIndexUpsert:
+			var doc Document
+			if err := json.Unmarshal(task.Payload, &doc); err != nil {
+				if r.OnError != nil {
+					r.OnError()
+				}
+				_ = r.Repo.FailSearchIndexTask(ctx, task.ID, fmt.Errorf("decode search document: %w", err), relayBackoff(task.Attempts))
+				continue
+			}
+			docs = append(docs, doc)
+			upserts = append(upserts, task)
+		default:
+			if r.OnError != nil {
+				r.OnError()
+			}
+			_ = r.Repo.FailSearchIndexTask(ctx, task.ID, fmt.Errorf("unknown search task op %q", task.Op), relayBackoff(task.Attempts))
+		}
+	}
+
+	if len(docs) > 0 {
+		if err := r.Index.IndexDocuments(ctx, docs); err != nil {
+			if r.OnError != nil {
+				r.OnError()
+			}
+			for _, task := range upserts {
+				if ferr := r.Repo.FailSearchIndexTask(ctx, task.ID, err, relayBackoff(task.Attempts)); ferr != nil {
+					return len(completed), fmt.Errorf("index task %s: %w (release: %v)", task.ID, err, ferr)
+				}
+			}
+			return len(completed), err
+		}
+		for _, task := range upserts {
+			completed = append(completed, task.ID)
+		}
+	}
+
+	for _, task := range deletes {
+		if err := r.Index.DeleteDocument(ctx, task.DocID); err != nil {
 			if r.OnError != nil {
 				r.OnError()
 			}
 			if ferr := r.Repo.FailSearchIndexTask(ctx, task.ID, err, relayBackoff(task.Attempts)); ferr != nil {
-				return processed, fmt.Errorf("index task %s: %w (release: %v)", task.ID, err, ferr)
+				return len(completed), fmt.Errorf("delete task %s: %w (release: %v)", task.ID, err, ferr)
 			}
-			return processed, err
+			return len(completed), err
 		}
-		if err := r.Repo.CompleteSearchIndexTask(ctx, task.ID); err != nil {
-			return processed, err
-		}
-		processed++
+		completed = append(completed, task.ID)
 	}
-	return processed, nil
-}
 
-func (r *Relay) apply(ctx context.Context, task *domain.SearchIndexTask) error {
-	switch task.Op {
-	case domain.SearchIndexDelete:
-		return r.Index.DeleteDocument(ctx, task.DocID)
-	case domain.SearchIndexUpsert:
-		var doc Document
-		if err := json.Unmarshal(task.Payload, &doc); err != nil {
-			return fmt.Errorf("decode search document: %w", err)
+	for _, id := range completed {
+		if err := r.Repo.CompleteSearchIndexTask(ctx, id); err != nil {
+			return len(completed), err
 		}
-		return r.Index.IndexDocuments(ctx, []Document{doc})
-	default:
-		return fmt.Errorf("unknown search task op %q", task.Op)
 	}
+	return len(completed), nil
 }
 
 func relayBackoff(attempts int) time.Duration {

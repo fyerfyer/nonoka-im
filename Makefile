@@ -102,6 +102,11 @@ test-arch:
 test-bots:
 	@$(TEST_OPENFGA_TOKEN) go test -v ./test/integration/... -run 'TestBotAPI_|TestBotDelivery_' -count=1 -timeout 120s
 
+.PHONY: test-race
+# run concurrency-sensitive packages with the race detector
+test-race:
+	@go test -race ./internal/httpapi/... ./internal/server/... ./internal/realtime/... ./pkg/sdk/... -count=1 -timeout 300s
+
 .PHONY: test-unit
 # run unit tests (still uses real test infrastructure where a test requires it)
 test-unit:
@@ -120,6 +125,7 @@ test-reliability:
 test: test-deps-up
 	@$(MAKE) test-arch || { $(MAKE) test-deps-down; exit 1; }
 	@$(MAKE) test-unit || { $(MAKE) test-deps-down; exit 1; }
+	@$(MAKE) test-race || { $(MAKE) test-deps-down; exit 1; }
 	@echo "\n========================================"
 	@echo "=== Running Auth Tests               ==="
 	@echo "========================================"
@@ -156,6 +162,11 @@ test: test-deps-up
 	@echo "=== All tests passed!                ==="
 	@echo "========================================"
 	@$(MAKE) test-deps-down
+
+.PHONY: loadtest
+# build the WebSocket load generator (bin/loadtest)
+loadtest:
+	@mkdir -p bin && go build -o bin/loadtest ./test/loadtest
 
 .PHONY: build
 # build

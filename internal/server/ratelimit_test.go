@@ -29,7 +29,7 @@ func TestAuthRateLimiter_LoginIPWindow(t *testing.T) {
 	ctx := context.Background()
 
 	// 10 attempts from one IP pass, the 11th is denied.
-	for i := 0; i < loginIPLimit; i++ {
+	for i := 0; i < defaultLoginIPLimit; i++ {
 		ok, err := l.Allow(ctx, "/api.im.v1.AuthService/Login", "10.0.0.1", "")
 		if err != nil || !ok {
 			t.Fatalf("attempt %d: expected allowed, got ok=%v err=%v", i+1, ok, err)
@@ -68,13 +68,13 @@ func TestAuthRateLimiter_LoginUserWindow(t *testing.T) {
 
 	// 5 attempts for one account pass (from distinct IPs to avoid tripping
 	// the IP window), the 6th is denied.
-	for i := 0; i < loginUserLimit; i++ {
+	for i := 0; i < defaultLoginUserLimit; i++ {
 		ok, err := l.Allow(ctx, "/api.im.v1.AuthService/Login", ipFor(i), "victim")
 		if err != nil || !ok {
 			t.Fatalf("attempt %d: expected allowed, got ok=%v err=%v", i+1, ok, err)
 		}
 	}
-	ok, err := l.Allow(ctx, "/api.im.v1.AuthService/Login", ipFor(loginUserLimit), "victim")
+	ok, err := l.Allow(ctx, "/api.im.v1.AuthService/Login", ipFor(defaultLoginUserLimit), "victim")
 	if err != nil || ok {
 		t.Fatalf("expected 6th attempt for same user to be denied, got ok=%v err=%v", ok, err)
 	}
@@ -90,7 +90,7 @@ func TestAuthRateLimiter_RegisterIPWindow(t *testing.T) {
 	l, _ := newTestLimiter(t)
 	ctx := context.Background()
 
-	for i := 0; i < registerIPLimit; i++ {
+	for i := 0; i < defaultRegisterIPLimit; i++ {
 		ok, err := l.Allow(ctx, "/api.im.v1.AuthService/Register", "10.0.0.1", "")
 		if err != nil || !ok {
 			t.Fatalf("attempt %d: expected allowed, got ok=%v err=%v", i+1, ok, err)
@@ -105,7 +105,7 @@ func TestAuthRateLimiter_WindowExpiry(t *testing.T) {
 	l, mr := newTestLimiter(t)
 	ctx := context.Background()
 
-	for i := 0; i < loginIPLimit; i++ {
+	for i := 0; i < defaultLoginIPLimit; i++ {
 		if _, err := l.Allow(ctx, "/api.im.v1.AuthService/Login", "10.0.0.1", ""); err != nil {
 			t.Fatalf("attempt %d failed: %v", i+1, err)
 		}

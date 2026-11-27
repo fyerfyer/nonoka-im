@@ -53,6 +53,30 @@ func TestMessagesSendReusesClientMessageID(t *testing.T) {
 	}
 }
 
+func TestSendErrorCarriesClientMessageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"INVALID","message":"no"}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL, TokenSource: StaticToken("token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.Messages.SendText(context.Background(), "p2p_1_2", "hello")
+	var sendErr *SendError
+	if !errors.As(err, &sendErr) {
+		t.Fatalf("expected SendError, got %T %v", err, err)
+	}
+	if sendErr.ClientMessageID == "" {
+		t.Fatal("SendError did not carry a client message id")
+	}
+}
+
 func TestAgentCRUDAndTypedErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer token" {

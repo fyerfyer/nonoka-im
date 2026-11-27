@@ -8,7 +8,6 @@ import (
 
 	"nonoka-im/internal/im/domain"
 
-	"github.com/go-kratos/kratos/v2/errors"
 	"github.com/go-kratos/kratos/v2/log"
 	"gorm.io/gorm"
 )
@@ -34,7 +33,7 @@ type ConversationRow struct {
 
 // ConversationRepo provides persistent conversation summary operations.
 type ConversationRepo interface {
-	UpsertConversation(ctx context.Context, userID int64, msg *domain.Message, topicSeq uint64) error
+	UpsertConversations(ctx context.Context, userIDs []int64, msg *domain.Message, topicSeq uint64) error
 	ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*domain.Conversation, error)
 	MarkRead(ctx context.Context, userID int64, topic string, upToSeq uint64) error
 }
@@ -48,82 +47,116 @@ func NewConversationRepo(db *gorm.DB, logger log.Logger) ConversationRepo {
 	return &conversationRepo{db: db, log: log.NewHelper(logger)}
 }
 
-func (r *conversationRepo) UpsertConversation(ctx context.Context, userID int64, msg *domain.Message, topicSeq uint64) error {
-	if msg == nil || msg.Topic == "" {
+// UpsertConversations updates every recipient's summary in one statement.
+// It replaces the old SELECT + UPDATE + INSERT loop (which was O(recipients)
+// round trips) with a single multi-row INSERT ... ON CONFLICT.
+func (r *conversationRepo) UpsertConversations(ctx context.Context, userIDs []int64, msg *domain.Message, topicSeq uint64) error {
+	if msg == nil || msg.Topic == "" || len(userIDs) == 0 {
 		return nil
 	}
 	topicType := domain.ParseTopicType(msg.Topic)
 	if topicType != domain.TopicTypeP2P && topicType != domain.TopicTypeGroup {
 		return nil
 	}
+
 	preview := previewForMessage(msg)
 	now := time.Now()
+	convType := topicTypeString(topicType)
 
-	var peerID int64
-	var peerUsername string
+	unique := make([]int64, 0, len(userIDs))
+	seen := make(map[int64]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if userID <= 0 {
+			continue
+		}
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		seen[userID] = struct{}{}
+		unique = append(unique, userID)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+
+	peerIDs := make(map[int64]int64, len(unique))
+	peerNames := make(map[int64]string, len(unique))
 	if topicType == domain.TopicTypeP2P {
 		uid1, uid2, err := domain.ExtractUserIDsFromP2PTopic(msg.Topic)
 		if err != nil {
 			return fmt.Errorf("extract p2p user ids: %w", err)
 		}
-		if userID == uid1 {
-			peerID = uid2
-		} else {
-			peerID = uid1
-		}
-		var peer User
-		if err := r.db.WithContext(ctx).First(&peer, peerID).Error; err == nil {
-			peerUsername = peer.Username
-		} else {
-			r.log.Warnf("failed to load peer username: peer_id=%d err=%v", peerID, err)
-		}
-	}
-	convType := topicTypeString(topicType)
-
-	var rowsAffected int64
-	if userID == msg.SenderID {
-		res := r.db.WithContext(ctx).Model(&ConversationRow{}).
-			Where("user_id = ? AND topic = ?", userID, msg.Topic).
-			Updates(map[string]interface{}{
-				"last_msg_preview": preview, "last_msg_at": msg.Timestamp, "last_seq": topicSeq,
-				"last_read_seq": topicSeq, "unread_count": 0, "updated_at": now,
-				"type": convType, "peer_id": peerID, "peer_username": peerUsername,
-			})
-		rowsAffected = res.RowsAffected
-		if res.Error != nil {
-			return fmt.Errorf("update sender conversation: %w", res.Error)
-		}
-	} else {
-		res := r.db.WithContext(ctx).Model(&ConversationRow{}).
-			Where("user_id = ? AND topic = ?", userID, msg.Topic).
-			Updates(map[string]interface{}{
-				"last_msg_preview": preview, "last_msg_at": msg.Timestamp, "last_seq": topicSeq,
-				"unread_count": gorm.Expr("unread_count + 1"), "updated_at": now,
-				"type": convType, "peer_id": peerID, "peer_username": peerUsername,
-			})
-		rowsAffected = res.RowsAffected
-		if res.Error != nil {
-			return fmt.Errorf("update recipient conversation: %w", res.Error)
-		}
-	}
-	if rowsAffected == 0 {
-		conv := &ConversationRow{
-			UserID: userID, Topic: msg.Topic, Type: convType, PeerID: peerID, PeerUsername: peerUsername,
-			LastMsgPreview: preview, LastMsgAt: msg.Timestamp, LastSeq: topicSeq, UpdatedAt: now,
-		}
-		if userID == msg.SenderID {
-			conv.LastReadSeq = topicSeq
-		} else {
-			conv.UnreadCount = 1
-		}
-		if err := r.db.WithContext(ctx).Create(conv).Error; err != nil {
-			if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(err.Error(), "duplicate key") {
-				return nil
+		for _, userID := range unique {
+			if userID == uid1 {
+				peerIDs[userID] = uid2
+			} else {
+				peerIDs[userID] = uid1
 			}
-			return fmt.Errorf("insert conversation: %w", err)
+		}
+		// Peer usernames are display-only. Loading them on every message adds
+		// a PostgreSQL query to the hot path; ListConversations backfills them
+		// lazily from one IN query when a row is actually rendered.
+	}
+
+	const chunkSize = 500
+	for start := 0; start < len(unique); start += chunkSize {
+		end := start + chunkSize
+		if end > len(unique) {
+			end = len(unique)
+		}
+		chunk := unique[start:end]
+		values := make([]string, 0, len(chunk))
+		args := make([]any, 0, len(chunk)*12+2)
+		for _, userID := range chunk {
+			lastReadSeq := uint64(0)
+			unread := int32(1)
+			if userID == msg.SenderID {
+				lastReadSeq = topicSeq
+				unread = 0
+			}
+			values = append(values, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			args = append(args,
+				userID, msg.Topic, convType, peerIDs[userID], peerNames[userID],
+				preview, msg.Timestamp, topicSeq, lastReadSeq, unread, now, now,
+			)
+		}
+		args = append(args, msg.SenderID, msg.SenderID)
+		query := fmt.Sprintf(`
+			INSERT INTO conversations
+				(user_id, topic, type, peer_id, peer_username, last_msg_preview, last_msg_at, last_seq, last_read_seq, unread_count, created_at, updated_at)
+			VALUES %s
+			ON CONFLICT (user_id, topic) DO UPDATE SET
+				type = EXCLUDED.type,
+				peer_id = EXCLUDED.peer_id,
+				peer_username = CASE WHEN EXCLUDED.peer_username <> '' THEN EXCLUDED.peer_username ELSE conversations.peer_username END,
+				last_msg_preview = EXCLUDED.last_msg_preview,
+				last_msg_at = EXCLUDED.last_msg_at,
+				last_seq = EXCLUDED.last_seq,
+				last_read_seq = CASE WHEN EXCLUDED.user_id = ? THEN EXCLUDED.last_read_seq ELSE conversations.last_read_seq END,
+				unread_count = CASE WHEN EXCLUDED.user_id = ? THEN 0 ELSE conversations.unread_count + 1 END,
+				updated_at = EXCLUDED.updated_at
+		`, strings.Join(values, ", "))
+		if err := r.db.WithContext(ctx).Exec(query, args...).Error; err != nil {
+			return fmt.Errorf("upsert conversations: %w", err)
 		}
 	}
 	return nil
+}
+
+// usernames loads all requested usernames in one query.
+func (r *conversationRepo) usernames(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []User
+	if err := r.db.WithContext(ctx).Select("id", "username").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Username
+	}
+	return out, nil
 }
 
 func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, limit int32, offset int64) ([]*domain.Conversation, error) {
@@ -138,11 +171,25 @@ func (r *conversationRepo) ListConversations(ctx context.Context, userID int64, 
 	if result.Error != nil {
 		return nil, fmt.Errorf("list conversations: %w", result.Error)
 	}
+	// Backfill peer usernames for rows written before the batch upsert stored
+	// them, in one query instead of one query per row.
+	missing := make([]int64, 0)
+	seen := make(map[int64]struct{})
 	for _, row := range rows {
 		if row.Type == "p2p" && row.PeerUsername == "" && row.PeerID > 0 {
-			var peer User
-			if err := r.db.WithContext(ctx).First(&peer, row.PeerID).Error; err == nil {
-				row.PeerUsername = peer.Username
+			if _, ok := seen[row.PeerID]; ok {
+				continue
+			}
+			seen[row.PeerID] = struct{}{}
+			missing = append(missing, row.PeerID)
+		}
+	}
+	if len(missing) > 0 {
+		if names, err := r.usernames(ctx, missing); err == nil {
+			for _, row := range rows {
+				if row.PeerUsername == "" {
+					row.PeerUsername = names[row.PeerID]
+				}
 			}
 		}
 	}

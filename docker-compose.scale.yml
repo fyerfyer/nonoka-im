@@ -20,7 +20,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_NUM_PARTITIONS: 12
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:19092"]
       interval: 5s
@@ -152,7 +152,7 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
-      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-mongo}
       BOT_WEBHOOK_ALLOW_PRIVATE: ${BOT_WEBHOOK_ALLOW_PRIVATE:-true}
       BOT_WEBHOOK_ALLOW_INSECURE_HTTP: ${BOT_WEBHOOK_ALLOW_INSECURE_HTTP:-true}
     ports: ["8001:8000"]
@@ -187,7 +187,7 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-nonoka-openfga-dev-key}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
-      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-mongo}
       BOT_WEBHOOK_ALLOW_PRIVATE: ${BOT_WEBHOOK_ALLOW_PRIVATE:-true}
       BOT_WEBHOOK_ALLOW_INSECURE_HTTP: ${BOT_WEBHOOK_ALLOW_INSECURE_HTTP:-true}
     ports: ["8002:8000"]
@@ -206,7 +206,7 @@ services:
       METRICS_ADDR: 0.0.0.0:9001
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
-      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-mongo}
     command: ["/app/msgworker", "-conf", "/data/conf/config.scale.yaml"]
     volumes: [./configs:/data/conf:ro]
     depends_on:
@@ -253,7 +253,7 @@ services:
       AGENT_METRICS_ADDR: ${AGENT_METRICS_ADDR:-:8091}
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-nonoka-local-search-key}
-      SEARCH_BACKEND: ${SEARCH_BACKEND:-meilisearch}
+      SEARCH_BACKEND: ${SEARCH_BACKEND:-mongo}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     command: ["/app/agent-worker", "-conf", "/app/configs/agent-worker.yaml"]
     volumes:
@@ -266,8 +266,10 @@ services:
       start_period: 20s
     depends_on:
       nginx: {condition: service_started}
+      postgres: {condition: service_healthy}
       mongodb: {condition: service_healthy}
       kafka: {condition: service_healthy}
+      redis: {condition: service_started}
       openfga: {condition: service_started}
       bifrost: {condition: service_healthy}
   bot-worker:

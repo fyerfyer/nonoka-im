@@ -83,7 +83,7 @@ func NewKafkaProducer(cfg KafkaConfig, logger log.Logger) *KafkaProducer {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Brokers...),
 		Topic:        cfg.Topic,
-		Balancer:     &kafka.Hash{},
+		Balancer:     &kafka.Murmur2Balancer{},
 		BatchSize:    cfg.BatchSize,
 		BatchTimeout: cfg.BatchTimeout,
 		RequiredAcks: cfg.RequiredAcks,

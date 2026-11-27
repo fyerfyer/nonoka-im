@@ -48,16 +48,28 @@ func RequestIDMiddleware() middleware.Middleware {
 				// attaching the request ID to the error metadata keeps traces
 				// correlated for generated proto handlers too.
 				if se := kerrors.FromError(err); se != nil {
-					if se.Metadata == nil {
-						se.Metadata = map[string]string{}
-					}
-					se.Metadata["requestId"] = id
-					return nil, se
+					return nil, withRequestID(se, id)
 				}
 			}
 			return resp, err
 		}
 	}
+}
+
+// withRequestID returns a copy of a Kratos error with the request ID attached.
+// Kratos errors returned by package-level helpers can be shared across
+// requests; mutating their Metadata map in place races under concurrent load.
+func withRequestID(se *kerrors.Error, id string) *kerrors.Error {
+	if se == nil {
+		return nil
+	}
+	clone := kerrors.New(int(se.Code), se.Reason, se.Message)
+	clone.Metadata = make(map[string]string, len(se.Metadata)+1)
+	for key, value := range se.Metadata {
+		clone.Metadata[key] = value
+	}
+	clone.Metadata["requestId"] = id
+	return clone
 }
 
 // Error is the normalized error body:
@@ -117,7 +129,9 @@ func AsError(ctx context.Context, err error) *Error {
 	var e *Error
 	if errors.As(err, &e) {
 		if e.RequestID == "" {
-			e.RequestID = RequestID(ctx)
+			clone := *e
+			clone.RequestID = RequestID(ctx)
+			return &clone
 		}
 		return e
 	}

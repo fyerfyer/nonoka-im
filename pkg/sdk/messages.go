@@ -27,10 +27,13 @@ type MessagesResource struct {
 
 // Send persists one message with a stable client message ID. Network/429/5xx
 // failures are retried with the same ID, so the server deduplicates them.
+// NewClientMessageID returns a stable idempotency key for a send.
+func NewClientMessageID() string { return uuid.NewString() }
+
 func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResult, error) {
 	clientID := req.ClientMessageID
 	if clientID == "" {
-		clientID = uuid.NewString()
+		clientID = NewClientMessageID()
 	}
 	if req.Type == MessageTypeUnspecified {
 		req.Type = MessageTypeText
@@ -43,7 +46,10 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 		if err == nil && result != nil && result.MessageID != 0 {
 			r.remember(clientID, result)
 		}
-		return result, err
+		if err != nil {
+			return nil, &SendError{ClientMessageID: clientID, Err: err}
+		}
+		return result, nil
 	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -74,10 +80,10 @@ func (r *MessagesResource) Send(ctx context.Context, req SendRequest) (*SendResu
 		lastErr = apiErrorFromKratos(err)
 		var apiErr *APIError
 		if !errors.As(lastErr, &apiErr) || !apiErr.Retryable {
-			return nil, lastErr
+			return nil, &SendError{ClientMessageID: clientID, Err: lastErr}
 		}
 	}
-	return nil, lastErr
+	return nil, &SendError{ClientMessageID: clientID, Err: lastErr}
 }
 
 func (r *MessagesResource) SendText(ctx context.Context, topic, text string) (*SendResult, error) {

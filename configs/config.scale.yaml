@@ -24,14 +24,14 @@ data:
     brokers:
     - kafka:19092
     topic: im-messages
-    partitions: 3
+    partitions: 12
     dlq_topic: im-messages-dlq
     consumer_group: msgworker-group
     batch_size: 1000
     batch_timeout: 0.01s
     compression: lz4
     required_acks: one
-    async: true
+    async: false
     max_attempts: 3
     write_timeout: 10s
     read_timeout: 10s
@@ -67,6 +67,10 @@ gateway:
 auth:
   jwt_secret: docker-jwt-secret-do-not-use-in-production
   token_ttl: 3600s
+  rate_limit:
+    login_ip_per_minute: 10
+    login_user_per_minute: 5
+    register_ip_per_minute: 5
 msgworker:
   session_cache_ttl: 5s
   receipt_batch_size: 32
@@ -77,10 +81,10 @@ msgworker:
 # Optional Meilisearch-backed message search. Leave url empty to disable.
 search:
   enabled: true
-  backend: meilisearch
+  backend: mongo
   url: "http://meilisearch:7700"
   index: "messages"
   timeout: 5s
   max_content_bytes: 16384
   relay_interval: 1s
-  relay_batch_size: 32
+  relay_batch_size: 1000

@@ -210,11 +210,12 @@ type receiptBatcher struct {
 	batchTimeout time.Duration
 	log          *log.Helper
 
-	mu       sync.Mutex
-	pending  map[int64][]*domain.SendReceipt
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
+	mu           sync.Mutex
+	pending      map[int64][]*domain.SendReceipt
+	pendingCount int
+	stopCh       chan struct{}
+	stopOnce     sync.Once
+	wg           sync.WaitGroup
 }
 
 func newReceiptBatcher(push *PushService, batchSize int, batchTimeout time.Duration, logger log.Logger) *receiptBatcher {
@@ -259,10 +260,8 @@ func (b *receiptBatcher) Add(userID int64, receipt *domain.SendReceipt) {
 	}
 	b.mu.Lock()
 	b.pending[userID] = append(b.pending[userID], receipt)
-	count := 0
-	for _, rows := range b.pending {
-		count += len(rows)
-	}
+	b.pendingCount++
+	count := b.pendingCount
 	b.mu.Unlock()
 	if count >= b.batchSize {
 		b.flush()
@@ -277,6 +276,7 @@ func (b *receiptBatcher) flush() {
 	}
 	pending := b.pending
 	b.pending = make(map[int64][]*domain.SendReceipt)
+	b.pendingCount = 0
 	b.mu.Unlock()
 
 	items := make([]domain.ReceiptBatchItem, 0, len(pending))

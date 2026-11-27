@@ -20,6 +20,22 @@ var (
 	ErrSearchUnavailable    = errors.New("sdk: search is not configured")
 )
 
+// SendError preserves the client message ID generated for a failed send so a
+// caller can retry idempotently instead of generating a second message.
+type SendError struct {
+	ClientMessageID string
+	Err             error
+}
+
+func (e *SendError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return "sdk: send failed for client message " + e.ClientMessageID + ": " + e.Err.Error()
+}
+
+func (e *SendError) Unwrap() error { return e.Err }
+
 // APIError is the typed error returned for HTTP API failures and WebSocket
 // error packets. It never wraps internal protobuf or Kratos types.
 type APIError struct {

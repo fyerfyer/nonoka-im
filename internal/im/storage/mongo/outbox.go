@@ -12,12 +12,20 @@ import (
 	"time"
 )
 
-// SaveP2P persists a P2P message using write fan-out. When an agent outbox
-// row or search indexing is enabled, the message, event and search task are
-// committed in one MongoDB transaction.
+// SaveP2P persists a P2P message using write fan-out. The agent trigger
+// outbox is transactional with the message because a lost trigger is a
+// correctness bug. The search outbox is derived data and is enqueued after the
+// message commits: a lost index task is recoverable with cmd/search-index,
+// while a Mongo transaction on every message is not affordable at high write
+// rates.
 func (s *Store) SaveP2P(ctx context.Context, msg *domain.Message, outbox *domain.OutboxEvent) ([]int64, bool, error) {
-	if outbox == nil && !s.searchEnabled {
-		return s.saveP2P(ctx, msg)
+	if outbox == nil {
+		recipients, duplicate, err := s.saveP2P(ctx, msg)
+		if err != nil || duplicate {
+			return recipients, duplicate, err
+		}
+		s.enqueueSearchBestEffort(ctx, msg)
+		return recipients, false, nil
 	}
 	sess, err := s.db.Client().StartSession()
 	if err != nil {
@@ -34,31 +42,39 @@ func (s *Store) SaveP2P(ctx context.Context, msg *domain.Message, outbox *domain
 		if duplicate {
 			return nil, errTransactionalDuplicate
 		}
-		if err := s.enqueueOutbox(txCtx, outbox); err != nil {
-			return nil, err
-		}
-		if s.searchEnabled {
-			if err := s.enqueueSearchTask(txCtx, msg); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
+		return nil, s.enqueueOutbox(txCtx, outbox)
 	})
 	if errors.Is(err, errTransactionalDuplicate) || errors.Is(err, errAgentEventDuplicate) {
 		return recipients, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("persist p2p message and side indexes: %w", err)
+		return nil, false, fmt.Errorf("persist p2p message and agent event: %w", err)
 	}
+	s.enqueueSearchBestEffort(ctx, msg)
 	return recipients, duplicate, nil
 }
 
-// SaveGroup persists a group message using read fan-out. When an agent outbox
-// row or search indexing is enabled, the message, event and search task are
-// committed in one MongoDB transaction.
+func (s *Store) enqueueSearchBestEffort(ctx context.Context, msg *domain.Message) {
+	if !s.searchEnabled {
+		return
+	}
+	enqueueCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.enqueueSearchTask(enqueueCtx, msg); err != nil {
+		s.log.Warnf("enqueue search index task failed: topic=%s msg_id=%d err=%v", msg.Topic, msg.ID, err)
+	}
+}
+
+// SaveGroup persists a group message using read fan-out. Agent triggers remain
+// transactional; the search outbox is best-effort derived data.
 func (s *Store) SaveGroup(ctx context.Context, msg *domain.Message, outbox *domain.OutboxEvent) (bool, error) {
-	if outbox == nil && !s.searchEnabled {
-		return s.saveGroup(ctx, msg)
+	if outbox == nil {
+		duplicate, err := s.saveGroup(ctx, msg)
+		if err != nil || duplicate {
+			return duplicate, err
+		}
+		s.enqueueSearchBestEffort(ctx, msg)
+		return false, nil
 	}
 	sess, err := s.db.Client().StartSession()
 	if err != nil {
@@ -74,22 +90,15 @@ func (s *Store) SaveGroup(ctx context.Context, msg *domain.Message, outbox *doma
 		if duplicate {
 			return nil, errTransactionalDuplicate
 		}
-		if err := s.enqueueOutbox(txCtx, outbox); err != nil {
-			return nil, err
-		}
-		if s.searchEnabled {
-			if err := s.enqueueSearchTask(txCtx, msg); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
+		return nil, s.enqueueOutbox(txCtx, outbox)
 	})
 	if errors.Is(err, errTransactionalDuplicate) || errors.Is(err, errAgentEventDuplicate) {
 		return true, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("persist group message and side indexes: %w", err)
+		return false, fmt.Errorf("persist group message and agent event: %w", err)
 	}
+	s.enqueueSearchBestEffort(ctx, msg)
 	return duplicate, nil
 }
 

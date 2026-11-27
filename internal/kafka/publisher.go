@@ -20,7 +20,7 @@ func NewPublisher(brokers []string, topic string) *Publisher {
 	return &Publisher{writer: &kafka.Writer{
 		Addr:         kafka.TCP(brokers...),
 		Topic:        topic,
-		Balancer:     &kafka.Hash{},
+		Balancer:     &kafka.Murmur2Balancer{},
 		RequiredAcks: kafka.RequireOne,
 		Async:        false,
 		BatchTimeout: 10 * time.Millisecond,

@@ -58,11 +58,13 @@ func (r *RunsResource) Stream(ctx context.Context, runID uint64) *RunStream {
 	go func() {
 		defer finish()
 		var lastSeq uint64
+		var lastEventAt time.Time
 		emit := func(event RunEvent) bool {
 			if event.Seq <= lastSeq {
 				return false
 			}
 			lastSeq = event.Seq
+			lastEventAt = time.Now()
 			if event.Type == RunEventFailed {
 				s.setErr(&APIError{Code: event.ErrorCode, Message: fmt.Sprintf("agent run failed: %s", event.ErrorCode), Retryable: event.Retryable})
 			}
@@ -72,6 +74,31 @@ func (r *RunsResource) Stream(ctx context.Context, runID uint64) *RunStream {
 				return true
 			}
 			return event.Type.Terminal()
+		}
+		terminalFromRun := func() bool {
+			run, err := r.Get(streamCtx, runID)
+			if err != nil {
+				return false
+			}
+			var eventType RunEventType
+			switch run.Status {
+			case "completed":
+				eventType = RunEventCompleted
+			case "failed":
+				eventType = RunEventFailed
+			case "cancelled":
+				eventType = RunEventCancelled
+			default:
+				return false
+			}
+			return emit(RunEvent{
+				RunID: runID, Seq: lastSeq + 1, Type: eventType, Topic: run.Topic,
+				AgentID: run.AgentID, ActorUserID: run.ActorUserID, TriggerMsgID: run.MsgID,
+				Status: run.Status, ReplyMsgID: run.ReplyMsgID, ClientMessageID: run.ReplyClientMsgID,
+				ErrorCode: run.ErrorCode, ErrorClass: run.ErrorClass,
+				InputTokens: run.InputTokens, OutputTokens: run.OutputTokens,
+				TimestampMs: time.Now().UnixMilli(),
+			})
 		}
 		catchUp := func() bool {
 			events, _, err := r.Events(streamCtx, runID, lastSeq)
@@ -86,6 +113,11 @@ func (r *RunsResource) Stream(ctx context.Context, runID uint64) *RunStream {
 				if emit(event) {
 					return true
 				}
+			}
+			// The replay buffer is bounded (15 minutes). If it expired while
+			// the client was offline, recover the terminal state from the run.
+			if len(events) == 0 && time.Since(lastEventAt) > 5*time.Second {
+				return terminalFromRun()
 			}
 			return false
 		}
@@ -115,6 +147,13 @@ func (r *RunsResource) Stream(ctx context.Context, runID uint64) *RunStream {
 					}
 				}
 			case <-ticker.C:
+				// While realtime is healthy and events are arriving, the HTTP
+				// replay is an unnecessary extra request. Poll only when the
+				// socket is down or the stream has gone quiet.
+				if realtime != nil && r.client != nil && r.client.Realtime != nil &&
+					r.client.Realtime.IsConnected() && time.Since(lastEventAt) < 5*time.Second {
+					continue
+				}
 				if catchUp() {
 					return
 				}

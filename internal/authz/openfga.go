@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	fga "github.com/openfga/go-sdk"
@@ -23,7 +24,18 @@ var modelFS embed.FS
 
 var ErrDenied = errors.New("access denied")
 
-type OpenFGA struct{ client *fgaclient.OpenFgaClient }
+type OpenFGA struct {
+	client *fgaclient.OpenFgaClient
+
+	cacheMu  sync.RWMutex
+	cache    map[string]cachedCheck
+	cacheTTL time.Duration
+}
+
+type cachedCheck struct {
+	allowed bool
+	expires time.Time
+}
 
 type AgentShare struct {
 	Kind   string `json:"kind"`
@@ -39,7 +51,7 @@ func NewOpenFGA(apiURL, storeID, modelID string) (*OpenFGA, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &OpenFGA{client: c}, nil
+	return &OpenFGA{client: c, cache: make(map[string]cachedCheck), cacheTTL: 30 * time.Second}, nil
 }
 
 // openFGACredentials returns preshared-key credentials when OPENFGA_API_TOKEN
@@ -173,18 +185,54 @@ func (a *OpenFGA) check(ctx context.Context, subject, relation, object string) e
 	if a == nil || a.client == nil {
 		return fmt.Errorf("OpenFGA unavailable")
 	}
-	result, err := a.client.Check(ctx).Body(fgaclient.ClientCheckRequest{User: subject, Relation: relation, Object: object}).Options(fgaclient.ClientCheckOptions{Consistency: fga.CONSISTENCYPREFERENCE_HIGHER_CONSISTENCY.Ptr()}).Execute()
+	key := subject + "|" + relation + "|" + object
+	a.cacheMu.RLock()
+	cached, ok := a.cache[key]
+	a.cacheMu.RUnlock()
+	if ok && time.Now().Before(cached.expires) {
+		if cached.allowed {
+			return nil
+		}
+		return ErrDenied
+	}
+	result, err := a.client.Check(ctx).Body(fgaclient.ClientCheckRequest{User: subject, Relation: relation, Object: object}).Options(fgaclient.ClientCheckOptions{Consistency: fga.CONSISTENCYPREFERENCE_MINIMIZE_LATENCY.Ptr()}).Execute()
 	if err != nil {
 		return fmt.Errorf("OpenFGA check: %w", err)
 	}
-	if !result.GetAllowed() {
+	allowed := result.GetAllowed()
+	ttl := a.cacheTTL
+	if ttl <= 0 {
+		ttl = 30 * time.Second
+	}
+	a.cacheMu.Lock()
+	a.cache[key] = cachedCheck{allowed: allowed, expires: time.Now().Add(ttl)}
+	a.cacheMu.Unlock()
+	if !allowed {
 		return ErrDenied
 	}
 	return nil
 }
 
+// clearCache drops all cached checks. Writes are rare compared with checks;
+// clearing everything keeps group membership and share changes immediately
+// visible without maintaining reverse indexes.
+func (a *OpenFGA) clearCache() {
+	if a == nil {
+		return
+	}
+	a.cacheMu.Lock()
+	a.cache = make(map[string]cachedCheck)
+	a.cacheMu.Unlock()
+}
+
 func (a *OpenFGA) CanAccessTopic(ctx context.Context, userID int64, raw string) error {
 	if userID <= 0 {
+		return ErrDenied
+	}
+	if allowed, handled := topic.AuthorizeDirect(userID, raw); handled {
+		if allowed {
+			return nil
+		}
 		return ErrDenied
 	}
 	normal, err := topic.NormalizeTopic(raw)
@@ -271,6 +319,7 @@ func (a *OpenFGA) write(ctx context.Context, subject, relation, object string, r
 	}
 	_, err := a.client.Write(ctx).Body(body).Options(fgaclient.ClientWriteOptions{Conflict: fgaclient.ClientWriteConflictOptions{OnDuplicateWrites: fgaclient.CLIENT_WRITE_REQUEST_ON_DUPLICATE_WRITES_IGNORE, OnMissingDeletes: fgaclient.CLIENT_WRITE_REQUEST_ON_MISSING_DELETES_IGNORE}}).Execute()
 	if err == nil {
+		a.clearCache()
 		return nil
 	}
 	// Conflict options were added to OpenFGA in v1.10. Newer servers answer a
@@ -280,6 +329,7 @@ func (a *OpenFGA) write(ctx context.Context, subject, relation, object string, r
 	// confirm the tuple state before treating the failure as idempotent.
 	var apiErr fga.FgaApiError
 	if errors.As(err, &apiErr) && apiErr.ResponseStatusCode() == http.StatusConflict {
+		a.clearCache()
 		return nil
 	}
 	var validationErr fga.FgaApiValidationError
@@ -288,6 +338,7 @@ func (a *OpenFGA) write(ctx context.Context, subject, relation, object string, r
 		if remove {
 			// Deleting a tuple that is already absent is a successful revoke.
 			if !exists {
+				a.clearCache()
 				return nil
 			}
 			return err
@@ -296,6 +347,7 @@ func (a *OpenFGA) write(ctx context.Context, subject, relation, object string, r
 		// tuple is already present before calling it a duplicate (one extra
 		// Read round trip on this rare path).
 		if exists {
+			a.clearCache()
 			return nil
 		}
 	}

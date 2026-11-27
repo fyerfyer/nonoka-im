@@ -5,6 +5,7 @@ package topic
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -82,4 +83,34 @@ func ExtractGroupID(topic string) (string, error) {
 		return "", fmt.Errorf("invalid group topic format: %s", topic)
 	}
 	return strings.TrimPrefix(topic, PrefixGroup), nil
+}
+
+// AuthorizeDirect applies deterministic ACLs for topics whose membership is
+// encoded in the name. P2P participants and system topic owners do not need an
+// external relationship tuple; group topics return handled=false so callers can
+// consult OpenFGA, which remains the source of truth for group membership.
+func AuthorizeDirect(userID int64, raw string) (allowed bool, handled bool) {
+	if userID <= 0 {
+		return false, false
+	}
+	normalized, err := NormalizeTopic(raw)
+	if err != nil {
+		return false, false
+	}
+	switch ParseType(normalized) {
+	case TypeP2P:
+		left, right, err := ExtractUserIDsFromP2PTopic(normalized)
+		if err != nil {
+			return false, false
+		}
+		return userID == left || userID == right, true
+	case TypeSystem:
+		owner, err := strconv.ParseInt(strings.TrimPrefix(normalized, PrefixSystem), 10, 64)
+		if err != nil {
+			return false, false
+		}
+		return userID == owner, true
+	default:
+		return false, false
+	}
 }

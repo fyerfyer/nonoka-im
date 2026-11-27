@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,16 +25,17 @@ import (
 )
 
 var (
-	baseURL  = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
-	wsURL    = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
-	gateways = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
-	users    = flag.Int("users", 100, "Number of concurrent users")
-	duration = flag.Duration("duration", 30*time.Second, "Load test duration")
-	msgRate  = flag.Float64("msg-rate", 1.0, "Messages per second per user")
-	msgSize  = flag.Int("msg-size", 128, "Message content size in bytes")
-	timeout  = flag.Duration("timeout", 10*time.Second, "Request timeout")
-	warmup   = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
-	outFile  = flag.String("out", "", "Optional JSON report output file")
+	baseURL    = flag.String("base-url", "http://127.0.0.1:8000", "HTTP API base URL")
+	wsURL      = flag.String("ws-url", "ws://127.0.0.1:8000/ws", "WebSocket gateway URL")
+	gateways   = flag.String("gateways", "", "Comma-separated list of WebSocket gateway URLs; overrides -ws-url")
+	users      = flag.Int("users", 100, "Number of concurrent users")
+	duration   = flag.Duration("duration", 30*time.Second, "Load test duration")
+	msgRate    = flag.Float64("msg-rate", 1.0, "Messages per second per user")
+	msgSize    = flag.Int("msg-size", 128, "Message content size in bytes")
+	timeout    = flag.Duration("timeout", 10*time.Second, "Request timeout")
+	warmup     = flag.Duration("warmup", 2*time.Second, "Warmup duration before measuring")
+	outFile    = flag.String("out", "", "Optional JSON report output file")
+	tokensFile = flag.String("tokens-file", "", "Optional CSV file with userID,token pairs; skips register/login")
 )
 
 type client struct {
@@ -117,37 +119,63 @@ func main() {
 	httpClient := &http.Client{Timeout: *timeout}
 
 	fmt.Printf("WebSocket gateways: %v\n", wsURLs)
-	fmt.Println("Registering and logging in users...")
-	// Limit concurrent register/login to avoid overwhelming the auth DB pool.
-	setupSem := make(chan struct{}, 50)
-	var setupWg sync.WaitGroup
-	for i := 0; i < *users; i++ {
-		setupWg.Add(1)
-		go func(idx int) {
-			defer setupWg.Done()
-			setupSem <- struct{}{}
-			defer func() { <-setupSem }()
-
-			username := fmt.Sprintf("loaduser-%d-%d", idx, time.Now().UnixNano())
-			password := "loadtest-password"
-			c := &client{}
-			if err := c.registerAndLogin(httpClient, username, password); err != nil {
-				fmt.Printf("user %d register/login failed: %v\n", idx, err)
-				atomic.AddInt64(&authFailures, 1)
-				return
+	if *tokensFile != "" {
+		data, err := os.ReadFile(*tokensFile)
+		if err != nil {
+			fmt.Printf("read tokens file: %v\n", err)
+			os.Exit(1)
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		for i := 0; i < *users && i < len(lines); i++ {
+			parts := strings.SplitN(lines[i], ",", 2)
+			if len(parts) != 2 {
+				continue
 			}
+			uid, _ := strconv.ParseInt(parts[0], 10, 64)
+			c := &client{userID: uid, token: parts[1]}
 			c.publishStarted = new(sync.Map)
 			c.packetCh = make(chan []byte, 4096)
 			c.doneCh = make(chan struct{})
-			if err := c.connectAndAuth(wsURLs[idx%len(wsURLs)]); err != nil {
-				fmt.Printf("user %d connect/auth failed: %v\n", idx, err)
+			if err := c.connectAndAuth(wsURLs[i%len(wsURLs)]); err != nil {
+				fmt.Printf("user %d connect/auth failed: %v\n", i, err)
 				atomic.AddInt64(&connectFailures, 1)
-				return
+				continue
 			}
-			clients[idx] = c
-		}(i)
+			clients[i] = c
+		}
+	} else {
+		fmt.Println("Registering and logging in users...")
+		// Limit concurrent register/login to avoid overwhelming the auth DB pool.
+		setupSem := make(chan struct{}, 50)
+		var setupWg sync.WaitGroup
+		for i := 0; i < *users; i++ {
+			setupWg.Add(1)
+			go func(idx int) {
+				defer setupWg.Done()
+				setupSem <- struct{}{}
+				defer func() { <-setupSem }()
+
+				username := fmt.Sprintf("loaduser-%d-%d", idx, time.Now().UnixNano())
+				password := "loadtest-password"
+				c := &client{}
+				if err := c.registerAndLogin(httpClient, username, password); err != nil {
+					fmt.Printf("user %d register/login failed: %v\n", idx, err)
+					atomic.AddInt64(&authFailures, 1)
+					return
+				}
+				c.publishStarted = new(sync.Map)
+				c.packetCh = make(chan []byte, 4096)
+				c.doneCh = make(chan struct{})
+				if err := c.connectAndAuth(wsURLs[idx%len(wsURLs)]); err != nil {
+					fmt.Printf("user %d connect/auth failed: %v\n", idx, err)
+					atomic.AddInt64(&connectFailures, 1)
+					return
+				}
+				clients[idx] = c
+			}(i)
+		}
+		setupWg.Wait()
 	}
-	setupWg.Wait()
 
 	active := 0
 	for _, c := range clients {

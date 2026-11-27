@@ -272,6 +272,12 @@ func (p *GatewayPusher) BatchPushToUsers(ctx context.Context, userIDs []int64, m
 	if len(userIDs) == 0 {
 		return 0, nil, nil
 	}
+	if p.metrics != nil {
+		p.metrics.IncPushAttempts()
+		defer func(start time.Time) {
+			p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds())
+		}(time.Now())
+	}
 
 	if p.router != nil {
 		return p.batchPushWithRouting(ctx, userIDs, msg)
@@ -592,6 +598,12 @@ func (p *GatewayPusher) BatchPushReceiptToUsers(ctx context.Context, userIDs []i
 func (p *GatewayPusher) BatchPushReceiptsToUsers(ctx context.Context, items []*pb.ReceiptBatchItem) (int32, []*pb.ReceiptBatchItem, error) {
 	if len(items) == 0 {
 		return 0, nil, nil
+	}
+	if p.metrics != nil {
+		p.metrics.IncPushAttempts()
+		defer func(start time.Time) {
+			p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds())
+		}(time.Now())
 	}
 
 	if p.router != nil {

@@ -216,12 +216,15 @@ func (s *PushService) BatchPushReceiptsToUsers(ctx context.Context, req *pb.Batc
 	}
 
 	// Group receipts by user so each user gets one broadcast with all receipts.
+	userItems := make(map[int64][]*pb.ReceiptBatchItem)
 	userReceipts := make(map[int64][]*pb.SendReceipt)
 	for _, item := range items {
 		if item.GetReceipt() == nil {
 			continue
 		}
-		userReceipts[item.GetUserId()] = append(userReceipts[item.GetUserId()], item.GetReceipt())
+		uid := item.GetUserId()
+		userItems[uid] = append(userItems[uid], item)
+		userReceipts[uid] = append(userReceipts[uid], item.GetReceipt())
 	}
 
 	type result struct {
@@ -229,33 +232,36 @@ func (s *PushService) BatchPushReceiptsToUsers(ctx context.Context, req *pb.Batc
 		delivered int
 	}
 
-	var wg sync.WaitGroup
-	resultCh := make(chan result, len(userReceipts))
-
-	for uid, receipts := range userReceipts {
-		wg.Add(1)
-		go func(userID int64, receipts []*pb.SendReceipt) {
-			defer wg.Done()
-			delivered := s.broadcastReceiptsToUser(userID, receipts)
-			resultCh <- result{userID: userID, delivered: delivered}
-		}(uid, receipts)
+	workerCount := min(len(userReceipts), getPushWorkerCount())
+	if workerCount < 1 {
+		workerCount = 1
 	}
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
+	jobs := make(chan int64)
+	resultCh := make(chan result, len(userReceipts))
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for userID := range jobs {
+				delivered := s.broadcastReceiptsToUser(userID, userReceipts[userID])
+				resultCh <- result{userID: userID, delivered: delivered}
+			}
+		}()
+	}
+	for uid := range userReceipts {
+		jobs <- uid
+	}
+	close(jobs)
+	wg.Wait()
+	close(resultCh)
 
 	totalDelivered := 0
 	failedItems := make([]*pb.ReceiptBatchItem, 0)
 	for r := range resultCh {
 		totalDelivered += r.delivered
 		if r.delivered == 0 {
-			for _, item := range items {
-				if item.GetUserId() == r.userID {
-					failedItems = append(failedItems, item)
-				}
-			}
+			failedItems = append(failedItems, userItems[r.userID]...)
 		}
 	}
 

@@ -52,6 +52,12 @@ func (s *QueryService) authorize(ctx context.Context, userID int64, topic string
 	if err != nil {
 		return "", ErrInvalidTopic
 	}
+	if allowed, handled := domain.AuthorizeTopicDirect(userID, normalized); handled {
+		if !allowed {
+			return "", ErrTopicDenied
+		}
+		return normalized, nil
+	}
 	if s.Authorizer == nil {
 		return "", ErrTopicDenied
 	}

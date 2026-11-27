@@ -121,18 +121,22 @@ func (t *apiTransport) once(ctx context.Context, method, endpoint string, payloa
 		if refreshed, refreshErr := t.refresh(ctx); refreshErr == nil && refreshed != "" {
 			req2 := req.Clone(ctx)
 			req2.Header.Set("Authorization", "Bearer "+refreshed)
-			if req.GetBody != nil {
-				body, bodyErr := req.GetBody()
-				if bodyErr == nil {
-					req2.Body = body
-					resp.Body.Close()
-					resp, err = t.client.Do(req2)
-					if err != nil {
-						return &APIError{Code: "API_UNREACHABLE", Message: err.Error(), Retryable: true}
-					}
-					defer resp.Body.Close()
+			if req.Body != nil {
+				if req.GetBody == nil {
+					return decodeAPIError(resp)
 				}
+				body, bodyErr := req.GetBody()
+				if bodyErr != nil {
+					return decodeAPIError(resp)
+				}
+				req2.Body = body
 			}
+			resp.Body.Close()
+			resp, err = t.client.Do(req2)
+			if err != nil {
+				return &APIError{Code: "API_UNREACHABLE", Message: err.Error(), Retryable: true}
+			}
+			defer resp.Body.Close()
 		}
 	}
 	if resp.StatusCode/100 != 2 {
@@ -222,6 +226,13 @@ func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		if clone.Header == nil {
 			clone.Header = http.Header{}
 		}
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			clone.Body = body
+		}
 		if token != "" {
 			clone.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -239,8 +250,13 @@ func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		token = value
 	}
 	resp, err := do(token)
-	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.tokens == nil || req.GetBody == nil {
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.tokens == nil {
 		return resp, err
+	}
+	// A request with a body can only be replayed when GetBody is available.
+	// GET/HEAD requests have no body and can always be retried after refresh.
+	if req.Body != nil && req.GetBody == nil {
+		return resp, nil
 	}
 	refreshable, ok := t.tokens.(RefreshableTokenSource)
 	if !ok {
@@ -336,18 +352,22 @@ func (t *apiTransport) onceProto(ctx context.Context, method, endpoint string, p
 		if refreshed, refreshErr := t.refresh(ctx); refreshErr == nil && refreshed != "" {
 			req2 := req.Clone(ctx)
 			req2.Header.Set("Authorization", "Bearer "+refreshed)
-			if req.GetBody != nil {
-				body, bodyErr := req.GetBody()
-				if bodyErr == nil {
-					req2.Body = body
-					resp.Body.Close()
-					resp, err = t.client.Do(req2)
-					if err != nil {
-						return &APIError{Code: "API_UNREACHABLE", Message: err.Error(), Retryable: true}
-					}
-					defer resp.Body.Close()
+			if req.Body != nil {
+				if req.GetBody == nil {
+					return decodeAPIError(resp)
 				}
+				body, bodyErr := req.GetBody()
+				if bodyErr != nil {
+					return decodeAPIError(resp)
+				}
+				req2.Body = body
 			}
+			resp.Body.Close()
+			resp, err = t.client.Do(req2)
+			if err != nil {
+				return &APIError{Code: "API_UNREACHABLE", Message: err.Error(), Retryable: true}
+			}
+			defer resp.Body.Close()
 		}
 	}
 	if resp.StatusCode/100 != 2 {
