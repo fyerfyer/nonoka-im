@@ -1,4 +1,4 @@
-package service
+package gateway
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	v1 "nonoka-im/api/im/v1"
-	"nonoka-im/internal/gateway"
 
 	"github.com/go-kratos/kratos/v2/log"
 )
@@ -16,7 +15,7 @@ import (
 // remaining user IDs in a chunk to silently disappear instead of being reported
 // as failed.
 func TestBatchPushConcurrent_ContextCanceled(t *testing.T) {
-	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	mgr := NewManager(log.NewStdLogger(io.Discard))
 	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -53,7 +52,7 @@ func TestBatchPushConcurrent_ContextCanceled(t *testing.T) {
 // TestBatchPushReceiptsConcurrent_ContextCanceled is the receipt variant of the
 // context cancellation regression test.
 func TestBatchPushReceiptsConcurrent_ContextCanceled(t *testing.T) {
-	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	mgr := NewManager(log.NewStdLogger(io.Discard))
 	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,7 +78,7 @@ func TestBatchPushReceiptsConcurrent_ContextCanceled(t *testing.T) {
 // TestBatchPushReceiptsToUsers_Empty verifies that an empty batch request is a
 // no-op and returns zero delivered count.
 func TestBatchPushReceiptsToUsers_Empty(t *testing.T) {
-	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	mgr := NewManager(log.NewStdLogger(io.Discard))
 	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
 
 	resp, err := svc.BatchPushReceiptsToUsers(context.Background(), &v1.BatchPushReceiptsToUsersRequest{
@@ -98,7 +97,7 @@ func TestBatchPushReceiptsToUsers_Empty(t *testing.T) {
 
 // TestBatchPushReceiptsToUsers_OfflineUser reports the offline user as failed.
 func TestBatchPushReceiptsToUsers_OfflineUser(t *testing.T) {
-	mgr := gateway.NewManager(log.NewStdLogger(io.Discard))
+	mgr := NewManager(log.NewStdLogger(io.Discard))
 	svc := NewPushService(mgr, log.NewStdLogger(io.Discard))
 
 	resp, err := svc.BatchPushReceiptsToUsers(context.Background(), &v1.BatchPushReceiptsToUsersRequest{

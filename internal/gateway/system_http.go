@@ -1,16 +1,18 @@
-package service
+package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"time"
 
 	"nonoka-im/internal/authz"
 	"nonoka-im/internal/conf"
-	"nonoka-im/internal/gateway"
 
+	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
+	jwt5 "github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -99,7 +101,7 @@ func (s *SystemHTTP) ListGateways(c khttp.Context) error {
 			return nil, nil
 		}
 
-		nodes, err := gateway.GetAliveNodes(ctx, s.redis, s.nodeTTL)
+		nodes, err := GetAliveNodes(ctx, s.redis, s.nodeTTL)
 		if err != nil {
 			reply.Degraded = true
 			reply.Warning = "gateway registry unavailable: " + err.Error()
@@ -123,4 +125,23 @@ func (s *SystemHTTP) ListGateways(c khttp.Context) error {
 	})
 	_, err := h(c, nil)
 	return err
+}
+
+func extractUserIDFromContext(ctx context.Context) int64 {
+	claims, ok := jwtMiddleware.FromContext(ctx)
+	if !ok {
+		return 0
+	}
+	if mapClaims, ok := claims.(jwt5.MapClaims); ok {
+		if uid, ok := mapClaims["user_id"].(float64); ok {
+			return int64(uid)
+		}
+	}
+	return 0
+}
+
+func writeAgentJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }

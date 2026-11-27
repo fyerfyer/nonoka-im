@@ -6,13 +6,10 @@ import "github.com/google/wire"
 // this package depend only on application usecases and shared contracts.
 var ProviderSet = wire.NewSet(
 	NewAuthService,
-	NewDispatchService,
-	NewPushService,
 	NewMessageService,
 	NewConversationService,
 	NewGroupService,
 	NewFileService,
 	NewAgentHTTP,
 	NewOutboxAdminHTTP,
-	NewSystemHTTP,
 )

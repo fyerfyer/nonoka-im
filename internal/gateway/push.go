@@ -1,4 +1,4 @@
-package service
+package gateway
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/protobuf/proto"
 	pb "nonoka-im/api/im/v1"
-	"nonoka-im/internal/gateway"
 )
 
 const (
@@ -35,12 +34,12 @@ func getPushWorkerCount() int {
 // PushService is exposed by the Gateway for MsgWorker to push messages to online users.
 type PushService struct {
 	pb.UnimplementedPushServiceServer
-	manager *gateway.Manager
+	manager *Manager
 	log     *log.Helper
 }
 
 // NewPushService creates a new PushService with the connection manager.
-func NewPushService(manager *gateway.Manager, logger log.Logger) *PushService {
+func NewPushService(manager *Manager, logger log.Logger) *PushService {
 	return &PushService{
 		manager: manager,
 		log:     log.NewHelper(logger),

@@ -1,4 +1,4 @@
-package service
+package gateway
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	pb "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
-	"nonoka-im/internal/gateway"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/redis/go-redis/v9"
@@ -34,7 +33,7 @@ type DispatchService struct {
 
 	redis     redis.UniversalClient
 	strategy  string
-	localNode *gateway.GatewayNode
+	localNode *GatewayNode
 	nodeTTL   time.Duration
 	log       *log.Helper
 }
@@ -75,11 +74,11 @@ func NewDispatchService(redis redis.UniversalClient, dispatchConf *conf.Dispatch
 // is unavailable or no nodes are registered.
 func (s *DispatchService) Gateway(ctx context.Context, req *pb.GetGatewayRequest) (*pb.GetGatewayReply, error) {
 	// Discover alive nodes from Redis
-	var nodes []*gateway.GatewayNode
+	var nodes []*GatewayNode
 	var err error
 
 	if s.redis != nil {
-		nodes, err = gateway.GetAliveNodes(ctx, s.redis, s.nodeTTL)
+		nodes, err = GetAliveNodes(ctx, s.redis, s.nodeTTL)
 		if err != nil {
 			s.log.Warnf("failed to discover gateway nodes from redis: %v", err)
 		}
@@ -117,25 +116,25 @@ func (s *DispatchService) Gateway(ctx context.Context, req *pb.GetGatewayRequest
 }
 
 // selectNode picks a gateway node according to the configured strategy.
-func (s *DispatchService) selectNode(nodes []*gateway.GatewayNode, userID int64) *gateway.GatewayNode {
+func (s *DispatchService) selectNode(nodes []*GatewayNode, userID int64) *GatewayNode {
 	switch s.strategy {
 	case strategyLeastConnections:
-		return gateway.SelectByLeastConnections(nodes)
+		return SelectByLeastConnections(nodes)
 	case strategyConsistentHash:
 		fallthrough
 	default:
 		// Use user_id as the hash key for sticky routing.
 		// If user_id is 0 (anonymous), fall through to least-connections.
 		if userID != 0 {
-			return gateway.SelectByConsistentHash(nodes, fmt.Sprintf("%d", userID))
+			return SelectByConsistentHash(nodes, fmt.Sprintf("%d", userID))
 		}
-		return gateway.SelectByLeastConnections(nodes)
+		return SelectByLeastConnections(nodes)
 	}
 }
 
 // buildLocalNode constructs the local gateway node info.
 // Priority: 1) config static gateways matching this node_id  2) HTTP addr from env  3) localhost default
-func buildLocalNode(dispatchConf *conf.Dispatch) *gateway.GatewayNode {
+func buildLocalNode(dispatchConf *conf.Dispatch) *GatewayNode {
 	nodeID := os.Getenv("GATEWAY_NODE_ID")
 	if nodeID == "" {
 		nodeID, _ = os.Hostname()
@@ -148,7 +147,7 @@ func buildLocalNode(dispatchConf *conf.Dispatch) *gateway.GatewayNode {
 	if dispatchConf != nil {
 		for _, gw := range dispatchConf.Gateways {
 			if gw.NodeId == nodeID && gw.GatewayUrl != "" {
-				return &gateway.GatewayNode{
+				return &GatewayNode{
 					NodeID: nodeID,
 					URL:    gw.GatewayUrl,
 				}
@@ -156,7 +155,7 @@ func buildLocalNode(dispatchConf *conf.Dispatch) *gateway.GatewayNode {
 		}
 		// If static config exists but no match, use the first one as fallback
 		if len(dispatchConf.Gateways) > 0 && dispatchConf.Gateways[0].GatewayUrl != "" {
-			return &gateway.GatewayNode{
+			return &GatewayNode{
 				NodeID: nodeID,
 				URL:    dispatchConf.Gateways[0].GatewayUrl,
 			}
@@ -168,7 +167,7 @@ func buildLocalNode(dispatchConf *conf.Dispatch) *gateway.GatewayNode {
 	if wsAddr == "" {
 		wsAddr = "ws://localhost:8000/ws"
 	}
-	return &gateway.GatewayNode{
+	return &GatewayNode{
 		NodeID: nodeID,
 		URL:    wsAddr,
 	}

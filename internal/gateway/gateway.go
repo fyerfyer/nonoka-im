@@ -7,6 +7,9 @@ var ProviderSet = wire.NewSet(
 	NewManager,
 	NewSessionManager,
 	NewKafkaProducer,
+	NewPushService,
+	NewDispatchService,
+	NewSystemHTTP,
 	wire.Bind(new(MessageProducer), new(*KafkaProducer)),
 )
 

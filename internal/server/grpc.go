@@ -7,6 +7,7 @@ import (
 
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
+	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/realtime"
 	"nonoka-im/internal/service"
 
@@ -73,7 +74,7 @@ func rejectNonUserScope(next middleware.Handler) middleware.Handler {
 }
 
 // NewGRPCServer new a gRPC server.
-func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *service.PushService, authConf *conf.Auth, logger log.Logger) *grpc.Server {
+func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, authConf *conf.Auth, logger log.Logger) *grpc.Server {
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
 			recovery.Recovery(),

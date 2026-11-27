@@ -55,6 +55,7 @@ func TestServiceDoesNotDependOnInfrastructure(t *testing.T) {
 		"nonoka-im/internal/data",
 		"nonoka-im/internal/msgworker",
 		"nonoka-im/internal/filestore",
+		"nonoka-im/internal/gateway",
 	)
 }
 

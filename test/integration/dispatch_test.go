@@ -8,7 +8,6 @@ import (
 	v1 "nonoka-im/api/im/v1"
 	"nonoka-im/internal/conf"
 	"nonoka-im/internal/gateway"
-	"nonoka-im/internal/service"
 )
 
 // TestDispatch_SingleNode_Heartbeat verifies that after a gateway node
@@ -44,7 +43,7 @@ func TestDispatch_SingleNode_Heartbeat(t *testing.T) {
 	dispatchConf := &conf.Dispatch{
 		Strategy: "consistent_hash",
 	}
-	svc := service.NewDispatchService(ts.redis, dispatchConf, testLogger)
+	svc := gateway.NewDispatchService(ts.redis, dispatchConf, testLogger)
 
 	// Dispatch should return the registered node
 	resp, err := svc.Gateway(ctx, &v1.GetGatewayRequest{})
@@ -103,7 +102,7 @@ func TestDispatch_MultipleNodes_ConsistentHash(t *testing.T) {
 	dispatchConf := &conf.Dispatch{
 		Strategy: "consistent_hash",
 	}
-	svc := service.NewDispatchService(ts.redis, dispatchConf, testLogger)
+	svc := gateway.NewDispatchService(ts.redis, dispatchConf, testLogger)
 
 	// Same user_id should always get the same gateway
 	var firstURL string

@@ -175,7 +175,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	authRepo := imdata.NewAuthRepo(d.DB(), d.Redis, testLogger)
 	authUC := biz.NewAuthUsecase(authRepo, authConf)
 	authSvc := service.NewAuthService(authUC)
-	dispatchSvc := service.NewDispatchService(d.Redis, &conf.Dispatch{Strategy: "consistent_hash"}, testLogger)
+	dispatchSvc := gateway.NewDispatchService(d.Redis, &conf.Dispatch{Strategy: "consistent_hash"}, testLogger)
 	fgaAuthorizer, fgaCleanup := setupOpenFGA(t)
 
 	gwManager := gateway.NewManager(testLogger)
@@ -317,7 +317,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	fileSvc := service.NewFileService(fileApp, testLogger)
 	outboxSvc := &imapp.OutboxService{Repo: storage, Log: log.NewHelper(testLogger)}
 	outboxAdmin := service.NewOutboxAdminHTTP(messagingim.NewOutboxAdmin(outboxSvc), fgaAuthorizer, auditSvc)
-	systemHTTP := service.NewSystemHTTP(d.Redis, &conf.Dispatch{
+	systemHTTP := gateway.NewSystemHTTP(d.Redis, &conf.Dispatch{
 		Strategy: "consistent_hash",
 		NodeTtl:  durationpb.New(30 * time.Second),
 	}, fgaAuthorizer)
@@ -1017,7 +1017,7 @@ func setupGRPCPushServer(t *testing.T, manager *gateway.Manager) (string, func()
 	}
 	addr := lis.Addr().String()
 
-	pushSvc := service.NewPushService(manager, testLogger)
+	pushSvc := gateway.NewPushService(manager, testLogger)
 	grpcSrv := grpc.NewServer()
 	v1.RegisterPushServiceServer(grpcSrv, pushSvc)
 
