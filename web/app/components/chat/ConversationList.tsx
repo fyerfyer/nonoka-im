@@ -1,46 +1,25 @@
 "use client";
 
+import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { MessageSquare, Plus, Users } from "lucide-react";
 import { useConversations } from "@/hooks/useConversations";
 import { useChatStore } from "@/stores/chatStore";
-import { useAuthStore } from "@/stores/authStore";
 import { ConversationItem } from "./ConversationItem";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, MessageSquare, LogOut, Bot } from "lucide-react";
-import { useRouter, useParams } from "next/navigation";
-import { useState } from "react";
 import { NewChatDialog } from "./NewChatDialog";
 import { NewGroupDialog } from "./NewGroupDialog";
 import { ConnectionBar } from "./ConnectionBar";
-import { useAuth } from "@/hooks/useAuth";
-import { invalidateAgentNames } from "@/hooks/useAgentNames";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/workspace/EmptyState";
 
 export function ConversationList() {
-  const user = useAuthStore((s) => s.user);
-  const { logout } = useAuth();
   const chatStore = useChatStore();
   const router = useRouter();
   const params = useParams();
   useConversations();
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
-
-  const handleLogout = () => {
-    // Drop all conversation state (and the agent-directory cache) so the
-    // next user to log in on this tab never sees the previous user's data.
-    useChatStore.getState().reset();
-    invalidateAgentNames();
-    logout();
-  };
 
   const activeTopic =
     typeof params?.topic === "string" ? params.topic : null;
@@ -49,57 +28,35 @@ export function ConversationList() {
     (a, b) => (b.lastMsgAt || 0) - (a.lastMsgAt || 0)
   );
 
-  const initials = user?.username.slice(0, 2).toUpperCase() || "?";
-
   return (
-    <div
-      className={cn(
-        "flex h-full w-full flex-col border-r bg-background md:w-80 lg:w-96",
-        activeTopic && "hidden md:flex"
-      )}
-    >
+    <div className="flex h-full min-h-0 w-full flex-col bg-chat-list">
       <ConnectionBar />
-      <div className="flex h-14 items-center justify-between border-b px-4">
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground outline-none transition-opacity hover:opacity-80"
-                title={user?.username}
-              >
-                {initials}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuLabel>{user?.username}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-			  <DropdownMenuItem onClick={() => router.push("/agents")}>
-				<Bot className="h-4 w-4" /> Agents
-			  </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={handleLogout}
-              >
-                <LogOut className="h-4 w-4" />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <span className="text-sm font-semibold">Messages</span>
+      <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div>
+          <h1 className="text-sm font-semibold">Messages</h1>
+          <p className="text-[11px] text-muted-foreground">
+            {conversations.length === 0
+              ? "No conversations yet"
+              : `${conversations.length} conversation${conversations.length === 1 ? "" : "s"}`}
+          </p>
         </div>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
+            title="New group"
+            aria-label="New group"
             onClick={() => setNewGroupOpen(true)}
           >
-            <MessageSquare className="h-4 w-4" />
+            <Users className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
+            title="New message"
+            aria-label="New message"
             onClick={() => setNewChatOpen(true)}
           >
             <Plus className="h-4 w-4" />
@@ -107,17 +64,29 @@ export function ConversationList() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 px-2 py-2">
+      <ScrollArea className="min-h-0 flex-1 px-2 py-2">
         {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <MessageSquare className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm text-muted-foreground">No conversations</p>
-            <Button variant="outline" size="sm" onClick={() => setNewChatOpen(true)}>
-              Start chatting
-            </Button>
-          </div>
+          <EmptyState
+            icon={MessageSquare}
+            title="No conversations yet"
+            description="Start a direct message or create a group to bring people and agents together."
+            action={
+              <Button size="sm" onClick={() => setNewChatOpen(true)}>
+                <Plus />
+                New message
+              </Button>
+            }
+            secondaryAction={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setNewGroupOpen(true)}
+              >
+                <Users />
+                New group
+              </Button>
+            }
+          />
         ) : (
           <div className="flex flex-col gap-1">
             {conversations.map((conv) => (
@@ -125,7 +94,9 @@ export function ConversationList() {
                 key={conv.topic}
                 conversation={conv}
                 isActive={conv.topic === activeTopic}
-                onClick={() => router.push(`/chat/${encodeURIComponent(conv.topic)}`)}
+                onClick={() =>
+                  router.push(`/chat/${encodeURIComponent(conv.topic)}`)
+                }
               />
             ))}
           </div>

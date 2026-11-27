@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,13 +18,9 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
-import {
-  agentApi,
-  type ManagedAgent,
-} from "@/lib/api/agents";
+import { agentApi, type ManagedAgent } from "@/lib/api/agents";
 import { agentFormSchema, type AgentFormValues } from "@/lib/schemas/agent";
 import { agentDetailQuery, agentKeys, catalogQuery } from "@/lib/queries/agents";
-import { useAuth } from "@/hooks/useAuth";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { getP2PTopic } from "@/lib/topic";
@@ -39,8 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { AgentBuildForm } from "./AgentBuildForm";
-import { CapabilityPicker } from "./CapabilityPicker";
+import { AgentBuilder } from "./AgentBuilder";
 import { AgentOverview } from "./AgentOverview";
 import { AgentAccessPanel } from "./AgentAccessPanel";
 import { AgentVersions } from "./AgentVersions";
@@ -52,7 +47,7 @@ import {
   toAgentInput,
 } from "./agent-utils";
 
-const TABS = ["overview", "build", "tools", "runs"] as const;
+const TABS = ["overview", "build", "runs"] as const;
 type Tab = (typeof TABS)[number];
 
 function isTab(value: string | undefined): value is Tab {
@@ -85,7 +80,6 @@ export function AgentDetailClient({
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const { isReady, isAuthenticated } = useAuth();
   const detail = useQuery(agentDetailQuery(agentId));
   const catalog = useQuery(catalogQuery);
   const [tab, setTab] = useState<Tab>(isTab(initialTab) ? initialTab : "overview");
@@ -125,7 +119,13 @@ export function AgentDetailClient({
   }, [isDirty]);
 
   const saveMutation = useMutation({
-    mutationFn: async ({ publish, note }: { publish: boolean; note?: string }) => {
+    mutationFn: async ({
+      publish,
+      note,
+    }: {
+      publish: boolean;
+      note?: string;
+    }) => {
       const agent = detail.data;
       if (!agent?.draft) throw new Error("This agent has no editable draft");
       const values = form.getValues();
@@ -153,7 +153,8 @@ export function AgentDetailClient({
   });
 
   const statusMutation = useMutation({
-    mutationFn: (status: "active" | "disabled") => agentApi.setStatus(agentId, status),
+    mutationFn: (status: "active" | "disabled") =>
+      agentApi.setStatus(agentId, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
       queryClient.invalidateQueries({ queryKey: agentKeys.list() });
@@ -176,10 +177,6 @@ export function AgentDetailClient({
   const agent = detail.data;
   const canManage = agent?.canManage ?? false;
   const canOwn = agent?.canOwn ?? false;
-  const visibleTabs = useMemo(
-    () => TABS.filter((item) => item === "overview" || canManage),
-    [canManage]
-  );
 
   const changeTab = (next: Tab) => {
     if (isDirty && !window.confirm("Discard unsaved changes?")) return;
@@ -205,17 +202,9 @@ export function AgentDetailClient({
     router.push(`/chat/${encodeURIComponent(topic)}`);
   };
 
-  if (!isReady || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
-  }
-
   if (detail.isPending || catalog.isPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading agent…
       </div>
@@ -224,7 +213,7 @@ export function AgentDetailClient({
 
   if (!agent) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3">
+      <div className="flex h-full flex-col items-center justify-center gap-3">
         <p className="text-sm text-muted-foreground">Agent not found.</p>
         <Button onClick={() => router.push("/agents")}>Back to agents</Button>
       </div>
@@ -232,9 +221,9 @@ export function AgentDetailClient({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="shrink-0 border-b bg-background/95 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -249,11 +238,16 @@ export function AgentDetailClient({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate text-base font-semibold">{agent.name}</h1>
-              <Badge variant={agent.status === "active" ? "default" : "secondary"}>
+              <Badge
+                variant={agent.status === "active" ? "default" : "secondary"}
+              >
                 {agent.status}
               </Badge>
               {agent.draftChanged && (
-                <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                <Badge
+                  variant="outline"
+                  className="border-warning/50 text-warning"
+                >
                   draft changed
                 </Badge>
               )}
@@ -291,13 +285,19 @@ export function AgentDetailClient({
               size="sm"
               onClick={chatWithBot}
               disabled={agent.currentVersion === 0}
-              title={agent.currentVersion === 0 ? "Publish first to chat" : "Open chat"}
+              title={
+                agent.currentVersion === 0 ? "Publish first to chat" : "Open chat"
+              }
             >
               <MessageSquare />
               Chat
             </Button>
             {canManage && (
-              <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShareOpen(true)}
+              >
                 <Share2 />
                 Share
               </Button>
@@ -316,9 +316,15 @@ export function AgentDetailClient({
               variant="ghost"
               size="icon"
               title={agent.status === "active" ? "Disable" : "Enable"}
-              disabled={statusMutation.isPending || !canManage || agent.currentVersion === 0}
+              disabled={
+                statusMutation.isPending ||
+                !canManage ||
+                agent.currentVersion === 0
+              }
               onClick={() =>
-                statusMutation.mutate(agent.status === "active" ? "disabled" : "active")
+                statusMutation.mutate(
+                  agent.status === "active" ? "disabled" : "active"
+                )
               }
             >
               <Power />
@@ -336,8 +342,8 @@ export function AgentDetailClient({
           </div>
         </div>
 
-        <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 sm:px-6">
-          {visibleTabs.map((item) => (
+        <div className="flex gap-1 overflow-x-auto px-4 sm:px-6">
+          {TABS.map((item) => (
             <button
               key={item}
               className={cn(
@@ -354,30 +360,36 @@ export function AgentDetailClient({
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
-        {tab === "overview" && (
-          <AgentOverview
-            agent={agent}
-            onTab={(next) => changeTab(next as Tab)}
-            onOpenHistory={() => setHistoryOpen(true)}
-          />
-        )}
-        {tab === "build" && canManage && (
-          <div className="max-w-3xl">
-            <AgentBuildForm form={form} catalog={catalog.data || emptyCatalog} />
-          </div>
-        )}
-        {tab === "tools" && canManage && (
-          <div className="max-w-3xl">
-            <CapabilityPicker
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6">
+          {tab === "overview" && (
+            <AgentOverview
+              agent={agent}
+              onTab={(next) => changeTab(next as Tab)}
+              onOpenHistory={() => setHistoryOpen(true)}
+            />
+          )}
+          {tab === "build" && canManage && (
+            <AgentBuilder
               form={form}
               catalog={catalog.data || emptyCatalog}
               currentUserId={Number(user?.userId)}
+              mode="edit"
             />
-          </div>
-        )}
-        {tab === "runs" && canManage && <AgentRuns agentId={agentId} />}
-      </main>
+          )}
+          {tab === "build" && !canManage && (
+            <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+              You have view access. An owner or editor can change this draft.
+            </div>
+          )}
+          {tab === "runs" && canManage && <AgentRuns agentId={agentId} />}
+          {tab === "runs" && !canManage && (
+            <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+              Run history is limited to owners and editors.
+            </div>
+          )}
+        </div>
+      </div>
 
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
         <DialogContent className="sm:max-w-md">
@@ -399,9 +411,15 @@ export function AgentDetailClient({
             </Button>
             <Button
               disabled={saveMutation.isPending}
-              onClick={() => saveMutation.mutate({ publish: true, note: publishNote })}
+              onClick={() =>
+                saveMutation.mutate({ publish: true, note: publishNote })
+              }
             >
-              {saveMutation.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+              {saveMutation.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Send />
+              )}
               Publish
             </Button>
           </div>
@@ -414,8 +432,8 @@ export function AgentDetailClient({
             <DialogTitle>Delete agent</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Delete <span className="font-medium text-foreground">{agent.name}</span>?
-            Versions, runs and shares are removed. The bot account stays as an
+            Delete <span className="font-medium text-foreground">{agent.name}</span>
+            ? Versions, runs and shares are removed. The bot account stays as an
             inert user. This cannot be undone.
           </p>
           <div className="flex justify-end gap-2">
@@ -427,7 +445,11 @@ export function AgentDetailClient({
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
             >
-              {deleteMutation.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              {deleteMutation.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Trash2 />
+              )}
               Delete
             </Button>
           </div>

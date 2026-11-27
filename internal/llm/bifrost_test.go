@@ -54,7 +54,10 @@ func TestBifrostClientControlPlaneAndModelCatalog(t *testing.T) {
 		Name: "svc", ProviderModels: map[string][]string{"deepseek": {"deepseek-chat"}},
 		CustomerID: customer,
 		Budgets:    []BudgetSpec{{MaxLimit: 20, ResetDuration: "1M"}},
-		RateLimit:  &RateLimitSpec{RequestMaxLimit: 60, RequestResetDuration: "1m"},
+		RateLimit: &RateLimitSpec{
+			TokenMaxLimit: 100_000, TokenResetDuration: "1m",
+			RequestMaxLimit: 60, RequestResetDuration: "1m",
+		},
 	})
 	if err != nil || vk.ID != "vk-1" || vk.Value != "sk-bf-test" {
 		t.Fatalf("create vk: %+v, %v", vk, err)

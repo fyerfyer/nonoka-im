@@ -18,10 +18,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GroupMembersDialog } from "./GroupMembersDialog";
-import { AgentApprovalInbox } from "@/components/agents/AgentApprovalInbox";
 import { useChatStore } from "@/stores/chatStore";
+import { usePendingApprovals } from "@/hooks/usePendingApprovals";
 import { useAgentNames } from "@/hooks/useAgentNames";
 import { ArrowLeft, Bell, Bot, MoreVertical, Users } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ export function ChatHeader({
   const router = useRouter();
   const [membersOpen, setMembersOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [approvalsOpen, setApprovalsOpen] = useState(false);
+  const pendingApprovals = usePendingApprovals();
   const group = useChatStore((s) =>
     conversation?.type === "group" ? s.groups.get(conversation.topic) : undefined
   );
@@ -92,7 +93,7 @@ export function ChatHeader({
             className={cn(
               "text-sm font-semibold",
               conversation?.type === "group"
-                ? "bg-indigo-100 text-indigo-700"
+                ? "bg-primary/10 text-primary"
                 : "bg-primary/10 text-primary"
             )}
           >
@@ -124,7 +125,7 @@ export function ChatHeader({
               className={cn(
                 "text-xs",
                 isPeerOnline
-                  ? "text-emerald-600"
+                  ? "text-success"
                   : "text-muted-foreground"
               )}
             >
@@ -140,7 +141,7 @@ export function ChatHeader({
               className={cn(
                 "text-xs",
                 isPeerOnline
-                  ? "text-emerald-600"
+                  ? "text-success"
                   : "text-muted-foreground"
               )}
             >
@@ -150,14 +151,19 @@ export function ChatHeader({
         )}
       </div>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
+        <Link
+          href="/approvals"
+          className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="Pending approvals"
-          onClick={() => setApprovalsOpen(true)}
+          aria-label="Pending approvals"
         >
           <Bell className="h-5 w-5" />
-        </Button>
+          {pendingApprovals.count > 0 && (
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+              {pendingApprovals.count > 9 ? "9+" : pendingApprovals.count}
+            </span>
+          )}
+        </Link>
         {conversation?.type === "group" && (
         <>
           <DropdownMenu>
@@ -183,14 +189,6 @@ export function ChatHeader({
         </>
         )}
       </div>
-      <Dialog open={approvalsOpen} onOpenChange={setApprovalsOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Pending approvals</DialogTitle>
-          </DialogHeader>
-          <AgentApprovalInbox />
-        </DialogContent>
-      </Dialog>
       {/* Read-only peer profile (P2P only). */}
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
         <DialogContent className="sm:max-w-xs">
@@ -211,7 +209,7 @@ export function ChatHeader({
               <p
                 className={cn(
                   "mt-1 text-xs font-medium",
-                  isPeerOnline ? "text-emerald-600" : "text-muted-foreground"
+                  isPeerOnline ? "text-success" : "text-muted-foreground"
                 )}
               >
                 {peerIsBot

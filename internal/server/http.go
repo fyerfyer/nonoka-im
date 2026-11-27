@@ -28,7 +28,7 @@ import (
 )
 
 // NewHTTPServer new an HTTP server.
-func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, bots *service.BotHTTP, outbox *service.OutboxAdminHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
+func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, group *service.GroupService, file *service.FileService, agents *service.AgentHTTP, bots *service.BotHTTP, outbox *service.OutboxAdminHTTP, system *service.SystemHTTP, ws *gateway.WebSocketServer, authConf *conf.Auth, gatewayConf *conf.GatewayConfig, rateLimiter *AuthRateLimiter, logger log.Logger, m *metrics.Metrics) *khttp.Server {
 	middlewares := []middleware.Middleware{
 		recovery.Recovery(),
 		httpapi.RequestIDMiddleware(),
@@ -260,6 +260,10 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *service.
 		r.GET("/v1/admin/agent-outbox/failed", outbox.ListFailed)
 		r.POST("/v1/admin/agent-outbox/replay", outbox.ReplayMany)
 		r.POST("/v1/admin/agent-outbox/{id}/replay", outbox.Replay)
+	}
+	if system != nil {
+		r := srv.Route("/")
+		r.GET("/v1/admin/gateways", system.ListGateways)
 	}
 
 	// Register WebSocket handler

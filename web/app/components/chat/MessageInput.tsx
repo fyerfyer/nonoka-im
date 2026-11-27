@@ -457,6 +457,8 @@ export function MessageInput({ onSend, onSendFile, members, disabled }: MessageI
         />
         <Button
           size="icon"
+          aria-label="Send message"
+          title="Send message"
           className={cn("h-9 w-9 shrink-0 rounded-full transition-opacity", !text.trim() && !hasPending && "opacity-50")}
           onClick={() => void handleSubmit()}
           disabled={disabled || sending || (!text.trim() && !hasPending)}

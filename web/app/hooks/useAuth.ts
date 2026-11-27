@@ -7,26 +7,31 @@ import { authApi } from "@/lib/api";
 import { User } from "@/types";
 import { toast } from "sonner";
 
+const PUBLIC_PATHS = ["/login"];
+
 export function useAuth() {
   const router = useRouter();
   const pathname = usePathname();
-  const store = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const loginToStore = useAuthStore((state) => state.login);
+  const logoutFromStore = useAuthStore((state) => state.logout);
+  const restoreFromStorage = useAuthStore((state) => state.restoreFromStorage);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      store.restoreFromStorage();
-      setIsReady(true);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [store]);
+    restoreFromStorage();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate the auth store from localStorage once
+    setIsReady(true);
+  }, [restoreFromStorage]);
 
   const login = useCallback(
     async (username: string, password: string) => {
       try {
         const reply = await authApi.login({ username, password });
-        const user: User = { userId: Number(reply.userId), username };
-        store.login(reply.token, reply.refreshToken, user);
+        const nextUser: User = { userId: Number(reply.userId), username };
+        loginToStore(reply.token, reply.refreshToken, nextUser);
         toast.success("Login successful");
         router.replace("/chat");
         return true;
@@ -36,14 +41,13 @@ export function useAuth() {
         return false;
       }
     },
-    [router, store]
+    [loginToStore, router]
   );
 
   const register = useCallback(
     async (username: string, password: string) => {
       try {
         await authApi.register({ username, password });
-        toast.success("Registration successful");
         return await login(username, password);
       } catch (err) {
         const message =
@@ -58,27 +62,27 @@ export function useAuth() {
   const logout = useCallback(() => {
     // Best-effort server-side revocation of the refresh token.
     authApi.logout().catch(() => {});
-    store.logout();
+    logoutFromStore();
     router.replace("/login");
-  }, [router, store]);
+  }, [logoutFromStore, router]);
 
-  // Redirect unauthenticated users away from protected routes.
+  // Redirect unauthenticated users away from protected routes and keep
+  // authenticated users out of the login screen.
   useEffect(() => {
     if (!isReady) return;
-    const publicPaths = ["/login", "/register"];
-    const isPublic = publicPaths.includes(pathname);
-    if (!store.isAuthenticated && !isPublic) {
+    const isPublic = PUBLIC_PATHS.includes(pathname);
+    if (!isAuthenticated && !isPublic) {
       router.replace("/login");
     }
-    if (store.isAuthenticated && isPublic) {
+    if (isAuthenticated && isPublic) {
       router.replace("/chat");
     }
-  }, [isReady, store.isAuthenticated, pathname, router]);
+  }, [isReady, isAuthenticated, pathname, router]);
 
   return {
-    user: store.user,
-    token: store.token,
-    isAuthenticated: store.isAuthenticated,
+    user,
+    token,
+    isAuthenticated,
     isReady,
     login,
     register,

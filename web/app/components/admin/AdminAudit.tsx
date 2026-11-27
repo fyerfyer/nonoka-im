@@ -44,7 +44,7 @@ export function AdminAudit() {
                 <td className="font-mono text-xs">{ev.action}</td>
                 <td className="text-xs">{ev.resourceType}:{ev.resourceId}</td>
                 <td>
-                  <Badge variant="secondary" className={ev.outcome === "failure" ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400" : ""}>
+                  <Badge variant="secondary" className={ev.outcome === "failure" ? "bg-destructive/15 text-destructive" : ""}>
                     {ev.outcome}
                   </Badge>
                 </td>

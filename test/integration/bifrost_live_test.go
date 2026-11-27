@@ -35,7 +35,10 @@ func TestBifrostContract(t *testing.T) {
 		ProviderModels: map[string][]string{"deepseek": {"deepseek-flash"}},
 		CustomerID:     customer,
 		Budgets:        []llm.BudgetSpec{{MaxLimit: 1, ResetDuration: "1M"}},
-		RateLimit:      &llm.RateLimitSpec{RequestMaxLimit: 10, RequestResetDuration: "1m"},
+		RateLimit: &llm.RateLimitSpec{
+			TokenMaxLimit: 100_000, TokenResetDuration: "1m",
+			RequestMaxLimit: 10, RequestResetDuration: "1m",
+		},
 	})
 	if err != nil || key.Value == "" {
 		t.Fatalf("create virtual key: %+v %v", key, err)

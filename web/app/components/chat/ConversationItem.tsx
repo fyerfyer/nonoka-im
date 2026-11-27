@@ -52,7 +52,7 @@ export function ConversationItem({
           className={cn(
             "text-sm font-semibold",
             conversation.type === "group"
-              ? "bg-indigo-100 text-indigo-700"
+              ? "bg-primary/10 text-primary"
               : "bg-primary/10 text-primary"
           )}
         >
@@ -95,7 +95,7 @@ export function ConversationItem({
             )}
           >
             {mentioned && (
-              <span className="mr-1 inline-flex items-center rounded bg-amber-200/80 px-1 py-px text-[9px] font-semibold text-amber-900">
+              <span className="mr-1 inline-flex items-center rounded bg-warning/15 px-1 py-px text-[9px] font-semibold text-warning">
                 <AtSign className="mr-px h-2.5 w-2.5" />
                 Mentioned
               </span>

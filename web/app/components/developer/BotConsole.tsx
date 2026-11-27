@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Bot as BotIcon,
   Check,
   Clipboard,
@@ -17,7 +15,6 @@ import {
   Webhook,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useAuth } from "@/hooks/useAuth";
 import {
   botsApi,
   type Bot,
@@ -26,6 +23,7 @@ import {
   type BotWebhook,
 } from "@/lib/api/bots";
 import { AppError } from "@/lib/api";
+import { PageHeader } from "@/components/workspace/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,9 +38,6 @@ const EVENT_OPTIONS = [
 type Tab = "overview" | "credentials" | "webhook" | "deliveries";
 
 export function BotConsole() {
-  const router = useRouter();
-  const { isReady, isAuthenticated } = useAuth();
-
   const [bots, setBots] = useState<Bot[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [tab, setTab] = useState<Tab>("overview");
@@ -97,8 +92,8 @@ export function BotConsole() {
   useEffect(() => {
     // Data loading is async; the lint rule cannot see through the promise.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (isAuthenticated) void loadBots();
-  }, [isAuthenticated, loadBots]);
+    void loadBots();
+  }, [loadBots]);
 
   const loadDetail = useCallback(async (id: string) => {
     if (!id) return;
@@ -288,14 +283,6 @@ export function BotConsole() {
     }
   };
 
-  if (!isReady || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
-  }
-
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
   const quickstart = `NONOKA_BASE_URL=${apiBase}
 NONOKA_BOT_TOKEN=${tokens.find((token) => !token.revokedAt)?.prefix ?? "nb_..."}…
@@ -304,41 +291,37 @@ NONOKA_WEBHOOK_SECRET=${webhook?.secretPrefix ?? "whsec_..."}…
 go run ./examples/bot`;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/chat")}>
-          <ArrowLeft />
-        </Button>
-        <Code2 className="h-5 w-5 text-primary" />
-        <h1 className="text-base font-semibold">Developer console</h1>
-        <span className="hidden text-xs text-muted-foreground sm:inline">
-          External bots · webhooks · credentials
-        </span>
-      </header>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <PageHeader
+        title="Developer console"
+        description="External bots, webhooks and delivery logs"
+        icon={Code2}
+      />
 
-      {secret && (
-        <div className="border-b bg-amber-50 px-4 py-3 sm:px-6">
-          <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                Shown once
-              </p>
-              <code className="break-all text-sm text-amber-950">{secret}</code>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => void copy(secret)}>
-                <Clipboard />
-                Copy
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSecret("")}>
-                Dismiss
-              </Button>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {secret && (
+          <div className="border-b border-warning/30 bg-warning/10 px-4 py-3 sm:px-6">
+            <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-warning">
+                  Shown once
+                </p>
+                <code className="break-all text-sm">{secret}</code>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => void copy(secret)}>
+                  <Clipboard />
+                  Copy
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSecret("")}>
+                  Dismiss
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[300px_minmax(0,1fr)] sm:px-6">
+        <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[300px_minmax(0,1fr)] sm:px-6">
         <aside className="space-y-4">
           <div className="rounded-xl border bg-card p-4">
             <p className="text-sm font-semibold">Create a bot</p>
@@ -748,6 +731,7 @@ go run ./examples/bot`;
             </div>
           )}
         </main>
+        </div>
       </div>
     </div>
   );

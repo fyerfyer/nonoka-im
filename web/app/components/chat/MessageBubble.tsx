@@ -168,7 +168,7 @@ export function MessageBubble({
             !isMedia &&
               (isMe
                 ? "bg-primary text-primary-foreground rounded-br-md"
-                : "bg-muted rounded-bl-md")
+                : "border border-border bg-card rounded-bl-md")
           )}
         >
           <MessageBody
@@ -194,8 +194,8 @@ export function MessageBubble({
             <StreamingStatus message={message} />
           )}
           {message.streamStatus === "waiting_approval" && message.approval && (
-            <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50/60 p-2 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
-              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
               <div className="min-w-0">
                 <p className="font-medium">Waiting for approval</p>
                 <p className="truncate text-muted-foreground" title={message.approval.summary}>
@@ -261,7 +261,7 @@ function StreamingStatus({ message }: { message: ChatMessage }) {
           ) : tool.status === "error" ? (
             <AlertCircle className="h-3 w-3 text-destructive" />
           ) : (
-            <Check className="h-3 w-3 text-emerald-600" />
+            <Check className="h-3 w-3 text-success" />
           )}
           <Wrench className="h-3 w-3" />
           <span className="truncate">{tool.summary || tool.tool}</span>

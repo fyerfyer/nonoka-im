@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "proto:gen": "pbjs -t static-module -w es6 -o lib/proto/im.js --path ../../api --path ../../third_party ../../api/im/v1/*.proto && pbts -o lib/proto/im.d.ts lib/proto/im.js",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -36,6 +38,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/postcss": "^4",
     "@types/long": "^5.0.0",
     "@types/node": "^20",

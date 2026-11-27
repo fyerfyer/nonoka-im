@@ -157,8 +157,8 @@ export function AgentVersions({ agent }: { agent: ManagedAgent }) {
                       key={index}
                       className={cn(
                         "whitespace-pre-wrap px-2 py-0.5",
-                        part.added && "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-300",
-                        part.removed && "bg-red-100 text-red-900 line-through dark:bg-red-500/15 dark:text-red-300"
+                        part.added && "bg-success/15 text-success",
+                        part.removed && "bg-destructive/15 text-destructive line-through"
                       )}
                     >
                       {part.value}

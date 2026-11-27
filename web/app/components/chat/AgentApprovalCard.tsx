@@ -52,9 +52,9 @@ function isCard(value: AgentCardContent): boolean {
 }
 
 const statusStyles: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400",
-  approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400",
+  pending: "bg-warning/15 text-warning",
+  approved: "bg-success/15 text-success",
+  rejected: "bg-destructive/15 text-destructive",
 };
 
 export function AgentApprovalCard({ content }: { content: string }) {

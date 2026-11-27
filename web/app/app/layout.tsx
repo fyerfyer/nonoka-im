@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { AuthInitializer } from "@/components/AuthInitializer";
-import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Nonoka IM",
-  description: "A modern instant messaging web app",
+  description: "Agent-native IM infrastructure reference workspace",
 };
+
+const sidebarWidthScript = `try {
+  var stored = Number(localStorage.getItem("nonoka.web.chatSidebarWidth"));
+  if (stored >= 280 && stored <= 420) {
+    document.documentElement.style.setProperty("--chat-sidebar-width", stored + "px");
+  }
+} catch (error) {}`;
 
 export default function RootLayout({
   children,
@@ -17,11 +22,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="min-h-full flex flex-col font-sans antialiased">
+    <html lang="en" suppressHydrationWarning>
+      <body className="h-full font-sans antialiased">
+        <script dangerouslySetInnerHTML={{ __html: sidebarWidthScript }} />
         <Providers>
-          <AuthInitializer />
-          <RealtimeProvider />
           <TooltipProvider>{children}</TooltipProvider>
           <Toaster position="top-center" />
         </Providers>

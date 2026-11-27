@@ -13,17 +13,17 @@ export function ConnectionBar() {
     connecting: {
       icon: Loader2,
       text: "Connecting...",
-      className: "bg-amber-50 text-amber-700 border-amber-200",
+      className: "bg-warning/10 text-warning border-warning/30",
     },
     reconnecting: {
       icon: Loader2,
       text: "Reconnecting...",
-      className: "bg-amber-50 text-amber-700 border-amber-200",
+      className: "bg-warning/10 text-warning border-warning/30",
     },
     disconnected: {
       icon: WifiOff,
       text: "Disconnected",
-      className: "bg-red-50 text-red-700 border-red-200",
+      className: "bg-destructive/10 text-destructive border-destructive/30",
     },
   }[state];
 

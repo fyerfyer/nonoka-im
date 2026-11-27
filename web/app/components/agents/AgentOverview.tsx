@@ -1,13 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { Activity, Coins, ShieldAlert, Sparkles } from "lucide-react";
 import type { ManagedAgent } from "@/lib/api/agents";
 import { agentRunsQuery, agentUsageQuery, approvalsQuery } from "@/lib/queries/agents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AgentApprovalInbox } from "./AgentApprovalInbox";
 import { formatDuration, formatTime } from "./agent-utils";
 
 export function AgentOverview({
@@ -19,6 +19,7 @@ export function AgentOverview({
   onTab: (tab: string) => void;
   onOpenHistory: () => void;
 }) {
+  const router = useRouter();
   const runs = useQuery(agentRunsQuery(agent.id));
   const usage = useQuery(agentUsageQuery(agent.id, 7));
   const approvals = useQuery(approvalsQuery("pending"));
@@ -96,7 +97,7 @@ export function AgentOverview({
                     variant="secondary"
                     className={cn(
                       "text-[10px] capitalize",
-                      run.status === "failed" && "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400"
+                      run.status === "failed" && "bg-destructive/15 text-destructive"
                     )}
                   >
                     {run.status}
@@ -143,7 +144,21 @@ export function AgentOverview({
         </div>
 
         <div className="space-y-4">
-          <AgentApprovalInbox compact />
+          <div className="rounded-xl border bg-card p-4">
+            <h3 className="text-sm font-semibold">Pending approvals</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Approve or reject tool calls from the global inbox.
+            </p>
+            <Button
+              className="mt-3 w-full"
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/approvals")}
+            >
+              <ShieldAlert className="h-4 w-4" />
+              Open approvals ({pendingApprovals})
+            </Button>
+          </div>
           <div className="rounded-xl border bg-card p-4">
             <h3 className="text-sm font-semibold">Quick actions</h3>
             <div className="mt-3 grid gap-2">

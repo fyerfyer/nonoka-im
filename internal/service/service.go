@@ -14,4 +14,5 @@ var ProviderSet = wire.NewSet(
 	NewFileService,
 	NewAgentHTTP,
 	NewOutboxAdminHTTP,
+	NewSystemHTTP,
 )

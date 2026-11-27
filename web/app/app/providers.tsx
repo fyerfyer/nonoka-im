@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { ThemeProvider } from "@/components/theme-provider";
 
 function makeQueryClient() {
   return new QueryClient({
@@ -27,6 +28,14 @@ export function Providers({ children }: { children: ReactNode }) {
   // useState keeps the server render and the first client render aligned.
   const [queryClient] = useState(getQueryClient);
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="light"
+      enableSystem
+      disableTransitionOnChange
+      storageKey="nonoka-theme"
+    >
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </ThemeProvider>
   );
 }

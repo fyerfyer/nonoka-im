@@ -317,7 +317,11 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	fileSvc := service.NewFileService(fileApp, testLogger)
 	outboxSvc := &imapp.OutboxService{Repo: storage, Log: log.NewHelper(testLogger)}
 	outboxAdmin := service.NewOutboxAdminHTTP(messagingim.NewOutboxAdmin(outboxSvc), fgaAuthorizer, auditSvc)
-	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, botHTTP, outboxAdmin, wsServer, authConf, nil, nil, testLogger, testMetrics)
+	systemHTTP := service.NewSystemHTTP(d.Redis, &conf.Dispatch{
+		Strategy: "consistent_hash",
+		NodeTtl:  durationpb.New(30 * time.Second),
+	}, fgaAuthorizer)
+	hs := server.NewHTTPServer(confServer, authSvc, dispatchSvc, msgSvc, userSvc, conversationSvc, groupSvc, fileSvc, agentSvc, botHTTP, outboxAdmin, systemHTTP, wsServer, authConf, nil, nil, testLogger, testMetrics)
 	go func() {
 		if err := hs.Start(ctx); err != nil {
 			select {
