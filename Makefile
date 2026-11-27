@@ -181,10 +181,13 @@ demo:
 	docker compose -f docker-compose.yml up -d --build
 
 .PHONY: demo-scale
-# start the scale demo: two gateways behind nginx, three scalable msgworkers,
-# agent worker, web frontend
+# start the scale demo: two gateways behind nginx, N scalable msgworkers,
+# optional agent-worker replicas, web frontend. Override MSG_WORKERS or
+# AGENT_WORKER_REPLICAS to scale without editing compose.
 demo-scale:
-	docker compose -f docker-compose.scale.yml up -d --build --scale msgworker=3
+	docker compose -f docker-compose.scale.yml up -d --build \
+		--scale msgworker=$${MSG_WORKERS:-3} \
+		--scale agent-worker=$${AGENT_WORKER_REPLICAS:-1}
 
 .PHONY: demo-down
 # stop and remove demo containers and volumes (either demo variant)

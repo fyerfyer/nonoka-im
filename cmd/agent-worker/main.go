@@ -242,17 +242,22 @@ func main() {
 	}
 
 	gatewayGRPC := strings.TrimSpace(os.Getenv("GATEWAY_GRPC_ADDR"))
-	if gatewayGRPC == "" && bc.Dispatch != nil {
+	gatewayAddrs := make([]string, 0, 2)
+	for _, addr := range strings.Split(gatewayGRPC, ",") {
+		if addr = strings.TrimSpace(addr); addr != "" {
+			gatewayAddrs = append(gatewayAddrs, addr)
+		}
+	}
+	if len(gatewayAddrs) == 0 && bc.Dispatch != nil {
 		for _, node := range bc.Dispatch.Gateways {
-			if node.GetGatewayGrpcAddr() != "" {
-				gatewayGRPC = node.GetGatewayGrpcAddr()
-				break
+			if addr := strings.TrimSpace(node.GetGatewayGrpcAddr()); addr != "" {
+				gatewayAddrs = append(gatewayAddrs, addr)
 			}
 		}
 	}
 	var runTransport realtime.RunEventTransport
-	if gatewayGRPC != "" {
-		pusher, err := realtime.NewGatewayPusher([]string{gatewayGRPC}, logger)
+	if len(gatewayAddrs) > 0 {
+		pusher, err := realtime.NewGatewayPusher(gatewayAddrs, logger)
 		if err != nil {
 			panic(err)
 		}

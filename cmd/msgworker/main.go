@@ -113,10 +113,16 @@ func main() {
 	if gatewayAddr == "" && bc.Server != nil && bc.Server.Grpc != nil {
 		gatewayAddr = bc.Server.Grpc.Addr
 	}
-	if gatewayAddr == "" {
-		gatewayAddr = "127.0.0.1:19000"
+	gatewayAddrs := make([]string, 0, 2)
+	for _, addr := range strings.Split(gatewayAddr, ",") {
+		if addr = strings.TrimSpace(addr); addr != "" {
+			gatewayAddrs = append(gatewayAddrs, addr)
+		}
 	}
-	rawPusher, err := realtime.NewGatewayPusher([]string{gatewayAddr}, logger, m)
+	if len(gatewayAddrs) == 0 {
+		gatewayAddrs = []string{"127.0.0.1:19000"}
+	}
+	rawPusher, err := realtime.NewGatewayPusher(gatewayAddrs, logger, m)
 	if err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("gateway pusher init failed: %v", err))
 		os.Exit(1)

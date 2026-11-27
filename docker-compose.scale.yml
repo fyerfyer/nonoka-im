@@ -20,7 +20,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_NUM_PARTITIONS: ${KAFKA_NUM_PARTITIONS:-12}
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:19092"]
       interval: 5s
@@ -47,16 +47,66 @@ services:
       timeout: 5s
       retries: 10
     networks: [nonoka]
-  mongodb:
-    image: mongo:6-jammy
-    hostname: mongodb
+  # Three-node replica set. Writes still go to the primary, but the deployment
+  # survives a primary failure and reads can be moved to secondaries later.
+  mongo-1:
+    image: mongo:7
+    hostname: mongo-1
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
-    volumes: [mongodb_data:/data/db]
+    volumes: [mongo1_data:/data/db]
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}).ok }\" | grep -q 1"]
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+    networks: [nonoka]
+  mongo-2:
+    image: mongo:7
+    hostname: mongo-2
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes: [mongo2_data:/data/db]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [nonoka]
+  mongo-3:
+    image: mongo:7
+    hostname: mongo-3
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes: [mongo3_data:/data/db]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [nonoka]
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo-1: {condition: service_healthy}
+      mongo-2: {condition: service_healthy}
+      mongo-3: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until mongosh --host mongo-1 --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1; do sleep 1; done
+        mongosh --host mongo-1 --quiet --eval '
+          try {
+            rs.status().ok
+          } catch (e) {
+            rs.initiate({
+              _id: "rs0",
+              members: [
+                {_id: 0, host: "mongo-1:27017"},
+                {_id: 1, host: "mongo-2:27017"},
+                {_id: 2, host: "mongo-3:27017"}
+              ]
+            })
+          }'
+        until mongosh --host mongo-1 --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do sleep 1; done
     networks: [nonoka]
   openfga-postgres:
     image: postgres:15-alpine
@@ -161,7 +211,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      mongodb: {condition: service_healthy}
+      mongo-init: {condition: service_completed_successfully}
       kafka: {condition: service_healthy}
       openfga: {condition: service_started}
     networks: [nonoka]
@@ -196,7 +246,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      mongodb: {condition: service_healthy}
+      mongo-init: {condition: service_completed_successfully}
       kafka: {condition: service_healthy}
       openfga: {condition: service_started}
     networks: [nonoka]
@@ -212,7 +262,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      mongodb: {condition: service_healthy}
+      mongo-init: {condition: service_completed_successfully}
       kafka: {condition: service_healthy}
       gateway-1: {condition: service_started}
       gateway-2: {condition: service_started}
@@ -225,12 +275,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
-      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_URI: mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/?replicaSet=rs0
       MONGODB_DATABASE: nonoka_im
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:19092
       IM_HTTP_URL: http://nginx
-      GATEWAY_GRPC_ADDR: gateway-1:9002
+      GATEWAY_GRPC_ADDR: gateway-1:9002,gateway-2:9002
       INTERNAL_PUSH_TOKEN: ${INTERNAL_PUSH_TOKEN:-nonoka-local-internal-push-token}
       OPENFGA_API_URL: ${OPENFGA_API_URL:-http://openfga:8080}
       OPENFGA_AUTO_BOOTSTRAP: ${OPENFGA_AUTO_BOOTSTRAP:-true}
@@ -267,17 +317,18 @@ services:
     depends_on:
       nginx: {condition: service_started}
       postgres: {condition: service_healthy}
-      mongodb: {condition: service_healthy}
+      mongo-init: {condition: service_completed_successfully}
       kafka: {condition: service_healthy}
       redis: {condition: service_started}
       openfga: {condition: service_started}
       bifrost: {condition: service_healthy}
+    networks: [nonoka]
   bot-worker:
     build: {context: ., dockerfile: Dockerfile}
     restart: unless-stopped
     environment:
       POSTGRES_DSN: host=postgres user=nonoka password=nonoka dbname=nonoka port=5432 sslmode=disable TimeZone=Asia/Shanghai
-      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      MONGODB_URI: mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/?replicaSet=rs0
       MONGODB_DATABASE: nonoka_im
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:19092
@@ -302,7 +353,7 @@ services:
       retries: 6
       start_period: 20s
     depends_on:
-      mongodb: {condition: service_healthy}
+      mongo-init: {condition: service_completed_successfully}
       kafka: {condition: service_healthy}
       openfga: {condition: service_started}
     networks: [nonoka]
@@ -323,7 +374,9 @@ services:
     networks: [nonoka]
 volumes:
   postgres_data:
-  mongodb_data:
+  mongo1_data:
+  mongo2_data:
+  mongo3_data:
   openfga_data:
   bifrost_data:
   meilisearch_data:
