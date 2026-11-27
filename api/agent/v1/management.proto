@@ -1,0 +1,275 @@
+syntax = "proto3";
+
+package api.agent.v1;
+
+import "agent/v1/runtime.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "nonoka-im/api/agent/v1;v1";
+
+// AgentService is the owner/editor-facing Agent configuration API.
+service AgentService {
+  rpc ListAgents (ListAgentsRequest) returns (ListAgentsReply) {
+    option (google.api.http) = { get: "/v1/agents" };
+  }
+
+  rpc CreateAgent (AgentInput) returns (Agent) {
+    option (google.api.http) = {
+      post: "/v1/agents"
+      body: "*"
+    };
+  }
+
+  rpc GetAgent (GetAgentRequest) returns (Agent) {
+    option (google.api.http) = { get: "/v1/agents/{id}" };
+  }
+
+  rpc UpdateAgentDraft (UpdateAgentDraftRequest) returns (Agent) {
+    option (google.api.http) = {
+      put: "/v1/agents/{id}/draft"
+      body: "*"
+    };
+  }
+
+  rpc PublishAgent (PublishAgentRequest) returns (AgentVersion) {
+    option (google.api.http) = {
+      post: "/v1/agents/{id}/publish"
+      body: "*"
+    };
+  }
+
+  rpc RestoreAgent (RestoreAgentRequest) returns (Agent) {
+    option (google.api.http) = {
+      post: "/v1/agents/{id}/restore"
+      body: "*"
+    };
+  }
+
+  rpc SetAgentStatus (SetAgentStatusRequest) returns (SetAgentStatusReply) {
+    option (google.api.http) = {
+      post: "/v1/agents/{id}/status"
+      body: "*"
+    };
+  }
+
+  rpc DeleteAgent (GetAgentRequest) returns (DeleteAgentReply) {
+    option (google.api.http) = { delete: "/v1/agents/{id}" };
+  }
+
+  rpc ListAgentVersions (GetAgentRequest) returns (ListAgentVersionsReply) {
+    option (google.api.http) = { get: "/v1/agents/{id}/versions" };
+  }
+
+  rpc GetAgentVersion (GetAgentVersionRequest) returns (AgentVersion) {
+    option (google.api.http) = { get: "/v1/agents/{id}/versions/{version}" };
+  }
+
+  rpc ListAgentShares (GetAgentRequest) returns (ListAgentSharesReply) {
+    option (google.api.http) = { get: "/v1/agents/{id}/shares" };
+  }
+
+  rpc PutAgentShare (PutAgentShareRequest) returns (PutAgentShareReply) {
+    option (google.api.http) = {
+      put: "/v1/agents/{id}/shares"
+      body: "*"
+    };
+  }
+
+  rpc ListAgentRuns (ListAgentRunsRequest) returns (ListAgentRunsReply) {
+    option (google.api.http) = { get: "/v1/agents/{id}/runs" };
+  }
+}
+
+message Agent {
+  int64 id = 1;
+  int64 bot_user_id = 2;
+  int64 owner_user_id = 3;
+  string name = 4;
+  string description = 5;
+  string status = 6;
+  int64 current_version = 7;
+  bool can_manage = 8;
+  bool can_own = 9;
+  bool draft_changed = 10;
+  AgentDraft draft = 11;
+  AgentVersion published = 12;
+}
+
+message AgentDraft {
+  string instruction = 1;
+  int64 model_id = 2;
+  repeated string tools = 3;
+  repeated string capability_presets = 4;
+  map<string, string> tool_policies = 5;
+  int32 max_tokens = 6;
+  repeated MCPBinding mcp_bindings = 7;
+  repeated SkillBinding skills = 8;
+  int64 revision = 9;
+}
+
+message AgentVersion {
+  uint64 id = 1;
+  int64 agent_id = 2;
+  int64 version = 3;
+  string instruction = 4;
+  int64 model_id = 5;
+  string model_key = 6;
+  repeated string tools = 7;
+  repeated string capability_presets = 8;
+  map<string, string> tool_policies = 9;
+  int32 max_tokens = 10;
+  repeated MCPBinding mcp_bindings = 11;
+  repeated SkillBinding skills = 12;
+  string publish_note = 13;
+  int64 published_by = 14;
+  google.protobuf.Timestamp published_at = 15;
+  int64 source_revision = 16;
+  google.protobuf.Timestamp created_at = 17;
+}
+
+message AgentVersionSummary {
+  uint64 id = 1;
+  int64 version = 2;
+  int64 model_id = 3;
+  string model_key = 4;
+  string publish_note = 5;
+  int64 published_by = 6;
+  google.protobuf.Timestamp published_at = 7;
+  int64 source_revision = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message MCPBinding {
+  uint64 server_id = 1;
+  string server = 2;
+  string tool = 3;
+  string exposed = 4;
+  string schema_hash = 5;
+  string policy = 6;
+}
+
+message SkillBinding {
+  uint64 skill_id = 1;
+  string name = 2;
+  int64 version = 3;
+  string checksum = 4;
+}
+
+message AgentShare {
+  string kind = 1;
+  string target = 2;
+  string role = 3;
+}
+
+message AgentInput {
+  string name = 1;
+  string description = 2;
+  string instruction = 3;
+  int64 model_id = 4;
+  repeated string tools = 5;
+  repeated string capability_presets = 6;
+  map<string, string> tool_policies = 7;
+  int32 max_tokens = 8;
+  repeated MCPBinding mcp_bindings = 9;
+  repeated SkillBinding skills = 10;
+  int64 revision = 11;
+}
+
+message ListAgentsRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ListAgentsReply {
+  repeated Agent items = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+  bool has_more = 4;
+}
+
+message GetAgentRequest {
+  int64 id = 1;
+}
+
+message UpdateAgentDraftRequest {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string instruction = 4;
+  int64 model_id = 5;
+  repeated string tools = 6;
+  repeated string capability_presets = 7;
+  map<string, string> tool_policies = 8;
+  int32 max_tokens = 9;
+  repeated MCPBinding mcp_bindings = 10;
+  repeated SkillBinding skills = 11;
+  int64 revision = 12;
+}
+
+message PublishAgentRequest {
+  int64 id = 1;
+  int64 revision = 2;
+  string note = 3;
+}
+
+message RestoreAgentRequest {
+  int64 id = 1;
+  int64 version = 2;
+  int64 revision = 3;
+}
+
+message SetAgentStatusRequest {
+  int64 id = 1;
+  string status = 2;
+}
+
+message SetAgentStatusReply {
+  string status = 1;
+}
+
+message DeleteAgentReply {
+  string status = 1;
+}
+
+message ListAgentVersionsReply {
+  repeated AgentVersionSummary versions = 1;
+}
+
+message GetAgentVersionRequest {
+  int64 id = 1;
+  int64 version = 2;
+}
+
+message ListAgentSharesReply {
+  repeated AgentShare shares = 1;
+}
+
+message PutAgentShareRequest {
+  int64 id = 1;
+  string kind = 2;
+  string target = 3;
+  string role = 4;
+  bool enabled = 5;
+}
+
+message PutAgentShareReply {
+  string kind = 1;
+  string target = 2;
+  string role = 3;
+  bool enabled = 4;
+}
+
+message ListAgentRunsRequest {
+  int64 id = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message ListAgentRunsReply {
+  repeated AgentRun items = 1;
+  int32 total = 2;
+  string next_cursor = 3;
+  bool has_more = 4;
+}

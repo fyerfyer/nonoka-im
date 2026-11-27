@@ -135,6 +135,7 @@ func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	}
 	if agents != nil {
 		agentv1.RegisterAgentRunServiceServer(srv, agents)
+		agentv1.RegisterAgentServiceServer(srv, agents)
 	}
 	return srv
 }

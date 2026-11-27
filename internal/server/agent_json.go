@@ -27,18 +27,20 @@ var numericStringFields = map[string]struct{}{
 	"msgId": {}, "topicSeq": {}, "replyMsgId": {}, "approverId": {}, "decidedBy": {},
 	"triggerMsgId": {}, "botUserId": {}, "actorUserId": {}, "seq": {},
 	"approvalId": {}, "nextSeq": {}, "inputTokens": {}, "outputTokens": {},
-	"totalTokens": {}, "timestampMs": {},
+	"totalTokens": {}, "timestampMs": {}, "version": {}, "sourceRevision": {},
+	"publishedBy": {}, "modelId": {}, "revision": {}, "serverId": {}, "skillId": {},
+	"currentVersion": {}, "ownerUserId": {},
 }
 
 // agentNumericResponseEncoder keeps the pre-proto JSON shape for the agent
 // runtime endpoints. It is intentionally scoped to /v1/agent-* so generated
 // IM/Bot APIs retain standard protojson semantics.
 func agentAPIPath(path string) bool {
-	return strings.HasPrefix(path, "/v1/agent-") || strings.HasPrefix(path, "/v1/bots")
+	return strings.HasPrefix(path, "/v1/agent-") || strings.HasPrefix(path, "/v1/agents") || strings.HasPrefix(path, "/v1/bots")
 }
 
 func agentNumericResponseEncoder(w http.ResponseWriter, r *http.Request, v any) error {
-	if !strings.HasPrefix(r.URL.Path, "/v1/agent-") {
+	if !strings.HasPrefix(r.URL.Path, "/v1/agent-") && !strings.HasPrefix(r.URL.Path, "/v1/agents") {
 		return khttp.DefaultResponseEncoder(w, r, v)
 	}
 	msg, ok := v.(proto.Message)

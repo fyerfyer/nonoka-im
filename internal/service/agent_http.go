@@ -27,6 +27,7 @@ import (
 // Business rules and persistence live in internal/agent/app/admin.
 type AgentHTTP struct {
 	agentv1.UnimplementedAgentRunServiceServer
+	agentv1.UnimplementedAgentServiceServer
 
 	agents    *admin.AgentService
 	runs      *admin.RunService

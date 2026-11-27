@@ -142,7 +142,7 @@ func createPhase3Agent(t *testing.T, token, name, instruction string) phase3Agen
 	})
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create agent: %d: %s", resp.StatusCode, body)
 	}
 	var created struct {

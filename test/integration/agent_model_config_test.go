@@ -88,7 +88,7 @@ func TestAgentModelConfigLifecycle(t *testing.T) {
 	})
 	body, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
-	if createResp.StatusCode != http.StatusCreated {
+	if createResp.StatusCode != http.StatusOK {
 		t.Fatalf("create agent failed: status %d: %s", createResp.StatusCode, body)
 	}
 	if containsSecret(body) || containsString(body, "fixture.invalid") {

@@ -172,19 +172,8 @@ func NewHTTPServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.
 	}
 	if agents != nil {
 		r := srv.Route("/")
-		r.GET("/v1/agents", agents.List)
-		r.POST("/v1/agents", agents.Create)
-		r.GET("/v1/agents/{id}", agents.Detail)
-		r.DELETE("/v1/agents/{id}", agents.Delete)
-		r.PUT("/v1/agents/{id}/draft", agents.Draft)
-		r.POST("/v1/agents/{id}/publish", agents.Publish)
-		r.POST("/v1/agents/{id}/restore", agents.Restore)
-		r.GET("/v1/agents/{id}/versions", agents.Versions)
-		r.GET("/v1/agents/{id}/versions/{version}", agents.Version)
-		r.POST("/v1/agents/{id}/status", agents.Status)
-		r.PUT("/v1/agents/{id}/shares", agents.Share)
-		r.GET("/v1/agents/{id}/shares", agents.Shares)
-		r.GET("/v1/agents/{id}/runs", agents.Runs)
+		// Agent configuration HTTP is generated from api/agent/v1.
+		agentv1.RegisterAgentServiceHTTPServer(srv, agents)
 		r.GET("/v1/agents/{id}/usage", agents.AgentUsage)
 		r.GET("/v1/admin/quotas", agents.ListQuotas)
 		r.PUT("/v1/admin/quotas/{scope}/{key}", agents.UpdateQuota)

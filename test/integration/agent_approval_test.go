@@ -288,7 +288,7 @@ func TestBotSendDisabledAgent(t *testing.T) {
 	})
 	createBody, _ := io.ReadAll(create.Body)
 	create.Body.Close()
-	if create.StatusCode != http.StatusCreated {
+	if create.StatusCode != http.StatusOK {
 		t.Fatalf("create agent: %d: %s", create.StatusCode, createBody)
 	}
 	var created struct {
