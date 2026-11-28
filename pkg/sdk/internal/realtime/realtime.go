@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -407,6 +408,7 @@ func (c *Client) scheduleReconnect() {
 	if delay > c.cfg.MaxReconnectDelay {
 		delay = c.cfg.MaxReconnectDelay
 	}
+	delay = jitterDelay(delay)
 	c.emit(Event{Type: EventReconnecting})
 	c.mu.Lock()
 	if c.timer != nil {
@@ -616,4 +618,17 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// jitterDelay applies full jitter so a gateway restart does not make every
+// client reconnect in the same tick. The upper bound remains the configured
+// backoff.
+func jitterDelay(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return 0
+	}
+	// Equal jitter: keep at least half the backoff so a persistent failure
+	// cannot turn into a tight reconnect loop.
+	half := delay / 2
+	return half + time.Duration(rand.Int64N(int64(delay-half)+1))
 }

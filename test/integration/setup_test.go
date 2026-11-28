@@ -204,6 +204,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	groupMemberRepo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
 	groupMembers := imgroup.NewService(groupMemberRepo, d.Redis, testLogger)
 	botIndex := imgroup.NewBotIndexWithQuery(d.ListBotUserIDs, d.IsBotUser, testLogger)
+	botIndex.SetQueryMany(d.BotUserIDsAmong)
 	if err := botIndex.Refresh(ctx); err != nil {
 		t.Fatalf("refresh bot index: %v", err)
 	}
@@ -227,7 +228,7 @@ func setupTestServer(t *testing.T, useKafka bool) *testServer {
 	msgSvc := service.NewMessageService(messageApp, query, testLogger)
 	userSvc := service.NewUserService(authUC)
 	conversationSvc := service.NewConversationService(&imapp.ConversationService{Repo: conversationRepo})
-	groupSvc := service.NewGroupService(&imapp.GroupService{Repo: groupRepo, Authorizer: fgaAuthorizer})
+	groupSvc := service.NewGroupService(&imapp.GroupService{Repo: groupRepo, Authorizer: fgaAuthorizer, Invalidator: groupMembers})
 	agentStore := agentdata.NewStore(d.DB())
 	platformStore := platformdata.NewStore(d.DB())
 	t.Setenv("AGENT_SECRET_KEY", strings.Repeat("s", 32))

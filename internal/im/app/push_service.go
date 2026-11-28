@@ -197,6 +197,15 @@ func (s *PushService) humanRecipients(ctx context.Context, ids []int64) []int64 
 	if s.Bots == nil || !s.Bots.Ready() || len(ids) == 0 {
 		return ids
 	}
+	// Group fan-out is the hot path: use the batched filter when the bot
+	// directory provides one, instead of one query per recipient.
+	if filter, ok := s.Bots.(interface {
+		FilterHumans(context.Context, []int64) ([]int64, error)
+	}); ok {
+		if humans, err := filter.FilterHumans(ctx, ids); err == nil {
+			return humans
+		}
+	}
 	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		bot, err := s.Bots.IsBot(ctx, id)
@@ -211,10 +220,8 @@ func (s *PushService) handleFailedPushes(ctx context.Context, failed []int64, ms
 	if len(failed) == 0 || s.RetryQueue == nil {
 		return
 	}
-	for _, userID := range failed {
-		if err := s.RetryQueue.ScheduleRetry(ctx, userID, msg); err != nil {
-			s.log().Warnf("schedule push retry failed: user_id=%d err=%v", userID, err)
-		}
+	if err := s.RetryQueue.ScheduleRetries(ctx, failed, msg); err != nil {
+		s.log().Warnf("schedule push retries failed: users=%d err=%v", len(failed), err)
 	}
 }
 

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	pb "nonoka-im/api/im/v1"
@@ -36,6 +39,12 @@ type DispatchService struct {
 	localNode *GatewayNode
 	nodeTTL   time.Duration
 	log       *log.Helper
+
+	cacheMu sync.RWMutex
+	alive   []*GatewayNode
+	aliveAt time.Time
+	ring    *consistentHash
+	ringKey string
 }
 
 // NewDispatchService creates a new dispatch service.
@@ -73,18 +82,7 @@ func NewDispatchService(redis redis.UniversalClient, dispatchConf *conf.Dispatch
 // configured dispatch strategy. Falls back to the local node if Redis
 // is unavailable or no nodes are registered.
 func (s *DispatchService) Gateway(ctx context.Context, req *pb.GetGatewayRequest) (*pb.GetGatewayReply, error) {
-	// Discover alive nodes from Redis
-	var nodes []*GatewayNode
-	var err error
-
-	if s.redis != nil {
-		nodes, err = GetAliveNodes(ctx, s.redis, s.nodeTTL)
-		if err != nil {
-			s.log.Warnf("failed to discover gateway nodes from redis: %v", err)
-		}
-	}
-
-	// Fallback: if no alive nodes discovered, use local node
+	nodes := s.aliveNodes(ctx)
 	if len(nodes) == 0 {
 		s.log.Debugf("no alive gateway nodes found, falling back to local node: %s", s.localNode.URL)
 		return &pb.GetGatewayReply{GatewayUrl: s.localNode.URL}, nil
@@ -115,6 +113,43 @@ func (s *DispatchService) Gateway(ctx context.Context, req *pb.GetGatewayRequest
 	return &pb.GetGatewayReply{GatewayUrl: selected.URL, GatewayUrls: urls}, nil
 }
 
+// aliveNodes returns a short-lived local snapshot of gateway nodes. The
+// dispatch endpoint is hit on every client reconnect; without this cache a
+// reconnect storm performs N Redis round-trips per client.
+func (s *DispatchService) aliveNodes(ctx context.Context) []*GatewayNode {
+	if s.redis == nil {
+		return nil
+	}
+	ttl := s.nodeTTL / 2
+	if ttl < time.Second {
+		ttl = time.Second
+	}
+	now := time.Now()
+	s.cacheMu.RLock()
+	if s.aliveAt.After(now.Add(-ttl)) {
+		nodes := s.alive
+		s.cacheMu.RUnlock()
+		return nodes
+	}
+	s.cacheMu.RUnlock()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.aliveAt.After(now.Add(-ttl)) {
+		return s.alive
+	}
+	nodes, err := GetAliveNodes(ctx, s.redis, s.nodeTTL)
+	if err != nil {
+		s.log.Warnf("failed to discover gateway nodes from redis: %v", err)
+		// Keep the previous snapshot during a short Redis outage; if there is
+		// none, the caller falls back to the local node.
+		return s.alive
+	}
+	s.alive = nodes
+	s.aliveAt = now
+	return nodes
+}
+
 // selectNode picks a gateway node according to the configured strategy.
 func (s *DispatchService) selectNode(nodes []*GatewayNode, userID int64) *GatewayNode {
 	switch s.strategy {
@@ -126,10 +161,47 @@ func (s *DispatchService) selectNode(nodes []*GatewayNode, userID int64) *Gatewa
 		// Use user_id as the hash key for sticky routing.
 		// If user_id is 0 (anonymous), fall through to least-connections.
 		if userID != 0 {
-			return SelectByConsistentHash(nodes, fmt.Sprintf("%d", userID))
+			return s.selectByRing(nodes, fmt.Sprintf("%d", userID))
 		}
 		return SelectByLeastConnections(nodes)
 	}
+}
+
+// selectByRing reuses the consistent hash ring until node membership changes.
+// The old implementation rebuilt and sorted 150 virtual nodes per request.
+func (s *DispatchService) selectByRing(nodes []*GatewayNode, key string) *GatewayNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if len(nodes) == 1 {
+		return nodes[0]
+	}
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.NodeID)
+	}
+	sort.Strings(ids)
+	ringKey := strings.Join(ids, "\x00")
+
+	s.cacheMu.Lock()
+	if s.ring == nil || s.ringKey != ringKey {
+		ring := newConsistentHash(DefaultVirtualReplicas)
+		for _, id := range ids {
+			ring.Add(id)
+		}
+		s.ring = ring
+		s.ringKey = ringKey
+	}
+	ring := s.ring
+	s.cacheMu.Unlock()
+
+	selectedID := ring.Get(key)
+	for _, n := range nodes {
+		if n.NodeID == selectedID {
+			return n
+		}
+	}
+	return nodes[0]
 }
 
 // buildLocalNode constructs the local gateway node info.

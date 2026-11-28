@@ -113,6 +113,35 @@ func TestRunBroadcasterFanout100Recipients(t *testing.T) {
 	}
 }
 
+func TestRunBroadcasterDropsDeltaAfterTerminal(t *testing.T) {
+	store := NewMemoryRunEventStore()
+	transport := &recordingTransport{}
+	broadcaster := NewRunBroadcaster(store, transport, nil, nil)
+	broadcaster.DeltaFlushInterval = 20 * time.Millisecond
+	defer broadcaster.Close()
+	ctx := context.Background()
+
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 21, Type: RunStarted, Topic: "p2p_1_2"}, []int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 21, Type: RunCompleted, Topic: "p2p_1_2"}, []int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 21, Type: RunDelta, Topic: "p2p_1_2", Delta: "late"}, []int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	transport.mu.Lock()
+	events := append([]RunEvent(nil), transport.delivered[1]...)
+	transport.mu.Unlock()
+	if len(events) != 2 {
+		t.Fatalf("late delta leaked after terminal: %+v", events)
+	}
+	if events[len(events)-1].Type != RunCompleted {
+		t.Fatalf("last event = %+v, want completed", events[len(events)-1])
+	}
+}
+
 func TestRunBroadcasterCoalescesDeltasAndFlushesBeforeTerminal(t *testing.T) {
 	store := NewMemoryRunEventStore()
 	transport := &recordingTransport{}

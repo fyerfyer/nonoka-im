@@ -402,6 +402,10 @@ func (s *AgentService) Share(ctx context.Context, userID, agentID int64, kind, t
 			if err := s.Authz.SetGroupMember(ctx, target, agent.BotUserID, true); err != nil {
 				return err
 			}
+		} else {
+			if err := s.Groups.RemoveMember(ctx, target, agent.BotUserID); err != nil {
+				return err
+			}
 		}
 	}
 	if err := s.Authz.SetAgentShare(ctx, agentID, kind, target, role, enabled); err != nil {

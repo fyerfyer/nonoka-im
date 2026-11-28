@@ -114,6 +114,7 @@ type CredentialSealer interface {
 // GroupDirectory is the group mutation surface used when sharing an agent.
 type GroupDirectory interface {
 	AddMember(ctx context.Context, groupID string, userID int64) error
+	RemoveMember(ctx context.Context, groupID string, userID int64) error
 }
 
 // UserDirectory resolves target users for shares.

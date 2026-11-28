@@ -20,12 +20,28 @@ import (
 // rates.
 func (s *Store) SaveP2P(ctx context.Context, msg *domain.Message, outbox *domain.OutboxEvent) ([]int64, bool, error) {
 	if outbox == nil {
-		recipients, duplicate, err := s.saveP2P(ctx, msg)
-		if err != nil || duplicate {
-			return recipients, duplicate, err
+		// The receiver and sender inbox copies are one logical write. Without a
+		// transaction a partial success followed by a Kafka retry can assign a
+		// different topic_seq to each participant and skip the push.
+		sess, err := s.db.Client().StartSession()
+		if err != nil {
+			return nil, false, fmt.Errorf("start mongo transaction session: %w", err)
 		}
-		s.enqueueSearchBestEffort(ctx, msg)
-		return recipients, false, nil
+		defer sess.EndSession(ctx)
+		var recipients []int64
+		var duplicate bool
+		_, err = sess.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+			var txErr error
+			recipients, duplicate, txErr = s.saveP2P(txCtx, msg)
+			return nil, txErr
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("persist p2p inbox messages: %w", err)
+		}
+		if !duplicate {
+			s.enqueueSearchBestEffort(ctx, msg)
+		}
+		return recipients, duplicate, nil
 	}
 	sess, err := s.db.Client().StartSession()
 	if err != nil {

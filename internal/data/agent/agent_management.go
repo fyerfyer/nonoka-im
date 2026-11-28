@@ -338,6 +338,15 @@ func (s *Store) DeleteAgent(ctx context.Context, id int64) ([]string, error) {
 			if err := tx.Where("run_id IN ?", runIDs).Delete(&AgentCheckpointRow{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("run_id IN ?", runIDs).Delete(&AgentRunStepRow{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("run_id IN ?", runIDs).Delete(&AgentRunCitationRow{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("run_id IN ?", runIDs).Delete(&ToolInvocationRow{}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Where("agent_id = ?", id).Delete(&AgentTurnRow{}).Error; err != nil {
 			return err

@@ -150,7 +150,7 @@ result, err := client.Messages.Send(ctx, sdk.SendRequest{
 
 ```go
 // Runs are created by sending a mention/DM to a published agent.
-run, err := client.Runs.GetByReply(ctx, replyMsgID, clientMsgID)
+run, err := client.Runs.ByReply(ctx, replyMsgID)
 if err != nil { ... }
 
 stream := client.Runs.Stream(ctx, run.ID)

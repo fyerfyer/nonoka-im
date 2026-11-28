@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"net"
+	"os"
+	"strings"
 	"time"
 
 	pb "nonoka-im/api/im/v1"
@@ -134,10 +136,19 @@ func (l *AuthRateLimiter) allowN(ctx context.Context, key string, limit int64) (
 }
 
 // clientIP extracts the client IP from the HTTP request, stripping the port.
+// Forwarded headers are only used when the deployment explicitly sets
+// TRUST_PROXY_HEADERS=true; otherwise a client can spoof X-Forwarded-For.
 func clientIP(ctx context.Context) string {
 	req, ok := khttp.RequestFromServerContext(ctx)
 	if !ok || req == nil {
 		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TRUST_PROXY_HEADERS")), "true") {
+		if forwarded := req.Header.Get("X-Forwarded-For"); forwarded != "" {
+			if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
+				return first
+			}
+		}
 	}
 	return parseClientIP(req.RemoteAddr)
 }

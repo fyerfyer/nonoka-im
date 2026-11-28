@@ -82,7 +82,10 @@ func (h *Harness) startHeartbeat(ctx context.Context, run *domain.AgentRun, agen
 			case <-done:
 				return
 			case <-ticker.C:
-				h.emitRunEvent(ctx, run, agent, realtime.RunEvent{Type: realtime.RunHeartbeat, Status: domain.RunRunning}, true)
+				// Heartbeats are a liveness hint for the initiating user. Group
+				// fan-out of every heartbeat is O(members) and blocks the run's
+				// publish lock; the final/started events still reach the group.
+				h.emitRunEvent(ctx, run, agent, realtime.RunEvent{Type: realtime.RunHeartbeat, Status: domain.RunRunning}, false)
 			}
 		}
 	}()

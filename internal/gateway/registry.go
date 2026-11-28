@@ -178,8 +178,8 @@ func (r *GatewayRegistry) pruneStaleNodes(ctx context.Context) {
 }
 
 // GetAliveNodes returns all gateway nodes whose heartbeat is within the TTL window.
-func GetAliveNodes(ctx context.Context, redis redis.UniversalClient, nodeTTL time.Duration) ([]*GatewayNode, error) {
-	nodeIDs, err := redis.SMembers(ctx, gatewayNodesKey).Result()
+func GetAliveNodes(ctx context.Context, client redis.UniversalClient, nodeTTL time.Duration) ([]*GatewayNode, error) {
+	nodeIDs, err := client.SMembers(ctx, gatewayNodesKey).Result()
 	if err != nil {
 		return nil, fmt.Errorf("smembers failed: %w", err)
 	}
@@ -190,14 +190,22 @@ func GetAliveNodes(ctx context.Context, redis redis.UniversalClient, nodeTTL tim
 	now := time.Now()
 	cutoff := now.Add(-nodeTTL).Unix()
 
+	// One pipeline instead of N sequential HGetAll calls: the dispatch
+	// endpoint is called during reconnect storms, when per-node round-trips
+	// multiply quickly.
+	pipe := client.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(nodeIDs))
+	for i, id := range nodeIDs {
+		cmds[i] = pipe.HGetAll(ctx, fmt.Sprintf(gatewayNodeKey, id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("pipeline gateway node metadata: %w", err)
+	}
+
 	nodes := make([]*GatewayNode, 0, len(nodeIDs))
-	for _, id := range nodeIDs {
-		nodeKey := fmt.Sprintf(gatewayNodeKey, id)
-		vals, err := redis.HGetAll(ctx, nodeKey).Result()
-		if err != nil {
-			continue
-		}
-		if len(vals) == 0 {
+	for i, id := range nodeIDs {
+		vals, err := cmds[i].Result()
+		if err != nil || len(vals) == 0 {
 			continue
 		}
 

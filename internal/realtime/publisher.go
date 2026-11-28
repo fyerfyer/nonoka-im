@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -51,10 +52,19 @@ type runStream struct {
 	recipients []int64
 	timer      *time.Timer
 
+	// closed is set by a terminal event. It is atomic so the broadcaster can
+	// prune closed streams without acquiring every stream's mu.
+	closed atomic.Bool
+
 	// publishMu orders actual publishes for this run. A delta flush and a
 	// durable/terminal event take it in turn; event buffering only needs mu.
 	publishMu sync.Mutex
 }
+
+// maxRetainedStreams bounds the per-run state map. A terminal stream is kept
+// closed for a while so duplicate/late events are dropped instead of creating
+// a brand-new stream and emitting after the terminal event.
+const maxRetainedStreams = 4096
 
 func NewRunBroadcaster(store RunEventStore, transport RunEventTransport, steps func(context.Context, RunEvent) error, logger log.Logger) *RunBroadcaster {
 	b := &RunBroadcaster{Store: store, Transport: transport, Steps: steps, local: map[uint64]uint64{}, streams: map[uint64]*runStream{}}
@@ -82,13 +92,31 @@ func (b *RunBroadcaster) Publish(ctx context.Context, event RunEvent, recipients
 	}
 
 	rs := b.stream(event.RunID)
-	b.flushPending(rs)
 	rs.publishMu.Lock()
-	err := b.publishLocked(ctx, event, recipients)
-	rs.publishMu.Unlock()
-	if event.Type.IsTerminal() {
-		b.removeStream(event.RunID, rs)
+	// A duplicate event after the terminal must not reopen the stream.
+	rs.mu.Lock()
+	closed := rs.closed.Load()
+	rs.mu.Unlock()
+	if closed {
+		rs.publishMu.Unlock()
+		return nil
 	}
+	b.flushPendingLocked(rs)
+	err := b.publishLocked(ctx, event, recipients)
+	if event.Type.IsTerminal() {
+		// Mark under publishMu so a concurrent delta either precedes this
+		// terminal (and is flushed above) or is rejected below.
+		rs.mu.Lock()
+		rs.closed.Store(true)
+		rs.pending.Reset()
+		rs.recipients = nil
+		if rs.timer != nil {
+			rs.timer.Stop()
+			rs.timer = nil
+		}
+		rs.mu.Unlock()
+	}
+	rs.publishMu.Unlock()
 	return err
 }
 
@@ -96,6 +124,9 @@ func (b *RunBroadcaster) enqueueDelta(event RunEvent, recipients []int64) {
 	rs := b.stream(event.RunID)
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
+	if rs.closed.Load() {
+		return
+	}
 	if rs.pending.Len() == 0 {
 		rs.base = event
 	}
@@ -124,7 +155,16 @@ func (b *RunBroadcaster) flushRun(runID uint64) {
 func (b *RunBroadcaster) flushPending(rs *runStream) {
 	rs.publishMu.Lock()
 	defer rs.publishMu.Unlock()
+	b.flushPendingLocked(rs)
+}
+
+// flushPendingLocked is flushPending for callers that already own publishMu.
+func (b *RunBroadcaster) flushPendingLocked(rs *runStream) {
 	rs.mu.Lock()
+	if rs.closed.Load() {
+		rs.mu.Unlock()
+		return
+	}
 	if rs.timer != nil {
 		rs.timer.Stop()
 		rs.timer = nil
@@ -215,6 +255,15 @@ func (b *RunBroadcaster) Close() {
 		}(id)
 	}
 	wg.Wait()
+
+	// Reject any late delta/terminal after Close by marking retained streams
+	// closed. The map itself is bounded by maxRetainedStreams and pruned on the
+	// next stream creation.
+	b.streamMu.Lock()
+	for _, rs := range b.streams {
+		rs.closed.Store(true)
+	}
+	b.streamMu.Unlock()
 }
 
 func (b *RunBroadcaster) stream(runID uint64) *runStream {
@@ -223,28 +272,38 @@ func (b *RunBroadcaster) stream(runID uint64) *runStream {
 	if b.closed {
 		// Close already flushed; keep a throwaway state so a late Publish does
 		// not write into a closed broadcaster.
-		return &runStream{}
+		rs := &runStream{}
+		rs.closed.Store(true)
+		return rs
 	}
 	if rs := b.streams[runID]; rs != nil {
 		return rs
+	}
+	if len(b.streams) >= maxRetainedStreams {
+		b.pruneStreamsLocked()
 	}
 	rs := &runStream{}
 	b.streams[runID] = rs
 	return rs
 }
 
+// pruneStreamsLocked removes closed streams. It is called with streamMu held.
+func (b *RunBroadcaster) pruneStreamsLocked() {
+	target := maxRetainedStreams * 3 / 4
+	for id, rs := range b.streams {
+		if len(b.streams) <= target {
+			return
+		}
+		if rs.closed.Load() {
+			delete(b.streams, id)
+		}
+	}
+}
+
 func (b *RunBroadcaster) isClosed() bool {
 	b.streamMu.Lock()
 	defer b.streamMu.Unlock()
 	return b.closed
-}
-
-func (b *RunBroadcaster) removeStream(runID uint64, rs *runStream) {
-	b.streamMu.Lock()
-	if b.streams[runID] == rs {
-		delete(b.streams, runID)
-	}
-	b.streamMu.Unlock()
 }
 
 func (b *RunBroadcaster) assignSeq(ctx context.Context, event RunEvent) RunEvent {

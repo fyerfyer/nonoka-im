@@ -25,7 +25,9 @@ const (
 	// dlqTopicSuffix is appended to the original topic name to form the DLQ topic.
 	dlqTopicSuffix = DLQSuffix
 	// defaultHandlerTimeout is the per-attempt timeout for message handlers.
-	defaultHandlerTimeout = 10 * time.Second
+	// Message persistence involves multiple storage round-trips; 10s was too
+	// short under load and caused retries that reallocated sequence numbers.
+	defaultHandlerTimeout = 30 * time.Second
 	// defaultRetryBackoff is the base backoff between local retry attempts.
 	defaultRetryBackoff = 100 * time.Millisecond
 	// defaultCommitBatchSize is the number of messages to batch before committing offsets.

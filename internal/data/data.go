@@ -46,6 +46,19 @@ func (d *Data) IsBotUser(ctx context.Context, id int64) (bool, error) {
 	return n > 0, err
 }
 
+// BotUserIDsAmong returns the subset of ids that are bot accounts. It is used
+// by the hot group fan-out path to avoid one query per recipient.
+func (d *Data) BotUserIDsAmong(ctx context.Context, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var bots []int64
+	err := d.db.WithContext(ctx).Model(&imdata.User{}).
+		Where("id IN ? AND is_bot = ?", ids, true).
+		Pluck("id", &bots).Error
+	return bots, err
+}
+
 // CleanTestData truncates all domain tables for integration test isolation.
 // This should ONLY be called in test environments.
 func (d *Data) CleanTestData() error {
@@ -119,7 +132,18 @@ func NewData(c *conf.Data) (*Data, func(), error) {
 	// Initialize Redis client
 	var redisClient redis.UniversalClient
 	if c.Redis != nil && c.Redis.Addr != "" {
-		redisClient = redis.NewClient(&redis.Options{Addr: c.Redis.Addr})
+		opts := &redis.Options{Addr: c.Redis.Addr}
+		if c.Redis.ReadTimeout != nil {
+			if d := c.Redis.ReadTimeout.AsDuration(); d > 0 {
+				opts.ReadTimeout = d
+			}
+		}
+		if c.Redis.WriteTimeout != nil {
+			if d := c.Redis.WriteTimeout.AsDuration(); d > 0 {
+				opts.WriteTimeout = d
+			}
+		}
+		redisClient = redis.NewClient(opts)
 	}
 
 	d := &Data{db: db, Redis: redisClient}

@@ -133,6 +133,40 @@ func TestPersistentGroupMemberService_BasicCRUDAndCache(t *testing.T) {
 	}
 }
 
+// TestPersistentGroupMemberService_InvalidateDropsSharedCache exercises the
+// production-style write path: PostgreSQL is the source of truth and the
+// shared Redis set is invalidated as a whole, never patched incrementally.
+func TestPersistentGroupMemberService_InvalidateDropsSharedCache(t *testing.T) {
+	d, cleanup := setupGroupMemberTest(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	repo := imdata.NewGroupMemberRepo(d.DB(), testLogger)
+	svc := imgroup.NewService(repo, d.Redis, testLogger)
+	groupID := "invalidate_group_test"
+	for _, uid := range []int64{10, 20} {
+		if err := repo.AddMember(ctx, groupID, uid); err != nil {
+			t.Fatalf("seed member: %v", err)
+		}
+	}
+	if _, err := svc.GetGroupMembers(ctx, groupID); err != nil {
+		t.Fatalf("warm cache: %v", err)
+	}
+	if err := repo.AddMember(ctx, groupID, 30); err != nil {
+		t.Fatalf("add member directly: %v", err)
+	}
+	if err := svc.InvalidateGroupMembers(ctx, groupID); err != nil {
+		t.Fatalf("invalidate: %v", err)
+	}
+	members, err := svc.GetGroupMembers(ctx, groupID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !intSlicesEqual(members, []int64{10, 20, 30}) {
+		t.Fatalf("members = %v, want [10 20 30]", members)
+	}
+}
+
 func TestPersistentGroupMemberService_CacheMissFallsBackToPostgres(t *testing.T) {
 	d, cleanup := setupGroupMemberTest(t)
 	defer cleanup()

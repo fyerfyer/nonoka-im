@@ -25,13 +25,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// requireInternalPushToken protects Agent Worker run-event pushes. When the
-// env token is empty the endpoint remains open for local tests/demos.
+// requireInternalPushToken protects Agent Worker run-event pushes. The endpoint
+// fails closed when the token is absent: an unauthenticated push RPC can inject
+// arbitrary messages/events into any user's live connection.
 func requireInternalPushToken(next middleware.Handler) middleware.Handler {
 	return func(ctx context.Context, req interface{}) (interface{}, error) {
 		expected := os.Getenv("INTERNAL_PUSH_TOKEN")
 		if expected == "" {
-			return next(ctx, req)
+			return nil, kerrors.InternalServer("INTERNAL_PUSH_TOKEN_MISSING", "internal push token is not configured")
 		}
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
@@ -79,7 +80,7 @@ func rejectNonUserScope(next middleware.Handler) middleware.Handler {
 // NewGRPCServer new a gRPC server.
 func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, agents *service.AgentHTTP, outbox *service.OutboxAdminHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
 	if strings.TrimSpace(os.Getenv("INTERNAL_PUSH_TOKEN")) == "" {
-		log.NewHelper(logger).Warn("INTERNAL_PUSH_TOKEN is empty; internal PushService RPCs are unauthenticated (set it in production)")
+		log.NewHelper(logger).Error("INTERNAL_PUSH_TOKEN is empty; internal PushService RPCs will reject all calls until it is configured")
 	}
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(

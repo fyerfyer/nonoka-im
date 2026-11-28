@@ -39,6 +39,7 @@ type Executor struct {
 	MaxAttempts   int
 	RunTimeout    time.Duration
 	Lease         time.Duration
+	Heartbeat     time.Duration
 	Stream        realtime.RunEventSink
 	Metrics       *agentmetrics.Metrics
 	SearchEnabled bool
@@ -173,6 +174,9 @@ func (e *Executor) claim(ctx context.Context, runID uint64) (*domain.AgentRun, b
 }
 
 func (e *Executor) heartbeatInterval() time.Duration {
+	if e.Heartbeat > 0 {
+		return e.Heartbeat
+	}
 	if e.Lease <= 0 {
 		return 45 * time.Second
 	}

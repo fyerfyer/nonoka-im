@@ -38,6 +38,7 @@ import (
 	"nonoka-im/internal/gateway"
 	"nonoka-im/internal/httpapi"
 	"nonoka-im/internal/im/app"
+	"nonoka-im/internal/im/group"
 	"nonoka-im/internal/im/search"
 	"nonoka-im/internal/im/storage/mongo"
 	"nonoka-im/internal/llm"
@@ -166,15 +167,17 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, disp
 	outboxAdmin := provideOutboxAdmin(outboxService)
 	outboxAdminHTTP := service.NewOutboxAdminHTTP(outboxAdmin, openFGA, auditService)
 	grpcServer := server.NewGRPCServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, pushService, botHTTP, agentHTTP, outboxAdminHTTP, auth, logger)
-	groupService := provideIMGroupService(groupRepo, openFGA)
-	serviceGroupService := service.NewGroupService(groupService)
+	groupMemberRepo := imdata.NewGroupMemberRepo(db, logger)
+	groupService := provideGroupMemberService(groupMemberRepo, universalClient, logger)
+	appGroupService := provideIMGroupService(groupRepo, openFGA, groupService)
+	serviceGroupService := service.NewGroupService(appGroupService)
 	serviceFileService := service.NewFileService(fileService, logger)
 	systemHTTP := gateway.NewSystemHTTP(universalClient, dispatch, openFGA)
 	idempotency := provideIdempotency(dataData)
 	v2 := provideJWTSecret(auth)
 	heartbeatConfig := provideHeartbeatConfig(gatewayConfig)
 	peerBus := gateway.NewPeerBus(universalClient, manager, logger)
-	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupRepo, peerBus, logger, metrics)
+	handler := provideHandler(manager, sessionManager, messageService, queryService, v2, heartbeatConfig, gatewayConfig, groupService, peerBus, logger, metrics)
 	webSocketServer := provideWebSocketServer(handler, logger, heartbeatConfig, gatewayConfig)
 	authRateLimiter := provideAuthRateLimiter(universalClient, auth, logger)
 	httpServer := server.NewHTTPServer(confServer, authService, dispatchService, serviceMessageService, userService, serviceConversationService, serviceGroupService, serviceFileService, agentHTTP, botHTTP, outboxAdminHTTP, systemHTTP, idempotency, webSocketServer, auth, gatewayConfig, authRateLimiter, logger, metrics)
@@ -416,8 +419,15 @@ func provideIMConversationService(repo imdata.ConversationRepo) *app.Conversatio
 	return &app.ConversationService{Repo: repo}
 }
 
-func provideIMGroupService(repo imdata.GroupRepo, authorizer *authz.OpenFGA) *app.GroupService {
-	return &app.GroupService{Repo: repo, Authorizer: authorizer}
+func provideIMGroupService(repo imdata.GroupRepo, authorizer *authz.OpenFGA, members *group.Service) *app.GroupService {
+	return &app.GroupService{Repo: repo, Authorizer: authorizer, Invalidator: members}
+}
+
+// provideGroupMemberService builds the shared group-member cache. The gateway
+// only needs it for invalidation and recall fan-out; msgworker uses the same
+// implementation for message fan-out.
+func provideGroupMemberService(repo imdata.GroupMemberRepo, redisClient redis.UniversalClient, logger log.Logger) *group.Service {
+	return group.NewService(repo, redisClient, logger)
 }
 
 func provideIMFileService(store *mongostore.FileStore, authorizer *authz.OpenFGA) *app.FileService {
@@ -701,7 +711,7 @@ func provideWebSocketServer(handler *gateway.Handler, logger log.Logger, hb gate
 }
 
 // provideHandler centralizes runtime-only gateway options so wire_gen.go stays generated.
-func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *app.MessageService, query *app.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groups imdata.GroupRepo, peerBus *gateway.PeerBus, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
+func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, messages *app.MessageService, query *app.QueryService, jwtSecret []byte, hb gateway.HeartbeatConfig, gatewayConf *conf.GatewayConfig, groupMembers *group.Service, peerBus *gateway.PeerBus, logger log.Logger, m *metrics.Metrics) *gateway.Handler {
 	h := gateway.NewHandler(manager, sessions, messages, query, jwtSecret, hb, logger, m)
 	if gatewayConf != nil && gatewayConf.RecallWindow != nil {
 		h.SetRecallWindow(gatewayConf.RecallWindow.AsDuration())
@@ -711,15 +721,7 @@ func provideHandler(manager *gateway.Manager, sessions *gateway.SessionManager, 
 	}
 	h.SetPeerBus(peerBus)
 	h.SetGroupMemberResolver(func(ctx context.Context, groupID string) ([]int64, error) {
-		members, err := groups.ListMembers(ctx, groupID)
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]int64, 0, len(members))
-		for _, member := range members {
-			ids = append(ids, member.UserID)
-		}
-		return ids, nil
+		return groupMembers.GetGroupMembers(ctx, groupID)
 	})
 	return h
 }

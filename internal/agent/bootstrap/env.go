@@ -90,7 +90,7 @@ func Normalize(bc *conf.Bootstrap, secrets Secrets) error {
 		bc.Data.Kafka.ConsumerGroup = "nonoka-agent-worker"
 	}
 	if aw.RunWorkers < 1 {
-		aw.RunWorkers = 1
+		aw.RunWorkers = 8
 	}
 	if bc.Data.Kafka.WorkerCount < 1 {
 		bc.Data.Kafka.WorkerCount = 1

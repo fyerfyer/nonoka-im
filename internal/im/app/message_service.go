@@ -180,7 +180,7 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 		}
 		if len(in.MentionedUserIDs) > 0 {
 			if err := s.Writer.SaveMentionInbox(ctx, &in, in.MentionedUserIDs); err != nil {
-				s.log().Warnf("save mention inbox failed: %v", err)
+				return HandleResult{}, fmt.Errorf("save mention inbox: %w", err)
 			}
 		}
 	case domain.TopicTypeSystem:
@@ -214,8 +214,8 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 	// Redis owns the live sequence. The Mongo backup exists only for
 	// recovery, so write it at a coarse watermark instead of on every message;
 	// this removes one MongoDB write from the hot path.
-	if topicSeq <= 1 || topicSeq%100 == 0 {
-		if err := s.Writer.BackupTopicSeq(ctx, in.Topic, topicSeq); err != nil {
+	if in.TopicSeq <= 1 || in.TopicSeq%100 == 0 {
+		if err := s.Writer.BackupTopicSeq(ctx, in.Topic, in.TopicSeq); err != nil {
 			s.log().Warnf("backup topic seq failed: %v", err)
 		}
 	}

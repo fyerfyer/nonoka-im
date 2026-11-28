@@ -136,39 +136,68 @@ func (s *Service) GetGroupMembers(ctx context.Context, groupID string) ([]int64,
 	return ids, nil
 }
 
+const (
+	memberChangeChannel = "im:group:members:changes"
+)
+
+// StartInvalidationSubscriber invalidates this process's L1 cache when another
+// process changes group membership. It blocks until ctx is canceled.
+func (s *Service) StartInvalidationSubscriber(ctx context.Context) {
+	if s == nil || s.redis == nil {
+		return
+	}
+	pubsub := s.redis.Subscribe(ctx, memberChangeChannel)
+	defer pubsub.Close()
+	ch := pubsub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			s.forget(msg.Payload)
+		}
+	}
+}
+
+// InvalidateGroupMembers drops the local L1 entry and the shared Redis set.
+// Membership writes must call this instead of incrementally mutating a cached
+// set: a cold key would otherwise become a partial, non-expiring set.
+func (s *Service) InvalidateGroupMembers(ctx context.Context, groupID string) error {
+	if s == nil {
+		return nil
+	}
+	s.forget(groupID)
+	if s.redis == nil {
+		return nil
+	}
+	if err := s.redis.Del(ctx, s.key(groupID)).Err(); err != nil {
+		return fmt.Errorf("invalidate group members cache: %w", err)
+	}
+	// Best-effort notification for other processes' L1 caches. The Redis DEL
+	// is the source of truth; a failed publish only leaves a 5s TTL window.
+	_ = s.redis.Publish(ctx, memberChangeChannel, groupID).Err()
+	return nil
+}
+
 func (s *Service) AddGroupMember(ctx context.Context, groupID string, userID int64) error {
 	if err := s.repo.AddMember(ctx, groupID, userID); err != nil {
 		return fmt.Errorf("add group member: %w", err)
 	}
-	s.forget(groupID)
-	if s.redis != nil {
-		if err := s.redis.SAdd(ctx, s.key(groupID), userID).Err(); err != nil {
-			// A partial cache is more dangerous than a miss: drop the whole
-			// set so the next reader repopulates from PostgreSQL.
-			s.log.Warnf("add group member to cache failed, invalidating cache: group=%s user=%d err=%v", groupID, userID, err)
-			_ = s.redis.Del(ctx, s.key(groupID)).Err()
-		}
-	}
-	return nil
+	// Never maintain a partial set incrementally. A read after this call
+	// repopulates the complete member list from PostgreSQL.
+	return s.InvalidateGroupMembers(ctx, groupID)
 }
 
 func (s *Service) RemoveGroupMember(ctx context.Context, groupID string, userID int64) error {
-	// Persist the removal first. Invalidating the cache before the database
-	// write would hide the member from fan-out for the Redis cache TTL if the
-	// write failed.
+	// Persist the removal first. Invalidating before the database write would
+	// hide the member from fan-out for the cache TTL if the write failed.
 	if err := s.repo.RemoveMember(ctx, groupID, userID); err != nil {
 		return fmt.Errorf("remove group member: %w", err)
 	}
-	s.forget(groupID)
-	if s.redis != nil {
-		if err := s.redis.SRem(ctx, s.key(groupID), userID).Err(); err != nil {
-			// Never leave a removed member in the shared cache. The DB call
-			// above remains the source of truth; a cache miss will refetch it.
-			s.log.Warnf("remove group member from cache failed, invalidating cache: group=%s user=%d err=%v", groupID, userID, err)
-			_ = s.redis.Del(ctx, s.key(groupID)).Err()
-		}
-	}
-	return nil
+	return s.InvalidateGroupMembers(ctx, groupID)
 }
 
 func parseMemberIDs(members []string, groupID string, logger *log.Helper) []int64 {

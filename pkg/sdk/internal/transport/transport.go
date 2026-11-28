@@ -247,6 +247,17 @@ func (t *Client) once(ctx context.Context, method, endpoint string, payload []by
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// CloseIdleConnections releases idle sockets held by the underlying HTTP
+// transport. The SDK owns its default client, so Close should call this.
+func (t *Client) CloseIdleConnections() {
+	if t == nil || t.HTTPClient == nil {
+		return
+	}
+	if closer, ok := t.HTTPClient.Transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 func (t *Client) token(ctx context.Context) (string, error) {
 	source := t.tokenSource()
 	if source == nil {
@@ -417,5 +428,5 @@ func DecodeAPIError(resp *http.Response) error {
 
 func retryableError(err error) bool {
 	var apiErr *APIError
-	return errors.As(err, &apiErr) && apiErr.Retryable && apiErr.StatusCode != 0
+	return errors.As(err, &apiErr) && apiErr.Retryable
 }

@@ -66,10 +66,10 @@ func TestRequireInternalPushToken(t *testing.T) {
 		t.Fatalf("valid token rejected: %v", err)
 	}
 
-	// Local development / tests without a configured token keep the previous
-	// open behavior, but production must set the env.
+	// Missing configuration must fail closed; an open PushService lets any
+	// caller inject messages/events into arbitrary sessions.
 	t.Setenv("INTERNAL_PUSH_TOKEN", "")
-	if _, err := requireInternalPushToken(next)(context.Background(), nil); err != nil {
-		t.Fatalf("empty token must keep local behavior: %v", err)
+	if _, err := requireInternalPushToken(next)(context.Background(), nil); err == nil {
+		t.Fatal("empty token must be rejected")
 	}
 }

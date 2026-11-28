@@ -161,7 +161,7 @@ func NewStore(db *mongo.Database, logger log.Logger, m ...*metrics.Metrics) *Sto
 	s := &Store{
 		db:           db,
 		log:          log.NewHelper(logger),
-		writeConcern: writeconcern.W1(),
+		writeConcern: writeconcern.Majority(),
 	}
 	if len(m) > 0 {
 		s.metrics = m[0]
@@ -171,9 +171,10 @@ func NewStore(db *mongo.Database, logger log.Logger, m ...*metrics.Metrics) *Sto
 
 // SetWriteConcern configures the MongoDB write concern from a string label.
 // Supported labels:
-//   - "w1"            : w=1, j=false  (fast, default)
-//   - "majority"      : w="majority", j=true
-//   - "majority_jfalse": w="majority", j=false
+//   - "majority"       : w="majority", journal follows the server default
+//     (durable for a replica set; recommended for IM messages)
+//   - "majority_jfalse": w="majority", j=false (lower latency, crash-loss window)
+//   - "w1"             : w=1, j=false (fastest, not crash-safe; opt-in only)
 //
 // SetSearchEnabled makes message writes enqueue durable search-index tasks in
 // the same MongoDB transaction. It must be set before the consumer starts.
@@ -184,9 +185,8 @@ func (s *Store) SetWriteConcern(label string) {
 	case "majority":
 		s.writeConcern = writeconcern.Majority()
 	case "majority_jfalse":
-		// MongoDB driver does not expose a direct "majority without journal"
-		// constructor, so we build it via a custom tag.
-		s.writeConcern = writeconcern.Custom("majority")
+		journal := false
+		s.writeConcern = &writeconcern.WriteConcern{W: writeconcern.WCMajority, Journal: &journal}
 	case "w1", "", "default":
 		fallthrough
 	default:

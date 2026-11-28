@@ -290,6 +290,9 @@ func (s *Store) getMessageForUser(ctx context.Context, userID int64, topic strin
 	}
 	s.incMongoOp(collection.Name(), "find")
 	if err := collection.FindOne(ctx, filter).Decode(&result); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, domain.ErrNotFound
+		}
 		return nil, fmt.Errorf("load message: %w", err)
 	}
 	return &result, nil
