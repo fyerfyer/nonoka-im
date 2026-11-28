@@ -175,6 +175,7 @@ func main() {
 	conversations := imdata.NewConversationRepo(dataLayer.DB(), logger)
 	groupMembers := imgroup.NewService(imdata.NewGroupMemberRepo(dataLayer.DB(), logger), redisClient, logger)
 	botIndex := imgroup.NewBotIndexWithQuery(dataLayer.ListBotUserIDs, dataLayer.IsBotUser, logger)
+	botIndex.SetQueryMany(dataLayer.BotUserIDsAmong)
 
 	messages := &app.MessageService{
 		Writer: storage, IDs: ids, Seqs: seqGen, Conversations: conversations,
@@ -209,6 +210,18 @@ func main() {
 	}
 
 	consumerCfg := kafkaConsumerConfig(bc.Data.Kafka)
+	if bc.Data.Kafka != nil && bc.Data.Kafka.Partitions > 0 {
+		checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+		partitions, checkErr := kafkax.TopicPartitionCount(checkCtx, consumerCfg.Brokers, consumerCfg.Topic)
+		checkCancel()
+		if checkErr != nil {
+			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("kafka partition validation skipped for %s: %v", consumerCfg.Topic, checkErr))
+		} else if partitions < int(bc.Data.Kafka.Partitions) {
+			logger.Log(log.LevelError, "msg", fmt.Sprintf(
+				"kafka topic %s has %d partitions but config expects %d; consumer parallelism is capped at %d",
+				consumerCfg.Topic, partitions, bc.Data.Kafka.Partitions, partitions))
+		}
+	}
 	consumer := kafkax.NewConsumer(consumerCfg, nil, logger)
 	worker := imconsumer.NewWorker(consumer, messages, push, outbox, logger, m)
 	var searchRelay *search.Relay
@@ -224,6 +237,7 @@ func main() {
 	}
 	worker.Background = []func(context.Context){
 		func(runCtx context.Context) { botIndex.Start(runCtx, 30*time.Second) },
+		func(runCtx context.Context) { groupMembers.StartInvalidationSubscriber(runCtx) },
 		func(runCtx context.Context) { retryQueue.Start(runCtx) },
 	}
 	if searchRelay != nil {

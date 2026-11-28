@@ -30,6 +30,7 @@ services:
   postgres:
     image: postgres:15-alpine
     hostname: postgres
+    command: ["postgres", "-c", "max_connections=500"]
     environment: {POSTGRES_USER: nonoka, POSTGRES_PASSWORD: nonoka, POSTGRES_DB: nonoka}
     volumes: [postgres_data:/var/lib/postgresql/data]
     healthcheck:
@@ -187,6 +188,7 @@ services:
       GATEWAY_NODE_ID: gateway-1
       GATEWAY_WS_ADDR: ws://127.0.0.1:8001/ws
       GATEWAY_GRPC_ADDR: gateway-1:9002
+      TRUST_PROXY_HEADERS: "true"
       METRICS_ADDR: 0.0.0.0:9001
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
@@ -222,6 +224,7 @@ services:
       GATEWAY_NODE_ID: gateway-2
       GATEWAY_WS_ADDR: ws://127.0.0.1:8002/ws
       GATEWAY_GRPC_ADDR: gateway-2:9002
+      TRUST_PROXY_HEADERS: "true"
       METRICS_ADDR: 0.0.0.0:9001
       # Must match the agent worker so bot send tokens are accepted.
       AGENT_WORKER_JWT_SECRET: ${AGENT_WORKER_JWT_SECRET:-nonoka-local-agent-worker-jwt-secret-change-me}
@@ -297,6 +300,7 @@ services:
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}
+      AGENT_RUN_WORKERS: ${AGENT_RUN_WORKERS:-8}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
       # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}

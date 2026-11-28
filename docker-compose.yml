@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: nonoka_postgres
+    command: ["postgres", "-c", "max_connections=500"]
     environment:
       POSTGRES_USER: nonoka
       POSTGRES_PASSWORD: nonoka
@@ -238,7 +239,7 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${NONOKA_HTTP_PORT:-8000}:8000"
-      - "${NONOKA_GRPC_PORT:-9002}:9002"
+      - "127.0.0.1:${NONOKA_GRPC_PORT:-9002}:9002"
     volumes:
       - ./configs:/data/conf:ro
     command: ["/app/nonoka-im", "-conf", "/data/conf/config.docker.yaml"]
@@ -338,6 +339,7 @@ services:
       AGENT_EVENTS_TOPIC: ${AGENT_EVENTS_TOPIC:-agent-events}
       AGENT_EVENTS_GROUP: ${AGENT_EVENTS_GROUP:-nonoka-agent-worker}
       AGENT_WORKERS: ${AGENT_WORKERS:-2}
+      AGENT_RUN_WORKERS: ${AGENT_RUN_WORKERS:-8}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
       # Optional in-process probes; the healthcheck uses /healthz via busybox wget.
       AGENT_HEALTH_ADDR: ${AGENT_HEALTH_ADDR:-:8090}

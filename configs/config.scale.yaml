@@ -19,7 +19,7 @@ data:
   mongodb:
     uri: mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/?replicaSet=rs0
     database: nonoka_im
-    write_concern: majority_jfalse
+    write_concern: majority
   kafka:
     brokers:
     - kafka:19092

@@ -20,7 +20,7 @@ data:
   mongodb:
     uri: mongodb://127.0.0.1:27017
     database: nonoka_im
-    write_concern: w1
+    write_concern: majority
   kafka:
     brokers:
     - 127.0.0.1:9092
