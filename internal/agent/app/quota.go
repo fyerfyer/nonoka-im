@@ -140,6 +140,15 @@ func (s *QuotaService) ClaimRun(ctx context.Context, runID uint64, lease time.Du
 	if err != nil {
 		return nil, false, err
 	}
+	// Cheap rejection before loading quotas: a replay loop can enqueue the same
+	// ID many times while another worker already owns it. This keeps duplicate
+	// claims to one indexed read instead of three.
+	if pending.Status != domain.RunQueued {
+		return nil, false, nil
+	}
+	if pending.NextAttemptAt != nil && pending.NextAttemptAt.After(time.Now()) {
+		return nil, false, nil
+	}
 	userLimits, agentLimits, err := s.Effective(ctx, pending.ActorUserID, pending.AgentID)
 	if err != nil {
 		return nil, false, err

@@ -92,15 +92,17 @@ func (c *Client) send(ctx context.Context, topic, content, clientID string, msgT
 }
 
 // lookupMessageID resolves the durable msg_id after the HTTP send ACK, which
-// only confirms Kafka acceptance. The internal agent reply needs the real ID so
-// its run can be linked back from the chat message (citations/source chips).
+// only confirms Kafka acceptance. The internal bot endpoint is a long-poll
+// receipt lookup scoped to the bot's own message; it is much cheaper than
+// pulling the last 50 messages of the topic.
 func (c *Client) lookupMessageID(ctx context.Context, topic, clientID, token string) int64 {
 	httpClient := c.HTTP
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	endpoint := fmt.Sprintf("%s/v1/message/pull?topic=%s&limit=50", strings.TrimRight(c.BaseURL, "/"), url.QueryEscape(topic))
-	for attempt := 0; attempt < 15; attempt++ {
+	endpoint := fmt.Sprintf("%s/v1/bot/messages/by-client-id/%s?topic=%s&wait=500ms",
+		strings.TrimRight(c.BaseURL, "/"), url.PathEscape(clientID), url.QueryEscape(topic))
+	for attempt := 0; attempt < 10; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return 0
@@ -108,17 +110,19 @@ func (c *Client) lookupMessageID(ctx context.Context, topic, clientID, token str
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := httpClient.Do(req)
 		if err == nil {
-			var page struct {
-				Messages []struct {
-					MsgID       int64  `json:"msgId,string"`
-					ClientMsgID string `json:"clientMsgId"`
-				} `json:"messages"`
-			}
-			_ = json.NewDecoder(resp.Body).Decode(&page)
-			resp.Body.Close()
-			for _, message := range page.Messages {
-				if message.ClientMsgID == clientID && message.MsgID != 0 {
-					return message.MsgID
+			if resp.StatusCode == http.StatusOK {
+				var message struct {
+					MessageID int64 `json:"messageId,string"`
+				}
+				decodeErr := json.NewDecoder(resp.Body).Decode(&message)
+				resp.Body.Close()
+				if decodeErr == nil && message.MessageID != 0 {
+					return message.MessageID
+				}
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusAccepted {
+					return 0
 				}
 			}
 		}

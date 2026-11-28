@@ -34,6 +34,7 @@ import (
 	imdata "nonoka-im/internal/data/im"
 	platformdata "nonoka-im/internal/data/platform"
 	imapp "nonoka-im/internal/im/app"
+	imgroup "nonoka-im/internal/im/group"
 	"nonoka-im/internal/im/search"
 	mongostore "nonoka-im/internal/im/storage/mongo"
 	kafkax "nonoka-im/internal/kafka"
@@ -181,9 +182,11 @@ func main() {
 			return credential.Sign(secrets.JWTSecret, agentID, botID, topic)
 		},
 	}
+	groupMembers := imgroup.NewService(imdata.NewGroupMemberRepo(dataLayer.DB(), logger), dataLayer.Redis, logger)
 	directory := &adapters.Directory{
-		Groups: imdata.NewGroupRepo(dataLayer.DB(), logger),
-		Users:  imdata.NewAuthRepo(dataLayer.DB(), dataLayer.Redis, logger),
+		Groups:  imdata.NewGroupRepo(dataLayer.DB(), logger),
+		Members: groupMembers,
+		Users:   imdata.NewAuthRepo(dataLayer.DB(), dataLayer.Redis, logger),
 	}
 
 	messageStorage := mongostore.NewStore(mongoDB, logger)
@@ -295,7 +298,8 @@ func main() {
 		Reader: toolsBackend.Reader,
 		Quota:  quotaService, Notifier: quotaNotifier,
 		MaxAttempts: int(aw.MaxAttempts), RunTimeout: aw.RunTimeout.AsDuration(),
-		Lease: aw.Lease.AsDuration(), Stream: broadcaster, Metrics: agentMetrics,
+		Lease: aw.Lease.AsDuration(), Heartbeat: aw.Heartbeat.AsDuration(),
+		Stream: broadcaster, Metrics: agentMetrics,
 		SearchEnabled: searchIndex != nil, Log: log.NewHelper(logger),
 	}
 	auditSvc := audit.NewService(registry)
@@ -319,6 +323,7 @@ func main() {
 		Metrics: agentMetrics, Log: log.NewHelper(logger),
 		RunWorkers: int(aw.RunWorkers), QueuedPoll: aw.QueuedPoll.AsDuration(), StopGrace: envDuration("AGENT_SHUTDOWN_GRACE", 30*time.Second),
 		Background: []func(context.Context){
+			func(ctx context.Context) { groupMembers.StartInvalidationSubscriber(ctx) },
 			func(ctx context.Context) { mcpProvider.StartJanitor(ctx, 5*time.Minute) },
 			func(ctx context.Context) { mcpAdmin.HealthCheckLoop(ctx, 5*time.Minute) },
 			func(ctx context.Context) { ensureAgentGatewayKeys(ctx, store, modelSvc, logger) },

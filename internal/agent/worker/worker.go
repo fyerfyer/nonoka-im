@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -144,7 +145,16 @@ func (w *Worker) runLoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			w.Executor.ExecuteRun(ctx, id)
+			// A panic inside Eino/tool code must not kill the whole worker and
+			// every other in-flight run. The run lease is left for the sweeper.
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						w.log().Errorf("agent run %d panicked: %v\n%s", id, r, debug.Stack())
+					}
+				}()
+				w.Executor.ExecuteRun(ctx, id)
+			}()
 		}
 	}
 }

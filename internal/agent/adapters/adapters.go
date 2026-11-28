@@ -143,10 +143,15 @@ func (s *Sender) send(ctx context.Context, topic, content, clientID string, msgT
 	return client.SendWithReceipt(ctx, topic, content, clientID)
 }
 
-// Directory adapts the PostgreSQL repositories to app.Directory.
+// Directory adapts the PostgreSQL repositories to app.Directory. Members is
+// optional and is normally the shared cached group-member service; GroupName
+// and usernames stay on the repositories.
 type Directory struct {
-	Groups imdata.GroupRepo
-	Users  biz.AuthRepo
+	Groups  imdata.GroupRepo
+	Members interface {
+		GetGroupMembers(ctx context.Context, groupID string) ([]int64, error)
+	}
+	Users biz.AuthRepo
 }
 
 func (d *Directory) Username(ctx context.Context, id int64) (string, error) {
@@ -166,6 +171,9 @@ func (d *Directory) GroupName(ctx context.Context, groupID string) (string, erro
 }
 
 func (d *Directory) GroupMemberIDs(ctx context.Context, groupID string) ([]int64, error) {
+	if d.Members != nil {
+		return d.Members.GetGroupMembers(ctx, groupID)
+	}
 	members, err := d.Groups.ListMembers(ctx, groupID)
 	if err != nil {
 		return nil, err
