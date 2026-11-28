@@ -3,6 +3,7 @@ package im
 
 import (
 	"context"
+	"errors"
 
 	"nonoka-im/internal/im/domain"
 	"nonoka-im/internal/messaging"
@@ -56,7 +57,10 @@ func (r *Reader) SearchMessages(ctx context.Context, userID int64, topic, query 
 func (r *Reader) MessageForUser(ctx context.Context, userID int64, topic string, msgID int64) (messaging.Message, error) {
 	row, err := r.Query.MessageForUser(ctx, userID, topic, msgID)
 	if err != nil {
-		return messaging.Message{}, messaging.ErrNotFound
+		if errors.Is(err, domain.ErrNotFound) {
+			return messaging.Message{}, messaging.ErrNotFound
+		}
+		return messaging.Message{}, err
 	}
 	return messagingMessage(row), nil
 }
@@ -64,7 +68,10 @@ func (r *Reader) MessageForUser(ctx context.Context, userID int64, topic string,
 func (r *Reader) MessageByClientID(ctx context.Context, userID int64, topic, clientMsgID string) (messaging.Message, error) {
 	row, err := r.Query.MessageByClientID(ctx, userID, topic, clientMsgID)
 	if err != nil {
-		return messaging.Message{}, messaging.ErrNotFound
+		if errors.Is(err, domain.ErrNotFound) {
+			return messaging.Message{}, messaging.ErrNotFound
+		}
+		return messaging.Message{}, err
 	}
 	return messagingMessage(row), nil
 }

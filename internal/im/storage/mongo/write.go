@@ -29,80 +29,88 @@ func (s *Store) saveP2P(ctx context.Context, msg *domain.Message) ([]int64, bool
 	} else {
 		receiverID = uid1
 	}
+	recipients := []int64{receiverID, msg.GetSenderId()}
+
+	// The two inbox copies are one logical message. A retry after a partial
+	// write must reuse the original msg_id/topic_seq instead of allocating a
+	// new sequence and leaving the participants on different sequences.
+	existing, err := s.findP2PExisting(ctx, msg.GetTopic(), msg.GetClientMsgId(), uid1, uid2)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, row := range existing {
+		msgID, topicSeq = row.MsgID, row.TopicSeq
+		break
+	}
+	if len(existing) == len(recipients) {
+		s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
+		s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
+			msg.GetClientMsgId(), msg.GetSenderId())
+		return recipients, true, nil
+	}
+	msg.ID, msg.TopicSeq = msgID, topicSeq
 
 	now := time.Now()
-	inboxes := []*inboxMessageRow{
-		{
-			UserID:      receiverID,
-			MsgID:       msgID,
-			Topic:       msg.GetTopic(),
-			SenderID:    msg.GetSenderId(),
-			MsgType:     msg.GetMsgType(),
-			Content:     msg.GetContent(),
-			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
-			Timestamp:   msg.GetTimestamp(),
-			TopicSeq:    topicSeq,
-			ClientMsgID: msg.GetClientMsgId(),
-			Read:        false,
-			CreatedAt:   now,
-		},
-		{
-			// Also write to sender's inbox so multi-device sender can see own messages.
-			UserID:      msg.GetSenderId(),
-			MsgID:       msgID,
-			Topic:       msg.GetTopic(),
-			SenderID:    msg.GetSenderId(),
-			MsgType:     msg.GetMsgType(),
-			Content:     msg.GetContent(),
-			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
-			Timestamp:   msg.GetTimestamp(),
-			TopicSeq:    topicSeq,
-			ClientMsgID: msg.GetClientMsgId(),
-			Read:        true, // sender's own copy is considered read
-			CreatedAt:   now,
-		},
-	}
-
-	docs := make([]interface{}, len(inboxes))
-	for i, inbox := range inboxes {
-		docs[i] = inbox
-	}
-
-	_, err = s.collection(CollectionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
-	if err != nil {
-		// With unordered inserts, duplicate errors are returned as BulkWriteException.
-		// If every write error is a duplicate key, the operation is idempotent.
-		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
-			allDuplicate := len(bulkErr.WriteErrors) > 0
-			for _, we := range bulkErr.WriteErrors {
-				if !IsDuplicateError(we) {
-					allDuplicate = false
-					break
-				}
-			}
-			if allDuplicate {
-				exists, countErr := s.collection(CollectionInboxes).CountDocuments(ctx, bson.M{
-					"user_id": receiverID, "topic": msg.GetTopic(), "client_msg_id": msg.GetClientMsgId(),
-				})
-				if countErr != nil {
-					return nil, false, fmt.Errorf("verify duplicate p2p message: %w", countErr)
-				}
-				if exists == 0 {
-					return nil, false, fmt.Errorf("duplicate topic seq without matching client_msg_id: topic=%s seq=%d client_msg_id=%s",
-						msg.GetTopic(), topicSeq, msg.GetClientMsgId())
-				}
-				s.log.Debugf("duplicate p2p message ignored: client_msg_id=%s, sender=%d",
-					msg.GetClientMsgId(), msg.GetSenderId())
-				s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
-				return []int64{receiverID, msg.GetSenderId()}, true, nil
-			}
+	docs := make([]interface{}, 0, len(recipients))
+	for _, userID := range recipients {
+		if _, done := existing[userID]; done {
+			continue
 		}
-		return nil, false, fmt.Errorf("insert p2p inbox messages: %w", err)
+		docs = append(docs, &inboxMessageRow{
+			UserID:      userID,
+			MsgID:       msgID,
+			Topic:       msg.GetTopic(),
+			SenderID:    msg.GetSenderId(),
+			MsgType:     msg.GetMsgType(),
+			Content:     msg.GetContent(),
+			ContentText: search.ContentText(msg.GetMsgType(), msg.GetContent()),
+			Timestamp:   msg.GetTimestamp(),
+			TopicSeq:    topicSeq,
+			ClientMsgID: msg.GetClientMsgId(),
+			Read:        userID == msg.GetSenderId(), // sender's own copy is considered read
+			CreatedAt:   now,
+		})
+	}
+	if len(docs) > 0 {
+		if _, err = s.collection(CollectionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false)); err != nil {
+			// A concurrent delivery can win the unique index between the
+			// pre-check and insert. Let the caller retry; the next attempt
+			// observes the existing row and repairs only the missing copy.
+			return nil, false, fmt.Errorf("insert p2p inbox messages: %w", err)
+		}
 	}
 
 	s.cacheMessageSender(ctx, msg.GetTopic(), topicSeq, msg.GetSenderId())
 	s.log.Debugf("p2p message saved: msg_id=%d, topic=%s, receiver=%d, sender=%d", msgID, msg.GetTopic(), receiverID, msg.GetSenderId())
-	return []int64{receiverID, msg.GetSenderId()}, false, nil
+	return recipients, false, nil
+}
+
+// findP2PExisting returns the participant inbox rows that already exist for a
+// client idempotency key. It is the first statement in the message transaction
+// so a retry does not hit a duplicate-key abort inside MongoDB.
+func (s *Store) findP2PExisting(ctx context.Context, topic, clientMsgID string, userIDs ...int64) (map[int64]*inboxMessageRow, error) {
+	out := make(map[int64]*inboxMessageRow, len(userIDs))
+	if clientMsgID == "" || len(userIDs) == 0 {
+		return out, nil
+	}
+	cursor, err := s.collection(CollectionInboxes).Find(ctx, bson.M{
+		"user_id": bson.M{"$in": userIDs}, "topic": topic, "client_msg_id": clientMsgID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find existing p2p inbox messages: %w", err)
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var row inboxMessageRow
+		if err := cursor.Decode(&row); err != nil {
+			return nil, fmt.Errorf("decode existing p2p inbox message: %w", err)
+		}
+		out[row.UserID] = &row
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate existing p2p inbox messages: %w", err)
+	}
+	return out, nil
 }
 
 // SaveGroupMessage saves a group message using read扩散.
@@ -319,11 +327,26 @@ func (s *Store) SaveMentionInbox(ctx context.Context, msg *domain.Message, menti
 	if len(mentionedUserIDs) == 0 {
 		return nil
 	}
+	unique := make([]int64, 0, len(mentionedUserIDs))
+	seen := make(map[int64]struct{}, len(mentionedUserIDs))
+	for _, uid := range mentionedUserIDs {
+		if uid <= 0 {
+			continue
+		}
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		unique = append(unique, uid)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
 
 	s.incMongoOp(CollectionMentionInboxes, "insert")
 	now := time.Now()
-	var docs []interface{}
-	for _, uid := range mentionedUserIDs {
+	docs := make([]interface{}, 0, len(unique))
+	for _, uid := range unique {
 		docs = append(docs, &mentionMessageRow{
 			UserID:      uid,
 			MsgID:       msgID,
@@ -342,7 +365,8 @@ func (s *Store) SaveMentionInbox(ctx context.Context, msg *domain.Message, menti
 	_, err := s.collection(CollectionMentionInboxes).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
 	if err != nil {
 		// With unordered inserts, duplicate errors are returned as BulkWriteException.
-		// If every write error is a duplicate key, the operation is idempotent.
+		// Every duplicate is only safe when all mentioned users already have the
+		// same message; otherwise the missing rows must be repaired by retrying.
 		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
 			allDuplicate := len(bulkErr.WriteErrors) > 0
 			for _, we := range bulkErr.WriteErrors {
@@ -352,15 +376,15 @@ func (s *Store) SaveMentionInbox(ctx context.Context, msg *domain.Message, menti
 				}
 			}
 			if allDuplicate {
-				exists, countErr := s.collection(CollectionMentionInboxes).CountDocuments(ctx, bson.M{
-					"user_id": mentionedUserIDs[0], "topic": msg.GetTopic(), "client_msg_id": msg.GetClientMsgId(),
+				existing, countErr := s.collection(CollectionMentionInboxes).CountDocuments(ctx, bson.M{
+					"user_id": bson.M{"$in": unique}, "topic": msg.GetTopic(), "client_msg_id": msg.GetClientMsgId(),
 				})
 				if countErr != nil {
 					return fmt.Errorf("verify duplicate mention inbox: %w", countErr)
 				}
-				if exists == 0 {
-					return fmt.Errorf("duplicate topic seq without matching client_msg_id: topic=%s seq=%d",
-						msg.GetTopic(), topicSeq)
+				if existing != int64(len(unique)) {
+					return fmt.Errorf("duplicate mention inbox is incomplete: topic=%s seq=%d expected=%d existing=%d",
+						msg.GetTopic(), topicSeq, len(unique), existing)
 				}
 				s.log.Debugf("duplicate mention inbox ignored: client_msg_id=%s",
 					msg.GetClientMsgId())
@@ -370,6 +394,6 @@ func (s *Store) SaveMentionInbox(ctx context.Context, msg *domain.Message, menti
 		return fmt.Errorf("insert mention inbox: %w", err)
 	}
 
-	s.log.Debugf("mention inbox saved: msg_id=%d, topic=%s, users=%v", msgID, msg.GetTopic(), mentionedUserIDs)
+	s.log.Debugf("mention inbox saved: msg_id=%d, topic=%s, users=%v", msgID, msg.GetTopic(), unique)
 	return nil
 }

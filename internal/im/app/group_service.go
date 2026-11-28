@@ -6,12 +6,27 @@ import (
 	"time"
 
 	"nonoka-im/internal/im/domain"
+
+	"github.com/go-kratos/kratos/v2/log"
 )
 
 // GroupService provides group conversation usecases.
 type GroupService struct {
-	Repo       GroupRepository
-	Authorizer GroupAuthorizer
+	Repo        GroupRepository
+	Authorizer  GroupAuthorizer
+	Invalidator GroupMemberCacheInvalidator
+}
+
+func (s *GroupService) invalidateMembers(ctx context.Context, groupID string) {
+	if s.Invalidator == nil {
+		return
+	}
+	if err := s.Invalidator.InvalidateGroupMembers(ctx, groupID); err != nil {
+		// The mutation is already durable. A stale cache is bounded by the
+		// implementation TTL; do not fail the user-facing operation, but make
+		// the failure visible for operators.
+		log.NewHelper(log.DefaultLogger).Warnf("invalidate group members cache: group=%s err=%v", groupID, err)
+	}
 }
 
 func (s *GroupService) Create(ctx context.Context, userID int64, name string, memberIDs []int64) (*domain.Group, error) {
@@ -117,19 +132,29 @@ func (s *GroupService) AddMember(ctx context.Context, userID int64, groupID stri
 	if userID <= 0 {
 		return ErrAuthRequired
 	}
+	if memberID <= 0 {
+		return ErrGroupNotFound
+	}
 	group, err := s.Repo.GetGroup(ctx, groupID)
 	if err != nil {
 		return ErrGroupNotFound
 	}
-	if err := s.requireMember(ctx, userID, group); err != nil {
-		return err
+	// Only the owner (or an explicitly authorized manager) may add members.
+	// The old behavior let any group member invite arbitrary user IDs.
+	if group.OwnerID != userID {
+		if s.Authorizer == nil || s.Authorizer.CanManageGroup(ctx, userID, groupID) != nil {
+			return ErrGroupForbidden
+		}
 	}
 	if err := s.Repo.AddMember(ctx, groupID, memberID); err != nil {
 		return err
 	}
 	if s.Authorizer != nil {
-		return s.Authorizer.SetGroupMember(ctx, groupID, memberID, true)
+		if err := s.Authorizer.SetGroupMember(ctx, groupID, memberID, true); err != nil {
+			return err
+		}
 	}
+	s.invalidateMembers(ctx, groupID)
 	return nil
 }
 
@@ -156,7 +181,11 @@ func (s *GroupService) RemoveMember(ctx context.Context, userID int64, groupID s
 			return err
 		}
 	}
-	return s.Repo.RemoveMember(ctx, groupID, memberID)
+	if err := s.Repo.RemoveMember(ctx, groupID, memberID); err != nil {
+		return err
+	}
+	s.invalidateMembers(ctx, groupID)
+	return nil
 }
 
 func (s *GroupService) ListMembers(ctx context.Context, userID int64, groupID string) ([]domain.GroupMember, error) {

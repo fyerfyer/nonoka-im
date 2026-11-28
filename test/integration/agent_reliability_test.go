@@ -553,6 +553,7 @@ func TestMsgWorker_BotRecipientsNotPushed(t *testing.T) {
 		t.Fatalf("ensure indexes: %v", err)
 	}
 	botIndex := imgroup.NewBotIndexWithQuery(ts.data.ListBotUserIDs, ts.data.IsBotUser, testLogger)
+	botIndex.SetQueryMany(ts.data.BotUserIDsAmong)
 	if err := botIndex.Refresh(ctx); err != nil {
 		t.Fatalf("refresh bot index: %v", err)
 	}

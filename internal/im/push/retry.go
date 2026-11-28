@@ -67,16 +67,36 @@ func NewRetryQueue(redis redis.UniversalClient, pusher app.Pusher, logger log.Lo
 }
 
 func (q *RetryQueue) ScheduleRetry(ctx context.Context, userID int64, msg *domain.PushMessage) error {
-	if q.redis == nil || msg == nil {
+	return q.ScheduleRetries(ctx, []int64{userID}, msg)
+}
+
+// ScheduleRetries enqueues one retry per user in a single Redis pipeline. A
+// failed group fan-out can produce thousands of users; issuing one ZADD per
+// user serialized the push shard for seconds.
+func (q *RetryQueue) ScheduleRetries(ctx context.Context, userIDs []int64, msg *domain.PushMessage) error {
+	if q.redis == nil || msg == nil || len(userIDs) == 0 {
 		return nil
 	}
-	item := RetryItem{
-		UserID: userID, MsgID: msg.MsgID, Topic: msg.Topic, SenderID: msg.SenderID,
-		MsgType: msg.MsgType, Content: msg.Content, Timestamp: msg.Timestamp,
-		TopicSeq: msg.TopicSeq, ClientMsgID: msg.ClientMsgID, Mentioned: msg.MentionedUserIDs,
-		RetryAt: nextRetryAt(0),
+	pipe := q.redis.Pipeline()
+	for _, userID := range userIDs {
+		if userID <= 0 {
+			continue
+		}
+		item := RetryItem{
+			UserID: userID, MsgID: msg.MsgID, Topic: msg.Topic, SenderID: msg.SenderID,
+			MsgType: msg.MsgType, Content: msg.Content, Timestamp: msg.Timestamp,
+			TopicSeq: msg.TopicSeq, ClientMsgID: msg.ClientMsgID, Mentioned: msg.MentionedUserIDs,
+			RetryAt: nextRetryAt(0),
+		}
+		data, err := json.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("marshal retry item: %w", err)
+		}
+		member := fmt.Sprintf("%d:%d:%d|%s", item.UserID, item.MsgID, item.RetryCount, data)
+		pipe.ZAdd(ctx, pushRetryKey, redis.Z{Score: float64(item.RetryAt), Member: member})
 	}
-	return q.enqueue(ctx, item)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (q *RetryQueue) enqueue(ctx context.Context, item RetryItem) error {

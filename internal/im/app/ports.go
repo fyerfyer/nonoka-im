@@ -144,6 +144,14 @@ type GroupMemberReader interface {
 	GetGroupMembers(ctx context.Context, groupID string) ([]int64, error)
 }
 
+// GroupMemberCacheInvalidator drops any cached group member set after a
+// membership mutation. Implementations must invalidate both local and shared
+// caches; returning an error is non-fatal for the mutation itself but should
+// be logged by the caller.
+type GroupMemberCacheInvalidator interface {
+	InvalidateGroupMembers(ctx context.Context, groupID string) error
+}
+
 // BotDirectory reports which users are bot accounts so push delivery and
 // agent triggers do not treat bots as online humans.
 type BotDirectory interface {
@@ -174,6 +182,7 @@ type Pusher interface {
 // RetryQueue schedules a failed push for later delivery.
 type RetryQueue interface {
 	ScheduleRetry(ctx context.Context, userID int64, msg *domain.PushMessage) error
+	ScheduleRetries(ctx context.Context, userIDs []int64, msg *domain.PushMessage) error
 }
 
 // FileStore persists attachments.

@@ -129,11 +129,15 @@ func (r *conversationRepo) UpsertConversations(ctx context.Context, userIDs []in
 				type = EXCLUDED.type,
 				peer_id = EXCLUDED.peer_id,
 				peer_username = CASE WHEN EXCLUDED.peer_username <> '' THEN EXCLUDED.peer_username ELSE conversations.peer_username END,
-				last_msg_preview = EXCLUDED.last_msg_preview,
-				last_msg_at = EXCLUDED.last_msg_at,
-				last_seq = EXCLUDED.last_seq,
-				last_read_seq = CASE WHEN EXCLUDED.user_id = ? THEN EXCLUDED.last_read_seq ELSE conversations.last_read_seq END,
-				unread_count = CASE WHEN EXCLUDED.user_id = ? THEN 0 ELSE conversations.unread_count + 1 END,
+				last_msg_preview = CASE WHEN EXCLUDED.last_seq >= conversations.last_seq THEN EXCLUDED.last_msg_preview ELSE conversations.last_msg_preview END,
+				last_msg_at = CASE WHEN EXCLUDED.last_seq >= conversations.last_seq THEN EXCLUDED.last_msg_at ELSE conversations.last_msg_at END,
+				last_seq = GREATEST(conversations.last_seq, EXCLUDED.last_seq),
+				last_read_seq = CASE WHEN EXCLUDED.user_id = ? THEN GREATEST(conversations.last_read_seq, EXCLUDED.last_read_seq) ELSE conversations.last_read_seq END,
+				unread_count = CASE
+					WHEN EXCLUDED.last_seq > conversations.last_seq THEN
+						CASE WHEN EXCLUDED.user_id = ? THEN 0 ELSE conversations.unread_count + 1 END
+					ELSE conversations.unread_count
+				END,
 				updated_at = EXCLUDED.updated_at
 		`, strings.Join(values, ", "))
 		if err := r.db.WithContext(ctx).Exec(query, args...).Error; err != nil {
