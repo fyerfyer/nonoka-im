@@ -80,10 +80,15 @@ func (s *FileService) handleUpload(ctx context.Context, httpCtx khttp.Context) e
 	var name, mime string
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
+		// ParseMultipartForm buffers the whole request and spills to temporary
+		// files. Bound the body before parsing so a huge upload cannot fill the
+		// disk before the size check below.
+		r.Body = http.MaxBytesReader(w, r.Body, s.MaxUploadBytes+(1<<20))
 		if err := r.ParseMultipartForm(s.MaxUploadBytes); err != nil {
 			http.Error(w, `{"message":"invalid multipart form"}`, http.StatusBadRequest)
 			return nil
 		}
+		defer r.MultipartForm.RemoveAll()
 		fh, header, err := r.FormFile("file")
 		if err != nil {
 			http.Error(w, `{"message":"file field is required"}`, http.StatusBadRequest)
@@ -261,8 +266,11 @@ func (s *FileService) writeFile(w http.ResponseWriter, ctx context.Context, user
 	}
 	w.Header().Set("Content-Type", file.Mime)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", file.Size))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	disposition := "attachment"
-	if strings.HasPrefix(file.Mime, "image/") {
+	// SVG is an image MIME type but can execute script when opened inline.
+	baseMime := strings.ToLower(strings.TrimSpace(strings.SplitN(file.Mime, ";", 2)[0]))
+	if strings.HasPrefix(baseMime, "image/") && baseMime != "image/svg+xml" {
 		disposition = "inline"
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename*=UTF-8''%s`, disposition, urlQueryEscape(file.Name)))
