@@ -117,7 +117,21 @@ func main() {
 
 	probeAddr := envString("BOT_PROBE_ADDR", ":8092")
 	metricsAddr := envString("BOT_METRICS_ADDR", ":8093")
-	health := server.NewProbeServer("health", probeAddr, nil, nil, logger)
+	ready := func(ctx context.Context) error {
+		if !consumer.Ready() {
+			return fmt.Errorf("kafka consumer not ready")
+		}
+		if sqlDB, err := dataLayer.DB().DB(); err == nil {
+			if err := sqlDB.PingContext(ctx); err != nil {
+				return fmt.Errorf("postgres not ready: %w", err)
+			}
+		}
+		if err := mongoClient.Ping(ctx, nil); err != nil {
+			return fmt.Errorf("mongodb not ready: %w", err)
+		}
+		return nil
+	}
+	health := server.NewProbeServer("health", probeAddr, nil, ready, logger)
 	metricsSrv := server.NewProbeServer("metrics", metricsAddr, promhttp.Handler(), nil, logger)
 
 	app := kratos.New(

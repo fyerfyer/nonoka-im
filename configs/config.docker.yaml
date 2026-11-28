@@ -1,10 +1,10 @@
 server:
   http:
     addr: 0.0.0.0:8000
-    timeout: 1s
+    timeout: 30s
   grpc:
     addr: 0.0.0.0:9002
-    timeout: 1s
+    timeout: 30s
 data:
   database:
     driver: postgres

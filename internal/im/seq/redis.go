@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/go-kratos/kratos/v2/log"
@@ -12,6 +13,11 @@ import (
 )
 
 const defaultBatchSize = 100
+
+// maxCachedRanges bounds per-topic range state. P2P topics are unbounded in a
+// long-lived process; dropping a cached range only skips the unused tail of
+// that range (sequence gaps are allowed) and allocates a new unique range.
+const maxCachedRanges = 200000
 
 type seqRange struct {
 	next uint64
@@ -54,6 +60,8 @@ type Generator struct {
 	log       *log.Helper
 	batchSize int
 	ranges    sync.Map
+	rangeN    atomic.Int64
+	pruneMu   sync.Mutex
 	floor     RangeFloor
 	allocator RangeAllocator
 }
@@ -75,7 +83,12 @@ func (g *Generator) SetAllocator(allocator RangeAllocator) {
 }
 
 func (g *Generator) NextSeq(ctx context.Context, topic string) (uint64, error) {
-	raw, _ := g.ranges.LoadOrStore(topic, &seqRange{})
+	raw, loaded := g.ranges.LoadOrStore(topic, &seqRange{})
+	if !loaded {
+		if g.rangeN.Add(1) > maxCachedRanges {
+			g.pruneRanges()
+		}
+	}
 	sr := raw.(*seqRange)
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -147,6 +160,28 @@ func (g *Generator) NextSeqBatch(ctx context.Context, topic string, count int) (
 		out = append(out, value)
 	}
 	return out, nil
+}
+
+// pruneRanges drops roughly a quarter of cached ranges when the cap is hit.
+// Range state is only an optimization: the durable allocator guarantees that
+// the next allocation cannot reuse a sequence.
+func (g *Generator) pruneRanges() {
+	g.pruneMu.Lock()
+	defer g.pruneMu.Unlock()
+	target := int64(maxCachedRanges * 3 / 4)
+	removed := int64(0)
+	g.ranges.Range(func(key, _ any) bool {
+		if g.rangeN.Load() <= target {
+			return false
+		}
+		g.ranges.Delete(key)
+		g.rangeN.Add(-1)
+		removed++
+		return true
+	})
+	if removed > 0 {
+		g.log.Debugf("pruned %d cached topic seq ranges", removed)
+	}
 }
 
 // IDs wraps bwmarrin/snowflake.

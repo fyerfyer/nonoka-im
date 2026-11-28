@@ -28,6 +28,7 @@ type GroupRow struct {
 // GroupRepo provides persistent group operations.
 type GroupRepo interface {
 	CreateGroup(ctx context.Context, name string, ownerID int64, memberIDs []int64) (*domain.Group, error)
+	DeleteGroup(ctx context.Context, groupID string) error
 	ListMyGroups(ctx context.Context, userID int64) ([]*domain.Group, error)
 	GetGroup(ctx context.Context, groupID string) (*domain.Group, error)
 	AddMember(ctx context.Context, groupID string, userID int64) error
@@ -77,6 +78,22 @@ func (r *groupRepo) CreateGroup(ctx context.Context, name string, ownerID int64,
 		return nil, errors.InternalServer("DB_ERROR", "failed to create group")
 	}
 	return toDomainGroup(row), nil
+}
+
+// DeleteGroup removes a group and its members. It is used to compensate a
+// failed authorization write during group creation; there is no soft delete.
+func (r *groupRepo) DeleteGroup(ctx context.Context, groupID string) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("group_id = ?", groupID).Delete(&GroupMember{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("group_id = ?", groupID).Delete(&GroupRow{}).Error
+	})
+	if err != nil {
+		r.log.Errorf("DeleteGroup failed: %v", err)
+		return errors.InternalServer("DB_ERROR", "failed to delete group")
+	}
+	return nil
 }
 
 func (r *groupRepo) ListMyGroups(ctx context.Context, userID int64) ([]*domain.Group, error) {

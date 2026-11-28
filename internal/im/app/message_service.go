@@ -105,12 +105,16 @@ func (s *MessageService) Send(ctx context.Context, req SendRequest) (SendResult,
 	if s.Producer == nil {
 		return SendResult{}, ErrDeliveryFailed
 	}
+	// Establish attachment authorization before the message is accepted, so a
+	// recipient who receives the push can open the file immediately. The
+	// consumer repeats this idempotently to repair a crash between the share
+	// and the Kafka write.
+	if s.Attachments != nil {
+		s.Attachments.ShareToTopic(ctx, req.ActorID, req.Type, req.Content, normalized)
+	}
 	if err := s.Producer.Produce(ctx, msg); err != nil {
 		s.log().Errorf("produce to kafka failed: user_id=%d client_msg_id=%s err=%v", req.ActorID, req.ClientMsgID, err)
 		return SendResult{}, fmt.Errorf("%w: %v", ErrDeliveryFailed, err)
-	}
-	if s.Attachments != nil {
-		s.Attachments.ShareToTopic(ctx, req.ActorID, req.Type, req.Content, normalized)
 	}
 	return SendResult{ClientMsgID: req.ClientMsgID, Timestamp: now}, nil
 }
@@ -144,12 +148,22 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 		in.CreatedAt = time.Now()
 	}
 
+	topicType := domain.ParseTopicType(in.Topic)
+	// A group message may mention arbitrary user IDs supplied by the client.
+	// Only actual group members may receive a mention notification or a
+	// mention inbox copy; otherwise any member could leak the message content
+	// to an outsider by @-mentioning them. Filter before the agent outbox so
+	// non-member agent mentions cannot trigger a run either.
+	var groupMembers []int64
+	if topicType == domain.TopicTypeGroup {
+		groupMembers, in.MentionedUserIDs = s.groupMentions(ctx, &in)
+	}
+
 	outbox, err := s.agentOutbox(ctx, &in)
 	if err != nil {
 		return HandleResult{}, err
 	}
 
-	topicType := domain.ParseTopicType(in.Topic)
 	var recipients []int64
 	var duplicate bool
 	result := HandleResult{IsGroup: topicType == domain.TopicTypeGroup}
@@ -178,6 +192,14 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 		return HandleResult{}, fmt.Errorf("unknown topic type: %s", in.Topic)
 	}
 
+	// Attachment authorization is derived from the persisted message. Doing it
+	// in the consumer (not the publish request) means a client disconnect after
+	// Kafka acceptance cannot lose the topic share. Re-applying it on a
+	// duplicate also repairs a share from an earlier partial attempt.
+	if s.Attachments != nil {
+		s.Attachments.ShareToTopic(ctx, in.SenderID, in.Type, in.Content, in.Topic)
+	}
+
 	if duplicate {
 		if s.Metrics != nil {
 			s.Metrics.IncMessagesDuplicate()
@@ -197,7 +219,7 @@ func (s *MessageService) HandleIncoming(ctx context.Context, in domain.Message) 
 			s.log().Warnf("backup topic seq failed: %v", err)
 		}
 	}
-	s.upsertConversations(ctx, &in, recipients, topicType == domain.TopicTypeGroup)
+	s.upsertConversations(ctx, &in, recipients, topicType == domain.TopicTypeGroup, groupMembers)
 	if s.Metrics != nil {
 		s.Metrics.IncMessagesProcessed()
 		s.Metrics.ObserveProcessingLatency(time.Since(start).Seconds())
@@ -266,25 +288,13 @@ func (s *MessageService) messageCanTriggerAgent(ctx context.Context, msg *domain
 	}
 }
 
-func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Message, recipientIDs []int64, isGroup bool) {
+func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Message, recipientIDs []int64, isGroup bool, groupMembers []int64) {
 	if s.Conversations == nil {
 		return
 	}
 	var userIDs []int64
 	if isGroup {
-		groupID, err := domain.ExtractGroupID(msg.Topic)
-		if err != nil {
-			s.log().Warnf("extract group id for conversation upsert failed: %v", err)
-			return
-		}
-		if s.GroupMembers != nil {
-			members, err := s.GroupMembers.GetGroupMembers(ctx, groupID)
-			if err != nil {
-				s.log().Warnf("get group members for conversation upsert failed: %v", err)
-				return
-			}
-			userIDs = append(userIDs, members...)
-		}
+		userIDs = append(userIDs, groupMembers...)
 		// The sender may have left the group after publishing; keep their own
 		// conversation summary consistent as well.
 		userIDs = append(userIDs, msg.SenderID)
@@ -295,4 +305,59 @@ func (s *MessageService) upsertConversations(ctx context.Context, msg *domain.Me
 	if err := s.Conversations.UpsertConversations(ctx, userIDs, msg, msg.TopicSeq); err != nil {
 		s.log().Warnf("upsert conversations failed: topic=%s users=%d err=%v", msg.Topic, len(userIDs), err)
 	}
+}
+
+// groupMentions fetches the current member list once and filters mentions to
+// members. It fails closed: if membership cannot be resolved, no mention
+// notification is delivered. The returned member list is reused by the
+// conversation fan-out so a group message triggers only one membership read.
+func (s *MessageService) groupMentions(ctx context.Context, msg *domain.Message) ([]int64, []int64) {
+	groupID, err := domain.ExtractGroupID(msg.Topic)
+	if err != nil {
+		s.log().Warnf("extract group id for mention filtering failed: %v", err)
+		return nil, nil
+	}
+	if s.GroupMembers == nil {
+		// Tests and simple embedders may not provide a membership reader. The
+		// production msgworker always wires one; without it we cannot verify
+		// mentions, so preserve the legacy pass-through instead of silently
+		// dropping notifications.
+		return nil, msg.MentionedUserIDs
+	}
+	members, err := s.GroupMembers.GetGroupMembers(ctx, groupID)
+	if err != nil {
+		s.log().Warnf("load group members for mention filtering failed: group=%s err=%v", groupID, err)
+		return nil, nil
+	}
+	return members, filterMentions(members, msg.MentionedUserIDs)
+}
+
+// filterMentions keeps only IDs present in members, preserving order and
+// removing duplicates.
+func filterMentions(members, mentioned []int64) []int64 {
+	if len(mentioned) == 0 {
+		return nil
+	}
+	memberSet := make(map[int64]struct{}, len(members))
+	for _, id := range members {
+		if id > 0 {
+			memberSet[id] = struct{}{}
+		}
+	}
+	out := make([]int64, 0, len(mentioned))
+	seen := make(map[int64]struct{}, len(mentioned))
+	for _, id := range mentioned {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := memberSet[id]; !ok {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

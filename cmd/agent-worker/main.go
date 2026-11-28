@@ -278,6 +278,11 @@ func main() {
 	broadcaster.OnEvent = func(event realtime.RunEvent) {
 		agentMetrics.ObserveStreamEvent(string(event.Type))
 	}
+	// Coalesce token deltas so the Eino stream reader is not blocked on a
+	// Redis INCR + gateway gRPC round trip for every chunk. Durable and
+	// terminal events still flush the buffer synchronously.
+	broadcaster.DeltaFlushInterval = envDuration("AGENT_STREAM_DELTA_FLUSH", 25*time.Millisecond)
+	defer broadcaster.Close()
 
 	harness := &app.Harness{
 		Store: store, Runtime: rt, Authorizer: az, Sender: replySender, MaxAttempts: int(aw.MaxAttempts),

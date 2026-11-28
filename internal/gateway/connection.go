@@ -43,8 +43,12 @@ type Connection struct {
 
 	sendCh chan []byte // pre-marshaled data to avoid repeated serialization
 
-	closeCh   chan struct{}
-	closeOnce sync.Once
+	closeCh chan struct{}
+
+	// lifecycleMu serializes auth/register against Close. Without it, a
+	// connection that closes between SetAuthed and Manager.Add can be inserted
+	// into the manager after cleanup and leak forever.
+	lifecycleMu sync.RWMutex
 
 	lastActive atomic.Int64 // UnixNano for atomic access (#28)
 
@@ -232,16 +236,23 @@ func (c *Connection) sendRawBytesWithTimeoutInternal(data []byte, timeout time.D
 }
 
 // Close closes the connection and cleans up resources.
-// Safe to call multiple times; only the first call takes effect.
+// Safe to call multiple times; only the first call takes effect. The state
+// transition is serialized with Manager.Add/SetAuthed so a connection cannot
+// be registered after it has already been closed.
 func (c *Connection) Close() {
-	c.closeOnce.Do(func() {
-		c.state.Store(int32(ConnStateClosed))
-		c.wsConn.Close()
-		close(c.closeCh)
-		if c.onClose != nil {
-			c.onClose(c)
-		}
-	})
+	c.lifecycleMu.Lock()
+	if c.state.Load() == int32(ConnStateClosed) {
+		c.lifecycleMu.Unlock()
+		return
+	}
+	c.state.Store(int32(ConnStateClosed))
+	c.lifecycleMu.Unlock()
+
+	c.wsConn.Close()
+	close(c.closeCh)
+	if c.onClose != nil {
+		c.onClose(c)
+	}
 }
 
 // State returns the current connection state.
@@ -249,8 +260,14 @@ func (c *Connection) State() ConnState {
 	return ConnState(c.state.Load())
 }
 
-// SetAuthed marks the connection as authenticated.
+// SetAuthed marks the connection as authenticated. It is a no-op if the
+// connection has already been closed.
 func (c *Connection) SetAuthed(userID int64, deviceID string) {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.state.Load() != int32(ConnStateConnected) {
+		return
+	}
 	c.userID = userID
 	c.deviceID = deviceID
 	c.state.Store(int32(ConnStateAuthed))
@@ -258,11 +275,15 @@ func (c *Connection) SetAuthed(userID int64, deviceID string) {
 
 // UserID returns the associated user ID (0 if not authenticated).
 func (c *Connection) UserID() int64 {
+	c.lifecycleMu.RLock()
+	defer c.lifecycleMu.RUnlock()
 	return c.userID
 }
 
 // DeviceID returns the device identifier.
 func (c *Connection) DeviceID() string {
+	c.lifecycleMu.RLock()
+	defer c.lifecycleMu.RUnlock()
 	return c.deviceID
 }
 

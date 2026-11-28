@@ -153,17 +153,20 @@ func (s *Service) AddGroupMember(ctx context.Context, groupID string, userID int
 }
 
 func (s *Service) RemoveGroupMember(ctx context.Context, groupID string, userID int64) error {
+	// Persist the removal first. Invalidating the cache before the database
+	// write would hide the member from fan-out for the Redis cache TTL if the
+	// write failed.
+	if err := s.repo.RemoveMember(ctx, groupID, userID); err != nil {
+		return fmt.Errorf("remove group member: %w", err)
+	}
 	s.forget(groupID)
 	if s.redis != nil {
 		if err := s.redis.SRem(ctx, s.key(groupID), userID).Err(); err != nil {
 			// Never leave a removed member in the shared cache. The DB call
-			// below remains the source of truth; a cache miss will refetch it.
+			// above remains the source of truth; a cache miss will refetch it.
 			s.log.Warnf("remove group member from cache failed, invalidating cache: group=%s user=%d err=%v", groupID, userID, err)
 			_ = s.redis.Del(ctx, s.key(groupID)).Err()
 		}
-	}
-	if err := s.repo.RemoveMember(ctx, groupID, userID); err != nil {
-		return fmt.Errorf("remove group member: %w", err)
 	}
 	return nil
 }

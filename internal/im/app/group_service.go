@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
 	"nonoka-im/internal/im/domain"
 )
@@ -26,20 +27,57 @@ func (s *GroupService) Create(ctx context.Context, userID int64, name string, me
 		return nil, err
 	}
 	if s.Authorizer != nil {
-		if err := s.Authorizer.SetGroupOwner(ctx, group.GroupID, userID); err != nil {
-			return nil, err
-		}
-		for _, memberID := range memberIDs {
-			if err := s.Authorizer.SetGroupMember(ctx, group.GroupID, memberID, true); err != nil {
-				return nil, err
+		aclErr := s.writeGroupAccess(ctx, group, userID, memberIDs)
+		if aclErr != nil {
+			// The request context may already be canceled (the HTTP/gRPC
+			// deadline is easy to hit for large groups). Compensate with a
+			// detached context so a group with no ACL is not left behind.
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if rbErr := s.Repo.DeleteGroup(rollbackCtx, group.GroupID); rbErr != nil {
+				// Nothing else can be done here; surface the original ACL
+				// failure but include the rollback failure for operators.
+				cancel()
+				return nil, &groupCreateError{cause: aclErr, rollback: rbErr}
 			}
-		}
-		if err := s.Authorizer.SetTopicGroup(ctx, group.Topic, group.GroupID); err != nil {
-			return nil, err
+			cancel()
+			return nil, aclErr
 		}
 	}
 	return group, nil
 }
+
+// groupAccessWriter is implemented by authorizers that can write all group
+// tuples in one request. It is optional so custom authorizers keep the
+// per-tuple interface.
+type groupAccessWriter interface {
+	SetGroupAccess(ctx context.Context, groupID, topic string, ownerID int64, memberIDs []int64) error
+}
+
+func (s *GroupService) writeGroupAccess(ctx context.Context, group *domain.Group, ownerID int64, memberIDs []int64) error {
+	if batch, ok := s.Authorizer.(groupAccessWriter); ok {
+		return batch.SetGroupAccess(ctx, group.GroupID, group.Topic, ownerID, memberIDs)
+	}
+	if err := s.Authorizer.SetGroupOwner(ctx, group.GroupID, ownerID); err != nil {
+		return err
+	}
+	for _, memberID := range memberIDs {
+		if err := s.Authorizer.SetGroupMember(ctx, group.GroupID, memberID, true); err != nil {
+			return err
+		}
+	}
+	return s.Authorizer.SetTopicGroup(ctx, group.Topic, group.GroupID)
+}
+
+// groupCreateError preserves both the ACL failure and a failed compensation.
+type groupCreateError struct {
+	cause    error
+	rollback error
+}
+
+func (e *groupCreateError) Error() string {
+	return e.cause.Error() + " (rollback group: " + e.rollback.Error() + ")"
+}
+func (e *groupCreateError) Unwrap() error { return e.cause }
 
 func (s *GroupService) ListMine(ctx context.Context, userID int64) ([]*domain.Group, error) {
 	if userID <= 0 {

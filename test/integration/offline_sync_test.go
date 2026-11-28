@@ -34,7 +34,7 @@ func TestStorage_GetOfflineMessages_P2P(t *testing.T) {
 			SenderId:    senderID,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("message %d", i+1)),
+			Content:     fmt.Appendf(nil, "message %d", i+1),
 			ClientMsgId: fmt.Sprintf("p2p-offline-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -103,7 +103,7 @@ func TestStorage_GetOfflineMessages_System(t *testing.T) {
 			SenderId:    0,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("system notification %d", i+1)),
+			Content:     fmt.Appendf(nil, "system notification %d", i+1),
 			ClientMsgId: fmt.Sprintf("sys-offline-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -144,7 +144,7 @@ func TestStorage_GetGroupMessages(t *testing.T) {
 			SenderId:    int64(100 + i),
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("group message %d", i+1)),
+			Content:     fmt.Appendf(nil, "group message %d", i+1),
 			ClientMsgId: fmt.Sprintf("grp-offline-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -307,7 +307,7 @@ func TestStorage_OfflineMessages_Pagination(t *testing.T) {
 			SenderId:    100,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("page %d", i+1)),
+			Content:     fmt.Appendf(nil, "page %d", i+1),
 			ClientMsgId: fmt.Sprintf("page-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -455,7 +455,7 @@ func TestStorage_OfflineMessages_ConcurrentReadWrite(t *testing.T) {
 				SenderId:    100,
 				Topic:       topic,
 				MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-				Content:     []byte(fmt.Sprintf("concurrent %d", idx)),
+				Content:     fmt.Appendf(nil, "concurrent %d", idx),
 				ClientMsgId: fmt.Sprintf("concurrent-%d", idx),
 				Timestamp:   time.Now().UnixMilli(),
 			}
@@ -986,7 +986,7 @@ func TestStorage_GetHistoryMessages_P2P(t *testing.T) {
 			SenderId:    100,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("history %d", i+1)),
+			Content:     fmt.Appendf(nil, "history %d", i+1),
 			ClientMsgId: fmt.Sprintf("hist-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -1057,7 +1057,7 @@ func TestStorage_GetHistoryMessages_Group(t *testing.T) {
 			SenderId:    100,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("group history %d", i+1)),
+			Content:     fmt.Appendf(nil, "group history %d", i+1),
 			ClientMsgId: fmt.Sprintf("grp-hist-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -1122,7 +1122,7 @@ func TestGateway_Pull_BackwardHistory(t *testing.T) {
 			SenderId:    100,
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("ws history %d", i+1)),
+			Content:     fmt.Appendf(nil, "ws history %d", i+1),
 			ClientMsgId: fmt.Sprintf("ws-hist-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}

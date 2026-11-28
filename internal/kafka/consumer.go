@@ -32,6 +32,13 @@ const (
 	defaultCommitBatchSize = 100
 	// defaultCommitInterval is the maximum time between offset commits.
 	defaultCommitInterval = 1 * time.Second
+	// defaultTransientMaxRetries bounds retries of transient infrastructure
+	// failures (deadline/network errors) separately from poison-message
+	// retries. It is intentionally high: a short Mongo/Redis/OpenFGA outage
+	// must not move valid traffic to the DLQ.
+	defaultTransientMaxRetries = 20
+	// defaultTransientBackoff is the base backoff between transient retries.
+	defaultTransientBackoff = time.Second
 )
 
 // Consumer consumes messages from Kafka.
@@ -61,6 +68,13 @@ type Consumer struct {
 	// retryBackoff is the base backoff duration between local retries.
 	retryBackoff time.Duration
 
+	// transientMaxRetries bounds retries of transient infra errors independently
+	// from poison attempts. Zero means the default.
+	transientMaxRetries int
+
+	// transientBackoff is the base backoff between transient retries.
+	transientBackoff time.Duration
+
 	// commitBatchSize is the number of messages to batch before committing offsets.
 	commitBatchSize int
 
@@ -82,6 +96,8 @@ type ConsumerConfig struct {
 	MaxRetries          int           // local retry attempts before DLQ; 0 means DLQ on first failure
 	HandlerTimeout      time.Duration // per-attempt handler timeout
 	RetryBackoff        time.Duration // base backoff between local retries
+	TransientMaxRetries int           // retries for transient infra errors (default 20)
+	TransientBackoff    time.Duration // base backoff between transient retries (default 1s)
 	CommitBatchSize     int           // number of messages to batch before committing offsets
 	CommitFlushInterval time.Duration // maximum time between offset commits
 	DLQTopic            string        // explicit dead-letter topic; defaults to <topic>-dlq
@@ -118,6 +134,12 @@ func NewConsumer(cfg ConsumerConfig, handler MessageHandler, logger log.Logger) 
 	}
 	if cfg.RetryBackoff <= 0 {
 		cfg.RetryBackoff = defaultRetryBackoff
+	}
+	if cfg.TransientMaxRetries <= 0 {
+		cfg.TransientMaxRetries = defaultTransientMaxRetries
+	}
+	if cfg.TransientBackoff <= 0 {
+		cfg.TransientBackoff = defaultTransientBackoff
 	}
 	if cfg.CommitBatchSize <= 0 {
 		cfg.CommitBatchSize = defaultCommitBatchSize
@@ -165,6 +187,8 @@ func NewConsumer(cfg ConsumerConfig, handler MessageHandler, logger log.Logger) 
 		maxRetries:          cfg.MaxRetries,
 		handlerTimeout:      cfg.HandlerTimeout,
 		retryBackoff:        cfg.RetryBackoff,
+		transientMaxRetries: cfg.TransientMaxRetries,
+		transientBackoff:    cfg.TransientBackoff,
 		commitBatchSize:     cfg.CommitBatchSize,
 		commitFlushInterval: cfg.CommitFlushInterval,
 	}
@@ -221,6 +245,14 @@ func (c *Consumer) Start(ctx context.Context) error {
 				return nil
 			}
 			c.log.Errorf("read message error: %v", err)
+			// A broker outage should not turn into a tight error/log loop.
+			select {
+			case <-time.After(500 * time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-c.stopCh:
+				return nil
+			}
 			continue
 		}
 
@@ -348,11 +380,12 @@ func isTransientHandlerError(err error) bool {
 	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
 }
 
-// handleMessage invokes the handler with local retries and routes persistent
-// failures to DLQ. Local retries keep the message in the same partition order
-// and do not re-produce it to the original topic, avoiding sequence gaps.
-// It returns true if the message was fully processed (success or DLQ) and
-// false if processing was interrupted by shutdown/context cancellation.
+// handleMessage invokes the handler with two independent retry budgets:
+// transient infrastructure errors (DB/Redis/OpenFGA timeouts, network failures)
+// and poison-message errors. A transient error must never consume the poison
+// budget, otherwise a short dependency outage moves valid traffic to the DLQ.
+// It returns true if the message was fully processed (success or DLQ) and false
+// if processing was interrupted by shutdown/context cancellation.
 func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 	headers := make(map[string]string)
 	for _, h := range msg.Headers {
@@ -360,8 +393,9 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 	}
 
 	var lastErr error
-	attempts := c.maxRetries + 1
-	for attempt := 0; attempt < attempts; attempt++ {
+	poisonAttempts := 0
+	transientAttempts := 0
+	for {
 		handlerCtx, cancel := context.WithTimeout(ctx, c.handlerTimeout)
 		lastErr = c.invokeHandler(handlerCtx, msg.Key, msg.Value, headers)
 		cancel()
@@ -374,17 +408,21 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 			return false
 		}
 		if isTransientHandlerError(lastErr) {
-			// Mongo/Redis failovers often surface as deadline/network errors.
-			// Treating those as poison after three sub-second retries moves
-			// valid traffic to the DLQ, which no worker consumes.
-			c.log.Warnf("transient handler error; retrying without consuming poison budget: key=%s err=%v", string(msg.Key), lastErr)
-			backoff := c.retryBackoff
-			if backoff < time.Second {
-				backoff = time.Second
+			transientAttempts++
+			if transientAttempts > c.transientMaxRetries {
+				c.log.Errorf("transient handler error exceeded %d attempts; parking in DLQ: key=%s err=%v",
+					c.transientMaxRetries, string(msg.Key), lastErr)
+				break
+			}
+			backoff := c.transientBackoff * time.Duration(1<<min(transientAttempts-1, 5))
+			if backoff < 100*time.Millisecond {
+				backoff = 100 * time.Millisecond
 			}
 			if backoff > 30*time.Second {
 				backoff = 30 * time.Second
 			}
+			c.log.Warnf("transient handler error; retrying without consuming poison budget (attempt=%d/%d): key=%s err=%v",
+				transientAttempts, c.transientMaxRetries, string(msg.Key), lastErr)
 			select {
 			case <-time.After(backoff):
 				continue
@@ -396,15 +434,15 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 		}
 
 		c.log.Warnf("handle message failed: attempt=%d/%d key=%s err=%v",
-			attempt+1, attempts, string(msg.Key), lastErr)
-
-		if attempt < c.maxRetries {
+			poisonAttempts+1, c.maxRetries+1, string(msg.Key), lastErr)
+		if poisonAttempts < c.maxRetries {
 			// Exponential backoff: 100ms, 200ms, 400ms, ... capped at 5s.
-			backoff := c.retryBackoff * time.Duration(1<<attempt)
+			backoff := c.retryBackoff * time.Duration(1<<min(poisonAttempts, 6))
 			const maxBackoff = 5 * time.Second
 			if backoff > maxBackoff {
 				backoff = maxBackoff
 			}
+			poisonAttempts++
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
@@ -414,7 +452,9 @@ func (c *Consumer) handleMessage(ctx context.Context, msg kafka.Message) bool {
 				c.log.Warnf("consumer stopped during retry backoff: key=%s", string(msg.Key))
 				return false
 			}
+			continue
 		}
+		break
 	}
 
 	if err := c.handleProcessingError(ctx, msg, headers, lastErr); err != nil {

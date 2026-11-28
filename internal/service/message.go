@@ -62,7 +62,7 @@ func (s *MessageService) PullMessages(ctx context.Context, req *v1.PullRequest) 
 			return nil, kerrors.Forbidden("FORBIDDEN", "topic access denied")
 		}
 		s.log.Warnf("pull messages failed: user_id=%d topic=%s err=%v", extractUserIDFromContext(ctx), req.Topic, err)
-		return &v1.PullReply{}, nil
+		return nil, kerrors.InternalServer("PULL_FAILED", "failed to fetch messages")
 	}
 	messages := make([]*v1.PullMessage, len(result.Messages))
 	for i, msg := range result.Messages {

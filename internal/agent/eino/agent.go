@@ -124,10 +124,11 @@ func (s *runState) usageError() error {
 // enables the summarization middleware (fresh runs only; a resumed execution
 // restores its compacted state from the checkpoint).
 func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool) (adk.Agent, *runState, error) {
-	chatModel, err := r.chatModel(ctx, in)
+	baseChatModel, err := r.chatModel(ctx, in)
 	if err != nil {
 		return nil, nil, err
 	}
+	chatModel := baseChatModel
 	toolCtx := tools.WithRunContext(ctx, tools.RunContext{ActorUserID: in.ActorUserID, AgentID: in.AgentID, BotID: in.BotID, RunID: in.RunID, AttemptID: in.AttemptID, EventID: in.EventID, Topic: in.Topic})
 	state := &runState{guard: in.Guard}
 	if in.Guard != nil {
@@ -151,7 +152,10 @@ func (r *Engine) buildAgent(ctx context.Context, in port.Input, withSummary bool
 			trigger = 1
 		}
 		mw, err := summarization.New(toolCtx, &summarization.Config{
-			Model:   summaryTracker{model: chatModel},
+			// Summarization is maintenance, not a tool turn. Use the unguarded
+			// model so it cannot consume the per-run MaxToolTurns budget; its
+			// usage is still observed by the ChatModel callback.
+			Model:   summaryTracker{model: baseChatModel},
 			Trigger: &summarization.TriggerCondition{ContextTokens: trigger},
 			GenModelInput: func(_ context.Context, system, user adk.Message, original []adk.Message) ([]adk.Message, error) {
 				// The final message is the current input and must not enter the snapshot.

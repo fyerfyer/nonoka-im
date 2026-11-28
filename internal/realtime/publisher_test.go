@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 )
 
 type recordingTransport struct {
@@ -109,5 +110,48 @@ func TestRunBroadcasterFanout100Recipients(t *testing.T) {
 		if last.Seq != events {
 			t.Fatalf("user %d last seq = %d, want %d", userID, last.Seq, events)
 		}
+	}
+}
+
+func TestRunBroadcasterCoalescesDeltasAndFlushesBeforeTerminal(t *testing.T) {
+	store := NewMemoryRunEventStore()
+	transport := &recordingTransport{}
+	broadcaster := NewRunBroadcaster(store, transport, nil, nil)
+	broadcaster.DeltaFlushInterval = 20 * time.Millisecond
+	defer broadcaster.Close()
+	ctx := context.Background()
+
+	for i := 0; i < 10; i++ {
+		if err := broadcaster.Publish(ctx, RunEvent{RunID: 11, Type: RunDelta, Topic: "p2p_1_2", Delta: "x"}, []int64{1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A terminal event must flush the pending delta first, not lose or reorder it.
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 11, Type: RunCompleted, Topic: "p2p_1_2"}, []int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	transport.mu.Lock()
+	events := append([]RunEvent(nil), transport.delivered[1]...)
+	transport.mu.Unlock()
+	if len(events) != 2 {
+		t.Fatalf("delivered %d events, want coalesced delta + completed: %+v", len(events), events)
+	}
+	if events[0].Type != RunDelta || events[0].Delta != "xxxxxxxxxx" || events[0].Seq != 1 {
+		t.Fatalf("coalesced delta = %+v", events[0])
+	}
+	if events[1].Type != RunCompleted || events[1].Seq != 2 {
+		t.Fatalf("terminal event = %+v", events[1])
+	}
+
+	// A lone delta is flushed by the timer.
+	if err := broadcaster.Publish(ctx, RunEvent{RunID: 12, Type: RunDelta, Topic: "p2p_1_2", Delta: "y"}, []int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	transport.mu.Lock()
+	late := transport.delivered[1]
+	transport.mu.Unlock()
+	if len(late) != 3 || late[2].Delta != "y" {
+		t.Fatalf("timer flush = %+v", late)
 	}
 }

@@ -122,9 +122,11 @@ func (w *Worker) Stop(context.Context) error {
 	return nil
 }
 
-// Ready reports whether the Kafka consumer has received its first message.
+// Ready reports whether the Kafka consumer has connected to the broker. It
+// deliberately uses Consumer.Ready (first successful fetch/metadata), not
+// Started: a process whose Kafka connection is down must not report ready.
 func (w *Worker) Ready() bool {
-	return w.Consumer != nil && w.Consumer.Started()
+	return w.Consumer != nil && w.Consumer.Ready()
 }
 
 func (w *Worker) withCancel(ctx context.Context) (context.Context, context.CancelFunc) {

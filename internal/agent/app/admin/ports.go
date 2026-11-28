@@ -21,6 +21,7 @@ var (
 // Store is the agent persistence surface used by management usecases.
 type Store interface {
 	ListAgents(ctx context.Context, limit, offset int) ([]domain.Agent, int64, error)
+	ListAgentsByIDs(ctx context.Context, ids []int64) ([]domain.Agent, error)
 	GetAgent(ctx context.Context, id int64) (*domain.Agent, error)
 	CreateAgent(ctx context.Context, ownerID int64, spec domain.AgentSpec, grant func(context.Context, int64) error) (*domain.Agent, error)
 	UpdateDraft(ctx context.Context, id, revision int64, spec domain.AgentSpec, updateKey bool) (*domain.Agent, error)

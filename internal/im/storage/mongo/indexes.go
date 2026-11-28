@@ -4,11 +4,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/go-kratos/kratos/v2/log"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"strings"
 )
+
+// EnsureIndexesWithRetry retries startup index creation while a Mongo replica
+// set is electing a primary or DNS/metadata is still settling. Index creation
+// is idempotent, so a retry after a partial failure is safe.
+func (s *Store) EnsureIndexesWithRetry(ctx context.Context, logger log.Logger, attempts int, delay time.Duration) error {
+	if attempts <= 0 {
+		attempts = 6
+	}
+	if delay <= 0 {
+		delay = 5 * time.Second
+	}
+	helper := log.NewHelper(logger)
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err = s.EnsureIndexes(ctx)
+		if err == nil {
+			return nil
+		}
+		helper.Warnf("ensure mongodb indexes (attempt %d/%d): %v", attempt, attempts, err)
+		if attempt == attempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+		}
+	}
+	return err
+}
 
 // EnsureIndexes creates necessary indexes. It skips indexes that already exist
 // and does NOT drop existing indexes, making it safe for production use.

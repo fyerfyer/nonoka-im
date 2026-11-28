@@ -129,6 +129,7 @@ type ConversationRepository interface {
 // GroupRepository persists groups and membership.
 type GroupRepository interface {
 	CreateGroup(ctx context.Context, name string, ownerID int64, memberIDs []int64) (*domain.Group, error)
+	DeleteGroup(ctx context.Context, groupID string) error
 	ListMyGroups(ctx context.Context, userID int64) ([]*domain.Group, error)
 	GetGroup(ctx context.Context, groupID string) (*domain.Group, error)
 	AddMember(ctx context.Context, groupID string, userID int64) error

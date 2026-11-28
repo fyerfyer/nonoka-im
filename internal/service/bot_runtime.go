@@ -10,6 +10,7 @@ import (
 
 	botapp "nonoka-im/internal/bot/app"
 	"nonoka-im/internal/httpapi"
+	imapp "nonoka-im/internal/im/app"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 )
@@ -49,6 +50,16 @@ func (s *BotHTTP) SendMessage(c khttp.Context) error {
 			Content: []byte(req.Content), ClientMsgID: clientMsgID, MentionedIDs: mentions,
 		})
 		if err != nil {
+			switch {
+			case errors.Is(err, imapp.ErrTopicDenied), errors.Is(err, imapp.ErrAuthRequired):
+				return &httpapi.Error{Status: http.StatusForbidden, Code: "TOPIC_ACCESS_DENIED", Message: "the bot cannot send to this topic"}
+			case errors.Is(err, imapp.ErrInvalidTopic):
+				return httpapi.BadRequest("INVALID_TOPIC", "invalid topic")
+			case errors.Is(err, imapp.ErrMessageTooLarge):
+				return httpapi.RequestEntityTooLarge("MESSAGE_TOO_LARGE", "message too large")
+			case errors.Is(err, imapp.ErrClientMsgIDReq):
+				return httpapi.BadRequest("INVALID_REQUEST", "client message id is required")
+			}
 			return &httpapi.Error{
 				Status: http.StatusServiceUnavailable, Code: "DELIVERY_UNAVAILABLE",
 				Message: "message delivery unavailable", Retryable: true, Internal: err,

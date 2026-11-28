@@ -70,49 +70,69 @@ func (m *Manager) getShard(userID int64) *connShard {
 // after publishing the new distributed session, so an old connection cannot
 // remove its replacement from Redis during cleanup.
 func (m *Manager) Add(c *Connection) []*Connection {
-	if c.UserID() == 0 {
+	// Serialize registration against Close. Holding the lifecycle write lock
+	// while inserting prevents the close-after-SetAuthed/before-Add race from
+	// leaving a closed connection in the manager forever.
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.state.Load() == int32(ConnStateClosed) {
+		return nil
+	}
+	userID, deviceID := c.userID, c.deviceID
+	if userID == 0 {
 		return nil
 	}
 
-	shard := m.getShard(c.UserID())
+	shard := m.getShard(userID)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
 	var replaced []*Connection
-	if userConns := shard.users[c.UserID()]; userConns != nil {
+	if userConns := shard.users[userID]; userConns != nil {
 		for connID := range userConns {
 			old := shard.conns[connID]
-			if old != nil && old.DeviceID() == c.DeviceID() && old.ConnID() != c.ConnID() {
+			if old == nil || old.ConnID() == c.ConnID() {
+				continue
+			}
+			if old.DeviceID() == deviceID {
 				replaced = append(replaced, old)
 			}
 		}
 	}
 
 	shard.conns[c.ConnID()] = c
-	if shard.users[c.UserID()] == nil {
-		shard.users[c.UserID()] = make(map[string]struct{})
+	if shard.users[userID] == nil {
+		shard.users[userID] = make(map[string]struct{})
 	}
-	shard.users[c.UserID()][c.ConnID()] = struct{}{}
+	shard.users[userID][c.ConnID()] = struct{}{}
 
 	m.metrics.IncConnectionsTotal()
 	m.metrics.AddActiveConnections(1)
-	m.log.Infof("connection added: user_id=%d conn_id=%s device_id=%s", c.UserID(), c.ConnID(), c.DeviceID())
+	m.log.Infof("connection added: user_id=%d conn_id=%s device_id=%s", userID, c.ConnID(), deviceID)
 	return replaced
 }
 
 // Remove removes a connection from the manager.
 func (m *Manager) Remove(c *Connection) {
-	shard := m.getShard(c.UserID())
+	userID := c.UserID()
+	shard := m.getShard(userID)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
+	// A connection can close between SetAuthed and Add. In that case it was
+	// never registered; do not decrement the active-connection metric or
+	// touch another connection that may have reused the id.
+	existing, ok := shard.conns[c.ConnID()]
+	if !ok || existing != c {
+		return
+	}
 	delete(shard.conns, c.ConnID())
 
-	if c.UserID() != 0 {
-		if userConns, ok := shard.users[c.UserID()]; ok {
+	if userID != 0 {
+		if userConns, ok := shard.users[userID]; ok {
 			delete(userConns, c.ConnID())
 			if len(userConns) == 0 {
-				delete(shard.users, c.UserID())
+				delete(shard.users, userID)
 			}
 		}
 	}

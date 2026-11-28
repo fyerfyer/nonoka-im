@@ -11,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	fga "github.com/openfga/go-sdk"
 	fgaclient "github.com/openfga/go-sdk/client"
 	"github.com/openfga/go-sdk/credentials"
+	"golang.org/x/sync/singleflight"
 	"nonoka-im/internal/agent/domain"
 	"nonoka-im/internal/topic"
 )
@@ -28,10 +30,16 @@ var ErrDenied = errors.New("access denied")
 type OpenFGA struct {
 	client *fgaclient.OpenFgaClient
 
-	cacheMu   sync.RWMutex
-	cache     map[string]cachedCheck
-	cacheTTL  time.Duration
-	lastPrune time.Time
+	cacheMu    sync.RWMutex
+	cache      map[string]cachedCheck
+	cacheTTL   time.Duration
+	lastPrune  time.Time
+	generation atomic.Uint64
+
+	// sf collapses concurrent checks for the same tuple. A cache miss on a
+	// hot topic (for example right after a membership write clears the cache)
+	// must not produce a burst of identical OpenFGA requests.
+	sf singleflight.Group
 }
 
 type cachedCheck struct {
@@ -191,37 +199,70 @@ func (a *OpenFGA) check(ctx context.Context, subject, relation, object string) e
 		return fmt.Errorf("OpenFGA unavailable")
 	}
 	key := subject + "|" + relation + "|" + object
+	now := time.Now()
 	a.cacheMu.RLock()
 	cached, ok := a.cache[key]
 	a.cacheMu.RUnlock()
-	if ok && time.Now().Before(cached.expires) {
+	if ok && now.Before(cached.expires) {
 		if cached.allowed {
 			return nil
 		}
 		return ErrDenied
 	}
-	result, err := a.client.Check(ctx).Body(fgaclient.ClientCheckRequest{User: subject, Relation: relation, Object: object}).Options(fgaclient.ClientCheckOptions{Consistency: fga.CONSISTENCYPREFERENCE_MINIMIZE_LATENCY.Ptr()}).Execute()
-	if err != nil {
-		return fmt.Errorf("OpenFGA check: %w", err)
-	}
-	allowed := result.GetAllowed()
-	ttl := a.cacheTTL
-	if ttl <= 0 {
-		ttl = 30 * time.Second
-	}
-	a.cacheMu.Lock()
-	now := time.Now()
-	if a.lastPrune.IsZero() || now.Sub(a.lastPrune) > ttl {
-		for k, entry := range a.cache {
-			if now.After(entry.expires) {
-				delete(a.cache, k)
-			}
+	// Capture the generation after the cache miss so a write that invalidates
+	// the cache while this check is in flight prevents a stale result from
+	// being stored.
+	generation := a.generation.Load()
+
+	allowed, err, _ := a.sf.Do(key, func() (any, error) {
+		// Double-check after winning/serializing the singleflight.
+		now := time.Now()
+		a.cacheMu.RLock()
+		cached, ok := a.cache[key]
+		a.cacheMu.RUnlock()
+		if ok && now.Before(cached.expires) {
+			return cached.allowed, nil
 		}
-		a.lastPrune = now
+		result, err := a.client.Check(ctx).Body(fgaclient.ClientCheckRequest{User: subject, Relation: relation, Object: object}).Options(fgaclient.ClientCheckOptions{Consistency: fga.CONSISTENCYPREFERENCE_MINIMIZE_LATENCY.Ptr()}).Execute()
+		if err != nil {
+			return false, fmt.Errorf("OpenFGA check: %w", err)
+		}
+		allowed := result.GetAllowed()
+		ttl := a.cacheTTL
+		if ttl <= 0 {
+			ttl = 30 * time.Second
+		}
+		expires := now.Add(ttl)
+		if !allowed {
+			// A denied check is cached briefly. This protects OpenFGA from
+			// repeated unauthorized probes without hiding a new grant for the
+			// full positive TTL.
+			denyTTL := 2 * time.Second
+			if denyTTL > ttl {
+				denyTTL = ttl
+			}
+			expires = now.Add(denyTTL)
+		}
+		if a.generation.Load() == generation {
+			a.cacheMu.Lock()
+			now = time.Now()
+			if a.lastPrune.IsZero() || now.Sub(a.lastPrune) > ttl {
+				for k, entry := range a.cache {
+					if now.After(entry.expires) {
+						delete(a.cache, k)
+					}
+				}
+				a.lastPrune = now
+			}
+			a.cache[key] = cachedCheck{allowed: allowed, expires: expires}
+			a.cacheMu.Unlock()
+		}
+		return allowed, nil
+	})
+	if err != nil {
+		return err
 	}
-	a.cache[key] = cachedCheck{allowed: allowed, expires: now.Add(ttl)}
-	a.cacheMu.Unlock()
-	if !allowed {
+	if ok, _ := allowed.(bool); !ok {
 		return ErrDenied
 	}
 	return nil
@@ -235,6 +276,7 @@ func (a *OpenFGA) clearCache() {
 		return
 	}
 	a.cacheMu.Lock()
+	a.generation.Add(1)
 	a.cache = make(map[string]cachedCheck)
 	a.cacheMu.Unlock()
 }
@@ -314,6 +356,35 @@ func (a *OpenFGA) CanOwnAgent(ctx context.Context, userID, agentID int64) error 
 func (a *OpenFGA) CanViewAgent(ctx context.Context, userID, agentID int64) error {
 	return a.check(ctx, user(userID), "can_view", agent(agentID))
 }
+
+// ListVisibleAgents resolves the agent IDs the user can view with one
+// ListObjects call. The agent directory uses it to avoid an O(N) OpenFGA check
+// loop and to report an accurate visible total.
+func (a *OpenFGA) ListVisibleAgents(ctx context.Context, userID int64) ([]int64, error) {
+	if a == nil || a.client == nil {
+		return nil, fmt.Errorf("OpenFGA unavailable")
+	}
+	result, err := a.client.ListObjects(ctx).Body(fgaclient.ClientListObjectsRequest{
+		User: user(userID), Relation: "can_view", Type: "agent",
+	}).Options(fgaclient.ClientListObjectsOptions{
+		Consistency: fga.CONSISTENCYPREFERENCE_MINIMIZE_LATENCY.Ptr(),
+	}).Execute()
+	if err != nil {
+		return nil, fmt.Errorf("OpenFGA list objects: %w", err)
+	}
+	out := make([]int64, 0, len(result.GetObjects()))
+	for _, object := range result.GetObjects() {
+		id, ok := strings.CutPrefix(object, "agent:")
+		if !ok {
+			continue
+		}
+		parsed, parseErr := strconv.ParseInt(id, 10, 64)
+		if parseErr == nil && parsed > 0 {
+			out = append(out, parsed)
+		}
+	}
+	return out, nil
+}
 func (a *OpenFGA) CanUseAgent(ctx context.Context, userID, agentID int64) error {
 	return a.check(ctx, user(userID), "can_use", agent(agentID))
 }
@@ -389,6 +460,67 @@ func (a *OpenFGA) SetTopicGroup(ctx context.Context, raw, groupID string) error 
 		return err
 	}
 	return a.write(ctx, "group:"+groupID, "group", "topic:"+t, false)
+}
+
+// SetGroupAccess writes the owner, member and topic tuples for a new group in
+// one OpenFGA request. Group creation used to issue one write per member, which
+// made large groups slow and could leave a partially authorized group when the
+// request timed out.
+func (a *OpenFGA) SetGroupAccess(ctx context.Context, groupID, rawTopic string, ownerID int64, memberIDs []int64) error {
+	if a == nil || a.client == nil {
+		return fmt.Errorf("OpenFGA unavailable")
+	}
+	normalized, err := topic.NormalizeTopic(rawTopic)
+	if err != nil {
+		return err
+	}
+	groupObject := "group:" + groupID
+	writes := make([]fgaclient.ClientTupleKey, 0, len(memberIDs)+2)
+	writes = append(writes,
+		fgaclient.ClientTupleKey{User: user(ownerID), Relation: "owner", Object: groupObject},
+		fgaclient.ClientTupleKey{User: groupObject, Relation: "group", Object: "topic:" + normalized},
+	)
+	seen := make(map[int64]struct{}, len(memberIDs))
+	for _, memberID := range memberIDs {
+		if memberID <= 0 {
+			continue
+		}
+		if _, ok := seen[memberID]; ok {
+			continue
+		}
+		seen[memberID] = struct{}{}
+		writes = append(writes, fgaclient.ClientTupleKey{User: user(memberID), Relation: "member", Object: groupObject})
+	}
+	// OpenFGA caps a single Write request (100 tuples by default). Chunk large
+	// groups; the first chunk contains the owner and topic tuples, so a partial
+	// write still leaves the group manageable rather than completely orphaned.
+	const maxTuplesPerWrite = 90
+	for start := 0; start < len(writes); start += maxTuplesPerWrite {
+		end := start + maxTuplesPerWrite
+		if end > len(writes) {
+			end = len(writes)
+		}
+		_, err = a.client.Write(ctx).Body(fgaclient.ClientWriteRequest{Writes: writes[start:end]}).
+			Options(fgaclient.ClientWriteOptions{Conflict: fgaclient.ClientWriteConflictOptions{
+				OnDuplicateWrites: fgaclient.CLIENT_WRITE_REQUEST_ON_DUPLICATE_WRITES_IGNORE,
+				OnMissingDeletes:  fgaclient.CLIENT_WRITE_REQUEST_ON_MISSING_DELETES_IGNORE,
+			}}).Execute()
+		if err == nil {
+			continue
+		}
+		var apiErr fga.FgaApiError
+		var validationErr fga.FgaApiValidationError
+		if (errors.As(err, &apiErr) && apiErr.ResponseStatusCode() == http.StatusConflict) ||
+			(errors.As(err, &validationErr) && validationErr.ResponseCode() == fga.ERRORCODE_WRITE_FAILED_DUE_TO_INVALID_INPUT) {
+			// The bundled OpenFGA version reports duplicate tuples in a batch
+			// as 422. All tuples are built here, so this is an idempotent retry.
+			continue
+		}
+		a.clearCache()
+		return err
+	}
+	a.clearCache()
+	return nil
 }
 func (a *OpenFGA) SetTopicParticipant(ctx context.Context, raw string, userID int64) error {
 	t, err := topic.NormalizeTopic(raw)

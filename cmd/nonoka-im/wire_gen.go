@@ -385,9 +385,9 @@ func provideMongoDB(c *conf.Data) (*mongo.Database, func(), error) {
 // provideMessageStorage creates a MessageStorage from MongoDB database and ensures indexes.
 func provideMessageStorage(db *mongo.Database, logger log.Logger, m *metrics.Metrics) (*mongostore.Store, error) {
 	storage := mongostore.NewStore(db, logger, m)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if err := storage.EnsureIndexes(ctx); err != nil {
+	if err := storage.EnsureIndexesWithRetry(ctx, logger, 6, 5*time.Second); err != nil {
 		return nil, fmt.Errorf("ensure mongodb indexes: %w", err)
 	}
 	return storage, nil

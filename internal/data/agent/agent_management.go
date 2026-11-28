@@ -109,6 +109,38 @@ func (s *Store) ListAgents(ctx context.Context, limit, offset int) ([]domain.Age
 	return out, total, nil
 }
 
+// ListAgentsByIDs loads agents by ID and preserves the caller's order. It is
+// used after OpenFGA ListObjects resolves the visible agent set, so the
+// directory does not need one authorization check per row.
+func (s *Store) ListAgentsByIDs(ctx context.Context, ids []int64) ([]domain.Agent, error) {
+	if len(ids) == 0 {
+		return []domain.Agent{}, nil
+	}
+	rows := make([]AgentRow, 0, len(ids))
+	for start := 0; start < len(ids); start += 500 {
+		end := start + 500
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var chunk []AgentRow
+		if err := s.db.WithContext(ctx).Where("id IN ?", ids[start:end]).Find(&chunk).Error; err != nil {
+			return nil, transientOrDomain(err)
+		}
+		rows = append(rows, chunk...)
+	}
+	byID := make(map[int64]AgentRow, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	out := make([]domain.Agent, 0, len(rows))
+	for _, id := range ids {
+		if row, ok := byID[id]; ok {
+			out = append(out, row.toDomain())
+		}
+	}
+	return out, nil
+}
+
 // ListPublishedAgents returns agents that have at least one published version.
 // The worker uses it to backfill missing Bifrost keys after migration or a
 // gateway outage.

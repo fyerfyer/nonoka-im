@@ -3,7 +3,9 @@ package realtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"go.opentelemetry.io/otel"
@@ -26,12 +28,36 @@ type RunBroadcaster struct {
 	OnEvent   func(RunEvent)
 	Log       *log.Helper
 
+	// DeltaFlushInterval coalesces text deltas per run. Zero keeps the
+	// synchronous behavior (useful for tests and simple embedders). The agent
+	// worker sets a small interval so model streaming is not blocked by a
+	// Redis INCR + gRPC round trip for every token chunk.
+	DeltaFlushInterval time.Duration
+
 	mu    sync.Mutex
 	local map[uint64]uint64
+
+	streamMu sync.Mutex
+	streams  map[uint64]*runStream
+	closed   bool
+}
+
+type runStream struct {
+	// mu protects the delta buffer and timer only. It is never held across a
+	// Redis/gRPC call, so model streaming is not blocked by a slow flush.
+	mu         sync.Mutex
+	pending    strings.Builder
+	base       RunEvent
+	recipients []int64
+	timer      *time.Timer
+
+	// publishMu orders actual publishes for this run. A delta flush and a
+	// durable/terminal event take it in turn; event buffering only needs mu.
+	publishMu sync.Mutex
 }
 
 func NewRunBroadcaster(store RunEventStore, transport RunEventTransport, steps func(context.Context, RunEvent) error, logger log.Logger) *RunBroadcaster {
-	b := &RunBroadcaster{Store: store, Transport: transport, Steps: steps, local: map[uint64]uint64{}}
+	b := &RunBroadcaster{Store: store, Transport: transport, Steps: steps, local: map[uint64]uint64{}, streams: map[uint64]*runStream{}}
 	if logger != nil {
 		b.Log = log.NewHelper(logger)
 	}
@@ -40,11 +66,91 @@ func NewRunBroadcaster(store RunEventStore, transport RunEventTransport, steps f
 
 // Publish assigns a sequence, records the durable step (if any) and pushes the
 // event to every recipient. Delivery failures are intentionally non-fatal:
-// the final IM message remains the source of truth.
+// the final IM message remains the source of truth. When delta coalescing is
+// enabled, delta calls return after buffering; non-delta and terminal events
+// flush the buffer first so ordering is preserved.
 func (b *RunBroadcaster) Publish(ctx context.Context, event RunEvent, recipients []int64) error {
 	if b == nil {
 		return nil
 	}
+	if b.isClosed() {
+		return nil
+	}
+	if event.Type == RunDelta && b.DeltaFlushInterval > 0 {
+		b.enqueueDelta(event, recipients)
+		return nil
+	}
+
+	rs := b.stream(event.RunID)
+	b.flushPending(rs)
+	rs.publishMu.Lock()
+	err := b.publishLocked(ctx, event, recipients)
+	rs.publishMu.Unlock()
+	if event.Type.IsTerminal() {
+		b.removeStream(event.RunID, rs)
+	}
+	return err
+}
+
+func (b *RunBroadcaster) enqueueDelta(event RunEvent, recipients []int64) {
+	rs := b.stream(event.RunID)
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.pending.Len() == 0 {
+		rs.base = event
+	}
+	rs.pending.WriteString(event.Delta)
+	rs.recipients = recipients
+	if rs.timer == nil {
+		rs.timer = time.AfterFunc(b.DeltaFlushInterval, func() {
+			b.flushRun(event.RunID)
+		})
+	}
+}
+
+func (b *RunBroadcaster) flushRun(runID uint64) {
+	b.streamMu.Lock()
+	rs := b.streams[runID]
+	b.streamMu.Unlock()
+	if rs == nil {
+		return
+	}
+	b.flushPending(rs)
+}
+
+// flushPending publishes one coalesced delta, if any. It takes publishMu to
+// reserve ordering, then stateMu only long enough to detach the buffer; the
+// network call happens without blocking enqueueDelta.
+func (b *RunBroadcaster) flushPending(rs *runStream) {
+	rs.publishMu.Lock()
+	defer rs.publishMu.Unlock()
+	rs.mu.Lock()
+	if rs.timer != nil {
+		rs.timer.Stop()
+		rs.timer = nil
+	}
+	if rs.pending.Len() == 0 {
+		rs.mu.Unlock()
+		return
+	}
+	event := rs.base
+	event.Type = RunDelta
+	event.Delta = rs.pending.String()
+	recipients := rs.recipients
+	rs.pending.Reset()
+	rs.recipients = nil
+	rs.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := b.publishLocked(ctx, event, recipients); err != nil {
+		b.log().Warnf("flush coalesced delta: run_id=%d err=%v", event.RunID, err)
+	}
+}
+
+// publishLocked assigns a sequence and delivers one event. The caller holds
+// the run's publishMu, which keeps delta flushes and durable events ordered.
+func (b *RunBroadcaster) publishLocked(ctx context.Context, event RunEvent, recipients []int64) error {
 	event = b.assignSeq(ctx, event)
 	if b.OnEvent != nil {
 		b.OnEvent(event)
@@ -81,6 +187,64 @@ func (b *RunBroadcaster) Publish(ctx context.Context, event RunEvent, recipients
 		}
 	}
 	return firstErr
+}
+
+// Close flushes buffered deltas and rejects new writes. It is safe to call
+// more than once.
+func (b *RunBroadcaster) Close() {
+	if b == nil {
+		return
+	}
+	b.streamMu.Lock()
+	if b.closed {
+		b.streamMu.Unlock()
+		return
+	}
+	b.closed = true
+	ids := make([]uint64, 0, len(b.streams))
+	for id := range b.streams {
+		ids = append(ids, id)
+	}
+	b.streamMu.Unlock()
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(runID uint64) {
+			defer wg.Done()
+			b.flushRun(runID)
+		}(id)
+	}
+	wg.Wait()
+}
+
+func (b *RunBroadcaster) stream(runID uint64) *runStream {
+	b.streamMu.Lock()
+	defer b.streamMu.Unlock()
+	if b.closed {
+		// Close already flushed; keep a throwaway state so a late Publish does
+		// not write into a closed broadcaster.
+		return &runStream{}
+	}
+	if rs := b.streams[runID]; rs != nil {
+		return rs
+	}
+	rs := &runStream{}
+	b.streams[runID] = rs
+	return rs
+}
+
+func (b *RunBroadcaster) isClosed() bool {
+	b.streamMu.Lock()
+	defer b.streamMu.Unlock()
+	return b.closed
+}
+
+func (b *RunBroadcaster) removeStream(runID uint64, rs *runStream) {
+	b.streamMu.Lock()
+	if b.streams[runID] == rs {
+		delete(b.streams, runID)
+	}
+	b.streamMu.Unlock()
 }
 
 func (b *RunBroadcaster) assignSeq(ctx context.Context, event RunEvent) RunEvent {

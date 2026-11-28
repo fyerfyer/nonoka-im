@@ -117,6 +117,7 @@ func (p *GatewayPusher) getRouter() Router {
 // When a router is configured, it pushes only to the node hosting the user's session.
 // If the router fails (e.g., Redis unavailable), it falls back to the static gateway list.
 func (p *GatewayPusher) PushToUser(ctx context.Context, userID int64, msg *pb.MessagePush) (int32, error) {
+	ctx = internalPushContext(ctx)
 	start := time.Now()
 	if p.metrics != nil {
 		defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
@@ -295,6 +296,7 @@ func (p *GatewayPusher) pushToUserStatic(ctx context.Context, userID int64, msg 
 // host at least one target user. Without a router, it falls back to broadcasting
 // to all statically configured gateways.
 func (p *GatewayPusher) BatchPushToUsers(ctx context.Context, userIDs []int64, msg *pb.MessagePush) (int32, []int64, error) {
+	ctx = internalPushContext(ctx)
 	if len(userIDs) == 0 {
 		return 0, nil, nil
 	}
@@ -332,14 +334,6 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 	aliveMap := make(map[string]*GatewayNodeInfo, len(aliveNodes))
 	for _, n := range aliveNodes {
 		aliveMap[n.NodeID] = n
-	}
-
-	// Build a set of online users for quick lookup.
-	onlineUserSet := make(map[int64]struct{}, len(userIDs))
-	for _, ids := range nodeMap {
-		for _, uid := range ids {
-			onlineUserSet[uid] = struct{}{}
-		}
 	}
 
 	type nodePush struct {
@@ -398,12 +392,11 @@ func (p *GatewayPusher) batchPushWithRouting(ctx context.Context, userIDs []int6
 	}
 	wg.Wait()
 
-	// Any input user not present in an online session is offline -> failed.
-	for _, uid := range userIDs {
-		if _, ok := onlineUserSet[uid]; !ok {
-			failedUserIDs = append(failedUserIDs, uid)
-		}
-	}
+	// Users with no online session are deliberately NOT reported as failed:
+	// the message is durable and will be pulled on reconnect. Reporting them
+	// as failed made MsgWorker enqueue a Redis retry (with full message
+	// content) for every offline member of every group message, which grows
+	// without bound under group fan-out.
 
 	return totalDelivered, dedupeIDs(failedUserIDs), nil
 }
@@ -559,6 +552,7 @@ func (p *GatewayPusher) isDynamicConnUsable(gc *gatewayConn) bool {
 // PushReceiptToUser delivers a send receipt to a single user.
 // If the router is unavailable, it falls back to the static gateway list.
 func (p *GatewayPusher) PushReceiptToUser(ctx context.Context, userID int64, receipt *pb.SendReceipt) (int32, error) {
+	ctx = internalPushContext(ctx)
 	start := time.Now()
 	if p.metrics != nil {
 		defer func() { p.metrics.ObserveGrpcPushLatency(time.Since(start).Seconds()) }()
@@ -635,6 +629,7 @@ func (p *GatewayPusher) pushReceiptToUserStatic(ctx context.Context, userID int6
 
 // BatchPushReceiptToUsers delivers send receipts to multiple users concurrently.
 func (p *GatewayPusher) BatchPushReceiptToUsers(ctx context.Context, userIDs []int64, receipt *pb.SendReceipt) (int32, []int64, error) {
+	ctx = internalPushContext(ctx)
 	if len(userIDs) == 0 {
 		return 0, nil, nil
 	}
@@ -650,6 +645,7 @@ func (p *GatewayPusher) BatchPushReceiptToUsers(ctx context.Context, userIDs []i
 // It is used by the receipt batcher to aggregate short-term receipts for the
 // same user into a single gRPC call.
 func (p *GatewayPusher) BatchPushReceiptsToUsers(ctx context.Context, items []*pb.ReceiptBatchItem) (int32, []*pb.ReceiptBatchItem, error) {
+	ctx = internalPushContext(ctx)
 	if len(items) == 0 {
 		return 0, nil, nil
 	}

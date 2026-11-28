@@ -106,7 +106,7 @@ func main() {
 			logger.Log(log.LevelWarn, "msg", fmt.Sprintf("search index setup deferred: %v", err))
 		}
 	}
-	if err := storage.EnsureIndexes(ctx); err != nil {
+	if err := storage.EnsureIndexesWithRetry(ctx, logger, 6, 5*time.Second); err != nil {
 		logger.Log(log.LevelFatal, "msg", fmt.Sprintf("ensure indexes: %v", err))
 		os.Exit(1)
 	}

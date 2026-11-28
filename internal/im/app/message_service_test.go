@@ -76,3 +76,66 @@ func TestMessageServiceP2PUsesDeterministicACL(t *testing.T) {
 		t.Fatalf("expected outsider denial, got %v", err)
 	}
 }
+
+type mentionWriterStub struct {
+	MessageWriter
+	savedMentions []int64
+}
+
+func (w *mentionWriterStub) SaveGroup(context.Context, *domain.Message, *domain.OutboxEvent) (bool, error) {
+	return false, nil
+}
+func (w *mentionWriterStub) SaveMentionInbox(_ context.Context, _ *domain.Message, ids []int64) error {
+	w.savedMentions = append([]int64(nil), ids...)
+	return nil
+}
+func (w *mentionWriterStub) BackupTopicSeq(context.Context, string, uint64) error { return nil }
+
+type memberReaderStub struct{ members []int64 }
+
+func (m memberReaderStub) GetGroupMembers(context.Context, string) ([]int64, error) {
+	return append([]int64(nil), m.members...), nil
+}
+
+type fixedIDStub struct{}
+
+func (fixedIDStub) NextID() int64 { return 99 }
+
+type fixedSeqStub struct{}
+
+func (fixedSeqStub) NextSeq(context.Context, string) (uint64, error) { return 1, nil }
+func (fixedSeqStub) NextSeqBatch(context.Context, string, int) ([]uint64, error) {
+	return []uint64{1}, nil
+}
+
+func TestHandleIncomingFiltersGroupMentionsToMembers(t *testing.T) {
+	writer := &mentionWriterStub{}
+	svc := &MessageService{
+		Writer:       writer,
+		IDs:          fixedIDStub{},
+		Seqs:         fixedSeqStub{},
+		GroupMembers: memberReaderStub{members: []int64{1, 2}},
+	}
+	result, err := svc.HandleIncoming(context.Background(), domain.Message{
+		Topic: "grp_abc", SenderID: 1, Type: domain.MessageTypeText,
+		Content: []byte("hello"), ClientMsgID: "c1",
+		MentionedUserIDs: []int64{2, 3, 2, 99},
+	})
+	if err != nil {
+		t.Fatalf("handle incoming: %v", err)
+	}
+	want := []int64{2}
+	if len(writer.savedMentions) != 1 || writer.savedMentions[0] != 2 {
+		t.Fatalf("mention inbox = %v, want %v", writer.savedMentions, want)
+	}
+	if len(result.Message.MentionedUserIDs) != 1 || result.Message.MentionedUserIDs[0] != 2 {
+		t.Fatalf("push mentions = %v, want %v", result.Message.MentionedUserIDs, want)
+	}
+}
+
+func TestFilterMentionsDropsNonMembersAndDuplicates(t *testing.T) {
+	got := filterMentions([]int64{5, 6}, []int64{6, 7, 6, 5})
+	if len(got) != 2 || got[0] != 6 || got[1] != 5 {
+		t.Fatalf("filterMentions = %v, want [6 5]", got)
+	}
+}

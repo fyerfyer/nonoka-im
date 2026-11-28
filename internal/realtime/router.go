@@ -188,6 +188,11 @@ func (r *GatewayRouter) getCachedSession(userID int64) ([]string, bool) {
 	return entry.nodeIDs, true
 }
 
+// maxSessionCacheEntries bounds the local route cache. A deployment with a
+// very large user base must not grow this map without limit; evicted entries
+// simply fall back to Redis.
+const maxSessionCacheEntries = 200000
+
 // setCachedSession stores the node IDs for a user in the local cache.
 func (r *GatewayRouter) setCachedSession(userID int64, nodeIDs []string) {
 	now := time.Now()
@@ -201,6 +206,18 @@ func (r *GatewayRouter) setCachedSession(userID int64, nodeIDs []string) {
 			}
 		}
 		r.lastSessionPrune = now
+	}
+	if len(r.sessionCache) >= maxSessionCacheEntries {
+		target := maxSessionCacheEntries * 3 / 4
+		for key := range r.sessionCache {
+			if key == userID {
+				continue
+			}
+			delete(r.sessionCache, key)
+			if len(r.sessionCache) <= target {
+				break
+			}
+		}
 	}
 	r.sessionCache[userID] = &sessionCacheEntry{
 		nodeIDs: nodeIDs,

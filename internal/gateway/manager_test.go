@@ -102,3 +102,30 @@ func TestManager_Add_ReturnsOnlySameDeviceConnections(t *testing.T) {
 		t.Fatalf("expected only old same-device connection, got %#v", replaced)
 	}
 }
+
+func TestManagerAddSkipsClosedConnection(t *testing.T) {
+	m := NewManager(log.NewStdLogger(io.Discard))
+	c := newTestConnection(42, "closed")
+	c.state.Store(int32(ConnStateClosed))
+	if replaced := m.Add(c); replaced != nil {
+		t.Fatalf("Add(closed) returned replacements: %#v", replaced)
+	}
+	if got := m.Count(); got != 0 {
+		t.Fatalf("manager contains %d connections after Add(closed)", got)
+	}
+}
+
+func TestConnectionSetAuthedAfterCloseIsNoop(t *testing.T) {
+	c := newTestConnection(42, "closed")
+	c.state.Store(int32(ConnStateClosed))
+	c.SetAuthed(99, "other")
+	if got := c.UserID(); got != 42 {
+		t.Fatalf("closed connection user changed to %d", got)
+	}
+	if got := c.DeviceID(); got != "test" {
+		t.Fatalf("closed connection device changed to %q", got)
+	}
+	if c.State() != ConnStateClosed {
+		t.Fatalf("closed connection state = %v", c.State())
+	}
+}

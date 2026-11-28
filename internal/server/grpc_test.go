@@ -6,6 +6,8 @@ import (
 
 	jwtMiddleware "github.com/go-kratos/kratos/v2/middleware/auth/jwt"
 	jwt5 "github.com/golang-jwt/jwt/v5"
+	"google.golang.org/grpc/metadata"
+	"nonoka-im/internal/realtime"
 )
 
 func invokeWithClaims(t *testing.T, claims jwt5.MapClaims) error {
@@ -44,5 +46,30 @@ func TestRejectNonUserScopeWithoutClaims(t *testing.T) {
 	}
 	if _, err := rejectNonUserScope(next)(context.Background(), nil); err != nil {
 		t.Fatalf("requests without claims must pass: %v", err)
+	}
+}
+
+func TestRequireInternalPushToken(t *testing.T) {
+	t.Setenv("INTERNAL_PUSH_TOKEN", "secret")
+	next := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return "ok", nil
+	}
+	if _, err := requireInternalPushToken(next)(context.Background(), nil); err == nil {
+		t.Fatal("missing metadata must be rejected")
+	}
+	wrong := metadata.NewIncomingContext(context.Background(), metadata.Pairs(realtime.InternalPushTokenHeader, "wrong"))
+	if _, err := requireInternalPushToken(next)(wrong, nil); err == nil {
+		t.Fatal("wrong token must be rejected")
+	}
+	ok := metadata.NewIncomingContext(context.Background(), metadata.Pairs(realtime.InternalPushTokenHeader, "secret"))
+	if _, err := requireInternalPushToken(next)(ok, nil); err != nil {
+		t.Fatalf("valid token rejected: %v", err)
+	}
+
+	// Local development / tests without a configured token keep the previous
+	// open behavior, but production must set the env.
+	t.Setenv("INTERNAL_PUSH_TOKEN", "")
+	if _, err := requireInternalPushToken(next)(context.Background(), nil); err != nil {
+		t.Fatalf("empty token must keep local behavior: %v", err)
 	}
 }

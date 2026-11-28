@@ -172,7 +172,7 @@ func TestStorage_GetOfflineMessages_GroupEnforcesLimit(t *testing.T) {
 			SenderId:    int64(100 + i),
 			Topic:       topic,
 			MsgType:     int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:     []byte(fmt.Sprintf("group msg %d", i+1)),
+			Content:     fmt.Appendf(nil, "group msg %d", i+1),
 			ClientMsgId: fmt.Sprintf("limit-grp-%d", i),
 			Timestamp:   time.Now().UnixMilli(),
 		}
@@ -187,7 +187,7 @@ func TestStorage_GetOfflineMessages_GroupEnforcesLimit(t *testing.T) {
 			SenderId:         int64(100 + i),
 			Topic:            topic,
 			MsgType:          int32(v1.MsgType_MSG_TYPE_TEXT),
-			Content:          []byte(fmt.Sprintf("mention msg %d", i+1)),
+			Content:          fmt.Appendf(nil, "mention msg %d", i+1),
 			ClientMsgId:      fmt.Sprintf("limit-mention-%d", i),
 			Timestamp:        time.Now().UnixMilli(),
 			MentionedUserIds: []int64{mentionedUserID},

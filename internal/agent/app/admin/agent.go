@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,32 @@ func (s *AgentService) List(ctx context.Context, userID int64, limit, offset int
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	if offset < 0 {
+		offset = 0
+	}
+	// Prefer one ListObjects call over scanning the whole table and running an
+	// OpenFGA check per row. This also yields the correct visible total.
+	if lister, ok := s.Authz.(interface {
+		ListVisibleAgents(context.Context, int64) ([]int64, error)
+	}); ok {
+		ids, err := lister.ListVisibleAgents(ctx, userID)
+		if err == nil {
+			sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+			total := int64(len(ids))
+			if offset > len(ids) {
+				offset = len(ids)
+			}
+			end := min(offset+limit, len(ids))
+			rows, err := s.Store.ListAgentsByIDs(ctx, ids[offset:end])
+			if err != nil {
+				return nil, 0, offset, err
+			}
+			return rows, total, end, nil
+		}
+		// Fall through to the compatibility path for authorizers that do not
+		// support ListObjects or when OpenFGA rejects the query.
+	}
+
 	visible := make([]domain.Agent, 0, limit)
 	scanned := offset
 	for len(visible) < limit {

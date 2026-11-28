@@ -17,6 +17,7 @@ import (
 	mcpc "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"golang.org/x/sync/singleflight"
 
 	mcptool "github.com/cloudwego/eino-ext/components/tool/mcp"
 	"github.com/cloudwego/eino/components/tool"
@@ -62,7 +63,20 @@ type Provider struct {
 
 	mu      sync.Mutex
 	clients map[string]*clientEntry
+	// sf collapses concurrent first connections for the same server+auth so
+	// one cache replacement cannot close a client another run is still using.
+	sf      singleflight.Group
+	retired []retiredEntry
 }
+
+type retiredEntry struct {
+	entry   *clientEntry
+	closeAt time.Time
+}
+
+// mcpRetireGrace keeps a replaced client alive long enough for an in-flight
+// tool call (bounded by mcpToolCallTimeout) to finish before it is closed.
+const mcpRetireGrace = mcpToolCallTimeout + 5*time.Second
 
 type clientEntry struct {
 	client   *mcpc.Client
@@ -200,58 +214,108 @@ func (p *Provider) entry(ctx context.Context, serverID uint64) (*clientEntry, er
 		return nil, err
 	}
 	authHash := sha256.Sum256([]byte(target.AuthType + "\x00" + target.Credential))
+	authHex := hex.EncodeToString(authHash[:])
 	key := fmt.Sprintf("%d:%x", serverID, authHash[:8])
-	p.mu.Lock()
-	if cached, ok := p.clients[key]; ok && sameServerConfig(cached.server, server, cached.authHash, hex.EncodeToString(authHash[:])) {
-		cached.lastUsed = time.Now()
-		p.mu.Unlock()
-		return cached, nil
-	}
-	p.mu.Unlock()
-
-	cli, _, rawTools, err := p.connect(ctx, target)
-	if err != nil {
-		if isAuthError(err) {
-			return nil, domain.ErrMCPAuthRequired
+	value, err, _ := p.sf.Do(key, func() (any, error) {
+		p.mu.Lock()
+		if cached, ok := p.clients[key]; ok && sameServerConfig(cached.server, server, cached.authHash, authHex) {
+			cached.lastUsed = time.Now()
+			p.mu.Unlock()
+			return cached, nil
 		}
+		p.mu.Unlock()
+
+		cli, _, rawTools, err := p.connect(ctx, target)
+		if err != nil {
+			if isAuthError(err) {
+				return nil, domain.ErrMCPAuthRequired
+			}
+			return nil, err
+		}
+		entry := &clientEntry{client: cli, tools: make(map[string]tool.BaseTool, len(rawTools)), server: server, authHash: authHex, lastUsed: time.Now()}
+		for _, t := range rawTools {
+			if info, ierr := t.Info(ctx); ierr == nil && info != nil {
+				entry.tools[info.Name] = t
+			}
+		}
+		var retired []*clientEntry
+		p.mu.Lock()
+		if p.clients == nil {
+			p.clients = make(map[string]*clientEntry)
+		}
+		if old := p.clients[key]; old != nil && old != entry {
+			retired = append(retired, old)
+		}
+		if p.MaxClients > 0 && len(p.clients) >= p.MaxClients {
+			var oldestKey string
+			var oldest time.Time
+			for k, cached := range p.clients {
+				if k == key {
+					continue
+				}
+				if oldestKey == "" || cached.lastUsed.Before(oldest) {
+					oldestKey, oldest = k, cached.lastUsed
+				}
+			}
+			if oldestKey != "" {
+				retired = append(retired, p.clients[oldestKey])
+				delete(p.clients, oldestKey)
+			}
+		}
+		p.clients[key] = entry
+		p.mu.Unlock()
+		p.retire(retired)
+		return entry, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	entry := &clientEntry{client: cli, tools: make(map[string]tool.BaseTool, len(rawTools)), server: server, authHash: hex.EncodeToString(authHash[:]), lastUsed: time.Now()}
-	for _, t := range rawTools {
-		if info, ierr := t.Info(ctx); ierr == nil && info != nil {
-			entry.tools[info.Name] = t
-		}
+	entry, _ := value.(*clientEntry)
+	if entry == nil {
+		return nil, fmt.Errorf("mcp client cache returned no entry")
 	}
-	var toClose []*clientEntry
-	p.mu.Lock()
-	if p.clients == nil {
-		p.clients = make(map[string]*clientEntry)
-	}
-	if old := p.clients[key]; old != nil && old != entry {
-		toClose = append(toClose, old)
-	}
-	if p.MaxClients > 0 && len(p.clients) >= p.MaxClients {
-		var oldestKey string
-		var oldest time.Time
-		for k, cached := range p.clients {
-			if k == key {
-				continue
-			}
-			if oldestKey == "" || cached.lastUsed.Before(oldest) {
-				oldestKey, oldest = k, cached.lastUsed
-			}
-		}
-		if oldestKey != "" {
-			toClose = append(toClose, p.clients[oldestKey])
-			delete(p.clients, oldestKey)
-		}
-	}
-	p.clients[key] = entry
-	p.mu.Unlock()
-	for _, old := range toClose {
-		old.client.Close()
-	}
+	p.flushRetired()
 	return entry, nil
+}
+
+// retire keeps replaced clients alive for a grace period so an in-flight tool
+// call can finish. Closing a replaced client immediately could break another
+// concurrent run using the same server+credential.
+func (p *Provider) retire(entries []*clientEntry) {
+	if len(entries) == 0 {
+		p.flushRetired()
+		return
+	}
+	now := time.Now()
+	p.mu.Lock()
+	for _, entry := range entries {
+		if entry != nil {
+			p.retired = append(p.retired, retiredEntry{entry: entry, closeAt: now.Add(mcpRetireGrace)})
+		}
+	}
+	p.mu.Unlock()
+	p.flushRetired()
+}
+
+func (p *Provider) flushRetired() {
+	now := time.Now()
+	p.mu.Lock()
+	due := make([]*clientEntry, 0)
+	kept := p.retired[:0]
+	for _, entry := range p.retired {
+		if !now.Before(entry.closeAt) {
+			due = append(due, entry.entry)
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	p.retired = kept
+	p.mu.Unlock()
+	for _, entry := range due {
+		if entry != nil && entry.client != nil {
+			entry.client.Close()
+		}
+	}
 }
 
 // targetForActor enforces credential isolation: the owner may use the server
@@ -397,7 +461,9 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "unauthorized") || strings.Contains(msg, "forbidden")
 }
 
-// evict drops cached clients for a server (disabled/deleted/reconfigured).
+// evict retires cached clients for a server (disabled/deleted/reconfigured).
+// It must not close them synchronously: another run may still be executing a
+// tool call on the old client.
 func (p *Provider) evict(serverID uint64) {
 	prefix := fmt.Sprintf("%d:", serverID)
 	p.mu.Lock()
@@ -409,9 +475,7 @@ func (p *Provider) evict(serverID uint64) {
 		}
 	}
 	p.mu.Unlock()
-	for _, entry := range stale {
-		entry.client.Close()
-	}
+	p.retire(stale)
 }
 
 // EvictIdle closes clients unused for longer than IdleTTL.
@@ -431,6 +495,7 @@ func (p *Provider) EvictIdle(now time.Time) int {
 	for _, entry := range stale {
 		entry.client.Close()
 	}
+	p.flushRetired()
 	return len(stale)
 }
 
@@ -455,14 +520,20 @@ func (p *Provider) StartJanitor(ctx context.Context, interval time.Duration) {
 
 func (p *Provider) Close() {
 	p.mu.Lock()
-	entries := make([]*clientEntry, 0, len(p.clients))
+	entries := make([]*clientEntry, 0, len(p.clients)+len(p.retired))
 	for key, entry := range p.clients {
 		entries = append(entries, entry)
 		delete(p.clients, key)
 	}
+	for _, retired := range p.retired {
+		entries = append(entries, retired.entry)
+	}
+	p.retired = nil
 	p.mu.Unlock()
 	for _, entry := range entries {
-		entry.client.Close()
+		if entry != nil && entry.client != nil {
+			entry.client.Close()
+		}
 	}
 }
 

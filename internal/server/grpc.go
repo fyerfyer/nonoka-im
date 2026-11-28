@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"os"
+	"strings"
 
 	agentv1 "nonoka-im/api/agent/v1"
 	botv1 "nonoka-im/api/bot/v1"
@@ -77,12 +78,17 @@ func rejectNonUserScope(next middleware.Handler) middleware.Handler {
 
 // NewGRPCServer new a gRPC server.
 func NewGRPCServer(c *conf.Server, auth *service.AuthService, dispatch *gateway.DispatchService, message *service.MessageService, user *service.UserService, conversation *service.ConversationService, push *gateway.PushService, bots *service.BotHTTP, agents *service.AgentHTTP, outbox *service.OutboxAdminHTTP, authConf *conf.Auth, logger log.Logger) *grpc.Server {
+	if strings.TrimSpace(os.Getenv("INTERNAL_PUSH_TOKEN")) == "" {
+		log.NewHelper(logger).Warn("INTERNAL_PUSH_TOKEN is empty; internal PushService RPCs are unauthenticated (set it in production)")
+	}
 	var opts = []grpc.ServerOption{
 		grpc.Middleware(
 			recovery.Recovery(),
 			selector.Server(requireInternalPushToken).Match(func(ctx context.Context, operation string) bool {
-				return operation == "/api.im.v1.PushService/PushRunEventToUser" ||
-					operation == "/api.im.v1.PushService/PushBotStreamEventToUser"
+				// Every PushService RPC is an internal control-plane call from
+				// MsgWorker/AgentWorker/BotWorker. None of them may be exposed
+				// without the shared internal token.
+				return strings.HasPrefix(operation, "/api.im.v1.PushService/")
 			}).Build(),
 			selector.Server(
 				jwtMiddleware.Server(func(token *jwt5.Token) (interface{}, error) {
