@@ -81,6 +81,11 @@ func (c *Client) Close() error {
 			firstErr = err
 		}
 	}
+	if c.http != nil {
+		// The SDK does not own a custom transport's lifecycle, but releasing
+		// idle sockets is always safe and matches the documented Close behavior.
+		c.http.CloseIdleConnections()
+	}
 	return firstErr
 }
 

@@ -41,3 +41,13 @@ func TestDisconnectKeepsSubscriptionsWhenAutoReconnectDisabled(t *testing.T) {
 		t.Fatal("disconnect marked the client permanently closed")
 	}
 }
+
+func TestJitterDelayPreservesLowerBound(t *testing.T) {
+	const delay = 100 * time.Millisecond
+	for i := 0; i < 100; i++ {
+		got := jitterDelay(delay)
+		if got < delay/2 || got > delay {
+			t.Fatalf("jitter = %s, want [%s,%s]", got, delay/2, delay)
+		}
+	}
+}
